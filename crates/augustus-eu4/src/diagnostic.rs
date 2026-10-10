@@ -10,6 +10,18 @@ pub struct SourceLocation {
     pub column: usize,
 }
 
+impl SourceLocation {
+    pub(crate) fn from_offset(bytes: &[u8], offset: usize) -> Self {
+        let prefix = &bytes[..offset.min(bytes.len())];
+        let line = prefix.iter().filter(|&&byte| byte == b'\n').count() + 1;
+        let column = prefix
+            .iter()
+            .rposition(|&byte| byte == b'\n')
+            .map_or(prefix.len() + 1, |newline| prefix.len() - newline);
+        Self { line, column }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 #[error("{}{}: {message}", path.display(), location_suffix(.location))]
 pub struct Error {
@@ -54,13 +66,12 @@ impl Error {
     }
 
     pub(crate) fn at_offset(mut self, bytes: &[u8], offset: usize) -> Self {
-        let prefix = &bytes[..offset.min(bytes.len())];
-        let line = prefix.iter().filter(|&&byte| byte == b'\n').count() + 1;
-        let column = prefix
-            .iter()
-            .rposition(|&byte| byte == b'\n')
-            .map_or(prefix.len() + 1, |newline| prefix.len() - newline);
-        self.location = Some(SourceLocation { line, column });
+        self.location = Some(SourceLocation::from_offset(bytes, offset));
+        self
+    }
+
+    pub(crate) fn with_location(mut self, location: SourceLocation) -> Self {
+        self.location = Some(location);
         self
     }
 }

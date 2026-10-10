@@ -11,3 +11,6 @@ publish.workspace = true
 [dependencies]
 augustus-eu4 = { path = "../../crates/augustus-eu4" }
 clap.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

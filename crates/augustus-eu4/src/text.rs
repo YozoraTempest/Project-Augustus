@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::Error;
+use crate::{Error, SourceLocation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextEncoding {
@@ -37,6 +37,8 @@ pub struct TextDocument {
 #[derive(Debug)]
 pub struct ParsedText<'data> {
     source: &'data Path,
+    bytes: &'data [u8],
+    line_starts: Vec<usize>,
     tape: TextTape<'data>,
     encoding: TextEncoding,
 }
@@ -92,6 +94,15 @@ impl TextDocument {
         })?;
         Ok(ParsedText {
             source: &self.source,
+            bytes: &self.bytes,
+            line_starts: std::iter::once(0)
+                .chain(
+                    self.bytes
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(offset, byte)| (*byte == b'\n').then_some(offset + 1)),
+                )
+                .collect(),
             tape,
             encoding: self.encoding,
         })
@@ -123,5 +134,23 @@ impl ParsedText<'_> {
 
     pub(crate) fn reader(&self) -> ObjectReader<'_, '_, TextEncoding> {
         ObjectReader::new(&self.tape, self.encoding)
+    }
+
+    pub(crate) fn field_location(
+        &self,
+        key: &jomini::text::ScalarReader<'_, TextEncoding>,
+    ) -> SourceLocation {
+        // Parser scalars borrow the input bytes; decoded strings are not used for offsets.
+        let offset = key.read_scalar().as_bytes().as_ptr() as usize - self.bytes.as_ptr() as usize;
+        let offset = if matches!(key.token(), jomini::TextToken::Quoted(_)) {
+            offset.saturating_sub(1)
+        } else {
+            offset
+        };
+        let line_index = self.line_starts.partition_point(|&start| start <= offset) - 1;
+        SourceLocation {
+            line: line_index + 1,
+            column: offset - self.line_starts[line_index] + 1,
+        }
     }
 }
