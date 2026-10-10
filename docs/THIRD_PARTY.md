@@ -1,0 +1,46 @@
+# 第三方依赖
+
+本项目通过 Cargo 使用下列依赖，没有复制或修改这些库的源码。实际版本由 Cargo.lock 固定。依赖的源码包保留各自的版权和许可文件；发行包含第三方代码的二进制时，也须按相应许可保留要求的声明。
+
+augustus-eu4 直接使用 jomini、walkdir 和 thiserror；eu4-inspect 直接使用 clap；自制测试使用 tempfile。其余为这些依赖引入的间接依赖。下表包括其他目标平台所需的依赖。
+
+| 名称 | 版本 | 声明许可 | 来源 |
+| --- | --- | --- | --- |
+| anstream | 1.0.0 | MIT OR Apache-2.0 | [上游](https://github.com/rust-cli/anstyle.git) |
+| anstyle | 1.0.14 | MIT OR Apache-2.0 | [上游](https://github.com/rust-cli/anstyle.git) |
+| anstyle-parse | 1.0.0 | MIT OR Apache-2.0 | [上游](https://github.com/rust-cli/anstyle.git) |
+| anstyle-query | 1.1.5 | MIT OR Apache-2.0 | [上游](https://github.com/rust-cli/anstyle.git) |
+| anstyle-wincon | 3.0.11 | MIT OR Apache-2.0 | [上游](https://github.com/rust-cli/anstyle.git) |
+| bitflags | 2.13.2 | MIT OR Apache-2.0 | [上游](https://github.com/bitflags/bitflags) |
+| cfg-if | 1.0.5 | MIT OR Apache-2.0 | [上游](https://github.com/rust-lang/cfg-if) |
+| clap | 4.6.7 | MIT OR Apache-2.0 | [上游](https://github.com/clap-rs/clap) |
+| clap_builder | 4.6.7 | MIT OR Apache-2.0 | [上游](https://github.com/clap-rs/clap) |
+| clap_derive | 4.6.7 | MIT OR Apache-2.0 | [上游](https://github.com/clap-rs/clap) |
+| clap_lex | 1.1.1 | MIT OR Apache-2.0 | [上游](https://github.com/clap-rs/clap) |
+| colorchoice | 1.0.5 | MIT OR Apache-2.0 | [上游](https://github.com/rust-cli/anstyle.git) |
+| errno | 0.3.14 | MIT OR Apache-2.0 | [上游](https://github.com/lambda-fairy/rust-errno) |
+| fastrand | 2.5.0 | Apache-2.0 OR MIT | [上游](https://github.com/smol-rs/fastrand) |
+| getrandom | 0.4.3 | MIT OR Apache-2.0 | [上游](https://github.com/rust-random/getrandom) |
+| heck | 0.5.0 | MIT OR Apache-2.0 | [上游](https://github.com/withoutboats/heck) |
+| is_terminal_polyfill | 1.70.2 | MIT OR Apache-2.0 | [上游](https://github.com/polyfill-rs/is_terminal_polyfill) |
+| jomini | 0.37.1 | MIT | [上游](https://github.com/rakaly/jomini) |
+| libc | 0.2.190 | MIT OR Apache-2.0 | [上游](https://github.com/rust-lang/libc) |
+| linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [上游](https://github.com/sunfishcode/linux-raw-sys) |
+| once_cell | 1.21.4 | MIT OR Apache-2.0 | [上游](https://github.com/matklad/once_cell) |
+| once_cell_polyfill | 1.70.2 | MIT OR Apache-2.0 | [上游](https://github.com/polyfill-rs/once_cell_polyfill) |
+| proc-macro2 | 1.0.107 | MIT OR Apache-2.0 | [上游](https://github.com/dtolnay/proc-macro2) |
+| quote | 1.0.47 | MIT OR Apache-2.0 | [上游](https://github.com/dtolnay/quote) |
+| r-efi | 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | [上游](https://github.com/r-efi/r-efi) |
+| rustix | 1.1.5 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | [上游](https://github.com/bytecodealliance/rustix) |
+| same-file | 1.0.6 | Unlicense/MIT | [上游](https://github.com/BurntSushi/same-file) |
+| strsim | 0.11.1 | MIT | [上游](https://github.com/rapidfuzz/strsim-rs) |
+| syn | 3.0.7 | MIT OR Apache-2.0 | [上游](https://github.com/dtolnay/syn) |
+| tempfile | 3.27.0 | MIT OR Apache-2.0 | [上游](https://github.com/Stebalien/tempfile) |
+| thiserror | 2.0.21 | MIT OR Apache-2.0 | [上游](https://github.com/dtolnay/thiserror) |
+| thiserror-impl | 2.0.21 | MIT OR Apache-2.0 | [上游](https://github.com/dtolnay/thiserror) |
+| unicode-ident | 1.0.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | [上游](https://github.com/dtolnay/unicode-ident) |
+| utf8parse | 0.2.2 | Apache-2.0 OR MIT | [上游](https://github.com/alacritty/vte) |
+| walkdir | 2.5.0 | Unlicense/MIT | [上游](https://github.com/BurntSushi/walkdir) |
+| winapi-util | 0.1.11 | Unlicense OR MIT | [上游](https://github.com/BurntSushi/winapi-util) |
+| windows-link | 0.2.1 | MIT OR Apache-2.0 | [上游](https://github.com/microsoft/windows-rs) |
+| windows-sys | 0.61.2 | MIT OR Apache-2.0 | [上游](https://github.com/microsoft/windows-rs) |
