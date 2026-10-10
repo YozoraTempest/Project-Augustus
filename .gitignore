@@ -1,0 +1,3 @@
+# Local game content and generated caches are not project distribution assets.
+/local-data/
+/local-cache/
