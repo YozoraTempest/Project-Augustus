@@ -53,6 +53,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "augustus-eu4"
+version = "0.1.0"
+dependencies = [
+ "jomini",
+ "tempfile",
+ "thiserror",
+ "walkdir",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -124,8 +134,8 @@ dependencies = [
 name = "eu4-inspect"
 version = "0.1.0"
 dependencies = [
+ "augustus-eu4",
  "clap",
- "kaiser-eu4",
 ]
 
 [[package]]
@@ -162,16 +172,6 @@ name = "jomini"
 version = "0.37.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab6b0735f2ab0de85c7927c1d579b1f9b904cdf0279f6280f4253a98527c3cd4"
-
-[[package]]
-name = "kaiser-eu4"
-version = "0.1.0"
-dependencies = [
- "jomini",
- "tempfile",
- "thiserror",
- "walkdir",
-]
 
 [[package]]
 name = "libc"

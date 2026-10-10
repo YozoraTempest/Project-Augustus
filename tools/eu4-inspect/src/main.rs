@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
+use augustus_eu4::{ContentRoot, ModDescriptor, TextDocument, TextEncoding};
 use clap::{Parser, Subcommand, ValueEnum};
-use kaiser_eu4::{ContentRoot, ModDescriptor, TextDocument, TextEncoding};
 use std::{collections::BTreeMap, path::PathBuf, process::ExitCode};
 
 #[derive(Parser)]

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 [workspace]
-members = ["crates/kaiser-eu4", "tools/eu4-inspect"]
+members = ["crates/augustus-eu4", "tools/eu4-inspect"]
 resolver = "3"
 
 [workspace.package]

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use kaiser_eu4::{ContentRoot, ModDescriptor, TextDocument, TextEncoding};
+use augustus_eu4::{ContentRoot, ModDescriptor, TextDocument, TextEncoding};
 use std::{fs, path::Path};
 
 // All input below is synthetic test data authored for this project.

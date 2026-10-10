@@ -9,5 +9,5 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-kaiser-eu4 = { path = "../../crates/kaiser-eu4" }
+augustus-eu4 = { path = "../../crates/augustus-eu4" }
 clap.workspace = true

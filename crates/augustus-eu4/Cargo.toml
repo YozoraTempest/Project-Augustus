@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 [package]
-name = "kaiser-eu4"
+name = "augustus-eu4"
 description = "EU4 content reader for Project Augustus"
 version.workspace = true
 edition.workspace = true
