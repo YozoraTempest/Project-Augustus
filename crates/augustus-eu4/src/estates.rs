@@ -20,6 +20,9 @@ use crate::{
     ContentRoot, Error, FileEntry, LoadedSource, ParsedText, SourceLocation, TextEncoding,
 };
 
+mod initialization;
+use initialization::{EstateInitialization, HistoryMetric};
+
 type Reader<'a, 'b> = ObjectReader<'a, 'b, TextEncoding>;
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
 
@@ -31,6 +34,9 @@ pub struct EstateReport {
     pub inactive_estates: usize,
     pub unknown_estates: usize,
     pub historical_privileges: usize,
+    pub initial_land_countries: usize,
+    pub initial_loyalty_countries: usize,
+    pub unresolved_initialization: BTreeMap<String, BTreeSet<String>>,
     pub definition_sources: BTreeMap<String, LoadedSource>,
     pub history_sources: BTreeMap<String, LoadedSource>,
     pub unsupported_fields: BTreeMap<String, usize>,
@@ -38,6 +44,7 @@ pub struct EstateReport {
     pub ambiguous_properties: BTreeMap<String, Vec<LoadedSource>>,
     pub unresolved_countries: BTreeMap<String, BTreeSet<String>>,
     pub pending_land_changes: BTreeMap<String, Vec<LoadedSource>>,
+    pub pending_loyalty_changes: BTreeMap<String, Vec<LoadedSource>>,
 }
 
 impl PropertyDiagnostics for EstateReport {
@@ -61,7 +68,11 @@ struct History {
     flags: BTreeSet<String>,
     unknown_flags: bool,
     privileges: BTreeSet<String>,
+    privilege_operations: BTreeSet<String>,
     unknown_privileges: bool,
+    metrics: Vec<HistoryMetric>,
+    unknown_land: bool,
+    unknown_loyalty: bool,
 }
 
 #[derive(Default)]
@@ -74,6 +85,7 @@ pub(super) struct EstateDraft {
     content: Estates,
     conditions: BTreeMap<String, Condition>,
     histories: BTreeMap<String, History>,
+    initialization: EstateInitialization,
 }
 
 impl EstateDraft {
@@ -86,6 +98,7 @@ impl EstateDraft {
             content: Estates::default(),
             conditions: BTreeMap::new(),
             histories: BTreeMap::new(),
+            initialization: EstateInitialization::default(),
         };
         if !files
             .iter()
@@ -108,7 +121,11 @@ impl EstateDraft {
                 let mut definition = EstateDefinition::default();
                 let mut condition = Condition::Unknown("missing_estate_trigger".into());
                 let mut seen = BTreeSet::new();
-                for (key, op, value) in block(&value, &fail)?.fields() {
+                let body = block(&value, &fail)?;
+                draft
+                    .initialization
+                    .definition(&parsed, body.clone(), &id, &library, report)?;
+                for (key, op, value) in body.fields() {
                     let name = key.read_string();
                     let at = parsed.field_location(&key);
                     let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
@@ -183,6 +200,7 @@ impl EstateDraft {
                                 }
                             }
                         }
+                        "base_influence" | "influence_modifier" => (),
                         _ => report.unsupported(&parsed, "estate", &name, at),
                     }
                 }
@@ -313,7 +331,8 @@ impl EstateDraft {
                     .insert(format!("define:{name}"), at);
             }
         }
-        // Influence scaling and startup metrics require independent runtime checks.
+        draft.initialization.load_rules(root, files, report)?;
+        // Current influence scaling is independent of initial land allocation.
         draft.content.rules = rules;
         report.definitions = draft.content.definitions.len();
         report.privileges = draft.content.privileges.len();
@@ -362,12 +381,26 @@ impl EstateDraft {
                         }
                     }
                     if name.contains("privilege") {
+                        history.privilege_operations.insert(id.clone());
                         report
                             .history_sources
                             .insert(format!("{tag}:{id}"), source(parsed, at));
                     }
                 }
-                "change_estate_land_share" | "add_estate_loyalty" | "add_estate_influence" => {
+                "change_estate_land_share" | "add_estate_loyalty" => {
+                    equal(op, &fail)?;
+                    history.metrics.push(HistoryMetric::parse(
+                        parsed,
+                        &name,
+                        block(&value, &fail)?,
+                        at,
+                    )?);
+                    report.history_sources.insert(
+                        format!("{tag}:{name}:{}", history.metrics.len()),
+                        source(parsed, at),
+                    );
+                }
+                "add_estate_influence" => {
                     report
                         .pending_land_changes
                         .entry(tag.into())
@@ -385,9 +418,13 @@ impl EstateDraft {
         Ok(())
     }
 
-    pub(super) fn bind(mut self, initial: &InitialWorld, report: &mut EstateReport) -> Estates {
+    pub(super) fn bind(
+        mut self,
+        initial: &InitialWorld,
+        report: &mut EstateReport,
+    ) -> Result<Estates, Error> {
         if self.content.definitions.is_empty() {
-            return self.content;
+            return Ok(self.content);
         }
         for country in initial.countries() {
             let history = self.histories.get(&country.id);
@@ -457,6 +494,25 @@ impl EstateDraft {
                     }
                 }
             }
+            let lookup = |id: &str| {
+                self.select(
+                    id,
+                    initial,
+                    &country.id,
+                    history,
+                    &cache,
+                    &mut BTreeSet::new(),
+                )
+            };
+            self.initialization.bind(
+                initial,
+                &country.id,
+                history,
+                &self.content.privileges,
+                &mut states,
+                &lookup,
+                report,
+            )?;
             if !reasons.is_empty() {
                 report
                     .unresolved_countries
@@ -469,7 +525,7 @@ impl EstateDraft {
                 states,
             );
         }
-        self.content
+        Ok(self.content)
     }
 
     fn select(
@@ -566,6 +622,8 @@ fn scoped(reader: Reader<'_, '_>, history: &mut History, depth: usize) -> Result
         match key.read_string().as_str() {
             "set_country_flag" | "clr_country_flag" => history.unknown_flags = true,
             "set_estate_privilege" | "remove_estate_privilege" => history.unknown_privileges = true,
+            "change_estate_land_share" => history.unknown_land = true,
+            "add_estate_loyalty" => history.unknown_loyalty = true,
             _ => (),
         }
         if let Ok(body) = value.read_object() {

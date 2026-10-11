@@ -70,7 +70,7 @@ fn copy_fixture() -> tempfile::TempDir {
 }
 
 #[test]
-fn translated_content_matches_native_core_and_keeps_startup_metrics_unknown() {
+fn translated_content_matches_native_core_with_known_loyalty_and_unknown_influence() {
     let temp = copy_fixture();
     let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     let mut native = VanillaWorld::load(fixture(), "1444.11.11")
@@ -120,6 +120,7 @@ fn translated_content_matches_native_core_and_keeps_startup_metrics_unknown() {
                             "guild".into(),
                             EstateState {
                                 active: Some(true),
+                                loyalty_milli: Some(50_000),
                                 privileges: Some(["charter".into()].into()),
                                 ..Default::default()
                             },
@@ -172,7 +173,7 @@ fn translated_content_matches_native_core_and_keeps_startup_metrics_unknown() {
         country
             .declared_estate_effects
             .unresolved
-            .contains("estates:guild:unknown_loyalty_band")
+            .contains("estates:guild:neutral:unknown_scale")
     );
     assert!(
         country.province_attribute_totals["tax_basis"]
@@ -269,7 +270,7 @@ fn history_dates_scopes_and_land_deltas_do_not_invent_final_state() {
             state.influence_milli,
             state.land_share_micros
         ),
-        (None, None, None)
+        (Some(50_000), None, None)
     );
     assert_eq!(loaded.report.estates.pending_land_changes["AAA"].len(), 1);
     assert_eq!(
@@ -409,6 +410,9 @@ fn invalid_catalogs_and_conditions_report_their_source() {
         "guild = { privileges = { charter charter } }",
         "guild = { trigger = { has_estate = \"\" } }",
         "guild = { trigger = { if = { always = yes } } }",
+        "guild = { base_influence = 1 base_influence = 2 }",
+        "guild = { base_influence = invalid }",
+        "guild = { influence_modifier = { trigger = { always = yes } } }",
     ] {
         let temp = copy_fixture();
         write(temp.path(), "common/estates/test.txt", text);
@@ -433,4 +437,317 @@ fn invalid_catalogs_and_conditions_report_their_source() {
             .replace(char::from(92), "/")
             .contains("common/estate_privileges/test.txt")
     );
+}
+
+fn land_fixture() -> tempfile::TempDir {
+    let temp = copy_fixture();
+    let path = "common/defines.lua";
+    let text = fs::read_to_string(temp.path().join(path)).unwrap();
+    write(temp.path(), path, &text.replace("NCountry = {", "NCountry = {\n ESTATE_START_CROWNLAND_INFLUENCE = 12,\n ESTATE_MIN_DISTRIBUTED_CROWNLAND = 40,\n"));
+    write(
+        temp.path(),
+        "common/estates/test.txt",
+        r#"
+        estate_guild = { trigger = { always = yes } base_influence = 12 privileges = { charter }
+            influence_modifier = { desc = test trigger = { tag = BBB } influence = -12 } }
+        estate_council = { trigger = { always = yes } base_influence = 24 }
+        estate_order = { trigger = { always = yes } base_influence = 12 }
+    "#,
+    );
+    temp
+}
+
+#[test]
+fn land_distribution_and_dated_history_generate_resumable_core_state() {
+    let temp = land_fixture();
+    append(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        r#"
+        change_estate_land_share = { estate = estate_council share = 5 }
+        change_estate_land_share = { estate = estate_guild share = -2 }
+        change_estate_land_share = { estate = estate_order share = -3 }
+        add_estate_loyalty = { estate = estate_guild loyalty = 7 }
+        1450.1.1 = { add_estate_loyalty = { estate = estate_guild loyalty = -100 } }
+    "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let states = loaded.country("AAA").unwrap().estates.unwrap();
+    assert_eq!(states["estate_guild"].land_share_micros, Some(130_000));
+    assert_eq!(states["estate_council"].land_share_micros, Some(350_000));
+    assert_eq!(states["estate_order"].land_share_micros, Some(120_000));
+    assert_eq!(states["estate_guild"].loyalty_milli, Some(57_000));
+    assert_eq!(
+        loaded.country("BBB").unwrap().estates.unwrap()["estate_guild"].land_share_micros,
+        Some(0)
+    );
+    assert_eq!(loaded.report.estates.initial_land_countries, 2);
+    assert!(loaded.report.estates.pending_land_changes.is_empty());
+    let saved = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&saved).unwrap();
+    loaded.advance(365).unwrap();
+    restored.advance(365).unwrap();
+    assert_eq!(loaded.save().unwrap(), restored.save().unwrap());
+    let later = VanillaWorld::load(temp.path(), "1450.1.1").unwrap();
+    assert_eq!(
+        later.country("AAA").unwrap().estates.unwrap()["estate_guild"].loyalty_milli,
+        Some(0)
+    );
+}
+
+#[test]
+fn uncertain_influence_scoped_history_and_startup_effects_preserve_unknowns() {
+    let temp = land_fixture();
+    append(
+        temp.path(),
+        "common/estates/test.txt",
+        "uncertain = { trigger = { always = yes } base_influence = 3 influence_modifier = { trigger = { unknown_condition = yes } influence = 2 } }",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .estates
+            .unwrap()
+            .values()
+            .all(|s| s.land_share_micros.is_none())
+    );
+    assert!(
+        loaded.report.estates.unresolved_initialization["AAA"]
+            .iter()
+            .any(|r| r.contains("unknown_condition"))
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup = { effect = { add_estate_loyalty = { estate = estate_guild loyalty = 9 } } }",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .estates
+            .unwrap()
+            .values()
+            .all(|s| s.loyalty_milli.is_none())
+    );
+    assert!(
+        loaded.report.estates.unresolved_initialization["AAA"]
+            .contains("unexecuted_startup_estate_effects")
+    );
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .estates
+            .unwrap()
+            .values()
+            .all(|s| s.land_share_micros.is_none())
+    );
+    write(temp.path(), "common/on_actions/test.txt", "on_startup = {}");
+    append(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        "if = { limit = { always = yes } add_estate_loyalty = { estate = estate_guild loyalty = 9 } }",
+    );
+    assert!(
+        VanillaWorld::load(temp.path(), "1444.11.11")
+            .unwrap()
+            .country("AAA")
+            .unwrap()
+            .estates
+            .unwrap()
+            .values()
+            .all(|s| s.loyalty_milli.is_none())
+    );
+}
+
+#[test]
+fn unvalidated_land_boundaries_and_privilege_land_effects_are_reported() {
+    let temp = land_fixture();
+    append(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        "change_estate_land_share = { estate = estate_guild share = 100 }",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .estates
+            .unwrap()
+            .values()
+            .all(|s| s.land_share_micros.is_none())
+    );
+    assert_eq!(loaded.report.estates.pending_land_changes["AAA"].len(), 1);
+    let temp = land_fixture();
+    append(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        "other = { land_share = 5 }",
+    );
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        "charter = { land_share = 5 is_valid = { always = yes } }",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .estates
+            .unwrap()
+            .values()
+            .all(|s| s.land_share_micros.is_none())
+    );
+}
+
+#[test]
+fn government_and_attached_modifiers_contribute_before_historical_privileges() {
+    let temp = land_fixture();
+    append(
+        temp.path(),
+        "common/government_reforms/test_governments.txt",
+        "estate_levy = { modifiers = { guild_influence_modifier = 0.12 } }",
+    );
+    append(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        "add_government_reform = estate_levy",
+    );
+    append(
+        temp.path(),
+        "common/event_modifiers/test_modifiers.txt",
+        "estate_weights = { guild_exclusive_influence_modifier = 0.12 all_estate_influence_modifier = 0.12 }",
+    );
+    append(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        "add_country_modifier = { name = estate_weights duration = -1 }",
+    );
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        "charter = { influence = 0.9 loyalty = 0.8 is_valid = { always = yes } on_granted = {} }",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let states = loaded.country("AAA").unwrap().estates.unwrap();
+    assert_eq!(states["estate_guild"].land_share_micros, Some(266_660));
+    assert_eq!(states["estate_council"].land_share_micros, Some(200_000));
+    assert_eq!(states["estate_order"].land_share_micros, Some(133_340));
+    assert_eq!(states["estate_guild"].loyalty_milli, Some(50_000));
+    assert!(states["estate_guild"].influence_milli.is_none());
+}
+
+#[test]
+fn unknown_numeric_boundaries_and_invalid_history_remain_diagnostic() {
+    let temp = land_fixture();
+    append(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        "add_estate_loyalty = { estate = estate_guild loyalty = 100 }",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .estates
+            .unwrap()
+            .values()
+            .all(|s| s.loyalty_milli.is_none())
+    );
+    assert_eq!(
+        loaded.report.estates.pending_loyalty_changes["AAA"].len(),
+        1
+    );
+    assert!(loaded.report.estates.pending_land_changes.is_empty());
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .estates
+            .unwrap()
+            .values()
+            .all(|s| s.land_share_micros.is_some())
+    );
+
+    let temp = land_fixture();
+    append(
+        temp.path(),
+        "common/estates/test.txt",
+        "negative = { trigger = { always = yes } base_influence = -1 }",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .estates
+            .unwrap()
+            .values()
+            .all(|s| s.land_share_micros.is_none())
+    );
+    assert!(
+        loaded.report.estates.unresolved_initialization["AAA"]
+            .contains("negative:unsupported_negative_initial_influence")
+    );
+
+    for history in [
+        "change_estate_land_share = { estate = estate_guild share = 0.00001 }",
+        "add_estate_loyalty = { estate = estate_guild loyalty = 1 loyalty = 2 }",
+        "add_estate_loyalty = { loyalty = 1 }",
+    ] {
+        let temp = land_fixture();
+        append(temp.path(), "history/countries/AAA - Alpha.txt", history);
+        let message = VanillaWorld::load(temp.path(), "1444.11.11")
+            .unwrap_err()
+            .to_string()
+            .replace(char::from(92), "/");
+        assert!(
+            message.contains("history/countries/AAA - Alpha.txt"),
+            "{message}"
+        );
+    }
+}
+
+#[test]
+fn removed_or_unbound_privileges_cannot_hide_unexecuted_initialization() {
+    for operation in [
+        "remove_estate_privilege = charter",
+        "set_estate_privilege = absent",
+    ] {
+        let temp = land_fixture();
+        write(
+            temp.path(),
+            "common/estate_privileges/test.txt",
+            "charter = { on_granted = { add_estate_loyalty = { estate = estate_guild loyalty = 8 } } }",
+        );
+        append(temp.path(), "history/countries/AAA - Alpha.txt", operation);
+        let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+        let states = loaded.country("AAA").unwrap().estates.unwrap();
+        assert!(
+            states
+                .values()
+                .all(|s| s.land_share_micros.is_none() && s.loyalty_milli.is_none())
+        );
+        assert!(
+            loaded.report.estates.unresolved_initialization["AAA"]
+                .contains("unresolved_privilege_initialization")
+        );
+        if operation.starts_with("remove") {
+            assert!(
+                states["estate_guild"]
+                    .privileges
+                    .as_ref()
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
 }

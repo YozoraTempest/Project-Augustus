@@ -585,7 +585,7 @@ impl VanillaWorld {
         initial
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
-        let estates = estates.bind(&initial, &mut report.estates);
+        let estates = estates.bind(&initial, &mut report.estates)?;
         initial
             .set_estates(estates)
             .map_err(|e| Error::caused_by(root.path(), e))?;
