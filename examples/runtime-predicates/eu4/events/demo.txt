@@ -3,15 +3,19 @@
 namespace = calendar
 country_event = { id = calendar.before is_triggered_only = yes
  trigger = { has_dlc = "Domination" tag = AAA not = { is_year = 1445 } }
- immediate = { log = before } option = { name = accept }
+ immediate = { hidden_effect = { log = before } } option = { name = accept }
 }
 country_event = { id = calendar.after is_triggered_only = yes
  trigger = { has_dlc = "Women in History" TAG = AAA is_year = 1445 }
- immediate = { log = after } option = { name = accept }
+ immediate = { hidden_effect = { log = after } } option = { name = accept }
 }
 country_event = { id = calendar.control is_triggered_only = yes
- immediate = { country_event = { id = calendar.before } country_event = { id = calendar.after }
-  country_event = { id = calendar.before days = 1 } country_event = { id = calendar.after days = 1 }
+ immediate = { hidden_effect = {
+  country_event = { id = calendar.before } country_event = { id = calendar.after }
+  hidden_effect = {
+   country_event = { id = calendar.before days = 1 } country_event = { id = calendar.after days = 1 }
+  }
+ }
  }
  option = { name = accept }
 }

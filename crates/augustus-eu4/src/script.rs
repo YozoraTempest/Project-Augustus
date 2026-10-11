@@ -461,6 +461,7 @@ impl<'a> ScriptCompiler<'a> {
             let field = &fields[index];
             self.sources.push((field.path.clone(), field.location));
             match field.name.as_str() {
+                "hidden_effect" => plan.extend(self.effects(field.block()?, scope)?),
                 "save_global_event_target_as" | "clear_global_event_target" => {
                     let name = field.scalar()?;
                     if name.is_empty() {

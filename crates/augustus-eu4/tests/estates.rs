@@ -62,6 +62,88 @@ fn loyalty(amount: i64) -> Action {
 }
 
 #[test]
+fn startup_follows_event_references_inside_hidden_containers() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        r#"on_startup={
+      if={limit={tag=AAA} hidden_effect={country_event={id=group.first} log=startup}}
+    }"#,
+    );
+    write(
+        temp.path(),
+        "events/groups.txt",
+        r#"
+      country_event={id=group.first is_triggered_only=yes
+        immediate={hidden_effect={log=first hidden_effect={country_event={id=group.second}}}}
+        option={name=accept hidden_effect={country_event={id=group.third days=1}}}
+        after={hidden_effect={log=after}}
+      }
+      country_event={id=group.second is_triggered_only=yes
+        immediate={hidden_effect={log=second}} option={name=accept}
+      }
+      country_event={id=group.third is_triggered_only=yes
+        immediate={hidden_effect={log=third}} option={name=accept}
+      }
+    "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.pending_startup_effects.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|e| e.2.as_str())
+            .collect::<Vec<_>>(),
+        ["first", "second", "startup"]
+    );
+    let pending = loaded
+        .initial
+        .world()
+        .pending_events()
+        .iter()
+        .find(|event| event.event == "group.first")
+        .unwrap()
+        .id;
+    loaded
+        .initial
+        .choose_event(&augustus_core::EventChoice {
+            pending,
+            option: "0".into(),
+        })
+        .unwrap();
+    let saved = loaded.save().unwrap();
+    let mut resumed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    resumed.restore(&saved).unwrap();
+    loaded.advance(1).unwrap();
+    resumed.advance(1).unwrap();
+    assert_eq!(loaded.save().unwrap(), resumed.save().unwrap());
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|e| (e.0, e.2.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (0, "first"),
+            (0, "second"),
+            (0, "startup"),
+            (0, "after"),
+            (1, "third")
+        ]
+    );
+}
+
+#[test]
 fn startup_event_conditions_read_loaded_country_identity_and_calendar() {
     let temp = startup_fixture();
     write(
