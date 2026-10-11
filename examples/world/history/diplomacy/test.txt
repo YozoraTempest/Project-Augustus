@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+alliance = { first = BBB second = AAA start_date = 1430.1.1 end_date = 1450.1.1 }
+royal_marriage = { first = AAA second = BBB start_date = 1430.1.1 end_date = 1444.11.11 }
+guarantee = { first = BBB second = AAA start_date = 1444.11.11 end_date = 1450.1.1 }
+warning = { first = AAA second = BBB start_date = 1444.1.1 end_date = 1444.11.12 }
+dependency = { first = AAA second = BBB subject_type = test_vassal start_date = 1430.1.1 end_date = 1450.1.1 }
+alliance = { first = AAA second = BBB trade_league = 1 start_date = 1430.1.1 end_date = 1450.1.1 }
+1445.1.1 = { emperor = BBB }
+1430.1.1 = { emperor = AAA celestial_emperor = BBB }

@@ -86,6 +86,23 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
                 .unwrap();
         }
     }
+    let politics = serde_json::from_str(r#"{
+        "countries": {
+            "0": {"ruler":{"name":"Iris","dynasty":"Sun","birth_date":{"year":1410,"month":1,"day":1},"administration":2,"diplomacy":3,"military":4},
+                "heir":{"name":"Rowan","regnal_name":"Rowan I","dynasty":"Sun","birth_date":{"year":1440,"month":1,"day":1},"historical_death_date":{"year":1444,"month":11,"day":12},"administration":1,"diplomacy":2,"military":3,"claim_milli":87125,"block_disinherit":true},
+                "consort":{"name":"Vale","country_of_origin":1,"female":true,"birth_date":{"year":1415,"month":1,"day":1},"historical_death_date":{"year":1450,"month":1,"day":1}}},
+            "1": {"ruler":{"name":"Council","regent":true,"administration":0,"diplomacy":0,"military":0}}
+        },
+        "relations": [
+            {"kind":"alliance","first":0,"second":1},
+            {"kind":"guarantee","first":1,"second":0},
+            {"kind":"warning","first":0,"second":1},
+            {"kind":"trade_league","first":0,"second":1},
+            {"kind":"subject","first":0,"second":1,"subject_type":"test_vassal"}
+        ],
+        "offices":{"imperial_emperor":0,"celestial_emperor":1}
+    }"#).unwrap();
+    native.set_politics(politics).unwrap();
     assert_eq!(loaded.initial.world(), &native);
     let earlier = VanillaWorld::load(fixture(), "1435.1.1").unwrap();
     assert_eq!(

@@ -12,9 +12,13 @@ var date_input: LineEdit
 var status: Label
 var country_choice: OptionButton
 var country_details: Label
+var politics_details: Label
+var diplomacy_details: Label
 var province_details: Label
 var map_view: TextureRect
 var directory_picker: FileDialog
+var details_scroll: ScrollContainer
+var selection_revision := 0
 
 func _ready() -> void:
 	var font := SystemFont.new()
@@ -72,10 +76,15 @@ func _ready() -> void:
 	map_view.custom_minimum_size = Vector2(400, 250)
 	map_view.gui_input.connect(map_input)
 	middle.add_child(map_view)
+	var sidebar := ScrollContainer.new()
+	details_scroll = sidebar
+	sidebar.custom_minimum_size.x = 320
+	sidebar.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	middle.add_child(sidebar)
 	var panel := VBoxContainer.new()
-	panel.custom_minimum_size.x = 300
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.add_theme_constant_override("separation", 12)
-	middle.add_child(panel)
+	sidebar.add_child(panel)
 	panel.add_child(label("国家", 20))
 	country_choice = OptionButton.new()
 	country_choice.custom_minimum_size.x = 300
@@ -84,6 +93,14 @@ func _ready() -> void:
 	country_details = label("尚未载入", 16)
 	country_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	panel.add_child(country_details)
+	panel.add_child(label("统治者", 20))
+	politics_details = label("尚未载入", 16)
+	politics_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	panel.add_child(politics_details)
+	panel.add_child(label("外交", 20))
+	diplomacy_details = label("尚未载入", 16)
+	diplomacy_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	panel.add_child(diplomacy_details)
 	panel.add_child(label("省份 · 点击地图查看", 20))
 	province_details = label("尚未选择", 16)
 	province_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -152,6 +169,8 @@ func load_world() -> bool:
 	var unapplied := 0
 	for count in data.report.unapplied_country_fields.values():
 		unapplied += int(count)
+	for count in data.report.unapplied_diplomacy_fields.values():
+		unapplied += int(count)
 	for count in data.report.unapplied_province_fields.values():
 		unapplied += int(count)
 	status.text = "%d 个国家定义 · %d 个有领土国家 · %d 个省份定义\n尚未应用 %d 项历史字段；有 %d 个国家的历史文件存在歧义。" % [data.report.countries, data.report.active_countries, data.report.provinces, unapplied, data.report.ambiguous_country_histories.size()]
@@ -176,12 +195,44 @@ func select_country(index: int) -> void:
 	if country_choice.item_count == 0:
 		return
 	var id: String = country_choice.get_item_metadata(index)
+	selection_revision += 1
+	details_scroll.scroll_vertical = 0
 	var packet: Dictionary = JSON.parse_string(session.query_country(id))
 	if not packet.ok:
 		status.text = packet.error
 		return
 	var country: Dictionary = packet.value.state
 	country_details.text = "%s · %s\n领土 %d 个省份 · 首都 %s\n文化 %s · 宗教 %s\n政体 %s" % [country.id, country.name, packet.value.owned_provinces.size(), shown(packet.value.bound_capital), shown(country.primary_culture), shown(country.religion), shown(country.government)]
+	var people: Array[String] = []
+	for role in ["ruler", "heir", "consort"]:
+		var title: String = {"ruler": "君主", "heir": "继承人", "consort": "配偶"}[role]
+		var person: Variant = null if packet.value.politics == null else packet.value.politics[role]
+		if person == null:
+			people.append(title + "：未载入")
+		else:
+			people.append("%s：%s%s\n行政 %s / 外交 %s / 军事 %s" % [title, shown(person.name), "（摄政）" if person.regent == true else "", shown(person.administration), shown(person.diplomacy), shown(person.military)])
+	politics_details.text = "\n".join(people)
+	var relations: Array[String] = []
+	for office in packet.value.political_offices:
+		relations.append({"imperial_emperor": "神圣罗马帝国皇帝", "celestial_emperor": "天朝皇帝"}.get(office, office))
+	for relation in packet.value.diplomacy:
+		relations.append(relation_text(relation, id))
+	diplomacy_details.text = "没有已载入的外交关系" if relations.is_empty() else "\n".join(relations)
+
+func relation_text(relation: Dictionary, id: String) -> String:
+	var first: bool = relation.first == id
+	var other: String = relation.second if first else relation.first
+	match relation.kind:
+		"alliance": return "盟友 " + other
+		"royal_marriage": return "王室联姻 " + other
+		"guarantee": return ("保障 " + other) if first else ("受 " + other + " 保障")
+		"warning": return ("警告 " + other) if first else ("收到 " + other + " 的警告")
+		"trade_league": return ("贸易联盟成员 " + other) if first else ("贸易联盟领袖 " + other)
+		"subject":
+			var type_name: String = {"vassal": "附庸", "march": "卫戍国", "personal_union": "共主邦联", "appanage": "分封领", "daimyo_vassal": "大名", "tributary_state": "朝贡国"}.get(relation.subject_type, relation.subject_type)
+			return "%s %s（%s）" % ["属国" if first else "宗主国", other, type_name]
+	return relation.kind + " " + other
+
 
 func select_province(id: int) -> bool:
 	var packet: Dictionary = JSON.parse_string(session.query_province(id))
@@ -193,7 +244,14 @@ func select_province(id: int) -> bool:
 	if province.tax_milli != null and province.production_milli != null and province.manpower_milli != null:
 		development = "%.3f / %.3f / %.3f" % [province.tax_milli / 1000.0, province.production_milli / 1000.0, province.manpower_milli / 1000.0]
 	province_details.text = "%s · %d\n所有者 %s · 控制者 %s\n文化 %s · 宗教 %s\n商品 %s\n税收 / 生产 / 人力：\n%s" % [province.name, province.id, shown(province.owner), shown(province.controller), shown(province.culture), shown(province.religion), shown(province.trade_good), development]
+	selection_revision += 1
+	reveal_province.call_deferred(selection_revision)
 	return true
+
+func reveal_province(revision: int) -> void:
+	await get_tree().process_frame
+	if revision == selection_revision:
+		details_scroll.ensure_control_visible(province_details)
 
 func map_input(event: InputEvent) -> void:
 	if province_image == null or not event is InputEventMouseButton:

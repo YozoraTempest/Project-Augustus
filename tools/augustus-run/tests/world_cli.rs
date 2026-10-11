@@ -21,6 +21,18 @@ fn world_cli_reports_state_sources_and_query_failures() {
     assert_eq!(value["country"]["bound_capital"], 2);
     assert_eq!(value["province"]["owner"], "BBB");
     assert_eq!(value["province_sources"][0]["line"], 2);
+    assert_eq!(value["country"]["politics"]["ruler"]["name"], "Iris");
+    assert_eq!(value["country"]["diplomacy"].as_array().unwrap().len(), 5);
+    let all = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--diplomacy")
+        .output()
+        .unwrap();
+    assert!(all.status.success());
+    let all: serde_json::Value = serde_json::from_slice(&all.stdout).unwrap();
+    assert_eq!(all["political_offices"]["imperial_emperor"], "AAA");
+    assert_eq!(all["diplomacy"].as_array().unwrap().len(), 5);
     let error = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
         .arg("--game-root")
         .arg(fixture)

@@ -7,10 +7,12 @@
 
 mod initial;
 mod plan;
+mod politics;
 mod world;
 
 pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
 pub use plan::{Action, Condition, Plan, Target};
+pub use politics::{CountryPolitics, DiplomaticKind, DiplomaticRelation, PersonState, Politics};
 pub use world::{Entity, EntityId, EntityKind, FieldId, RuleId, Schema, World};
 
 #[derive(Debug, thiserror::Error)]

@@ -14,6 +14,7 @@ use jomini::{
 };
 use serde::Serialize;
 
+use crate::politics::{self, CountryDraft, RelationSource, RelationView};
 use crate::{ContentRoot, Error, ParsedText, SourceLocation, TextEncoding};
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
@@ -37,6 +38,16 @@ pub struct BootstrapReport {
     pub provinces: usize,
     pub country_history_files: usize,
     pub province_history_files: usize,
+    pub diplomacy_history_files: usize,
+    pub people: usize,
+    pub diplomatic_relations: usize,
+    pub duplicate_relation_records: usize,
+    pub person_sources: BTreeMap<String, BTreeMap<String, LoadedSource>>,
+    pub relation_sources: Vec<RelationSource>,
+    pub office_sources: BTreeMap<String, LoadedSource>,
+    pub expired_people: Vec<String>,
+    pub not_yet_born_people: Vec<String>,
+    pub unapplied_diplomacy_fields: BTreeMap<String, usize>,
     pub missing_province_history: Vec<u32>,
     pub unmapped_definition_ids: Vec<u32>,
     pub unknown_map_colors: Vec<[u8; 3]>,
@@ -52,6 +63,9 @@ pub struct CountryView<'a> {
     pub state: &'a CountryState,
     pub owned_provinces: Vec<u32>,
     pub bound_capital: Option<u32>,
+    pub politics: Option<&'a augustus_core::CountryPolitics>,
+    pub diplomacy: Vec<RelationView<'a>>,
+    pub political_offices: Vec<&'a str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -141,6 +155,16 @@ impl VanillaWorld {
             provinces: 0,
             country_history_files: 0,
             province_history_files: 0,
+            diplomacy_history_files: 0,
+            people: 0,
+            diplomatic_relations: 0,
+            duplicate_relation_records: 0,
+            person_sources: BTreeMap::new(),
+            relation_sources: Vec::new(),
+            office_sources: BTreeMap::new(),
+            expired_people: Vec::new(),
+            not_yet_born_people: Vec::new(),
+            unapplied_diplomacy_fields: BTreeMap::new(),
             missing_province_history: Vec::new(),
             unbound_active_capitals: Vec::new(),
             unmapped_definition_ids: Vec::new(),
@@ -325,6 +349,7 @@ impl VanillaWorld {
         if countries.is_empty() || provinces.is_empty() {
             return Err(Error::message(root.path(), "empty world definitions"));
         }
+        let mut political_drafts = BTreeMap::new();
         let mut country_histories = BTreeSet::new();
         let mut province_histories = BTreeSet::new();
         let mut history_groups: BTreeMap<String, Vec<&Path>> = BTreeMap::new();
@@ -373,7 +398,15 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
-                apply_country(&parsed, reader, country, &mut report)
+                apply_country(
+                    &parsed,
+                    reader,
+                    country,
+                    political_drafts
+                        .entry(id.clone())
+                        .or_insert_with(CountryDraft::default),
+                    &mut report,
+                )
             })?;
         }
         for file in files
@@ -418,11 +451,16 @@ impl VanillaWorld {
             .filter(|id| !province_histories.contains(id))
             .copied()
             .collect();
-        let initial = InitialWorld::new(
+        let mut initial = InitialWorld::new(
             countries.into_values().collect(),
             provinces.into_values().collect(),
         )
         .map_err(|e| Error::caused_by(root.path(), e))?;
+        let mut politics = politics::bind_people(&initial, political_drafts, date, &mut report)?;
+        politics::load_diplomacy(&root, &files, &initial, date, &mut politics, &mut report)?;
+        initial
+            .set_politics(politics)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
         report.countries = initial.countries().len();
         report.provinces = initial.provinces().len();
         for country in initial.countries() {
@@ -447,7 +485,45 @@ impl VanillaWorld {
             state,
             owned_provinces: self.initial.owned_provinces(id),
             bound_capital: self.initial.bound_capital(id),
+            politics: self
+                .initial
+                .world()
+                .politics()
+                .countries
+                .get(&self.initial.country_entity(id).expect("registered country")),
+            diplomacy: self
+                .diplomacy()
+                .into_iter()
+                .filter(|r| r.first == id || r.second == id)
+                .collect(),
+            political_offices: self
+                .initial
+                .world()
+                .politics()
+                .offices
+                .iter()
+                .filter_map(|(name, holder)| {
+                    (self
+                        .initial
+                        .world()
+                        .entity(*holder)
+                        .expect("validated holder")
+                        .name
+                        == id)
+                        .then_some(name.as_str())
+                })
+                .collect(),
         })
+    }
+
+    pub fn diplomacy(&self) -> Vec<RelationView<'_>> {
+        self.initial
+            .world()
+            .politics()
+            .relations
+            .iter()
+            .map(|r| politics::relation_view(&self.initial, r))
+            .collect()
     }
 
     pub fn palette(&self) -> Vec<MapEntry> {
@@ -478,7 +554,7 @@ impl VanillaWorld {
     }
 }
 
-fn direct_txt(path: &Path, directory: &str) -> bool {
+pub(super) fn direct_txt(path: &Path, directory: &str) -> bool {
     path.parent() == Some(Path::new(directory))
         && path
             .extension()
@@ -494,7 +570,7 @@ fn history_id(path: &Path) -> Result<String, Error> {
         .ok_or_else(|| Error::message(path, "invalid history filename"))
 }
 
-fn source(parsed: &ParsedText<'_>, location: SourceLocation) -> LoadedSource {
+pub(super) fn source(parsed: &ParsedText<'_>, location: SourceLocation) -> LoadedSource {
     LoadedSource {
         path: parsed.source().into(),
         line: location.line,
@@ -502,7 +578,7 @@ fn source(parsed: &ParsedText<'_>, location: SourceLocation) -> LoadedSource {
     }
 }
 
-fn equal(op: Option<Operator>, fail: &impl Fn(&str) -> Error) -> Result<(), Error> {
+pub(super) fn equal(op: Option<Operator>, fail: &impl Fn(&str) -> Error) -> Result<(), Error> {
     if op.is_some_and(|o| o != Operator::Equal) {
         Err(fail("expected assignment operator"))
     } else {
@@ -602,11 +678,22 @@ fn visit_history<'a>(
     date: Date,
     mut apply: impl FnMut(ObjectReader<'a, 'a, TextEncoding>) -> Result<(), Error>,
 ) -> Result<(), Error> {
-    apply(parsed.reader())?;
-    let mut dated = Vec::new();
+    for (_, reader) in history_blocks(parsed, date)? {
+        apply(reader)?;
+    }
+    Ok(())
+}
+
+type HistoryBlock<'a> = (Option<Date>, ObjectReader<'a, 'a, TextEncoding>);
+
+pub(super) fn history_blocks<'a>(
+    parsed: &'a ParsedText<'_>,
+    date: Date,
+) -> Result<Vec<HistoryBlock<'a>>, Error> {
+    let mut blocks = vec![(None, parsed.reader())];
     for (key, op, value) in parsed.reader().fields() {
         let name = key.read_string();
-        if name.as_bytes().first().is_some_and(u8::is_ascii_digit) && name.contains('.') {
+        if dated_name(&name) {
             let fail = |m: &str| {
                 Error::message(parsed.source(), m).with_location(parsed.field_location(&key))
             };
@@ -616,18 +703,15 @@ fn visit_history<'a>(
                 .read_object()
                 .map_err(|_| fail("dated history requires a block"))?;
             if timestamp <= date {
-                dated.push((timestamp, block));
+                blocks.push((Some(timestamp), block));
             }
         }
     }
-    dated.sort_by_key(|entry| entry.0);
-    for (_, reader) in dated {
-        apply(reader)?;
-    }
-    Ok(())
+    blocks.sort_by_key(|entry| entry.0);
+    Ok(blocks)
 }
 
-fn dated_name(name: &str) -> bool {
+pub(super) fn dated_name(name: &str) -> bool {
     name.as_bytes().first().is_some_and(u8::is_ascii_digit) && name.contains('.')
 }
 
@@ -655,6 +739,7 @@ fn apply_country(
     parsed: &ParsedText<'_>,
     reader: ObjectReader<'_, '_, TextEncoding>,
     country: &mut CountryState,
+    politics: &mut CountryDraft,
     report: &mut BootstrapReport,
 ) -> Result<(), Error> {
     for (key, op, value) in reader.fields() {
@@ -665,6 +750,15 @@ fn apply_country(
         let location = parsed.field_location(&key);
         let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
         match name.as_str() {
+            "monarch" | "heir" | "queen" | "monarch_consort" => {
+                equal(op, &fail)?;
+                let person = politics::person(parsed, value, &name, location, report)?;
+                *match name.as_str() {
+                    "monarch" => &mut politics.ruler,
+                    "heir" => &mut politics.heir,
+                    _ => &mut politics.consort,
+                } = Some(person);
+            }
             "capital" => {
                 equal(op, &fail)?;
                 let id: u32 = value
@@ -770,7 +864,7 @@ fn apply_province(
     Ok(())
 }
 
-fn nonnegative_milli(text: &str) -> Option<i64> {
+pub(super) fn nonnegative_milli(text: &str) -> Option<i64> {
     let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
     if whole.is_empty()
         || !whole.bytes().all(|b| b.is_ascii_digit())

@@ -2,3 +2,4 @@ capital = 1
 primary_culture = beta
 religion = test_faith
 government = republic
+monarch = { name = "Council" regent = yes adm = 0 dip = 0 mil = 0 }

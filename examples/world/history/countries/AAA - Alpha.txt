@@ -7,3 +7,12 @@ technology_group = test_group
 1440.1.1 = { capital = 2 }
 1430.1.1 = { capital = 1 }
 set_country_flag = not_implemented
+
+monarch = { name = "Dawn" adm = 0 dip = 0 mil = 0 }
+queen = { name = "Vale" country_of_origin = BBB female = yes birth_date = 1415.1.1 death_date = 1450.1.1 }
+1442.1.1 = {
+    monarch = { name = "Iris" dynasty = "Sun" birth_date = 1410.1.1 adm = 2 dip = 3 mil = 4 leader = { fire = 1 } }
+}
+1440.1.1 = {
+    heir = { name = "Rowan" monarch_name = "Rowan I" dynasty = "Sun" birth_Date = 1440.1.1 death_Date = 1444.11.12 ADM = 1 DIP = 2 MIL = 3 claim = 87.125 block_disinherit = yes }
+}

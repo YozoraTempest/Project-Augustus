@@ -19,11 +19,34 @@ struct Cli {
     country: Option<String>,
     #[arg(long)]
     province: Option<u32>,
+    #[arg(long)]
+    diplomacy: bool,
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let loaded = VanillaWorld::load(cli.game_root, &cli.date)?;
     let mut output = serde_json::json!({"report": loaded.report});
+    if cli.diplomacy {
+        output["diplomacy"] = serde_json::to_value(loaded.diplomacy())?;
+        output["political_offices"] = serde_json::json!(
+            loaded
+                .initial
+                .world()
+                .politics()
+                .offices
+                .iter()
+                .map(|(office, holder)| (
+                    office,
+                    &loaded
+                        .initial
+                        .world()
+                        .entity(*holder)
+                        .expect("validated office")
+                        .name
+                ))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        );
+    }
     if let Some(id) = cli.country {
         output["country"] = serde_json::to_value(loaded.country(&id).ok_or("unknown country")?)?;
         output["country_sources"] = serde_json::to_value(&loaded.country_sources[&id])?;

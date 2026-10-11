@@ -18,6 +18,9 @@ func _initialize() -> void:
 	var alpha: Dictionary = JSON.parse_string(session.query_country("AAA"))
 	check(alpha.value.bound_capital == 2, "country query uses core capital relation")
 	check(alpha.value.owned_provinces.size() == 1 and int(alpha.value.owned_provinces[0]) == 2, "country query uses actual ownership")
+	check(alpha.value.politics.ruler.name == "Iris", "ruler query reads authoritative state")
+	check(alpha.value.politics.heir.claim_milli == 87125, "heir claim preserves precision")
+	check(alpha.value.diplomacy.size() == 5, "diplomatic relationships reach the UI query")
 	var north: Dictionary = JSON.parse_string(session.query_province(1))
 	check(north.value.owner == "BBB" and north.value.tax_milli == 2125, "dated history reaches the Rust core")
 	check(not JSON.parse_string(session.query_province(-1)).ok, "negative province query fails")
@@ -53,8 +56,14 @@ func verify_ui(ui: Control) -> void:
 	ui.map_view.gui_input.emit(event)
 	var is_fixture: bool = ui.overview.report.map_width == 4 and ui.overview.report.map_height == 2
 	if is_fixture:
+		check(ui.politics_details.text.contains("Iris"), "country panel displays the loaded ruler")
+		check(ui.diplomacy_details.text.contains("贸易联盟成员 BBB"), "country panel preserves trade league meaning")
 		check(ui.province_details.text.contains("North · 1"), "map click follows BMP orientation and letterboxing")
 		check(ui.province_details.text.contains("BBB"), "clicked province displays current owner")
+		ui.select_country(0)
+		await process_frame
+		await process_frame
+		check(ui.details_scroll.scroll_vertical == 0, "country selection cancels a pending province scroll")
 		if DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			var rendered := root.get_texture().get_image()
@@ -87,6 +96,13 @@ func finish() -> void:
 
 func check_layout(node: Node) -> void:
 	if node is Control and node.is_visible_in_tree():
-		check(root.get_visible_rect().grow(1).encloses(node.get_global_rect()), "control outside viewport: %s" % node.name)
+		var rect: Rect2 = node.get_global_rect()
+		var ancestor := node.get_parent()
+		while ancestor != null:
+			if ancestor is Control and ancestor.clip_contents:
+				rect = rect.intersection(ancestor.get_global_rect())
+			ancestor = ancestor.get_parent()
+		if rect.has_area():
+			check(root.get_visible_rect().grow(1).encloses(rect), "control outside viewport: %s" % node.name)
 	for child in node.get_children():
 		check_layout(child)

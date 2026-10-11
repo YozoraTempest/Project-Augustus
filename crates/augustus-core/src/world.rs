@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
 
-use crate::{Action, Error, Plan, Target};
+use crate::{Action, Error, Plan, Politics, Target};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EntityId(pub usize);
@@ -78,6 +78,7 @@ pub struct World {
     next_sequence: u64,
     tasks: BTreeMap<(u64, u64), Task>,
     events: Vec<(u64, EntityId, String)>,
+    pub(crate) politics: Politics,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
@@ -95,6 +96,8 @@ struct Snapshot {
     tasks: Vec<Task>,
     events: Vec<(u64, EntityId, String)>,
     random: ChaCha8Rng,
+    #[serde(default, skip_serializing_if = "Politics::is_empty")]
+    politics: Politics,
 }
 
 impl World {
@@ -115,6 +118,7 @@ impl World {
             next_sequence: 0,
             tasks: BTreeMap::new(),
             events: Vec::new(),
+            politics: Politics::default(),
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
@@ -267,6 +271,7 @@ impl World {
             tasks: self.tasks.values().cloned().collect(),
             events: self.events.clone(),
             random: self.random.clone(),
+            politics: self.politics.clone(),
         })?)
     }
 
@@ -296,6 +301,7 @@ impl World {
             failed: false,
             rules,
             random: snapshot.random,
+            politics: snapshot.politics,
         };
         for rule in &world.rules {
             validate_plan(rule, schema, world.rules.len())?;
@@ -317,6 +323,7 @@ impl World {
                 return Err(Error::Invalid("invalid saved capital".into()));
             }
         }
+        world.politics.validate(&world)?;
         let mut sequences = std::collections::BTreeSet::new();
         for task in snapshot.tasks {
             if task.day <= world.day

@@ -5,10 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntityKind, Error, FieldId, Schema, World};
+use crate::{EntityId, EntityKind, Error, FieldId, Politics, Schema, World};
 
 /// A calendar label supplied by the content adapter; no calendar arithmetic is implied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct WorldDate {
     pub year: i16,
     pub month: u8,
@@ -177,6 +177,10 @@ impl InitialWorld {
             country_index,
             province_index,
         })
+    }
+
+    pub fn set_politics(&mut self, politics: Politics) -> Result<(), Error> {
+        self.world.set_politics(politics)
     }
 
     pub fn world(&self) -> &World {
