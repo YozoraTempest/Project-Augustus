@@ -8,6 +8,7 @@
 mod administration;
 mod administration_validation;
 mod attributes;
+mod autonomy;
 mod bootstrap;
 mod content;
 mod defines;
@@ -40,3 +41,28 @@ pub use politics::{RelationSource, RelationView};
 pub use script::{CompiledScript, ScriptCompiler, ScriptLibrary};
 pub use setup::SetupReport;
 pub use text::{FieldSummary, ParsedText, TextDocument, TextEncoding};
+
+pub(crate) const EXPANSIONS: [&str; 22] = [
+    "Conquest of Paradise",
+    "Wealth of Nations",
+    "Res Publica",
+    "Art of War",
+    "El Dorado",
+    "Common Sense",
+    "The Cossacks",
+    "Mare Nostrum",
+    "Rights of Man",
+    "Mandate of Heaven",
+    "Third Rome",
+    "Cradle of Civilization",
+    "Rule Britannia",
+    "Dharma",
+    "Golden Century",
+    "Emperor",
+    "Leviathan",
+    "Origins",
+    "Lions of the North",
+    "Domination",
+    "King of Kings",
+    "Winds of Change",
+];

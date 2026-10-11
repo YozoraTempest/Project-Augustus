@@ -48,9 +48,12 @@ fn world_cli_reports_state_sources_and_query_failures() {
     assert_eq!(value["province"]["administration"]["area"], "north_area");
     assert_eq!(
         value["province"]["administration"]["history_autonomy_delta_micros"],
-        250000
+        0
     );
-    assert!(value["province"]["administration"]["raw_autonomy_micros"].is_null());
+    assert_eq!(
+        value["province"]["administration"]["raw_autonomy_micros"],
+        300000
+    );
     assert_eq!(
         value["country"]["administrative_areas"]["east_area"],
         "state"

@@ -12,12 +12,12 @@
   "provinces": {
     "2": {
       "area": "north_area", "cores_known": true, "cores": {"1": "full"},
-      "raw_autonomy_micros": null, "history_autonomy_delta_micros": 250000,
+      "raw_autonomy_micros": 300000, "history_autonomy_delta_micros": 0,
       "unresolved": ["other_minimum_autonomy_effects"]
     },
     "3": {
       "area": "east_area", "cores_known": true, "cores": {"0": "full"},
-      "raw_autonomy_micros": null, "history_autonomy_delta_micros": 0,
+      "raw_autonomy_micros": 0, "history_autonomy_delta_micros": 0,
       "unresolved": ["other_minimum_autonomy_effects"]
     }
   }

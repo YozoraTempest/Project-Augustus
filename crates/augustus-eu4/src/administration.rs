@@ -8,7 +8,10 @@ use augustus_core::{
     ProvinceAdministration, ProvinceClass,
 };
 use jomini::common::Date;
-use jomini::{TextToken, text::ObjectReader};
+use jomini::{
+    TextToken,
+    text::{ObjectReader, ValueReader},
+};
 use serde::Serialize;
 
 use crate::bootstrap::{equal, source};
@@ -26,6 +29,11 @@ pub struct AdministrationReport {
     pub initial_states: usize,
     pub full_core_types: usize,
     pub direct_autonomy_operations: usize,
+    pub country_autonomy_operations: usize,
+    pub initialized_autonomy: usize,
+    pub unknown_initial_autonomy: Vec<u32>,
+    pub initial_country_ranks: BTreeMap<String, u8>,
+    pub applied_country_autonomy: BTreeMap<u32, Vec<LoadedSource>>,
     pub missing_land_areas: Vec<u32>,
     pub unknown_country_area_statuses: usize,
     pub unspecified_core_types: usize,
@@ -34,6 +42,7 @@ pub struct AdministrationReport {
     pub empty_areas: BTreeSet<String>,
     pub autonomy_sources: BTreeMap<u32, Vec<LoadedSource>>,
     pub pending_country_autonomy: BTreeMap<String, Vec<LoadedSource>>,
+    pub pending_province_initialization: BTreeMap<u32, Vec<LoadedSource>>,
     pub rule_sources: BTreeMap<String, LoadedSource>,
 }
 
@@ -41,6 +50,8 @@ pub(super) struct AdministrationDraft {
     areas: BTreeSet<String>,
     memberships: BTreeMap<u32, String>,
     deltas: BTreeMap<u32, i64>,
+    operations: BTreeMap<u32, Vec<i64>>,
+    autonomy: crate::autonomy::AutonomyDraft,
     capital_maximum: i64,
 }
 
@@ -55,6 +66,8 @@ impl AdministrationDraft {
             areas: BTreeSet::new(),
             memberships: BTreeMap::new(),
             deltas: BTreeMap::new(),
+            operations: BTreeMap::new(),
+            autonomy: crate::autonomy::AutonomyDraft::load(root, files, map, report)?,
             capital_maximum: 0,
         };
         let (value, at) = crate::defines::literal(root, files, "NEconomy", "CAPITAL_MAX_AUTONOMY")?;
@@ -150,6 +163,7 @@ impl AdministrationDraft {
         }
         report.areas = result.areas.len();
         report.mapped_provinces = result.memberships.len();
+        result.autonomy.set_areas(&result.areas);
         Ok(result)
     }
 
@@ -160,6 +174,8 @@ impl AdministrationDraft {
         province: u32,
         report: &mut AdministrationReport,
     ) -> Result<BTreeSet<String>, Error> {
+        self.autonomy
+            .province_history(parsed, reader.clone(), province, report)?;
         let mut handled = BTreeSet::new();
         for (key, op, value) in reader
             .fields()
@@ -168,15 +184,8 @@ impl AdministrationDraft {
             let at = parsed.field_location(&key);
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             equal(op, &fail)?;
-            let value = value
-                .read_string()
-                .ok()
-                .and_then(|s| micros(&s))
-                .filter(|v| v % 100 == 0)
-                .ok_or_else(|| {
-                    fail("expected literal autonomy percentage with at most four decimal places")
-                })?
-                / 100;
+            let value = autonomy_delta(&value, &fail)?;
+            self.operations.entry(province).or_default().push(value);
             let delta = self.deltas.entry(province).or_default();
             *delta = delta
                 .checked_add(value)
@@ -192,32 +201,15 @@ impl AdministrationDraft {
         Ok(handled)
     }
 
-    /// Detects unapplied scoped effects without interpreting their conditions or ordering.
     pub(super) fn country_history(
+        &mut self,
         parsed: &ParsedText<'_>,
         reader: ObjectReader<'_, '_, TextEncoding>,
         country: &str,
         report: &mut AdministrationReport,
-    ) {
-        for (key, _, value) in reader.fields() {
-            let name = key.read_string();
-            if crate::bootstrap::dated_name(&name) {
-                continue;
-            }
-            if name == "add_local_autonomy" {
-                report
-                    .pending_country_autonomy
-                    .entry(country.into())
-                    .or_default()
-                    .push(source(parsed, parsed.field_location(&key)));
-            } else if matches!(
-                value.token(),
-                TextToken::Object { .. } | TextToken::Array { .. }
-            ) && let Ok(reader) = value.read_object()
-            {
-                Self::country_history(parsed, reader, country, report);
-            }
-        }
+    ) -> Result<(), Error> {
+        self.autonomy
+            .country_history(parsed, reader, country, &self.areas, report)
     }
 
     pub(super) fn bind(
@@ -305,9 +297,9 @@ impl AdministrationDraft {
             }
             let mut unresolved = BTreeSet::new();
             unresolved.insert("other_minimum_autonomy_effects".into());
-            if p.owner
-                .as_ref()
-                .is_some_and(|c| report.pending_country_autonomy.contains_key(c))
+            if self
+                .autonomy
+                .has_pending(area.as_deref(), p.owner.as_deref())
             {
                 unresolved.insert("scoped_country_history".into());
             }
@@ -330,14 +322,35 @@ impl AdministrationDraft {
             } else {
                 report.unspecified_core_types += cores.len();
             }
+            let raw_autonomy = if baseline {
+                self.autonomy.generate(
+                    initial,
+                    p,
+                    history.contains(&p.id),
+                    area.as_deref(),
+                    self.operations.get(&p.id).map_or(&[], Vec::as_slice),
+                    report,
+                )
+            } else {
+                None
+            };
+            if raw_autonomy.is_some() {
+                report.initialized_autonomy += 1;
+            } else {
+                report.unknown_initial_autonomy.push(p.id);
+            }
             administration.provinces.insert(
                 entity,
                 ProvinceAdministration {
                     area: area.clone(),
                     cores_known: history.contains(&p.id),
                     cores,
-                    raw_autonomy_micros: None,
-                    history_autonomy_delta_micros: self.deltas.get(&p.id).copied().unwrap_or(0),
+                    raw_autonomy_micros: raw_autonomy,
+                    history_autonomy_delta_micros: if raw_autonomy.is_some() {
+                        0
+                    } else {
+                        self.deltas.get(&p.id).copied().unwrap_or(0)
+                    },
                     unresolved,
                 },
             );
@@ -385,4 +398,19 @@ impl AdministrationDraft {
         report.province_records = administration.provinces.len();
         Ok(administration)
     }
+}
+
+pub(super) fn autonomy_delta(
+    value: &ValueReader<'_, '_, TextEncoding>,
+    fail: &impl Fn(&str) -> Error,
+) -> Result<i64, Error> {
+    value
+        .read_string()
+        .ok()
+        .and_then(|s| micros(&s))
+        .filter(|v| v % 100 == 0)
+        .map(|v| v / 100)
+        .ok_or_else(|| {
+            fail("expected literal autonomy percentage with at most four decimal places")
+        })
 }

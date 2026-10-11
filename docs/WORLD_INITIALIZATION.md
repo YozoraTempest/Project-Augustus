@@ -106,9 +106,13 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 在固定的 `1444.11.11` 开局，兼容入口为各国实际拥有省份的每个地区建立州，历史 `add_core` 载入为完整核心。地区关系按国家分别保存；其他国家的核心宣称不会替该国建立州。首都引用无效时仍按所有权建立州，不另选首都。报告的 `initial_states` 和 `full_core_types` 给出这两项数量。选择其他日期时，这两项生成规则暂不应用：只确定已绑定首都所在的地区为州，核心类型保留为 `unspecified`。
 
-直接省份历史中的 `add_local_autonomy` 按日期记录为 `history_autonomy_delta_micros`，不把这个追加量作为最终自治度，也没有用零补齐初始基值。国家历史里嵌套的自治操作保留来源于 `pending_country_autonomy`，其条件、作用域和执行顺序尚未接入。原始自治度的开局生成仍待实现。
+固定 `1444.11.11` 开局已接入原始自治度生成，使用所选日期的文化、宗教、核心及国家等级输入，再逐条执行省份历史和国家历史中的自治操作，每一步限制在 0%—100%。国家等级读取直接历史、政体改革的固定等级、属国类型的继承上限及皇帝职位；这些输入目前用于自治初始化，尚不构成完整政体系统。
 
-规则最低自治从已载入的静态定义读取，首都上限从基础文件中的 `NEconomy.CAPITAL_MAX_AUTONOMY` 直接数值读取。完整核心所在州可以查询规则最低自治，原始自治度未知时仍不能确定非首都省份的有效自治。附加 Lua 对该值的赋值与表达式会报错；当前入口不执行 Lua。其他最低自治修正、贸易公司、州与核心的数值效果及完整开局生成仍有缺项。Godot 将这些字段标为已接入规则的结果。
+国家历史支持 `every_owned_province`、具名地区作用域及受支持的 `if` / `limit`。具名地区包含别国与无主省份；拥有省份迭代器只选择本国省份。条件支持 `always`、固定终版的玩法 DLC 名称、`AND`、`OR`、单条件 `NOT`，省份条件另支持 `area` 和 `region`。地区组读取 `default.map` 指定的 `region` 文件。未知条件、作用域、歧义定义和尚未接入的嵌套历史不会被当成已完成操作。
+
+报告的 `initialized_autonomy`、`unknown_initial_autonomy` 给出已生成与未知的省份，`applied_country_autonomy` 保留已执行操作的来源，`pending_country_autonomy` 和 `pending_province_initialization` 列出待处理输入。已生成时，`history_autonomy_delta_micros` 为零，追加量已进入原始自治度；生成未知或选择其他日期时，该字段继续保留直接历史追加量，不能作为最终值。首都的原始值也可非零，生效值另受首都上限约束。
+
+规则最低自治从已载入的静态定义读取，首都上限从基础文件中的 `NEconomy.CAPITAL_MAX_AUTONOMY` 直接数值读取。完整核心所在州可以查询规则最低自治，原始自治度未知时仍不能确定非首都省份的有效自治。附加 Lua 对选定字段的赋值与表达式会报错；当前入口不执行 Lua。其他最低自治修正、贸易公司、州与核心的数值效果仍有缺项。Godot 将这些字段标为已接入规则的结果。
 
 新增 `tax_after_autonomy` 与 `manpower_after_autonomy`，在原有部分计算之后单独乘以 `1 − 有效自治`。原有自治前字段继续保留。自治输入未知时，折减后的 `known_subtotal_micros` 为 `null`；前一阶段的数值仍可在 `steps` 中查看。首都上限明确为零时，可以确定这一阶段的折减比例为零，其他缺项仍使最终 `value_micros` 保持 `null`。
 

@@ -334,7 +334,9 @@ func administration_text(administration) -> String:
 		text += "\n当前首都"
 	elif administration.is_capital_area:
 		text += "\n属于首都地区"
-	text += "\n历史自治追加：%+.4f%%（初始基值未确定）" % (float(administration.history_autonomy_delta_micros) / 10000)
+	text += "\n原始自治度：%s" % autonomy_percent(administration.raw_autonomy_micros)
+	if administration.raw_autonomy_micros == null:
+		text += "\n历史自治追加：%+.4f%%（尚未应用）" % (float(administration.history_autonomy_delta_micros) / 10000)
 	text += "\n规则最低自治：%s\n有效自治（已接入规则）：%s" % [autonomy_percent(administration.minimum_autonomy_micros), autonomy_percent(administration.effective_autonomy_micros)]
 	return text
 

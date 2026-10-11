@@ -33,7 +33,7 @@ func _initialize() -> void:
 	check(north.value.attributes.manpower_contribution.known_subtotal_micros == 962500000, "manpower calculation includes trade good effects")
 	check(alpha.value.province_attribute_totals.tax_basis.known_subtotal_micros == 5100000, "country aggregation includes buildings and trade goods")
 	check(north.value.administration.area == "north_area" and north.value.administration.area_status == "state", "capital area reaches administration query")
-	check(north.value.administration.history_autonomy_delta_micros == 250000 and north.value.administration.raw_autonomy_micros == null, "history delta does not replace an unknown baseline")
+	check(north.value.administration.history_autonomy_delta_micros == 0 and north.value.administration.raw_autonomy_micros == 300000, "initial autonomy includes ordered history effects")
 	check(north.value.administration.effective_autonomy_micros == 0 and north.value.administration.owner_core == "full" and north.value.administration.minimum_autonomy_micros == 0, "baseline full core and capital ceiling reach the query")
 	check(north.value.attributes.tax_after_autonomy.steps.size() == 2 and north.value.attributes.tax_after_autonomy.value_micros == null, "autonomy is an additional stage with explicit missing sources")
 	check(not JSON.parse_string(session.query_province(-1)).ok, "negative province query fails")
@@ -78,7 +78,8 @@ func verify_ui(ui: Control) -> void:
 		check(ui.province_details.text.contains("river") and ui.province_details.text.contains("harbor"), "province panel displays trade routes")
 		check(ui.province_details.text.contains("test_growth") and ui.province_details.text.contains("-0.002500"), "province panel displays signed modifier declarations")
 		check(ui.province_details.text.contains("2.656250") and ui.province_details.text.contains("962.500000") and ui.province_details.text.contains("城市：25.0000%"), "province panel explains calculated contributions")
-		check(ui.province_details.text.contains("行政状态") and ui.province_details.text.contains("north_area") and ui.province_details.text.contains("+25.0000%") and ui.province_details.text.contains("完整核心"), "province panel explains baseline cores and unapplied delta")
+		check(ui.province_details.text.contains("行政状态") and ui.province_details.text.contains("north_area") and ui.province_details.text.contains("30.0000%") and ui.province_details.text.contains("完整核心"), "province panel displays initialized autonomy and cores")
+		check(ui.province_details.text.contains("原始自治度：30.0000%") and not ui.province_details.text.contains("历史自治追加"), "applied history is displayed as part of raw autonomy")
 		ui.select_country(0)
 		await process_frame
 		await process_frame

@@ -16,32 +16,7 @@ use serde_json::{Value, json};
 
 use crate::bootstrap::equal;
 use crate::setup::micros;
-use crate::{Error, ParsedText, TextDocument, TextEncoding, VanillaWorld};
-
-const EXPANSIONS: [&str; 22] = [
-    "Conquest of Paradise",
-    "Wealth of Nations",
-    "Res Publica",
-    "Art of War",
-    "El Dorado",
-    "Common Sense",
-    "The Cossacks",
-    "Mare Nostrum",
-    "Rights of Man",
-    "Mandate of Heaven",
-    "Third Rome",
-    "Cradle of Civilization",
-    "Rule Britannia",
-    "Dharma",
-    "Golden Century",
-    "Emperor",
-    "Leviathan",
-    "Origins",
-    "Lions of the North",
-    "Domination",
-    "King of Kings",
-    "Winds of Change",
-];
+use crate::{EXPANSIONS, Error, ParsedText, TextDocument, TextEncoding, VanillaWorld};
 
 #[derive(Debug, Default, Serialize)]
 pub struct AdministrationCheckCount {
@@ -470,7 +445,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         format!(
-            "EU4txt\ndate=1444.11.11\nstart_date=1444.11.11\ncampaign_length=0\nsavegame_version={{ first=1 second=37 third=5 forth=0 }}\ndlc_enabled={{ {expansions} }}\nmap_area_data={{ north_area={{ state={{ area=north_area country_state={{ country=BBB }} }} }} east_area={{ state={{ area=east_area country_state={{ country=AAA }} }} }} }}\nprovinces={{ -1={{ owner=BBB cores={{ BBB }} local_autonomy=25.125 }} -2={{ owner=AAA cores={{ AAA }} }} }}\n"
+            "EU4txt\ndate=1444.11.11\nstart_date=1444.11.11\ncampaign_length=0\nsavegame_version={{ first=1 second=37 third=5 forth=0 }}\ndlc_enabled={{ {expansions} }}\nmap_area_data={{ north_area={{ state={{ area=north_area country_state={{ country=BBB }} }} }} east_area={{ state={{ area=east_area country_state={{ country=AAA }} }} }} }}\nprovinces={{ -1={{ owner=BBB cores={{ BBB }} local_autonomy=30 }} -2={{ owner=AAA cores={{ AAA }} }} }}\n"
         )
     }
 
@@ -487,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn matches_known_state_and_core_inputs_but_keeps_unknown_autonomy_separate() {
+    fn matches_known_state_core_and_initial_autonomy_inputs() {
         let loaded = fixture();
         let report = compare(&loaded, save().as_bytes()).unwrap();
         assert_eq!(report.checked_provinces, 2);
@@ -498,8 +473,8 @@ mod tests {
             assert_eq!(report.checks[name].matched, 2);
             assert_eq!(report.checks[name].unknown, 0);
         }
-        assert_eq!(report.checks["raw_autonomy"].matched, 0);
-        assert_eq!(report.checks["raw_autonomy"].unknown, 2);
+        assert_eq!(report.checks["raw_autonomy"].matched, 2);
+        assert_eq!(report.checks["raw_autonomy"].unknown, 0);
         assert!(report.differences.is_empty());
         assert_eq!(
             loaded
@@ -508,7 +483,7 @@ mod tests {
                 .administration
                 .unwrap()
                 .raw_autonomy_micros,
-            None
+            Some(300_000)
         );
     }
 
@@ -598,13 +573,10 @@ mod tests {
     fn malformed_references_duplicates_and_autonomy_values_fail() {
         let loaded = fixture();
         for (from, to) in [
-            ("local_autonomy=25.125", "local_autonomy=-1"),
-            ("local_autonomy=25.125", "local_autonomy=101"),
-            ("local_autonomy=25.125", "local_autonomy=0.00001"),
-            (
-                "local_autonomy=25.125",
-                "local_autonomy=25 local_autonomy=26",
-            ),
+            ("local_autonomy=30", "local_autonomy=-1"),
+            ("local_autonomy=30", "local_autonomy=101"),
+            ("local_autonomy=30", "local_autonomy=0.00001"),
+            ("local_autonomy=30", "local_autonomy=25 local_autonomy=26"),
             ("cores={ BBB }", "cores={ BBB BBB }"),
             ("cores={ BBB }", "cores={ BBB } territorial_core=AAA"),
             (

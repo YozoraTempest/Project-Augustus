@@ -8,4 +8,8 @@ NDefines = {
     NEconomy = {
         CAPITAL_MAX_AUTONOMY = 0,
     },
+    NCountry = {
+        CULTURAL_UNION_MIN_RANK = 3,
+        HRE_RANK = 3,
+    },
 }

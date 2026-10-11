@@ -13,6 +13,20 @@ pub(super) fn literal(
     section: &str,
     key: &str,
 ) -> Result<(i64, LoadedSource), Error> {
+    optional_literal(root, files, section, key)?.ok_or_else(|| {
+        Error::message(
+            root.path().join("common/defines.lua"),
+            format!("missing literal define {key}"),
+        )
+    })
+}
+
+pub(super) fn optional_literal(
+    root: &ContentRoot,
+    files: &[FileEntry],
+    section: &str,
+    key: &str,
+) -> Result<Option<(i64, LoadedSource)>, Error> {
     let encoding = TextEncoding::Windows1252;
     let doc = root.read_text("common/defines.lua", encoding)?;
     let text = encoding.decode(doc.bytes());
@@ -64,8 +78,6 @@ pub(super) fn literal(
             },
         ));
     }
-    let amount = amount
-        .ok_or_else(|| Error::message(doc.source(), format!("missing literal define {key}")))?;
     for file in files.iter().filter(|f| {
         f.relative_path
             .parent()

@@ -435,12 +435,12 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
-                AdministrationDraft::country_history(
+                administration.country_history(
                     &parsed,
                     reader.clone(),
                     &id,
                     &mut report.administration,
-                );
+                )?;
                 apply_country(
                     &parsed,
                     reader,
