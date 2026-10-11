@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+namespace = augustus_reference
+
+country_event = {
+    id = augustus_reference.1
+    is_triggered_only = yes
+    immediate = {
+        emperor = { save_global_event_target_as = chair }
+        capital_scope = { save_global_event_target_as = port }
+        country_event = { id = augustus_reference.3 days = 1 }
+    }
+    option = { name = acknowledge }
+}
+
+country_event = {
+    id = augustus_reference.2
+    is_triggered_only = yes
+    immediate = { save_global_event_target_as = chair }
+    option = { name = acknowledge }
+}
+
+country_event = {
+    id = augustus_reference.3
+    is_triggered_only = yes
+    immediate = {
+        event_target:chair = { add_treasury = 1 log = current_chair }
+        event_target:port = { owner = { add_treasury = 0.5 log = harbor_owner } }
+        clear_global_event_target = chair
+        event_target:chair = { log = unreachable }
+    }
+    option = { name = acknowledge }
+}

@@ -141,3 +141,40 @@ fn event_chain_uses_one_core_for_scopes_delays_and_cross_input_restore() {
         ]
     );
 }
+
+#[test]
+fn named_targets_rebind_across_events_and_cross_input_saved_tasks() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/named-scopes");
+    let mut continuous = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(continuous.save().unwrap(), native.save().unwrap());
+    continuous.trigger("augustus_reference.1", 0).unwrap();
+    continuous.trigger("augustus_reference.2", 1).unwrap();
+    native.restore(&continuous.save().unwrap()).unwrap();
+    for demo in [&mut continuous, &mut native] {
+        demo.advance(1).unwrap();
+        for id in 0..3 {
+            demo.choose(&EventChoice {
+                pending: PendingEventId(id),
+                option: "0".into(),
+            })
+            .unwrap();
+        }
+        assert_eq!(
+            demo.world().global_scopes()["port"],
+            augustus_core::EntityId(2)
+        );
+        assert!(!demo.world().global_scopes().contains_key("chair"));
+        let view = demo.view().unwrap();
+        assert_eq!(view.entities[0].values["treasury"], 10500);
+        assert_eq!(view.entities[1].values["treasury"], 6000);
+        assert_eq!(
+            view.log
+                .iter()
+                .map(|e| (e.0, e.1.0, e.2.as_str()))
+                .collect::<Vec<_>>(),
+            [(1, 1, "current_chair"), (1, 0, "harbor_owner")]
+        );
+    }
+    assert_eq!(continuous.save().unwrap(), native.save().unwrap());
+}

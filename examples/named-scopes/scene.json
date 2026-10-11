@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "fields": ["treasury"],
+  "entities": [
+    {"name": "River Union", "kind": "Country", "owner": null, "capital": 2, "values": {"treasury": 10000}},
+    {"name": "Hill League", "kind": "Country", "owner": null, "capital": null, "values": {"treasury": 5000}},
+    {"name": "Willow Harbor", "kind": "Province", "owner": 0, "capital": null, "values": {}}
+  ],
+  "offices": {"imperial_emperor": 0},
+  "global_scope_types": {"chair": "Country", "port": "Province"}
+}

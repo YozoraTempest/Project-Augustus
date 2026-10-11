@@ -4,7 +4,8 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use augustus_core::{
-    Action, Condition, EntityKind, EventDefinition, EventOption, FieldId, Plan, Schema, Target,
+    Action, Condition, EntityKind, EventDefinition, EventOption, FieldId, Plan, Schema,
+    ScopeSelector, Target,
 };
 use jomini::{
     TextToken,
@@ -202,6 +203,7 @@ pub struct ScriptCompiler<'a> {
     stack: Vec<String>,
     sources: Vec<(PathBuf, SourceLocation)>,
     folded: usize,
+    global_scope_types: BTreeMap<String, EntityKind>,
 }
 
 impl<'a> ScriptCompiler<'a> {
@@ -213,7 +215,14 @@ impl<'a> ScriptCompiler<'a> {
             stack: Vec::new(),
             sources: Vec::new(),
             folded: 0,
+            global_scope_types: BTreeMap::new(),
         }
+    }
+
+    /// Types come from selected content declarations, not current target values.
+    pub fn with_global_scope_types(mut self, types: BTreeMap<String, EntityKind>) -> Self {
+        self.global_scope_types = types;
+        self
     }
 
     pub fn compile(
@@ -339,6 +348,45 @@ impl<'a> ScriptCompiler<'a> {
             let field = &fields[index];
             self.sources.push((field.path.clone(), field.location));
             match field.name.as_str() {
+                "save_global_event_target_as" | "clear_global_event_target" => {
+                    let name = field.scalar()?;
+                    if name.is_empty() {
+                        return Err(field.error("empty global event target name"));
+                    }
+                    if field.name == "save_global_event_target_as" {
+                        if self
+                            .global_scope_types
+                            .get(name)
+                            .is_some_and(|kind| *kind != scope)
+                        {
+                            return Err(
+                                field.error("global event target type does not match declaration")
+                            );
+                        }
+                        plan.push(Action::BindGlobalScope { name: name.into() });
+                    } else {
+                        plan.push(Action::ClearGlobalScope { name: name.into() });
+                    }
+                }
+                "emperor" => {
+                    let name = "imperial_emperor";
+                    plan.push(Action::InScope {
+                        selector: ScopeSelector::Office(name.into()),
+                        kind: EntityKind::Country,
+                        plan: self.effects(field.block()?, EntityKind::Country)?,
+                    });
+                }
+                name if name.starts_with("event_target:") => {
+                    let name = name.strip_prefix("event_target:").expect("matched prefix");
+                    let kind = self.global_scope_types.get(name).copied().ok_or_else(|| {
+                        field.error("global event target requires a declared entity type")
+                    })?;
+                    plan.push(Action::InScope {
+                        selector: ScopeSelector::Global(name.into()),
+                        kind,
+                        plan: self.effects(field.block()?, kind)?,
+                    });
+                }
                 "log" => plan.push(Action::Emit(field.scalar()?.into())),
                 "country_event" | "province_event" => {
                     let required = if field.name == "country_event" {

@@ -6,7 +6,7 @@ use super::{Condition, ENCODING, EstateReport, Reader};
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::setup::{PropertyDiagnostics, block, micros};
 use crate::{ContentRoot, Error, FileEntry, LoadedSource, ParsedText, TextDocument};
-use augustus_core::{Action, InitialWorld};
+use augustus_core::{Action, EntityKind, InitialWorld, ScopeSelector};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -16,6 +16,7 @@ enum Step {
     Branch(Vec<(Condition, Vec<Self>)>, Option<Vec<Self>>, LoadedSource),
     Countries(Condition, Vec<Self>, LoadedSource),
     Country(String, Vec<Self>, LoadedSource),
+    Scoped(ScopeSelector, Vec<Self>, LoadedSource),
     Group(Vec<Self>),
     Pending(String, LoadedSource),
 }
@@ -64,6 +65,39 @@ impl Compiler {
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             equal(op, &fail)?;
             match name.as_str() {
+                "emperor" => {
+                    let office = "imperial_emperor";
+                    result.push(Step::Scoped(
+                        ScopeSelector::Office(office.into()),
+                        self.effects(parsed, block(&value, &fail)?, report, depth + 1, false)?,
+                        location,
+                    ));
+                }
+                "save_global_event_target_as" | "clear_global_event_target" => {
+                    let id = value
+                        .read_string()
+                        .map_err(|_| fail("expected global event target name"))?;
+                    if id.is_empty() {
+                        return Err(fail("empty global event target name"));
+                    }
+                    let action = if name == "save_global_event_target_as" {
+                        Action::BindGlobalScope { name: id }
+                    } else {
+                        Action::ClearGlobalScope { name: id }
+                    };
+                    result.push(Step::Metric(action, location));
+                }
+                _ if name.starts_with("event_target:") => {
+                    let id = name.strip_prefix("event_target:").expect("matched prefix");
+                    if id.is_empty() {
+                        return Err(fail("empty global event target name"));
+                    }
+                    result.push(Step::Scoped(
+                        ScopeSelector::Global(id.into()),
+                        self.effects(parsed, block(&value, &fail)?, report, depth + 1, false)?,
+                        location,
+                    ));
+                }
                 "limit" if skip_limit => (),
                 "hidden_effect" => result.push(Step::Group(self.effects(
                     parsed,
@@ -451,6 +485,7 @@ impl EstateStartup {
                 | Step::Branch(_, _, at)
                 | Step::Countries(_, _, at)
                 | Step::Country(_, _, at)
+                | Step::Scoped(_, _, at)
                 | Step::Pending(_, at) => at,
                 Step::Group(body) => {
                     self.execute(body, initial, tag, flags, trace, budget, depth + 1)?;
@@ -585,6 +620,31 @@ impl EstateStartup {
                     }
                     if !initial.owned_provinces(tag).is_empty() {
                         self.execute(body, initial, tag, flags, trace, budget, depth + 1)?;
+                    }
+                }
+                Step::Scoped(selector, body, at) => {
+                    if let Some(entity) = initial
+                        .world()
+                        .resolve_scope(selector)
+                        .map_err(|e| Pending::new(at, e.to_string()))?
+                    {
+                        let selected = initial
+                            .world()
+                            .entity(entity)
+                            .map_err(|e| Pending::new(at, e.to_string()))?;
+                        if selected.kind != EntityKind::Country {
+                            return Err(Pending::new(
+                                at,
+                                "startup named scope requires country type",
+                            ));
+                        }
+                        let target = initial
+                            .countries()
+                            .iter()
+                            .find(|c| initial.country_entity(&c.id) == Some(entity))
+                            .map(|c| c.id.clone())
+                            .ok_or_else(|| Pending::new(at, "unbound startup scope entity"))?;
+                        self.execute(body, initial, &target, flags, trace, budget, depth + 1)?;
                     }
                 }
                 Step::Pending(reason, at) => return Err(Pending::new(at, reason)),

@@ -85,6 +85,7 @@ pub struct World {
     pub(crate) event_catalog: crate::EventCatalog,
     pub(crate) event_queue: crate::event_choices::EventQueue,
     pub(crate) politics: Politics,
+    pub(crate) global_scopes: BTreeMap<String, EntityId>,
     economy: Economy,
     technology: Technology,
     modifiers: Modifiers,
@@ -117,6 +118,8 @@ struct Snapshot {
     random: ChaCha8Rng,
     #[serde(default, skip_serializing_if = "Politics::is_empty")]
     politics: Politics,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    global_scopes: BTreeMap<String, EntityId>,
     #[serde(default, skip_serializing_if = "Economy::is_empty")]
     economy: Economy,
     #[serde(default, skip_serializing_if = "Technology::is_empty")]
@@ -171,6 +174,7 @@ impl World {
             event_catalog: crate::EventCatalog::default(),
             event_queue: crate::event_choices::EventQueue::default(),
             politics: Politics::default(),
+            global_scopes: BTreeMap::new(),
             economy: Economy::default(),
             technology: Technology::default(),
             modifiers: Modifiers::default(),
@@ -574,6 +578,7 @@ impl World {
             events: self.events.clone(),
             random: self.random.clone(),
             politics: self.politics.clone(),
+            global_scopes: self.global_scopes.clone(),
             economy: self.economy.clone(),
             technology: self.technology.clone(),
             modifiers: self.modifiers.clone(),
@@ -631,6 +636,7 @@ impl World {
             rules,
             random: snapshot.random,
             politics: snapshot.politics,
+            global_scopes: snapshot.global_scopes,
             economy: snapshot.economy,
             technology: snapshot.technology,
             modifiers: snapshot.modifiers,
@@ -650,6 +656,10 @@ impl World {
         }
         world.event_catalog.validate(&world)?;
         world.event_queue.validate(&world)?;
+        for (name, &entity) in &world.global_scopes {
+            crate::scopes::validate_name(name)?;
+            world.entity(entity)?;
+        }
         for (index, entity) in world.entities.iter().enumerate() {
             if entity.values.len() != world.schema.fields.len() {
                 return Err(Error::Invalid("invalid state field count".into()));
@@ -749,6 +759,22 @@ pub(crate) fn validate_plan(
 ) -> Result<(), Error> {
     for action in plan {
         match action {
+            Action::InScope {
+                selector,
+                kind,
+                plan,
+            } => {
+                selector.validate()?;
+                if matches!(selector, crate::ScopeSelector::Office(_))
+                    && *kind != EntityKind::Country
+                {
+                    return Err(Error::Invalid("office scope requires country type".into()));
+                }
+                validate_plan(plan, schema, rule_count, events)?;
+            }
+            Action::BindGlobalScope { name } | Action::ClearGlobalScope { name } => {
+                crate::scopes::validate_name(name)?;
+            }
             Action::TriggerEvent { event } if !events.definitions().contains_key(event) => {
                 return Err(Error::Invalid(format!("unknown event in plan {event}")));
             }

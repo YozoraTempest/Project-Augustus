@@ -20,6 +20,10 @@ struct Scene {
     version: u32,
     fields: Vec<String>,
     entities: Vec<SceneEntity>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    offices: BTreeMap<String, EntityId>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    global_scope_types: BTreeMap<String, EntityKind>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -79,6 +83,7 @@ impl EventDemo {
                     include_str!("../../../examples/events/eu4/common/scripted_effects/demo.txt"),
                 ))?;
                 ScriptCompiler::new(&schema, &library, true)
+                    .with_global_scope_types(scene.global_scope_types.clone())
                     .compile_events(&document(
                         "demo/events.txt",
                         include_str!("../../../examples/events/eu4/events/demo.txt"),
@@ -106,6 +111,7 @@ impl EventDemo {
                 let library = ScriptLibrary::from_content(&content, TextEncoding::Utf8)?;
                 let schema = Schema::new(scene.fields.clone())?;
                 ScriptCompiler::new(&schema, &library, true)
+                    .with_global_scope_types(scene.global_scope_types.clone())
                     .compile_events(&content.read_text("events/demo.txt", TextEncoding::Utf8)?)?
                     .definitions
             }
@@ -144,6 +150,12 @@ impl EventDemo {
             if let Some(capital) = entity.capital {
                 world.set_capital(EntityId(index), EntityId(capital))?;
             }
+        }
+        if !scene.offices.is_empty() {
+            world.set_politics(augustus_core::Politics {
+                offices: scene.offices.clone(),
+                ..Default::default()
+            })?;
         }
         Ok(Self { world, content })
     }

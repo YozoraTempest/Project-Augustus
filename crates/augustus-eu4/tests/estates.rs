@@ -62,6 +62,67 @@ fn loyalty(amount: i64) -> Action {
 }
 
 #[test]
+fn startup_office_and_global_targets_share_core_state_and_restore() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        r#"
+        on_startup = { if = { limit = { tag = AAA }
+            emperor = { save_global_event_target_as = council }
+            event_target:council = { add_estate_loyalty = { estate = estate_guild loyalty = 3 } }
+            BBB = { save_global_event_target_as = council }
+            event_target:council = { add_estate_loyalty = { estate = estate_guild loyalty = 4 } }
+            clear_global_event_target = council
+            event_target:council = { unreachable_effect = yes }
+            save_global_event_target_as = founder
+        } }
+    "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.estates.pending_startup_effects.is_empty());
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap()["estate_guild"].loyalty_milli,
+        Some(53_000)
+    );
+    assert_eq!(
+        loaded.country("BBB").unwrap().estates.unwrap()["estate_guild"].loyalty_milli,
+        Some(54_000)
+    );
+    assert_eq!(
+        loaded.initial.world().global_scopes()["founder"],
+        loaded.initial.country_entity("AAA").unwrap()
+    );
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .global_scopes()
+            .contains_key("council")
+    );
+    let saved = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&saved).unwrap();
+    loaded.advance(3).unwrap();
+    restored.advance(3).unwrap();
+    assert_eq!(loaded.save().unwrap(), restored.save().unwrap());
+}
+
+#[test]
+fn incomplete_startup_discards_global_bindings_with_other_prefix_writes() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup = { emperor = { save_global_event_target_as = partial } unsupported_effect = yes }",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(loaded.report.estates.pending_startup_effects.len(), 1);
+    assert!(loaded.initial.world().global_scopes().is_empty());
+    assert_eq!(loaded.report.estates.applied_startup_effects, 0);
+}
+
+#[test]
 fn startup_macros_scopes_and_live_callback_conditions_match_native_execution() {
     let temp = startup_fixture();
     write(

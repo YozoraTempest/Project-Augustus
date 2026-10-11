@@ -27,6 +27,18 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    /// Execute in a live named scope; an absent scope skips the body.
+    InScope {
+        selector: crate::ScopeSelector,
+        kind: crate::EntityKind,
+        plan: Plan,
+    },
+    BindGlobalScope {
+        name: String,
+    },
+    ClearGlobalScope {
+        name: String,
+    },
     /// Dispatch an event in the current scope, within the caller's execution limits.
     TriggerEvent {
         event: String,
@@ -147,6 +159,22 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::InScope {
+                    selector,
+                    kind,
+                    plan,
+                } => {
+                    if let Some(selected) = self.resolve_scope(selector)? {
+                        if self.entity(selected)?.kind != *kind {
+                            return Err(Error::Invalid(
+                                "named scope entity type does not match".into(),
+                            ));
+                        }
+                        self.execute_inner(selected, plan, budget, depth + 1)?;
+                    }
+                }
+                Action::BindGlobalScope { name } => self.bind_global_scope(name, current)?,
+                Action::ClearGlobalScope { name } => self.clear_global_scope(name)?,
                 Action::TriggerEvent { event } => {
                     self.trigger_event_inner(event, current, budget, depth + 1)?;
                 }

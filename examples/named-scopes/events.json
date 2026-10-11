@@ -1,0 +1,26 @@
+[
+  {
+    "id": "augustus_reference.1", "scope": "Country",
+    "immediate": [
+      {"InScope": {"selector": {"Office": "imperial_emperor"}, "kind": "Country", "plan": [{"BindGlobalScope": {"name": "chair"}}]}},
+      {"With": {"target": "Capital", "plan": [{"BindGlobalScope": {"name": "port"}}]}},
+      {"Schedule": {"delay": 1, "plan": [{"TriggerEvent": {"event": "augustus_reference.3"}}]}}
+    ],
+    "options": [{"id": "0", "effects": []}], "after": []
+  },
+  {
+    "id": "augustus_reference.2", "scope": "Country",
+    "immediate": [{"BindGlobalScope": {"name": "chair"}}],
+    "options": [{"id": "0", "effects": []}], "after": []
+  },
+  {
+    "id": "augustus_reference.3", "scope": "Country",
+    "immediate": [
+      {"InScope": {"selector": {"Global": "chair"}, "kind": "Country", "plan": [{"Add": {"target": "Current", "field": 0, "value": 1000}}, {"Emit": "current_chair"}]}},
+      {"InScope": {"selector": {"Global": "port"}, "kind": "Province", "plan": [{"With": {"target": "Owner", "plan": [{"Add": {"target": "Current", "field": 0, "value": 500}}, {"Emit": "harbor_owner"}]}}]}},
+      {"ClearGlobalScope": {"name": "chair"}},
+      {"InScope": {"selector": {"Global": "chair"}, "kind": "Country", "plan": [{"Emit": "unreachable"}]}}
+    ],
+    "options": [{"id": "0", "effects": []}], "after": []
+  }
+]
