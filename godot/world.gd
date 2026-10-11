@@ -19,6 +19,11 @@ var map_view: TextureRect
 var directory_picker: FileDialog
 var details_scroll: ScrollContainer
 var selection_revision := 0
+var calendar_label: Label
+var run_button: Button
+var simulation_timer: Timer
+var time_controls: Array[Button] = []
+var running := false
 
 func _ready() -> void:
 	var font := SystemFont.new()
@@ -41,7 +46,7 @@ func _ready() -> void:
 	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(heading)
 	header.add_child(button("建造演示", func(): get_tree().change_scene_to_file("res://main.tscn")))
-	page.add_child(label("EU4 终版 · 全部 DLC 机制基线 · 当前可查看开局，尚未接入时间推进", 15))
+	page.add_child(label("EU4 终版 · 全部 DLC 机制基线 · 已接入日历与税收月结，其余机制尚待实现", 15))
 	var form := HBoxContainer.new()
 	page.add_child(form)
 	game_path = LineEdit.new()
@@ -63,6 +68,20 @@ func _ready() -> void:
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status.max_lines_visible = 3
 	page.add_child(status)
+	var clock_bar := HBoxContainer.new()
+	page.add_child(clock_bar)
+	calendar_label = label("尚未载入", 16)
+	calendar_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	clock_bar.add_child(calendar_label)
+	run_button = button("运行", toggle_running)
+	time_controls = [run_button, button("推进一天", func(): advance_world(1)), button("至下月", advance_month), button("保存", save_world), button("读取", restore_world)]
+	for control in time_controls:
+		control.disabled = true
+		clock_bar.add_child(control)
+	simulation_timer = Timer.new()
+	simulation_timer.wait_time = 0.25
+	simulation_timer.timeout.connect(func(): advance_world(1))
+	add_child(simulation_timer)
 	var middle := HBoxContainer.new()
 	middle.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	middle.add_theme_constant_override("separation", 20)
@@ -128,6 +147,7 @@ func button(text: String, action: Callable) -> Button:
 	return node
 
 func load_world() -> bool:
+	set_running(false)
 	var candidate = AugustusWorldSession.new()
 	var packet: Dictionary = JSON.parse_string(candidate.load_world(game_path.text, date_input.text))
 	if not packet.ok:
@@ -176,6 +196,75 @@ func load_world() -> bool:
 	status.text = "%d 个国家定义 · %d 个有领土国家 · %d 个省份定义\n尚未应用 %d 项历史字段；有 %d 个国家的历史文件存在歧义。" % [data.report.countries, data.report.active_countries, data.report.provinces, unapplied, data.report.ambiguous_country_histories.size()]
 	province_details.text = "点击地图查看省份。"
 	select_country(0)
+	for control in time_controls:
+		control.disabled = false
+	refresh_calendar()
+	return true
+
+func set_running(value: bool) -> void:
+	running = value
+	run_button.text = "暂停" if running else "运行"
+	if running:
+		simulation_timer.start()
+	else:
+		simulation_timer.stop()
+
+func toggle_running() -> void:
+	set_running(not running)
+
+func refresh_calendar() -> void:
+	var packet: Dictionary = JSON.parse_string(session.simulation_view())
+	if packet.ok:
+		var date: Dictionary = packet.value.date
+		calendar_label.text = "%d.%02d.%02d · 月结 %d 次" % [date.year, date.month, date.day, packet.value.tax_settlements]
+
+func advance_world(days: int) -> bool:
+	var packet: Dictionary = JSON.parse_string(session.advance(days))
+	if not packet.ok:
+		set_running(false)
+		status.text = packet.error
+		return false
+	refresh_calendar()
+	select_country(country_choice.selected, false)
+	return true
+
+func advance_month() -> void:
+	set_running(false)
+	var packet: Dictionary = JSON.parse_string(session.simulation_view())
+	if packet.ok:
+		advance_world(int(packet.value.days_until_next_month))
+
+func save_world(path: String = "user://augustus-world.json") -> bool:
+	set_running(false)
+	var packet: Dictionary = JSON.parse_string(session.save_snapshot())
+	if not packet.ok:
+		status.text = packet.error
+		return false
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		status.text = "无法保存战役。"
+		return false
+	file.store_string(packet.value)
+	var error := file.get_error()
+	file.close()
+	status.text = "已保存到用户数据目录。" if error == OK else "战役保存失败。"
+	return error == OK
+
+func restore_world(path: String = "user://augustus-world.json") -> bool:
+	set_running(false)
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		status.text = "没有可读取的战役存档。"
+		return false
+	var snapshot := file.get_as_text()
+	file.close()
+	var packet: Dictionary = JSON.parse_string(session.restore_snapshot(snapshot))
+	if not packet.ok:
+		status.text = packet.error
+		return false
+	refresh_calendar()
+	select_country(country_choice.selected, false)
+	status.text = "已恢复战役，当前暂停。"
 	return true
 
 func rgb(values: Array) -> Color:
@@ -191,12 +280,13 @@ func shown(value: Variant) -> String:
 		return str(int(value))
 	return str(value)
 
-func select_country(index: int) -> void:
+func select_country(index: int, reset_scroll: bool = true) -> void:
 	if country_choice.item_count == 0:
 		return
 	var id: String = country_choice.get_item_metadata(index)
 	selection_revision += 1
-	details_scroll.scroll_vertical = 0
+	if reset_scroll:
+		details_scroll.scroll_vertical = 0
 	var packet: Dictionary = JSON.parse_string(session.query_country(id))
 	if not packet.ok:
 		status.text = packet.error
@@ -220,7 +310,12 @@ func select_country(index: int) -> void:
 	if not packet.value.modifiers.is_empty():
 		country_details.text += "\n历史修正：" + ", ".join(packet.value.modifiers)
 	var totals: Dictionary = packet.value.province_attribute_totals
-	country_details.text += "\n省份贡献合计（已接入部分，自治前）\n税收基数 %s · 人力 %s\n完整属性与结算尚未接入" % [scaled(totals.tax_basis.known_subtotal_micros, 1000000), scaled(totals.manpower_contribution.known_subtotal_micros, 1000000)]
+	country_details.text += "\n省份贡献合计（已接入部分，自治前）\n税收基数 %s · 人力 %s\n完整属性与其他结算尚未接入" % [scaled(totals.tax_basis.known_subtotal_micros, 1000000), scaled(totals.manpower_contribution.known_subtotal_micros, 1000000)]
+	var tax: Variant = packet.value.last_monthly_tax
+	if tax != null:
+		country_details.text += "\n最近税收月结\n已知部分 %s · 完整收入 %s\n入账 %s" % [scaled(tax.known_subtotal_milli, 1000), scaled(tax.income_milli, 1000), scaled(tax.credited_milli, 1000)]
+		if not tax.unresolved.is_empty():
+			country_details.text += "\n有 %d 项缺项，收入或余额尚未确定。" % tax.unresolved.size()
 	var areas = packet.value.administrative_areas
 	if areas != null:
 		var known: Array[String] = []

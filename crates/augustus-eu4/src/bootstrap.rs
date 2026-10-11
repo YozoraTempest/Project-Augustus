@@ -6,13 +6,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use augustus_core::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
+use augustus_core::{
+    Calendar, CountryState, InitialWorld, ProvinceClass, ProvinceState, Taxation, WorldDate,
+};
 use jomini::{
     Encoding,
     common::{Date, PdsDate},
     text::{ObjectReader, Operator},
 };
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::administration::{AdministrationDraft, AdministrationReport};
 use crate::attributes::{ATTRIBUTE_NAMES, AttributeDraft, AttributeReport};
@@ -84,6 +87,7 @@ pub struct ProvinceView<'a> {
 
 #[derive(Debug, Serialize)]
 pub struct CountryView<'a> {
+    pub last_monthly_tax: Option<&'a augustus_core::MonthlyTaxAccount>,
     pub government: Option<&'a augustus_core::GovernmentState>,
     pub declared_government_effects: augustus_core::GovernmentEvaluation,
     pub state: &'a CountryState,
@@ -114,10 +118,11 @@ pub struct VanillaWorld {
     pub province_bitmap: PathBuf,
     pub country_sources: BTreeMap<String, Vec<LoadedSource>>,
     pub province_sources: BTreeMap<u32, Vec<LoadedSource>>,
+    content: String,
 }
 
 impl VanillaWorld {
-    /// Loads the supported initial-state fields; no game systems are advanced here.
+    /// Loads the supported initial-state fields and selects calendar/tax rules.
     /// Final-edition rules always target all expansion mechanics, independently of launcher switches.
     pub fn load(path: impl AsRef<Path>, date: &str) -> Result<Self, Error> {
         let root = ContentRoot::open(path)?;
@@ -562,6 +567,22 @@ impl VanillaWorld {
         initial
             .set_attributes(attributes)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        initial
+            .set_calendar(Calendar {
+                start: report.start_date,
+                month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+            })
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        initial
+            .set_taxation(Taxation::new(
+                "tax_after_autonomy",
+                initial
+                    .countries()
+                    .iter()
+                    .map(|c| initial.country_entity(&c.id).expect("registered country"))
+                    .collect(),
+            ))
+            .map_err(|e| Error::caused_by(root.path(), e))?;
         report.countries = initial.countries().len();
         report.provinces = initial.provinces().len();
         for country in initial.countries() {
@@ -572,13 +593,53 @@ impl VanillaWorld {
                 }
             }
         }
+        // Fingerprint canonical supported content. Paths and diagnostics are
+        // excluded, and the initial state is not duplicated inside every save.
+        let mut digest = Sha256::new();
+        digest.update(
+            serde_json::to_vec(&(
+                "augustus-vanilla-calendar-tax:1",
+                report.ruleset,
+                &report.game_version,
+                initial.countries(),
+                initial.provinces(),
+            ))
+            .map_err(|e| Error::caused_by(root.path(), e))?,
+        );
+        digest.update(b"\0");
+        digest.update(
+            initial
+                .world()
+                .save("")
+                .map_err(|e| Error::caused_by(root.path(), e))?
+                .as_bytes(),
+        );
+        let fingerprint: String = digest
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        let content = format!("augustus-vanilla-calendar-tax:1:sha256:{fingerprint}");
         Ok(Self {
             initial,
             report,
             province_bitmap: bitmap.source().into(),
             country_sources,
             province_sources,
+            content,
         })
+    }
+
+    pub fn advance(&mut self, days: u64) -> Result<(), augustus_core::Error> {
+        self.initial.advance(days)
+    }
+
+    pub fn save(&self) -> Result<String, augustus_core::Error> {
+        self.initial.world().save(&self.content)
+    }
+
+    pub fn restore(&mut self, snapshot: &str) -> Result<(), augustus_core::Error> {
+        self.initial.restore(snapshot, &self.content)
     }
 
     pub fn province(&self, id: u32) -> Option<ProvinceView<'_>> {
@@ -647,6 +708,15 @@ impl VanillaWorld {
 
     pub fn country(&self, id: &str) -> Option<CountryView<'_>> {
         self.initial.country(id).map(|state| CountryView {
+            last_monthly_tax: self
+                .initial
+                .world()
+                .taxation()
+                .and_then(|t| t.last_settlement.as_ref())
+                .and_then(|last| {
+                    last.accounts
+                        .get(&self.initial.country_entity(id).expect("registered country"))
+                }),
             government: self
                 .initial
                 .world()

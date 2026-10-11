@@ -22,3 +22,4 @@ godot = { version = "0.5.5", features = ["api-4-7"] }
 rand_chacha = { version = "0.10", features = ["serde"] }
 csv = "1.4"
 image = { version = "0.25", default-features = false, features = ["bmp"] }
+sha2 = "0.11"

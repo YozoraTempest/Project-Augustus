@@ -61,10 +61,60 @@ impl AugustusWorldSession {
             .as_ref()
             .ok_or_else(|| "load a world first".into())
     }
+    fn loaded_mut(&mut self) -> Result<&mut augustus_eu4::VanillaWorld, String> {
+        self.loaded
+            .as_mut()
+            .ok_or_else(|| "load a world first".into())
+    }
 }
 
 #[godot_api]
 impl AugustusWorldSession {
+    #[func]
+    fn advance(&mut self, days: i64) -> GString {
+        let result = (|| {
+            let days = u64::try_from(days).map_err(|_| "days must be nonnegative")?;
+            self.loaded_mut()?
+                .advance(days)
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => self.simulation_view(),
+            Err(error) => world_reply::<()>(Err(error)),
+        }
+    }
+
+    #[func]
+    fn simulation_view(&self) -> GString {
+        world_reply(self.loaded().and_then(|loaded| {
+            let world = loaded.initial.world();
+            Ok(serde_json::json!({"day": world.day(), "date": world.date().map_err(|e| e.to_string())?,
+                "tax_settlements": world.taxation().map(|t| t.settlement_count),
+                "days_until_next_month": world.calendar().map(|c| c.next_month(world.day()).map(|next| next - world.day())).transpose().map_err(|e| e.to_string())?,
+                "last_tax_day": world.taxation().and_then(|t| t.last_settlement.as_ref().map(|s| s.day))}))
+        }))
+    }
+
+    #[func]
+    fn save_snapshot(&self) -> GString {
+        world_reply(
+            self.loaded()
+                .and_then(|loaded| loaded.save().map_err(|e| e.to_string())),
+        )
+    }
+
+    #[func]
+    fn restore_snapshot(&mut self, snapshot: GString) -> GString {
+        match self.loaded_mut().and_then(|loaded| {
+            loaded
+                .restore(&snapshot.to_string())
+                .map_err(|e| e.to_string())
+        }) {
+            Ok(()) => self.simulation_view(),
+            Err(error) => world_reply::<()>(Err(error)),
+        }
+    }
     #[func]
     fn load_world(&mut self, path: GString, date: GString) -> GString {
         match augustus_eu4::VanillaWorld::load(path.to_string(), &date.to_string()) {

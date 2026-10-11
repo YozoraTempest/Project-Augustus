@@ -14,6 +14,7 @@ func check(condition: bool, message: String) -> void:
 func _initialize() -> void:
 	var session := AugustusWorldSession.new()
 	check(not JSON.parse_string(session.query_country("AAA")).ok, "queries require a loaded world")
+	check(not JSON.parse_string(session.advance(1)).ok, "advancement requires a loaded world")
 	check(JSON.parse_string(session.load_world(fixture, "1444.11.11")).ok, "load independent fixture")
 	var alpha: Dictionary = JSON.parse_string(session.query_country("AAA"))
 	check(alpha.value.bound_capital == 2, "country query uses core capital relation")
@@ -33,14 +34,27 @@ func _initialize() -> void:
 	check(north.value.attributes.tax_basis.known_subtotal_micros == 2337500 and north.value.attributes.tax_basis.value_micros == null, "attribute query separates known calculation from complete result")
 	check(north.value.attributes.manpower_contribution.known_subtotal_micros == 831250000, "manpower calculation includes trade good and culture effects")
 	check(alpha.value.province_attribute_totals.tax_basis.known_subtotal_micros == 5100000, "country aggregation includes buildings and trade goods")
+	check(not JSON.parse_string(session.advance(-1)).ok, "negative advancement is rejected")
+	var first_month: Dictionary = JSON.parse_string(session.advance(20))
+	check(first_month.ok and first_month.value.date.year == 1444 and first_month.value.date.month == 12 and first_month.value.date.day == 1, "calendar reaches the first month boundary")
+	check(first_month.value.tax_settlements == 1 and first_month.value.days_until_next_month == 31, "one monthly settlement reaches the binding")
+	var first_tax: Dictionary = JSON.parse_string(session.query_country("AAA"))
+	check(first_tax.value.last_monthly_tax.known_subtotal_milli > 0 and first_tax.value.last_monthly_tax.credited_milli == null, "partial original-style income is not credited")
+	var saved: Dictionary = JSON.parse_string(session.save_snapshot())
+	check(saved.ok, "calendar world can be saved")
+	check(JSON.parse_string(session.advance(345)).value.tax_settlements == 12, "one year executes twelve monthly settlements")
+	check(JSON.parse_string(session.restore_snapshot(saved.value)).value.day == 20, "calendar world resumes a saved boundary")
+	check(JSON.parse_string(session.advance(0)).value.tax_settlements == 1, "restoring a boundary does not repeat settlement")
+	check(not JSON.parse_string(session.restore_snapshot("{}")).ok and JSON.parse_string(session.simulation_view()).value.day == 20, "invalid restore preserves the running world")
 	check(north.value.administration.area == "north_area" and north.value.administration.area_status == "state", "capital area reaches administration query")
 	check(north.value.administration.history_autonomy_delta_micros == 0 and north.value.administration.raw_autonomy_micros == 300000, "initial autonomy includes ordered history effects")
 	check(north.value.administration.effective_autonomy_micros == 0 and north.value.administration.owner_core == "full" and north.value.administration.minimum_autonomy_micros == 0, "baseline full core and capital ceiling reach the query")
 	check(north.value.attributes.tax_after_autonomy.steps.size() == 2 and north.value.attributes.tax_after_autonomy.value_micros == null, "autonomy is an additional stage with explicit missing sources")
 	check(not JSON.parse_string(session.query_province(-1)).ok, "negative province query fails")
 	check(not JSON.parse_string(session.query_province(999)).ok, "unknown province query fails")
+	var before_failed_load: Dictionary = JSON.parse_string(session.query_country("AAA"))
 	check(not JSON.parse_string(session.load_world(fixture, "1444.13.1")).ok, "invalid replacement fails")
-	check(JSON.parse_string(session.query_country("AAA")) == alpha, "failed replacement preserves loaded state")
+	check(JSON.parse_string(session.query_country("AAA")) == before_failed_load, "failed replacement preserves loaded state")
 	check(JSON.parse_string(session.query_province(1)) == north, "queries do not mutate state")
 	var ui = load("res://world.tscn").instantiate()
 	root.add_child.call_deferred(ui)
@@ -92,6 +106,26 @@ func verify_ui(ui: Control) -> void:
 			var position: Vector2 = ui.map_view.global_position + event.position
 			var actual := rendered.get_pixel(roundi(position.x), roundi(position.y))
 			check(actual.is_equal_approx(Color8(50, 180, 140)), "shader displays political owner color")
+		check(ui.advance_world(20), "UI advances the original-style world")
+		check(ui.calendar_label.text.contains("1444.12.01") and ui.calendar_label.text.contains("月结 1 次"), "UI displays the authoritative calendar and settlement count")
+		check(ui.country_details.text.contains("最近税收月结") and ui.country_details.text.contains("余额尚未确定"), "UI explains incomplete monthly receipts")
+		ui.toggle_running()
+		check(ui.running and ui.run_button.text == "暂停", "UI starts continuous day requests")
+		await create_timer(0.3).timeout
+		ui.set_running(false)
+		var paused_day: int = int(JSON.parse_string(ui.session.simulation_view()).value.day)
+		check(paused_day > 20, "continuous mode actually advances the core")
+		await create_timer(0.3).timeout
+		check(int(JSON.parse_string(ui.session.simulation_view()).value.day) == paused_day, "pause stops day requests")
+		var save_path := "user://augustus-calendar-test-%d.json" % OS.get_process_id()
+		if not FileAccess.file_exists(save_path):
+			check(ui.save_world(save_path), "UI writes its own snapshot file")
+			check(ui.advance_world(365), "UI advances after saving")
+			check(ui.restore_world(save_path), "UI reads its snapshot file")
+			check(int(JSON.parse_string(ui.session.simulation_view()).value.day) == paused_day and not ui.running, "UI restore recovers the saved day and remains paused")
+			check(DirAccess.remove_absolute(ProjectSettings.globalize_path(save_path)) == OK, "remove this process's test snapshot")
+		else:
+			check(false, "test snapshot path must be unused")
 	var args := OS.get_cmdline_user_args()
 	for i in args.size():
 		if args[i] == "--country" and i + 1 < args.size():
@@ -101,6 +135,8 @@ func verify_ui(ui: Control) -> void:
 					ui.select_country(index)
 		if args[i] == "--province" and i + 1 < args.size():
 			check(ui.select_province(int(args[i + 1])), "select requested province")
+		if args[i] == "--days" and i + 1 < args.size():
+			check(ui.advance_world(int(args[i + 1])), "advance requested calendar days")
 		if args[i] == "--capture" and i + 1 < args.size():
 			await process_frame
 			await process_frame

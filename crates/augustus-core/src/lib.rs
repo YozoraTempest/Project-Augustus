@@ -8,6 +8,7 @@
 mod administration;
 mod affiliations;
 mod attributes;
+mod calendar;
 mod economy;
 mod governments;
 mod initial;
@@ -15,6 +16,7 @@ mod modifiers;
 mod plan;
 mod politics;
 mod resources;
+mod taxation;
 mod technology;
 mod world;
 
@@ -29,6 +31,7 @@ pub use attributes::{
     AffiliationEffect, AttributeAggregate, AttributeBase, AttributeChannel, AttributeContribution,
     AttributeEvaluation, AttributeFormula, AttributeStep, AttributeTerm, Attributes,
 };
+pub use calendar::Calendar;
 pub use economy::{BuildingDefinition, Economy, ProvinceEconomy, TradeGoodDefinition, TradeNode};
 pub use governments::{
     GovernmentContribution, GovernmentEvaluation, GovernmentMetric, GovernmentReform,
@@ -39,6 +42,7 @@ pub use modifiers::{ModifierDefinition, ModifierInstance, Modifiers};
 pub use plan::{Action, Condition, Plan, Target};
 pub use politics::{CountryPolitics, DiplomaticKind, DiplomaticRelation, PersonState, Politics};
 pub use resources::CountryResources;
+pub use taxation::{MonthlySystem, MonthlyTax, MonthlyTaxAccount, TaxSettlement, Taxation};
 pub use technology::{Technology, TechnologyLevel};
 pub use world::{Entity, EntityId, EntityKind, FieldId, RuleId, Schema, World};
 

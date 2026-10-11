@@ -8,13 +8,26 @@ use std::{path::PathBuf, process::ExitCode};
 #[derive(Parser)]
 #[command(
     version,
-    about = "Load the supported EU4 final-edition initial world state"
+    about = "Load and advance the supported EU4 final-edition world systems"
 )]
 struct Cli {
     #[arg(long)]
     game_root: PathBuf,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
+    /// Advance calendar days and execute supported monthly tax settlements.
+    #[arg(
+        long,
+        default_value_t = 0,
+        conflicts_with = "compare_administration_save"
+    )]
+    days: u64,
+    /// Restore an Augustus snapshot after loading matching local content.
+    #[arg(long, conflicts_with = "compare_administration_save")]
+    load: Option<PathBuf>,
+    /// Save an Augustus snapshot without overwriting an existing file.
+    #[arg(long)]
+    save: Option<PathBuf>,
     #[arg(long)]
     country: Option<String>,
     #[arg(long)]
@@ -33,8 +46,24 @@ struct Cli {
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let loaded = VanillaWorld::load(cli.game_root, &cli.date)?;
-    let mut output = serde_json::json!({"report": loaded.report});
+    let mut loaded = VanillaWorld::load(cli.game_root, &cli.date)?;
+    if let Some(path) = cli.load {
+        loaded.restore(&std::fs::read_to_string(path)?)?;
+    }
+    loaded.advance(cli.days)?;
+    if let Some(path) = cli.save {
+        use std::io::Write;
+        let snapshot = loaded.save()?;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        file.write_all(snapshot.as_bytes())?;
+    }
+    let mut output = serde_json::json!({"report": loaded.report,
+        "simulation": {"day": loaded.initial.world().day(), "date": loaded.initial.world().date()?,
+            "tax_settlements": loaded.initial.world().taxation().map(|t| t.settlement_count),
+            "last_tax_day": loaded.initial.world().taxation().and_then(|t| t.last_settlement.as_ref().map(|s| s.day))}});
     if let Some(path) = cli.compare_administration_save {
         output["administration_comparison"] =
             serde_json::to_value(augustus_eu4::compare_administration_save(&loaded, path)?)?;

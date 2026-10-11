@@ -221,6 +221,22 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             .unwrap(),
         )
         .unwrap();
+    native
+        .set_calendar(augustus_core::Calendar {
+            start: augustus_core::WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            },
+            month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+        })
+        .unwrap();
+    native
+        .set_taxation(augustus_core::Taxation::new(
+            "tax_after_autonomy",
+            [alpha, beta].into_iter().collect(),
+        ))
+        .unwrap();
     assert_eq!(loaded.initial.world(), &native);
     let earlier = VanillaWorld::load(fixture(), "1435.1.1").unwrap();
     assert_eq!(

@@ -2,7 +2,7 @@
 
 本项目通过 Cargo 使用下列依赖，没有复制或修改这些库的源码。实际版本由 Cargo.lock 固定。依赖包保留各自的版权和许可文件；发行包含第三方代码的二进制时，也须保留相应许可要求的声明。
 
-文件处理使用 jomini、walkdir、csv、image 和 thiserror；命令行使用 clap；存档使用 serde 与 serde_json；确定性随机状态使用 rand_chacha；Godot 扩展使用 godot-rust；测试使用 tempfile。下表包含它们的间接依赖和其他目标平台的依赖，依据锁定版本的包元数据整理。
+文件处理使用 jomini、walkdir、csv、image 和 thiserror；命令行使用 clap；存档使用 serde 与 serde_json，内容摘要使用 sha2；确定性随机状态使用 rand_chacha；Godot 扩展使用 godot-rust；测试使用 tempfile。下表包含它们的间接依赖和其他目标平台的依赖，依据锁定版本的包元数据整理。
 
 Godot 引擎本身采用 MIT 许可，不随本仓库分发。若打包引擎，请同时保留 [Godot 版权与第三方声明](https://godotengine.org/license/)。
 
@@ -15,6 +15,7 @@ Godot 引擎本身采用 MIT 许可，不随本仓库分发。若打包引擎，
 | anstyle-wincon | 3.0.11 | MIT OR Apache-2.0 | [上游](https://github.com/rust-cli/anstyle.git) |
 | autocfg | 1.5.1 | Apache-2.0 OR MIT | [上游](https://github.com/cuviper/autocfg) |
 | bitflags | 2.13.2 | MIT OR Apache-2.0 | [上游](https://github.com/bitflags/bitflags) |
+| block-buffer | 0.12.1 | MIT OR Apache-2.0 | [上游](https://github.com/RustCrypto/utils) |
 | bytemuck | 1.25.2 | Zlib OR Apache-2.0 OR MIT | [上游](https://github.com/Lokathor/bytemuck) |
 | byteorder-lite | 0.1.0 | Unlicense OR MIT | [上游](https://github.com/image-rs/byteorder-lite) |
 | cfg-if | 1.0.5 | MIT OR Apache-2.0 | [上游](https://github.com/rust-lang/cfg-if) |
@@ -23,8 +24,12 @@ Godot 引擎本身采用 MIT 许可，不随本仓库分发。若打包引擎，
 | clap_derive | 4.6.7 | MIT OR Apache-2.0 | [上游](https://github.com/clap-rs/clap) |
 | clap_lex | 1.1.1 | MIT OR Apache-2.0 | [上游](https://github.com/clap-rs/clap) |
 | colorchoice | 1.0.5 | MIT OR Apache-2.0 | [上游](https://github.com/rust-cli/anstyle.git) |
+| const-oid | 0.10.2 | Apache-2.0 OR MIT | [上游](https://github.com/RustCrypto/formats) |
+| cpufeatures | 0.3.1 | MIT OR Apache-2.0 | [上游](https://github.com/RustCrypto/utils) |
+| crypto-common | 0.2.2 | MIT OR Apache-2.0 | [上游](https://github.com/RustCrypto/traits) |
 | csv | 1.4.0 | Unlicense/MIT | [上游](https://github.com/BurntSushi/rust-csv) |
 | csv-core | 0.1.13 | Unlicense/MIT | [上游](https://github.com/BurntSushi/rust-csv) |
+| digest | 0.11.3 | MIT OR Apache-2.0 | [上游](https://github.com/RustCrypto/traits) |
 | errno | 0.3.14 | MIT OR Apache-2.0 | [上游](https://github.com/lambda-fairy/rust-errno) |
 | fastrand | 2.5.0 | Apache-2.0 OR MIT | [上游](https://github.com/smol-rs/fastrand) |
 | gdextension-api | 0.5.1 | MPL-2.0 | [上游](https://github.com/godot-rust/gdext) |
@@ -38,6 +43,7 @@ Godot 引擎本身采用 MIT 许可，不随本仓库分发。若打包引擎，
 | godot-ffi | 0.5.5 | MPL-2.0 | [上游](https://github.com/godot-rust/gdext) |
 | godot-macros | 0.5.5 | MPL-2.0 | [上游](https://github.com/godot-rust/gdext) |
 | heck | 0.5.0 | MIT OR Apache-2.0 | [上游](https://github.com/withoutboats/heck) |
+| hybrid-array | 0.4.15 | MIT OR Apache-2.0 | [上游](https://github.com/RustCrypto/hybrid-array) |
 | image | 0.25.10 | MIT OR Apache-2.0 | [上游](https://github.com/image-rs/image) |
 | is_terminal_polyfill | 1.70.2 | MIT OR Apache-2.0 | [上游](https://github.com/polyfill-rs/is_terminal_polyfill) |
 | itoa | 1.0.18 | MIT OR Apache-2.0 | [上游](https://github.com/dtolnay/itoa) |
@@ -65,12 +71,14 @@ Godot 引擎本身采用 MIT 许可，不随本仓库分发。若打包引擎，
 | serde_core | 1.0.229 | MIT OR Apache-2.0 | [上游](https://github.com/serde-rs/serde) |
 | serde_derive | 1.0.229 | MIT OR Apache-2.0 | [上游](https://github.com/serde-rs/serde) |
 | serde_json | 1.0.152 | MIT OR Apache-2.0 | [上游](https://github.com/serde-rs/json) |
+| sha2 | 0.11.0 | MIT OR Apache-2.0 | [上游](https://github.com/RustCrypto/hashes) |
 | strsim | 0.11.1 | MIT | [上游](https://github.com/rapidfuzz/strsim-rs) |
 | syn | 2.0.119 | MIT OR Apache-2.0 | [上游](https://github.com/dtolnay/syn) |
 | syn | 3.0.7 | MIT OR Apache-2.0 | [上游](https://github.com/dtolnay/syn) |
 | tempfile | 3.27.0 | MIT OR Apache-2.0 | [上游](https://github.com/Stebalien/tempfile) |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 | [上游](https://github.com/dtolnay/thiserror) |
 | thiserror-impl | 2.0.21 | MIT OR Apache-2.0 | [上游](https://github.com/dtolnay/thiserror) |
+| typenum | 1.20.1 | MIT OR Apache-2.0 | [上游](https://github.com/paholg/typenum) |
 | unicode-ident | 1.0.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | [上游](https://github.com/dtolnay/unicode-ident) |
 | utf8parse | 0.2.2 | Apache-2.0 OR MIT | [上游](https://github.com/alacritty/vte) |
 | venial | 0.6.1 | MIT | [上游](https://github.com/PoignardAzur/venial) |

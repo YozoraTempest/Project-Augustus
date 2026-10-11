@@ -7,8 +7,9 @@ use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Action, Administration, Affiliations, Attributes, CountryResources, Economy, Error,
-    Governments, Modifiers, Plan, Politics, Target, Technology,
+    Action, Administration, Affiliations, Attributes, Calendar, CountryResources, Economy, Error,
+    Governments, Modifiers, MonthlySystem, MonthlyTax, Plan, Politics, Target, Taxation,
+    Technology, WorldDate,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -85,7 +86,10 @@ pub struct World {
     economy: Economy,
     technology: Technology,
     modifiers: Modifiers,
-    country_resources: BTreeMap<EntityId, CountryResources>,
+    pub(crate) country_resources: BTreeMap<EntityId, CountryResources>,
+    calendar: Option<Calendar>,
+    pub(crate) taxation: Option<Taxation>,
+    monthly_system_id: Option<String>,
     attributes: Attributes,
     administration: Administration,
     affiliations: Affiliations,
@@ -117,6 +121,12 @@ struct Snapshot {
     modifiers: Modifiers,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     country_resources: BTreeMap<EntityId, CountryResources>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    calendar: Option<Calendar>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    taxation: Option<Taxation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    monthly_system_id: Option<String>,
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
     attributes: Attributes,
     #[serde(default, skip_serializing_if = "Administration::is_empty")]
@@ -150,6 +160,9 @@ impl World {
             technology: Technology::default(),
             modifiers: Modifiers::default(),
             country_resources: BTreeMap::new(),
+            calendar: None,
+            taxation: None,
+            monthly_system_id: None,
             attributes: Attributes::default(),
             administration: Administration::default(),
             affiliations: Affiliations::default(),
@@ -270,6 +283,65 @@ impl World {
     pub fn day(&self) -> u64 {
         self.day
     }
+
+    pub fn calendar(&self) -> Option<&Calendar> {
+        self.calendar.as_ref()
+    }
+
+    pub fn date(&self) -> Result<Option<WorldDate>, Error> {
+        self.calendar.as_ref().map(|c| c.date(self.day)).transpose()
+    }
+
+    pub fn taxation(&self) -> Option<&Taxation> {
+        self.taxation.as_ref()
+    }
+
+    pub fn monthly_system_id(&self) -> Option<&str> {
+        self.monthly_system_id.as_deref()
+    }
+
+    /// Select an entire monthly executor before advancing, discarding the
+    /// inactive standard taxation state. The replacement supplies saved state
+    /// through the same World components or schema fields.
+    pub fn select_monthly_system(&mut self, system: &dyn MonthlySystem) -> Result<(), Error> {
+        self.require_running()?;
+        if self.day != 0
+            || self.calendar.is_none()
+            || system.id().is_empty()
+            || system.id() == MonthlyTax.id()
+        {
+            return Err(Error::Invalid("invalid monthly system selection".into()));
+        }
+        system.validate(self)?;
+        self.taxation = None;
+        self.monthly_system_id = Some(system.id().into());
+        Ok(())
+    }
+
+    pub fn set_calendar(&mut self, calendar: Calendar) -> Result<(), Error> {
+        self.require_running()?;
+        if self.day != 0 {
+            return Err(Error::Invalid(
+                "calendar must be selected before advancing".into(),
+            ));
+        }
+        calendar.date(0)?;
+        self.calendar = Some(calendar);
+        Ok(())
+    }
+
+    pub fn set_taxation(&mut self, taxation: Taxation) -> Result<(), Error> {
+        self.require_running()?;
+        if self.day != 0 && self.monthly_system_id() != Some(MonthlyTax.id()) {
+            return Err(Error::Invalid(
+                "monthly system cannot change after advancing".into(),
+            ));
+        }
+        taxation.validate(self)?;
+        self.taxation = Some(taxation);
+        self.monthly_system_id = Some(MonthlyTax.id().into());
+        Ok(())
+    }
     pub fn entities(&self) -> &[Entity] {
         &self.entities
     }
@@ -379,20 +451,72 @@ impl World {
         Ok(())
     }
 
-    /// Jump between due tasks; empty dates do not require a per-entity scan.
+    /// Jump between due tasks and monthly settlements. Tasks on a boundary day
+    /// execute in insertion order before taxation reads the resulting state.
     pub fn advance_to(&mut self, day: u64) -> Result<(), Error> {
+        self.require_running()?;
+        match self.monthly_system_id() {
+            None => self.advance_inner(day, None),
+            Some(id) if id == MonthlyTax.id() => self.advance_with_monthly_system(day, &MonthlyTax),
+            Some(_) => Err(Error::Invalid(
+                "selected monthly system requires its matching provider".into(),
+            )),
+        }
+    }
+
+    pub fn advance_with_monthly_system(
+        &mut self,
+        day: u64,
+        system: &dyn MonthlySystem,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        if self.monthly_system_id() != Some(system.id()) {
+            return Err(Error::Invalid(
+                "monthly system identifier does not match".into(),
+            ));
+        }
+        system.validate(self)?;
+        self.advance_inner(day, Some(system))
+    }
+
+    fn advance_inner(&mut self, day: u64, system: Option<&dyn MonthlySystem>) -> Result<(), Error> {
         self.require_running()?;
         if day < self.day {
             return Err(Error::Invalid("cannot advance backwards".into()));
         }
-        while self
-            .tasks
-            .first_key_value()
-            .is_some_and(|(key, _)| key.0 <= day)
-        {
-            let (_, task) = self.tasks.pop_first().expect("checked nonempty queue");
-            self.day = task.day;
-            self.execute(task.current, &task.plan)?;
+        if let Some(calendar) = &self.calendar {
+            calendar.date(day)?;
+        }
+        loop {
+            let month = system
+                .map(|_| {
+                    self.calendar
+                        .as_ref()
+                        .expect("validated calendar")
+                        .next_month(self.day)
+                })
+                .transpose()?;
+            let task_day = self.tasks.first_key_value().map(|(key, _)| key.0);
+            let next = task_day.into_iter().chain(month).min();
+            let Some(next) = next.filter(|&next| next <= day) else {
+                break;
+            };
+            self.day = next;
+            while self
+                .tasks
+                .first_key_value()
+                .is_some_and(|(key, _)| key.0 == next)
+            {
+                let (_, task) = self.tasks.pop_first().expect("checked nonempty queue");
+                self.execute(task.current, &task.plan)?;
+            }
+            if month == Some(next) {
+                let result = system.expect("selected monthly provider").settle(self);
+                if let Err(error) = result {
+                    self.failed = true;
+                    return Err(error);
+                }
+            }
         }
         self.day = day;
         Ok(())
@@ -415,6 +539,9 @@ impl World {
             technology: self.technology.clone(),
             modifiers: self.modifiers.clone(),
             country_resources: self.country_resources.clone(),
+            calendar: self.calendar.clone(),
+            taxation: self.taxation.clone(),
+            monthly_system_id: self.monthly_system_id.clone(),
             attributes: self.attributes.clone(),
             administration: self.administration.clone(),
             affiliations: self.affiliations.clone(),
@@ -453,6 +580,9 @@ impl World {
             technology: snapshot.technology,
             modifiers: snapshot.modifiers,
             country_resources: snapshot.country_resources,
+            calendar: snapshot.calendar,
+            taxation: snapshot.taxation,
+            monthly_system_id: snapshot.monthly_system_id,
             attributes: snapshot.attributes,
             administration: snapshot.administration,
             affiliations: snapshot.affiliations,
@@ -487,6 +617,24 @@ impl World {
         world.affiliations.validate(&world)?;
         world.governments.validate(&world)?;
         world.attributes.validate(&world)?;
+        if let Some(calendar) = &world.calendar {
+            calendar.date(world.day)?;
+        }
+        if let Some(taxation) = &world.taxation {
+            taxation.validate(&world)?;
+        }
+        match world.monthly_system_id() {
+            None if world.taxation.is_none() => {}
+            Some(id)
+                if !id.is_empty()
+                    && world.calendar.is_some()
+                    && (world.taxation.is_some() == (id == MonthlyTax.id())) => {}
+            _ => {
+                return Err(Error::Invalid(
+                    "invalid saved monthly system selection".into(),
+                ));
+            }
+        }
         let mut sequences = std::collections::BTreeSet::new();
         for task in snapshot.tasks {
             if task.day <= world.day

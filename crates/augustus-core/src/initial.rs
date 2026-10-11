@@ -10,7 +10,7 @@ use crate::{
     Error, FieldId, Modifiers, Politics, Schema, Technology, World,
 };
 
-/// A calendar label supplied by the content adapter; no calendar arithmetic is implied.
+/// A date label. Calendar arithmetic is defined by the selected Calendar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct WorldDate {
     pub year: i16,
@@ -208,6 +208,45 @@ impl InitialWorld {
 
     pub fn world(&self) -> &World {
         &self.world
+    }
+
+    pub fn set_calendar(&mut self, calendar: crate::Calendar) -> Result<(), Error> {
+        self.world.set_calendar(calendar)
+    }
+
+    pub fn set_taxation(&mut self, taxation: crate::Taxation) -> Result<(), Error> {
+        self.world.set_taxation(taxation)
+    }
+
+    pub fn advance(&mut self, days: u64) -> Result<(), Error> {
+        self.world
+            .advance_to(self.world.day().checked_add(days).ok_or(Error::Overflow)?)
+    }
+
+    pub fn restore(&mut self, snapshot: &str, content: &str) -> Result<(), Error> {
+        let restored = World::restore(snapshot, content, self.world.schema())?;
+        if restored.entities().len() != self.world.entities().len()
+            || restored.calendar() != self.world.calendar()
+            || restored.monthly_system_id() != self.world.monthly_system_id()
+            || restored
+                .taxation()
+                .map(|t| (&t.annual_attribute, &t.countries))
+                != self
+                    .world
+                    .taxation()
+                    .map(|t| (&t.annual_attribute, &t.countries))
+            || restored
+                .entities()
+                .iter()
+                .zip(self.world.entities())
+                .any(|(a, b)| a.name != b.name || a.kind != b.kind)
+        {
+            return Err(Error::Invalid(
+                "saved entities do not match the loaded world".into(),
+            ));
+        }
+        self.world = restored;
+        Ok(())
     }
 
     pub fn set_technology(&mut self, technology: Technology) -> Result<(), Error> {
