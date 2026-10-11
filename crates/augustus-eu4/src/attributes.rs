@@ -7,18 +7,22 @@ use augustus_core::{
     AttributeBase, AttributeChannel, AttributeFormula, AttributeTerm, Attributes, InitialWorld,
     ProvinceClass, Target,
 };
-use jomini::Encoding;
 use serde::Serialize;
 
 use crate::bootstrap::{direct_txt, equal, source};
-use crate::setup::{PropertyDiagnostics, block, micros, properties};
+use crate::setup::{PropertyDiagnostics, block, properties};
 use crate::{
     ContentRoot, Error, FileEntry, LoadedSource, ParsedText, SetupReport, SourceLocation,
     TextEncoding,
 };
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
-pub(super) const ATTRIBUTE_NAMES: [&str; 2] = ["tax_basis", "manpower_contribution"];
+pub(super) const ATTRIBUTE_NAMES: [&str; 4] = [
+    "tax_basis",
+    "manpower_contribution",
+    "tax_after_autonomy",
+    "manpower_after_autonomy",
+];
 
 #[derive(Debug, Default, Serialize)]
 pub struct AttributeReport {
@@ -66,82 +70,14 @@ fn manpower_define(
     files: &[FileEntry],
     report: &mut AttributeReport,
 ) -> Result<i64, Error> {
-    const KEY: &str = "BASE_MP_TO_MANPOWER";
-    let doc = root.read_text("common/defines.lua", ENCODING)?;
-    let text = ENCODING.decode(doc.bytes());
-    let mut military = false;
-    let mut section_count = 0;
-    let mut amount = None;
-    for (index, line) in text.lines().enumerate() {
-        let clean = line.split_once("--").map_or(line, |(code, _)| code).trim();
-        if clean == "NMilitary = {" {
-            military = true;
-            section_count += 1;
-        } else if military && clean == "}," {
-            military = false;
-        }
-        if !clean.contains(KEY) {
-            continue;
-        }
-        let at = SourceLocation {
-            line: index + 1,
-            column: line.find(KEY).unwrap_or(0) + 1,
-        };
-        let fail = |m: &str| Error::message(doc.source(), m).with_location(at);
-        if !military || section_count != 1 || amount.is_some() {
-            return Err(fail(
-                "manpower define must be a unique literal in NMilitary",
-            ));
-        }
-        let (key, value) = clean
-            .split_once('=')
-            .ok_or_else(|| fail("expected literal manpower define"))?;
-        if key.trim() != KEY {
-            return Err(fail("unsupported manpower define assignment"));
-        }
-        let value = value
-            .trim()
-            .strip_suffix(',')
-            .unwrap_or(value.trim())
-            .trim();
-        let value = micros(value)
-            .filter(|v| *v > 0)
-            .and_then(|v| v.checked_mul(1000))
-            .ok_or_else(|| fail("expected positive literal manpower define"))?;
-        amount = Some(value);
-        report.definition_sources.insert(
-            "define:manpower_per_base".into(),
-            LoadedSource {
-                path: doc.source().into(),
-                line: at.line,
-                column: at.column,
-            },
-        );
-    }
-    let amount =
-        amount.ok_or_else(|| Error::message(doc.source(), "missing literal manpower define"))?;
-    for file in files.iter().filter(|f| {
-        f.relative_path
-            .parent()
-            .is_some_and(|p| p == std::path::Path::new("common/defines"))
-            && f.relative_path.extension().is_some_and(|e| e == "lua")
-    }) {
-        let doc = root.read_text(&file.relative_path, ENCODING)?;
-        let text = ENCODING.decode(doc.bytes());
-        for (index, line) in text.lines().enumerate() {
-            let code = line.split_once("--").map_or(line, |(code, _)| code);
-            if code.contains(KEY) {
-                return Err(Error::message(
-                    doc.source(),
-                    "manpower define override requires unsupported Lua evaluation",
-                )
-                .with_location(SourceLocation {
-                    line: index + 1,
-                    column: code.find(KEY).unwrap_or(0) + 1,
-                }));
-            }
-        }
-    }
+    let (value, at) = crate::defines::literal(root, files, "NMilitary", "BASE_MP_TO_MANPOWER")?;
+    let amount = value
+        .checked_mul(1000)
+        .filter(|v| *v > 0)
+        .ok_or_else(|| Error::message(&at.path, "expected positive literal manpower define"))?;
+    report
+        .definition_sources
+        .insert("define:manpower_per_base".into(), at);
     report.manpower_per_base_micros = amount;
     Ok(amount)
 }
@@ -388,6 +324,21 @@ impl AttributeDraft {
                     maximum_micros: None,
                     unresolved,
                 };
+                let mut after_autonomy = formula.clone();
+                after_autonomy.channels.push(AttributeChannel {
+                    flat: Vec::new(),
+                    rates: vec![AttributeTerm::Autonomy],
+                });
+                after_autonomy.unresolved.remove("autonomy_and_state_rules");
+                after_autonomy
+                    .unresolved
+                    .insert("state_and_core_effects".into());
+                let derived = if name == "tax_basis" {
+                    "tax_after_autonomy"
+                } else {
+                    "manpower_after_autonomy"
+                };
+                formulas.insert(derived.into(), after_autonomy);
                 formulas.insert(name.into(), formula);
             }
             report.province_calculations += formulas.len();
@@ -482,6 +433,7 @@ impl AttributeDraft {
                         );
                     }
                 }
+                AttributeTerm::Autonomy => (),
                 _ => (),
             }
         }

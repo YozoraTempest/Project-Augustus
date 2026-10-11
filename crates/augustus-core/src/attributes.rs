@@ -9,6 +9,8 @@ use crate::{EntityId, EntityKind, Error, FieldId, ModifierDefinition, Target, Wo
 
 const ONE: i128 = 1_000_000;
 
+type ResolvedContributions = (Vec<(String, String, i64)>, bool);
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AttributeBase {
@@ -27,6 +29,8 @@ pub enum AttributeBase {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AttributeTerm {
+    /// A separate multiplicative channel applies one minus effective autonomy.
+    Autonomy,
     Constant {
         source: String,
         micros: i64,
@@ -152,14 +156,17 @@ impl Attributes {
         let mut value = base;
         let mut steps = Vec::new();
         for channel in &formula.channels {
+            let input = value;
             let mut contributions = Vec::new();
             let mut flat = 0_i128;
             let mut rate = 0_i128;
             for (terms, is_rate) in [(&channel.flat, false), (&channel.rates, true)] {
                 for term in terms {
-                    for (source, property, micros) in
-                        self.resolve(world, entity, term, &mut unresolved)?
-                    {
+                    let (resolved, known) = self.resolve(world, entity, term, &mut unresolved)?;
+                    if !known {
+                        value = None;
+                    }
+                    for (source, property, micros) in resolved {
                         if is_rate {
                             rate += i128::from(micros);
                         } else {
@@ -176,7 +183,6 @@ impl Attributes {
             }
             let flat = narrow(flat)?;
             let rate = narrow(rate)?;
-            let input = value;
             value = value
                 .map(|v| {
                     (i128::from(v) + i128::from(flat))
@@ -245,7 +251,12 @@ impl Attributes {
             if let Some(value) = result.known_subtotal_micros {
                 subtotal += i128::from(value);
             } else {
-                unresolved.insert(format!("province:{}:unknown_base", province.name));
+                let missing = if result.base_micros.is_none() {
+                    "unknown_base"
+                } else {
+                    "unknown_calculation"
+                };
+                unresolved.insert(format!("province:{}:{missing}", province.name));
             }
             unresolved.extend(result.unresolved);
         }
@@ -264,7 +275,7 @@ impl Attributes {
         entity: EntityId,
         term: &AttributeTerm,
         unresolved: &mut BTreeSet<String>,
-    ) -> Result<Vec<(String, String, i64)>, Error> {
+    ) -> Result<ResolvedContributions, Error> {
         let mut values = Vec::new();
         let mut append = |source: String,
                           property: &str,
@@ -281,6 +292,29 @@ impl Attributes {
             Ok(())
         };
         match term {
+            AttributeTerm::Autonomy => {
+                if world.administration().provinces.contains_key(&entity) {
+                    let state = world.administration().evaluate(world, entity)?;
+                    unresolved.extend(
+                        state
+                            .unresolved
+                            .into_iter()
+                            .map(|r| format!("administration:{r}")),
+                    );
+                    if let Some(value) = state.effective_autonomy_micros {
+                        values.push((
+                            "administration:autonomy".into(),
+                            "effective_autonomy".into(),
+                            -value,
+                        ));
+                    } else {
+                        return Ok((values, false));
+                    }
+                } else {
+                    unresolved.insert("administration:missing_province".into());
+                    return Ok((values, false));
+                }
+            }
             AttributeTerm::Constant { source, micros } => {
                 values.push((source.clone(), String::new(), *micros))
             }
@@ -348,7 +382,7 @@ impl Attributes {
                 }
             }
         }
-        Ok(values)
+        Ok((values, true))
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
@@ -389,6 +423,12 @@ impl Attributes {
                     .flat_map(|c| c.flat.iter().chain(&c.rates))
                 {
                     let valid = match term {
+                        AttributeTerm::Autonomy => {
+                            world.entity(entity)?.kind == EntityKind::Province
+                                && formula.channels.iter().all(|c| {
+                                    !c.flat.iter().any(|t| matches!(t, AttributeTerm::Autonomy))
+                                })
+                        }
                         AttributeTerm::Constant { source, .. } => !source.is_empty(),
                         AttributeTerm::Static {
                             definition,

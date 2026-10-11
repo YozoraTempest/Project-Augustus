@@ -5,4 +5,7 @@ NDefines = {
     NMilitary = {
         BASE_MP_TO_MANPOWER = 0.25,
     },
+    NEconomy = {
+        CAPITAL_MAX_AUTONOMY = 0,
+    },
 }

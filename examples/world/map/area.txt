@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+north_area = { color = { 20 60 80 } 1 }
+east_area = { 2 }
+sea_area = { 3 }

@@ -6,6 +6,7 @@ max_provinces = 7
 definitions = "definition.csv"
 provinces = "provinces.bmp"
 climate = "climate.txt"
+area = "area.txt"
 sea_starts = { 3 }
 lakes = {}
 only_used_for_random = {}

@@ -2,7 +2,12 @@
   "static_modifiers": {
     "city": {"values_micros": {"local_tax_modifier": 250000}, "flags": {}},
     "occupied": {"values_micros": {"local_tax_modifier": -500000, "local_manpower_modifier": -500000}, "flags": {}},
-    "base_values": {"values_micros": {"global_manpower": 8000000}, "flags": {}}
+    "base_values": {"values_micros": {"global_manpower": 8000000}, "flags": {}},
+    "core": {"values_micros": {}, "flags": {}},
+    "non_core": {"values_micros": {}, "flags": {}},
+    "colonial_core": {"values_micros": {"min_local_autonomy": 35000000}, "flags": {}},
+    "territory_core": {"values_micros": {"min_local_autonomy": 80000000}, "flags": {}},
+    "territory_non_core": {"values_micros": {"min_local_autonomy": 80000000}, "flags": {}}
   },
   "building_modifiers": {
     "test_market": {"values_micros": {"test_power": 500000, "local_tax_modifier": 125000}, "flags": {}},
@@ -17,75 +22,217 @@
     "2": {
       "tax_basis": {
         "base": {"kind": "field", "field": 0, "micros_per_unit": 1000},
-        "channels": [{
-          "flat": [
-            {"kind": "buildings", "property": "tax_income"},
-            {"kind": "trade_good", "property": "tax_income"},
-            {"kind": "modifiers", "target": "Current", "property": "tax_income"}
-          ],
-          "rates": [
-            {"kind": "buildings", "property": "local_tax_modifier"},
-            {"kind": "trade_good", "property": "local_tax_modifier"},
-            {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
-            {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"},
-            {"kind": "static", "definition": "city", "property": "local_tax_modifier"}
-          ]
-        }],
+        "channels": [
+          {
+            "flat": [
+              {"kind": "buildings", "property": "tax_income"},
+              {"kind": "trade_good", "property": "tax_income"},
+              {"kind": "modifiers", "target": "Current", "property": "tax_income"}
+            ],
+            "rates": [
+              {"kind": "buildings", "property": "local_tax_modifier"},
+              {"kind": "trade_good", "property": "local_tax_modifier"},
+              {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
+              {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"},
+              {"kind": "static", "definition": "city", "property": "local_tax_modifier"}
+            ]
+          }
+        ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["autonomy_and_state_rules", "culture_and_religion", "government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison"]
+        "unresolved": [
+          "autonomy_and_state_rules",
+          "culture_and_religion",
+          "government_ideas_estates_and_other_effects",
+          "building_retention_conditions",
+          "original_runtime_comparison"
+        ]
       },
       "manpower_contribution": {
         "base": {"kind": "field", "field": 2, "micros_per_unit": 250000},
-        "channels": [{
-          "flat": [],
-          "rates": [
-            {"kind": "buildings", "property": "local_manpower_modifier"},
-            {"kind": "trade_good", "property": "local_manpower_modifier"},
-            {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
-            {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"},
-            {"kind": "static", "definition": "city", "property": "local_manpower_modifier"}
-          ]
-        }],
+        "channels": [
+          {
+            "flat": [],
+            "rates": [
+              {"kind": "buildings", "property": "local_manpower_modifier"},
+              {"kind": "trade_good", "property": "local_manpower_modifier"},
+              {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
+              {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"},
+              {"kind": "static", "definition": "city", "property": "local_manpower_modifier"}
+            ]
+          }
+        ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["autonomy_and_state_rules", "culture_and_religion", "government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison"]
+        "unresolved": [
+          "autonomy_and_state_rules",
+          "culture_and_religion",
+          "government_ideas_estates_and_other_effects",
+          "building_retention_conditions",
+          "original_runtime_comparison"
+        ]
+      },
+      "tax_after_autonomy": {
+        "base": {"kind": "field", "field": 0, "micros_per_unit": 1000},
+        "channels": [
+          {
+            "flat": [
+              {"kind": "buildings", "property": "tax_income"},
+              {"kind": "trade_good", "property": "tax_income"},
+              {"kind": "modifiers", "target": "Current", "property": "tax_income"}
+            ],
+            "rates": [
+              {"kind": "buildings", "property": "local_tax_modifier"},
+              {"kind": "trade_good", "property": "local_tax_modifier"},
+              {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
+              {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"},
+              {"kind": "static", "definition": "city", "property": "local_tax_modifier"}
+            ]
+          },
+          {"flat": [], "rates": [{"kind": "autonomy"}]}
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "culture_and_religion",
+          "government_ideas_estates_and_other_effects",
+          "building_retention_conditions",
+          "original_runtime_comparison",
+          "state_and_core_effects"
+        ]
+      },
+      "manpower_after_autonomy": {
+        "base": {"kind": "field", "field": 2, "micros_per_unit": 250000},
+        "channels": [
+          {
+            "flat": [],
+            "rates": [
+              {"kind": "buildings", "property": "local_manpower_modifier"},
+              {"kind": "trade_good", "property": "local_manpower_modifier"},
+              {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
+              {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"},
+              {"kind": "static", "definition": "city", "property": "local_manpower_modifier"}
+            ]
+          },
+          {"flat": [], "rates": [{"kind": "autonomy"}]}
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "culture_and_religion",
+          "government_ideas_estates_and_other_effects",
+          "building_retention_conditions",
+          "original_runtime_comparison",
+          "state_and_core_effects"
+        ]
       }
     },
     "3": {
       "tax_basis": {
         "base": {"kind": "field", "field": 0, "micros_per_unit": 1000},
-        "channels": [{
-          "flat": [
-            {"kind": "buildings", "property": "tax_income"},
-            {"kind": "trade_good", "property": "tax_income"},
-            {"kind": "modifiers", "target": "Current", "property": "tax_income"}
-          ],
-          "rates": [
-            {"kind": "buildings", "property": "local_tax_modifier"},
-            {"kind": "trade_good", "property": "local_tax_modifier"},
-            {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
-            {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"}
-          ]
-        }],
+        "channels": [
+          {
+            "flat": [
+              {"kind": "buildings", "property": "tax_income"},
+              {"kind": "trade_good", "property": "tax_income"},
+              {"kind": "modifiers", "target": "Current", "property": "tax_income"}
+            ],
+            "rates": [
+              {"kind": "buildings", "property": "local_tax_modifier"},
+              {"kind": "trade_good", "property": "local_tax_modifier"},
+              {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
+              {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"}
+            ]
+          }
+        ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["autonomy_and_state_rules", "culture_and_religion", "government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "city_status"]
+        "unresolved": [
+          "autonomy_and_state_rules",
+          "culture_and_religion",
+          "government_ideas_estates_and_other_effects",
+          "building_retention_conditions",
+          "original_runtime_comparison",
+          "city_status"
+        ]
       },
       "manpower_contribution": {
         "base": {"kind": "field", "field": 2, "micros_per_unit": 250000},
-        "channels": [{
-          "flat": [],
-          "rates": [
-            {"kind": "buildings", "property": "local_manpower_modifier"},
-            {"kind": "trade_good", "property": "local_manpower_modifier"},
-            {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
-            {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"}
-          ]
-        }],
+        "channels": [
+          {
+            "flat": [],
+            "rates": [
+              {"kind": "buildings", "property": "local_manpower_modifier"},
+              {"kind": "trade_good", "property": "local_manpower_modifier"},
+              {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
+              {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"}
+            ]
+          }
+        ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["autonomy_and_state_rules", "culture_and_religion", "government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "city_status"]
+        "unresolved": [
+          "autonomy_and_state_rules",
+          "culture_and_religion",
+          "government_ideas_estates_and_other_effects",
+          "building_retention_conditions",
+          "original_runtime_comparison",
+          "city_status"
+        ]
+      },
+      "tax_after_autonomy": {
+        "base": {"kind": "field", "field": 0, "micros_per_unit": 1000},
+        "channels": [
+          {
+            "flat": [
+              {"kind": "buildings", "property": "tax_income"},
+              {"kind": "trade_good", "property": "tax_income"},
+              {"kind": "modifiers", "target": "Current", "property": "tax_income"}
+            ],
+            "rates": [
+              {"kind": "buildings", "property": "local_tax_modifier"},
+              {"kind": "trade_good", "property": "local_tax_modifier"},
+              {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
+              {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"}
+            ]
+          },
+          {"flat": [], "rates": [{"kind": "autonomy"}]}
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "culture_and_religion",
+          "government_ideas_estates_and_other_effects",
+          "building_retention_conditions",
+          "original_runtime_comparison",
+          "city_status",
+          "state_and_core_effects"
+        ]
+      },
+      "manpower_after_autonomy": {
+        "base": {"kind": "field", "field": 2, "micros_per_unit": 250000},
+        "channels": [
+          {
+            "flat": [],
+            "rates": [
+              {"kind": "buildings", "property": "local_manpower_modifier"},
+              {"kind": "trade_good", "property": "local_manpower_modifier"},
+              {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
+              {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"}
+            ]
+          },
+          {"flat": [], "rates": [{"kind": "autonomy"}]}
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "culture_and_religion",
+          "government_ideas_estates_and_other_effects",
+          "building_retention_conditions",
+          "original_runtime_comparison",
+          "city_status",
+          "state_and_core_effects"
+        ]
       }
     }
   }

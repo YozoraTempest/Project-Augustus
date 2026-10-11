@@ -14,6 +14,7 @@ use jomini::{
 };
 use serde::Serialize;
 
+use crate::administration::{AdministrationDraft, AdministrationReport};
 use crate::attributes::{ATTRIBUTE_NAMES, AttributeDraft, AttributeReport};
 use crate::economy::{EconomyDraft, EconomyReport};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
@@ -62,6 +63,7 @@ pub struct BootstrapReport {
     pub economy: EconomyReport,
     pub setup: SetupReport,
     pub attributes: AttributeReport,
+    pub administration: AdministrationReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -75,6 +77,7 @@ pub struct ProvinceView<'a> {
     pub modifiers: Vec<&'a str>,
     pub declared_modifier_totals_micros: BTreeMap<String, i64>,
     pub attributes: BTreeMap<String, augustus_core::AttributeEvaluation>,
+    pub administration: Option<augustus_core::AdministrationEvaluation>,
 }
 
 #[derive(Debug, Serialize)]
@@ -90,6 +93,7 @@ pub struct CountryView<'a> {
     pub modifiers: Vec<&'a str>,
     pub declared_modifier_totals_micros: BTreeMap<String, i64>,
     pub province_attribute_totals: BTreeMap<String, augustus_core::AttributeAggregate>,
+    pub administrative_areas: Option<&'a BTreeMap<String, augustus_core::AreaStatus>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -200,6 +204,7 @@ impl VanillaWorld {
             economy: EconomyReport::default(),
             setup: SetupReport::default(),
             attributes: AttributeReport::default(),
+            administration: AdministrationReport::default(),
         };
         let mut provinces = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
@@ -379,6 +384,8 @@ impl VanillaWorld {
         let mut economy = EconomyDraft::load(&root, &files, &mut report.economy)?;
         let mut setup = SetupDraft::load(&root, &files, &mut report.setup)?;
         let attribute_draft = AttributeDraft::load(&root, &files, &mut report.attributes)?;
+        let mut administration =
+            AdministrationDraft::load(&root, &files, &map_parsed, &mut report.administration)?;
         let mut political_drafts = BTreeMap::new();
         let mut country_histories = BTreeSet::new();
         let mut province_histories = BTreeSet::new();
@@ -428,6 +435,12 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
+                AdministrationDraft::country_history(
+                    &parsed,
+                    reader.clone(),
+                    &id,
+                    &mut report.administration,
+                );
                 apply_country(
                     &parsed,
                     reader,
@@ -472,6 +485,12 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
+                administration.province_history(
+                    &parsed,
+                    reader.clone(),
+                    id,
+                    &mut report.administration,
+                )?;
                 apply_province(
                     &parsed,
                     reader,
@@ -505,6 +524,16 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by(root.path(), e))?;
         setup.bind(&mut initial, date, &mut report.setup)?;
         let attributes = attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
+        let administration = administration.bind(
+            &initial,
+            &province_histories,
+            &mut report.administration,
+            &attributes,
+            &report.attributes,
+        )?;
+        initial
+            .set_administration(administration)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
         initial
             .set_attributes(attributes)
             .map_err(|e| Error::caused_by(root.path(), e))?;
@@ -534,6 +563,19 @@ impl VanillaWorld {
         let economic_state = economy.provinces.get(&entity);
         Some(ProvinceView {
             state,
+            administration: self
+                .initial
+                .world()
+                .administration()
+                .provinces
+                .contains_key(&entity)
+                .then(|| {
+                    self.initial
+                        .world()
+                        .administration()
+                        .evaluate(self.initial.world(), entity)
+                        .expect("validated administration")
+                }),
             buildings: economic_state.map(|s| s.buildings.iter().map(String::as_str).collect()),
             trade_node: economy.province_node(entity),
             trade_node_outgoing: economy.province_node(entity).map(|name| {
@@ -580,6 +622,13 @@ impl VanillaWorld {
 
     pub fn country(&self, id: &str) -> Option<CountryView<'_>> {
         self.initial.country(id).map(|state| CountryView {
+            administrative_areas: self.initial.country_entity(id).and_then(|entity| {
+                self.initial
+                    .world()
+                    .administration()
+                    .country_areas
+                    .get(&entity)
+            }),
             state,
             owned_provinces: self.initial.owned_provinces(id),
             bound_capital: self.initial.bound_capital(id),
@@ -999,6 +1048,7 @@ fn apply_province(
                     province.cores.retain(|c| c != &text);
                 }
             }
+            "add_local_autonomy" => (), // Applied and diagnosed by AdministrationDraft.
             "base_tax" | "base_production" | "base_manpower" => {
                 equal(op, &fail)?;
                 let text = value

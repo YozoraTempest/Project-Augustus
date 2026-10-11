@@ -45,6 +45,20 @@ fn world_cli_reports_state_sources_and_query_failures() {
         2656250
     );
     assert!(value["province"]["attributes"]["tax_basis"]["value_micros"].is_null());
+    assert_eq!(value["province"]["administration"]["area"], "north_area");
+    assert_eq!(
+        value["province"]["administration"]["history_autonomy_delta_micros"],
+        250000
+    );
+    assert!(value["province"]["administration"]["raw_autonomy_micros"].is_null());
+    assert_eq!(
+        value["country"]["administrative_areas"]["east_area"],
+        "state"
+    );
+    assert_eq!(
+        value["province"]["attributes"]["tax_after_autonomy"]["steps"][1]["rate_micros"],
+        0
+    );
     assert_eq!(
         value["country"]["province_attribute_totals"]["tax_basis"]["known_subtotal_micros"],
         5100000

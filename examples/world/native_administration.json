@@ -1,0 +1,24 @@
+{
+  "areas": ["east_area", "north_area", "sea_area"],
+  "country_areas": {"0": {"east_area": "state"}, "1": {"north_area": "state"}},
+  "rules": {
+    "state_full_minimum_micros": 0,
+    "state_territorial_minimum_micros": 350000,
+    "state_noncore_minimum_micros": 0,
+    "territory_core_minimum_micros": 800000,
+    "territory_noncore_minimum_micros": 800000,
+    "capital_maximum_micros": 0
+  },
+  "provinces": {
+    "2": {
+      "area": "north_area", "cores_known": true, "cores": {"1": "unspecified"},
+      "raw_autonomy_micros": null, "history_autonomy_delta_micros": 250000,
+      "unresolved": ["other_minimum_autonomy_effects"]
+    },
+    "3": {
+      "area": "east_area", "cores_known": true, "cores": {"0": "unspecified"},
+      "raw_autonomy_micros": null, "history_autonomy_delta_micros": 0,
+      "unresolved": ["other_minimum_autonomy_effects"]
+    }
+  }
+}

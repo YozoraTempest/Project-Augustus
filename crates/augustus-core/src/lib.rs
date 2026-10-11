@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod administration;
 mod attributes;
 mod economy;
 mod initial;
@@ -15,6 +16,10 @@ mod resources;
 mod technology;
 mod world;
 
+pub use administration::{
+    Administration, AdministrationEvaluation, AdministrationRules, AreaStatus, CoreType,
+    ProvinceAdministration,
+};
 pub use attributes::{
     AttributeAggregate, AttributeBase, AttributeChannel, AttributeContribution,
     AttributeEvaluation, AttributeFormula, AttributeStep, AttributeTerm, Attributes,

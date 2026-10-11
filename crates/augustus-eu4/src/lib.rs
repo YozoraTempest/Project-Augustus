@@ -5,9 +5,11 @@
 
 #![forbid(unsafe_code)]
 
+mod administration;
 mod attributes;
 mod bootstrap;
 mod content;
+mod defines;
 mod definitions;
 mod descriptor;
 mod diagnostic;
@@ -18,6 +20,7 @@ mod script;
 mod setup;
 mod text;
 
+pub use administration::AdministrationReport;
 pub use attributes::AttributeReport;
 pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView, VanillaWorld,

@@ -7,8 +7,8 @@ use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Action, Attributes, CountryResources, Economy, Error, Modifiers, Plan, Politics, Target,
-    Technology,
+    Action, Administration, Attributes, CountryResources, Economy, Error, Modifiers, Plan,
+    Politics, Target, Technology,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -87,6 +87,7 @@ pub struct World {
     modifiers: Modifiers,
     country_resources: BTreeMap<EntityId, CountryResources>,
     attributes: Attributes,
+    administration: Administration,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
@@ -116,6 +117,8 @@ struct Snapshot {
     country_resources: BTreeMap<EntityId, CountryResources>,
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
     attributes: Attributes,
+    #[serde(default, skip_serializing_if = "Administration::is_empty")]
+    administration: Administration,
 }
 
 impl World {
@@ -142,6 +145,7 @@ impl World {
             modifiers: Modifiers::default(),
             country_resources: BTreeMap::new(),
             attributes: Attributes::default(),
+            administration: Administration::default(),
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
@@ -158,6 +162,17 @@ impl World {
 
     pub fn attributes(&self) -> &Attributes {
         &self.attributes
+    }
+
+    pub fn administration(&self) -> &Administration {
+        &self.administration
+    }
+
+    pub fn set_administration(&mut self, administration: Administration) -> Result<(), Error> {
+        self.require_running()?;
+        administration.validate(self)?;
+        self.administration = administration;
+        Ok(())
     }
 
     pub fn set_attributes(&mut self, attributes: Attributes) -> Result<(), Error> {
@@ -371,6 +386,7 @@ impl World {
             modifiers: self.modifiers.clone(),
             country_resources: self.country_resources.clone(),
             attributes: self.attributes.clone(),
+            administration: self.administration.clone(),
         })?)
     }
 
@@ -406,6 +422,7 @@ impl World {
             modifiers: snapshot.modifiers,
             country_resources: snapshot.country_resources,
             attributes: snapshot.attributes,
+            administration: snapshot.administration,
         };
         for rule in &world.rules {
             validate_plan(rule, schema, world.rules.len())?;
@@ -432,6 +449,7 @@ impl World {
         world.technology.validate(&world)?;
         world.modifiers.validate(&world)?;
         world.validate_resources(&world.country_resources)?;
+        world.administration.validate(&world)?;
         world.attributes.validate(&world)?;
         let mut sequences = std::collections::BTreeSet::new();
         for task in snapshot.tasks {

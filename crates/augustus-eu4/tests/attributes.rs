@@ -125,9 +125,14 @@ fn expressions_overrides_and_invalid_attribute_shapes_are_rejected() {
             "common/defines.lua",
             "0.25,",
             "0.25 * 2,",
-            "positive literal",
+            "nonnegative literal",
         ),
-        ("common/defines.lua", "0.25,", "-0.25,", "positive literal"),
+        (
+            "common/defines.lua",
+            "0.25,",
+            "-0.25,",
+            "nonnegative literal",
+        ),
         (
             "common/defines.lua",
             "BASE_MP_TO_MANPOWER = 0.25,",

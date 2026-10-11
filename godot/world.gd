@@ -212,6 +212,12 @@ func select_country(index: int) -> void:
 		country_details.text += "\n历史修正：" + ", ".join(packet.value.modifiers)
 	var totals: Dictionary = packet.value.province_attribute_totals
 	country_details.text += "\n省份贡献合计（已接入部分，自治前）\n税收基数 %s · 人力 %s\n完整属性与结算尚未接入" % [scaled(totals.tax_basis.known_subtotal_micros, 1000000), scaled(totals.manpower_contribution.known_subtotal_micros, 1000000)]
+	var areas = packet.value.administrative_areas
+	if areas != null:
+		var known: Array[String] = []
+		for area in areas:
+			known.append("%s（%s）" % [area, "州" if areas[area] == "state" else "领地"])
+		country_details.text += "\n已确定的行政地区：" + "、".join(known)
 	var people: Array[String] = []
 	for role in ["ruler", "heir", "consort"]:
 		var title: String = {"ruler": "君主", "heir": "继承人", "consort": "配偶"}[role]
@@ -274,6 +280,7 @@ func select_province(id: int) -> bool:
 		for key in province.declared_modifier_totals_micros:
 			province_details.text += "\n%s（声明值）：%s" % [labels.get(key, key), scaled(province.declared_modifier_totals_micros[key], 1000000)]
 	province_details.text += attribute_text(province.attributes)
+	province_details.text += administration_text(province.administration)
 	selection_revision += 1
 	reveal_province.call_deferred(selection_revision)
 	return true
@@ -281,8 +288,8 @@ func select_province(id: int) -> bool:
 func attribute_text(attributes: Dictionary) -> String:
 	if attributes.is_empty():
 		return ""
-	var text := "\n属性计算（已接入部分，自治前）"
-	var labels := {"tax_basis": "税收基数", "manpower_contribution": "人力贡献"}
+	var text := "\n属性计算（已接入部分）"
+	var labels := {"tax_basis": "税收基数（自治前）", "manpower_contribution": "人力贡献（自治前）", "tax_after_autonomy": "税收基数（自治折减后）", "manpower_after_autonomy": "人力贡献（自治折减后）"}
 	var missing: Dictionary = {}
 	for name in attributes:
 		var value: Dictionary = attributes[name]
@@ -300,17 +307,39 @@ func attribute_text(attributes: Dictionary) -> String:
 					source_name = "商品 " + source_name.trim_prefix("trade_good:")
 				elif source_name.begins_with("modifier:"):
 					source_name = "历史修正 " + source_name.trim_prefix("modifier:")
+				elif source_name == "administration:autonomy":
+					source_name = "自治折减"
 				var amount: String = "%.4f%%" % (float(contribution.micros) / 10000) if contribution.is_rate else scaled(contribution.micros, 1000000)
 				text += "\n  %s：%s" % [source_name, amount]
 		for reason in value.unresolved:
 			missing[reason] = true
-	var reasons := {"autonomy_and_state_rules": "自治与州规则", "culture_and_religion": "文化与宗教", "government_ideas_estates_and_other_effects": "政体、理念、阶层等效果", "building_retention_conditions": "建筑保留条件", "original_runtime_comparison": "原版运行核对", "city_status": "城市状态"}
+	var reasons := {"autonomy_and_state_rules": "完整自治与州规则", "state_and_core_effects": "州与核心的其他效果", "culture_and_religion": "文化与宗教", "government_ideas_estates_and_other_effects": "政体、理念、阶层等效果", "building_retention_conditions": "建筑保留条件", "original_runtime_comparison": "原版运行核对", "city_status": "城市状态", "administration:area_status": "开局州与领地划分", "administration:core_type": "核心类型", "administration:initial_autonomy": "初始自治度", "administration:minimum_autonomy": "最低自治", "administration:other_minimum_autonomy_effects": "其他最低自治修正", "administration:scoped_country_history": "国家历史中的自治操作"}
 	var descriptions: Array[String] = []
 	for reason in missing:
 		descriptions.append(reasons.get(reason, reason))
 	if not descriptions.is_empty():
 		text += "\n缺项：" + "、".join(descriptions)
 	return text
+
+func administration_text(administration) -> String:
+	if administration == null:
+		return ""
+	var statuses := {"state": "州", "territory": "领地"}
+	var core_types := {"full": "完整核心", "territorial": "领地核心", "unspecified": "已声明核心，类型待确认"}
+	var core_label: String = "无核心" if administration.cores_known else "未知"
+	if administration.owner_core != null:
+		core_label = core_types.get(administration.owner_core, "未知")
+	var text := "\n行政状态\n地区 %s · %s\n所有者核心：%s" % [shown(administration.area), statuses.get(administration.area_status, "州与领地状态未知"), core_label]
+	if administration.is_capital:
+		text += "\n当前首都"
+	elif administration.is_capital_area:
+		text += "\n属于首都地区"
+	text += "\n历史自治追加：%+.4f%%（初始基值未确定）" % (float(administration.history_autonomy_delta_micros) / 10000)
+	text += "\n规则最低自治：%s\n有效自治（已接入规则）：%s" % [autonomy_percent(administration.minimum_autonomy_micros), autonomy_percent(administration.effective_autonomy_micros)]
+	return text
+
+func autonomy_percent(value) -> String:
+	return "未知" if value == null else "%.4f%%" % (float(value) / 10000)
 
 func reveal_province(revision: int) -> void:
 	await get_tree().process_frame

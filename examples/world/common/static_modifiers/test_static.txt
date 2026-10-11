@@ -4,3 +4,8 @@
 city = { local_tax_modifier = 0.25 }
 occupied = { local_tax_modifier = -0.5 local_manpower_modifier = -0.5 }
 base_values = { global_manpower = 8 }
+core = {}
+non_core = {}
+colonial_core = { min_local_autonomy = 35 }
+territory_core = { min_local_autonomy = 80 }
+territory_non_core = { min_local_autonomy = 80 }
