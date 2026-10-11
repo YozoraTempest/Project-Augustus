@@ -1,0 +1,16 @@
+; SPDX-License-Identifier: GPL-3.0-only
+config_version=5
+
+[application]
+config/name="Project Augustus"
+run/main_scene="res://main.tscn"
+
+[display]
+window/size/viewport_width=1100
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.047, 0.067, 0.086, 1)

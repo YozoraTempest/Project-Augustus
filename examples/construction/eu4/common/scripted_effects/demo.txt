@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+record_completion = {
+    change_variable = { which = completed value = 1 }
+}

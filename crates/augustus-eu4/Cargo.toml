@@ -9,6 +9,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+augustus-core = { path = "../augustus-core" }
 jomini.workspace = true
 walkdir.workspace = true
 thiserror.workspace = true

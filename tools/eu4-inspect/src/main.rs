@@ -3,7 +3,7 @@
 
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, DefinitionIndex, DefinitionKind, FileTrace,
-    ModDescriptor, Suppression, TextDocument, TextEncoding,
+    ModDescriptor, ScriptLibrary, Suppression, TextDocument, TextEncoding,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::{collections::BTreeMap, path::PathBuf, process::ExitCode};
@@ -65,6 +65,13 @@ enum Command {
         duplicates: bool,
         #[arg(long, value_enum, default_value_t = EncodingArg::Windows1252)]
         encoding: EncodingArg,
+    },
+    /// List the files used by the scripted-effect or scripted-trigger loader.
+    ScriptFiles {
+        #[command(flatten)]
+        sources: SourcesArgs,
+        #[arg(value_enum)]
+        category: CategoryArg,
     },
 }
 
@@ -251,6 +258,24 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                         print_definition(&content, name, origins);
                     }
                 }
+            }
+        }
+        Command::ScriptFiles { sources, category } => {
+            let content = sources.resolve()?;
+            let files = ScriptLibrary::files(&content, category.into())?;
+            print_sources(&content);
+            println!("Script files: {}", files.len());
+            for (position, (logical_path, origin)) in files.iter().enumerate() {
+                println!(
+                    "{}\t{}\t{}",
+                    position,
+                    logical_path,
+                    content.sources()[origin.source_index]
+                        .root()
+                        .path()
+                        .join(&origin.relative_path)
+                        .display()
+                );
             }
         }
     }

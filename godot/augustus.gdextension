@@ -1,0 +1,10 @@
+; SPDX-License-Identifier: GPL-3.0-only
+[configuration]
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+windows.x86_64 = "res://../target/debug/augustus_godot.dll"
+linux.x86_64 = "res://../target/debug/libaugustus_godot.so"
+macos = "res://../target/debug/libaugustus_godot.dylib"

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "treasury_milli": 1000000,
+  "provinces": [
+    { "name": "Greenfield", "capacity_milli_per_day": 1000 },
+    { "name": "Riverside", "capacity_milli_per_day": 2000 }
+  ],
+  "buildings": [
+    {
+      "id": "market", "name": "Market", "cost_milli": 100000,
+      "work_milli": 30000, "standard_days": 30,
+      "completion": [
+        { "effect": "owner_treasury", "amount_milli": 5000 },
+        { "effect": "variable", "name": "completed", "amount_milli": 1000 },
+        { "effect": "log", "message": "completed:market" }
+      ]
+    },
+    {
+      "id": "workshop", "name": "Workshop", "cost_milli": 250000,
+      "work_milli": 70000, "standard_days": 70,
+      "completion": [
+        { "effect": "owner_treasury", "amount_milli": 12500 },
+        { "effect": "variable", "name": "completed", "amount_milli": 1000 },
+        { "effect": "log", "message": "completed:workshop" }
+      ]
+    }
+  ]
+}

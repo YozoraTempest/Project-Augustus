@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "augustus-demo"
+description = "Self-authored construction scene running on the Augustus core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+augustus-core = { path = "../augustus-core" }
+augustus-eu4 = { path = "../augustus-eu4" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

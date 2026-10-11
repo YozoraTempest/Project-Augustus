@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+if = {
+    limit = { demo_enabled = yes }
+    owner = { add_treasury = 5 }
+    record_completion = yes
+    log = "completed:market"
+}
