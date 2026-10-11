@@ -135,6 +135,14 @@ func verify_ui(ui: Control) -> void:
 				if ui.country_choice.get_item_metadata(index) == args[i + 1]:
 					ui.country_choice.select(index)
 					ui.select_country(index)
+					var country: Dictionary = JSON.parse_string(ui.session.query_country(args[i + 1])).value
+					if country.estates != null:
+						check(ui.country_details.text.contains("阶层"), "country panel displays estate state")
+						for name in country.estates:
+							if country.estates[name].active == true:
+								check(ui.country_details.text.contains(name), "country panel displays active estate")
+								if country.estates[name].loyalty_milli == null:
+									check(ui.country_details.text.contains("忠诚度 未载入"), "country panel preserves unknown estate loyalty")
 		if args[i] == "--province" and i + 1 < args.size():
 			check(ui.select_province(int(args[i + 1])), "select requested province")
 		if args[i] == "--days" and i + 1 < args.size():

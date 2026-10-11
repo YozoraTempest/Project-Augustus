@@ -237,6 +237,9 @@ impl GovernmentDraft {
                 if !seen_flags.insert(field.clone()) {
                     reform.uncertain_flags.insert(field.clone());
                 }
+                if field == "nomad" {
+                    Self::feature(parsed, &key, op, &value, name, reform, report)?;
+                }
                 reform.flags.insert(field, flag);
             } else if field == "revolutionary" {
                 Self::feature(parsed, &key, op, &value, name, reform, report)?;
@@ -358,6 +361,9 @@ impl GovernmentDraft {
                 continue;
             }
             if FLAGS.contains(&name.as_str()) {
+                if name == "nomad" {
+                    reform.effect.features.insert(name.clone(), None);
+                }
                 reform.uncertain_flags.insert(name);
             } else if name == "revolutionary" {
                 reform.effect.features.insert(name, None);

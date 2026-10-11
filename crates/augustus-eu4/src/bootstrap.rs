@@ -21,6 +21,7 @@ use crate::administration::{AdministrationDraft, AdministrationReport};
 use crate::attributes::{ATTRIBUTE_NAMES, AttributeDraft, AttributeReport};
 use crate::country_status::CountryStatusDraft;
 use crate::economy::{EconomyDraft, EconomyReport};
+use crate::estates::{EstateDraft, EstateReport};
 use crate::governments::{GovernmentDraft, GovernmentReport};
 use crate::ideas::{IdeaDraft, IdeaReport};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
@@ -72,6 +73,7 @@ pub struct BootstrapReport {
     pub administration: AdministrationReport,
     pub governments: GovernmentReport,
     pub ideas: IdeaReport,
+    pub estates: EstateReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -90,6 +92,8 @@ pub struct ProvinceView<'a> {
 
 #[derive(Debug, Serialize)]
 pub struct CountryView<'a> {
+    pub estates: Option<&'a BTreeMap<String, augustus_core::EstateState>>,
+    pub declared_estate_effects: augustus_core::EstateEvaluation,
     pub ideas: Option<&'a augustus_core::IdeaState>,
     pub declared_idea_effects: augustus_core::IdeaEvaluation,
     pub last_monthly_tax: Option<&'a augustus_core::MonthlyTaxAccount>,
@@ -221,6 +225,7 @@ impl VanillaWorld {
             administration: AdministrationReport::default(),
             governments: GovernmentReport::default(),
             ideas: IdeaReport::default(),
+            estates: EstateReport::default(),
         };
         let mut provinces = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
@@ -400,6 +405,7 @@ impl VanillaWorld {
         let mut economy = EconomyDraft::load(&root, &files, &mut report.economy)?;
         let mut governments = GovernmentDraft::load(&root, &files, &mut report.governments)?;
         let mut status_draft = CountryStatusDraft::load(&root, &files, &mut report.ideas)?;
+        let mut estates = EstateDraft::load(&root, &files, &mut report.estates)?;
         let mut ideas = IdeaDraft::load(&root, &files, &mut report.ideas)?;
         let mut setup = SetupDraft::load(&root, &files, &mut report.setup)?;
         let attribute_draft = AttributeDraft::load(&root, &files, &mut report.attributes)?;
@@ -455,6 +461,7 @@ impl VanillaWorld {
                 });
             visit_history(&parsed, date, |reader| {
                 status_draft.country_history(&parsed, reader.clone(), &id, &mut report.ideas)?;
+                estates.country_history(&parsed, reader.clone(), &id, &mut report.estates)?;
                 ideas.country_history(&parsed, reader.clone(), &id, &mut report.ideas)?;
                 governments.country_history(
                     &parsed,
@@ -577,6 +584,10 @@ impl VanillaWorld {
         let politics = status_draft.bind(&initial, report.start_date, &mut report.ideas)?;
         initial
             .set_politics(politics)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        let estates = estates.bind(&initial, &mut report.estates);
+        initial
+            .set_estates(estates)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let ideas = ideas.bind(&initial, report.start_date, &mut report.ideas);
         initial
@@ -726,6 +737,16 @@ impl VanillaWorld {
 
     pub fn country(&self, id: &str) -> Option<CountryView<'_>> {
         self.initial.country(id).map(|state| CountryView {
+            estates: self
+                .initial
+                .country_entity(id)
+                .and_then(|entity| self.initial.world().estates().countries.get(&entity)),
+            declared_estate_effects: self
+                .initial
+                .world()
+                .estates()
+                .declared_effects(self.initial.country_entity(id).expect("registered country"))
+                .expect("validated estate effects"),
             ideas: self
                 .initial
                 .country_entity(id)

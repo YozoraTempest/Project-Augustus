@@ -198,6 +198,10 @@ impl InitialWorld {
         self.world.set_affiliations(affiliations)
     }
 
+    pub fn set_estates(&mut self, estates: crate::Estates) -> Result<(), Error> {
+        self.world.set_estates(estates)
+    }
+
     pub fn set_ideas(&mut self, ideas: crate::Ideas) -> Result<(), Error> {
         self.world.set_ideas(ideas)
     }

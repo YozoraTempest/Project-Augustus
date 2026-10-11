@@ -95,6 +95,7 @@ pub struct World {
     affiliations: Affiliations,
     governments: Governments,
     ideas: Ideas,
+    estates: crate::Estates,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
@@ -138,6 +139,8 @@ struct Snapshot {
     governments: Governments,
     #[serde(default, skip_serializing_if = "Ideas::is_empty")]
     ideas: Ideas,
+    #[serde(default, skip_serializing_if = "crate::Estates::is_empty")]
+    estates: crate::Estates,
 }
 
 impl World {
@@ -171,6 +174,7 @@ impl World {
             affiliations: Affiliations::default(),
             governments: Governments::default(),
             ideas: Ideas::default(),
+            estates: crate::Estates::default(),
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
@@ -191,6 +195,17 @@ impl World {
 
     pub fn affiliations(&self) -> &Affiliations {
         &self.affiliations
+    }
+
+    pub fn estates(&self) -> &crate::Estates {
+        &self.estates
+    }
+
+    pub fn set_estates(&mut self, estates: crate::Estates) -> Result<(), Error> {
+        self.require_running()?;
+        estates.validate(self)?;
+        self.estates = estates;
+        Ok(())
     }
 
     pub fn ideas(&self) -> &Ideas {
@@ -562,6 +577,7 @@ impl World {
             affiliations: self.affiliations.clone(),
             governments: self.governments.clone(),
             ideas: self.ideas.clone(),
+            estates: self.estates.clone(),
         })?)
     }
 
@@ -604,6 +620,7 @@ impl World {
             affiliations: snapshot.affiliations,
             governments: snapshot.governments,
             ideas: snapshot.ideas,
+            estates: snapshot.estates,
         };
         for rule in &world.rules {
             validate_plan(rule, schema, world.rules.len())?;
@@ -634,6 +651,7 @@ impl World {
         world.affiliations.validate(&world)?;
         world.governments.validate(&world)?;
         world.ideas.validate(&world)?;
+        world.estates.validate(&world)?;
         world.attributes.validate(&world)?;
         if let Some(calendar) = &world.calendar {
             calendar.date(world.day)?;

@@ -318,6 +318,28 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 		country_details.text += "\n国库 %s · 人力 %s\n重商主义 %s" % [scaled(resources.treasury_milli, 1000), scaled(resources.manpower_milli, 1000), scaled(resources.mercantilism_milli, 1000)]
 	if not packet.value.modifiers.is_empty():
 		country_details.text += "\n历史修正：" + ", ".join(packet.value.modifiers)
+	var estates: Variant = packet.value.estates
+	if estates != null:
+		country_details.text += "\n阶层"
+		var unknown_estates := 0
+		var active_estates := 0
+		for name in estates:
+			var estate: Dictionary = estates[name]
+			if estate.active == null:
+				unknown_estates += 1
+				continue
+			if not estate.active:
+				continue
+			active_estates += 1
+			country_details.text += "\n%s\n忠诚度 %s · 影响力 %s\n土地份额 %s" % [name, scaled(estate.loyalty_milli, 1000), scaled(estate.influence_milli, 1000), autonomy_percent(estate.land_share_micros)]
+			if estate.privileges == null:
+				country_details.text += "\n历史特权尚未确定"
+			elif not estate.privileges.is_empty():
+				country_details.text += "\n历史特权：" + ", ".join(estate.privileges)
+		if active_estates == 0:
+			country_details.text += "\n暂无已确定可用的阶层"
+		if unknown_estates > 0:
+			country_details.text += "\n另有 %d 个阶层的可用条件尚未确定" % unknown_estates
 	var totals: Dictionary = packet.value.province_attribute_totals
 	country_details.text += "\n省份贡献合计（已接入部分，自治前）\n税收基数 %s · 人力 %s\n完整属性与其他结算尚未接入" % [scaled(totals.tax_basis.known_subtotal_micros, 1000000), scaled(totals.manpower_contribution.known_subtotal_micros, 1000000)]
 	var tax: Variant = packet.value.last_monthly_tax
@@ -442,6 +464,8 @@ func attribute_text(attributes: Dictionary) -> String:
 					source_name = "理念完成奖励 " + source_name.trim_prefix("ideas:completion:")
 				elif source_name.begins_with("government:reform:"):
 					source_name = "政体改革 " + source_name.trim_prefix("government:reform:")
+				elif source_name.begins_with("estates:"):
+					source_name = "阶层 " + source_name.trim_prefix("estates:")
 				elif source_name == "government:metric:legitimacy":
 					source_name = "合法性"
 				elif source_name.begins_with("trade_good:"):
@@ -459,7 +483,24 @@ func attribute_text(attributes: Dictionary) -> String:
 	reasons["administration:unknown_category"] = "州、领地或所有者核心状态未知"
 	reasons["administration:missing_province"] = "省份行政状态未知"
 	for reason in missing:
-		descriptions.append(reasons.get(reason, reason))
+		if reason.begins_with("estates:"):
+			var estate_reason := "阶层或特权效果尚未确定"
+			if reason.ends_with("unknown_presence"):
+				estate_reason = "阶层可用条件尚未确定"
+			elif reason.ends_with("unknown_loyalty_band"):
+				estate_reason = "阶层忠诚度及适用效果尚未确定"
+			elif reason.ends_with("unknown_scale"):
+				estate_reason = "阶层影响力或土地份额尚未确定"
+			elif reason.ends_with("unknown_privileges"):
+				estate_reason = "阶层特权尚未确定"
+			elif reason.ends_with("is_valid"):
+				estate_reason = "特权适用条件尚未确定"
+			elif ":unexecuted:" in reason:
+				estate_reason = "特权授予效果尚未执行"
+			if not descriptions.has(estate_reason):
+				descriptions.append(estate_reason)
+		else:
+			descriptions.append(reasons.get(reason, reason))
 	if not descriptions.is_empty():
 		text += "\n缺项：" + "、".join(descriptions)
 	return text

@@ -10,6 +10,7 @@ mod affiliations;
 mod attributes;
 mod calendar;
 mod economy;
+mod estates;
 mod governments;
 mod ideas;
 mod initial;
@@ -34,6 +35,10 @@ pub use attributes::{
 };
 pub use calendar::Calendar;
 pub use economy::{BuildingDefinition, Economy, ProvinceEconomy, TradeGoodDefinition, TradeNode};
+pub use estates::{
+    EstateContribution, EstateDefinition, EstateEffect, EstateEvaluation, EstateInfluenceBand,
+    EstatePrivilege, EstateRules, EstateState, Estates,
+};
 pub use governments::{
     GovernmentContribution, GovernmentEvaluation, GovernmentMetric, GovernmentReform,
     GovernmentState, Governments,

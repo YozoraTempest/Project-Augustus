@@ -328,6 +328,10 @@ impl AttributeDraft {
                             target: Target::Owner,
                             property: global_rate.into(),
                         },
+                        AttributeTerm::Estates {
+                            target: Target::Owner,
+                            property: global_rate.into(),
+                        },
                         AttributeTerm::Ideas {
                             target: Target::Owner,
                             property: global_rate.into(),
