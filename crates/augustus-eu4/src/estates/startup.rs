@@ -817,6 +817,7 @@ fn load_events(
     let library = crate::ScriptLibrary::new();
     let mut definitions = BTreeMap::new();
     let mut conditions = BTreeMap::new();
+    let mut once_events = BTreeSet::new();
     while !needed.is_empty() {
         let requested = std::mem::take(&mut needed);
         let mut found = BTreeSet::new();
@@ -843,6 +844,7 @@ fn load_events(
                 definitions.insert(definition.id.clone(), definition);
             }
             conditions.extend(compiled.conditions);
+            once_events.extend(compiled.once_events);
         }
         if let Some(missing) = requested.difference(&found).next() {
             return Err(Error::message(
@@ -854,6 +856,7 @@ fn load_events(
     }
     EventCatalog::new(definitions.into_values())
         .and_then(|catalog| catalog.with_conditions(conditions))
+        .and_then(|catalog| catalog.with_once_events(once_events))
         .map_err(|e| Error::caused_by("events", e))
 }
 

@@ -62,6 +62,72 @@ fn loyalty(amount: i64) -> Action {
 }
 
 #[test]
+fn startup_once_records_are_global_persistent_and_part_of_content_identity() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={ events={meeting.once meeting.once} country_event={id=meeting.once} }",
+    );
+    let event = "country_event={id=meeting.once is_triggered_only=yes fire_only_once=yes immediate={log=once} option={name=accept country_event={id=meeting.child days=2} country_event={id=meeting.child days=2}}}";
+    write(temp.path(), "events/first.txt", event);
+    write(
+        temp.path(),
+        "events/child.txt",
+        "country_event={id=meeting.child is_triggered_only=yes fire_only_once=yes immediate={log=child} option={name=accept}}",
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.pending_startup_effects.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    assert_eq!(loaded.initial.world().pending_events().len(), 1);
+    assert_eq!(
+        loaded.initial.world().fired_events(),
+        &["meeting.once".into()].into()
+    );
+    let first = loaded.initial.world().pending_events()[0].id;
+    loaded
+        .initial
+        .choose_event(&augustus_core::EventChoice {
+            pending: first,
+            option: "0".into(),
+        })
+        .unwrap();
+    let saved = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&saved).unwrap();
+    loaded.advance(2).unwrap();
+    restored.advance(2).unwrap();
+    assert_eq!(loaded.save().unwrap(), restored.save().unwrap());
+    assert_eq!(loaded.initial.world().pending_events().len(), 1);
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|e| e.2.as_str())
+            .collect::<Vec<_>>(),
+        ["once", "child"]
+    );
+    // Changing an unexecuted child's policy must change immutable content identity.
+    let child = fs::read_to_string(temp.path().join("events/child.txt")).unwrap();
+    write(
+        temp.path(),
+        "events/child.txt",
+        &child.replace("fire_only_once=yes", "fire_only_once=no"),
+    );
+    assert!(
+        VanillaWorld::load(temp.path(), "1444.11.11")
+            .unwrap()
+            .restore(&saved)
+            .is_err()
+    );
+}
+
+#[test]
 fn startup_candidates_run_before_effects_and_restore_the_shared_event_lifecycle() {
     let temp = startup_fixture();
     write(
@@ -202,7 +268,7 @@ fn failed_startup_discards_already_dispatched_pending_events_and_catalog() {
     write(
         temp.path(),
         "events/first.txt",
-        r#"country_event = { id = meeting.first is_triggered_only = yes
+        r#"country_event = { id = meeting.first is_triggered_only = yes fire_only_once = yes
         trigger = { is_emperor = yes } immediate = { log = first save_global_event_target_as = prefix }
         option = { name = accept }
     }"#,
@@ -211,6 +277,7 @@ fn failed_startup_discards_already_dispatched_pending_events_and_catalog() {
     assert_eq!(loaded.report.estates.pending_startup_effects.len(), 1);
     assert!(loaded.initial.world().pending_events().is_empty());
     assert!(loaded.initial.world().events().is_empty());
+    assert!(loaded.initial.world().fired_events().is_empty());
     assert!(loaded.initial.world().global_scopes().is_empty());
     assert!(
         loaded

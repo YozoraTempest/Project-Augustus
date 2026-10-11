@@ -32,6 +32,7 @@ pub struct EventOption {
 pub struct EventCatalog {
     definitions: Arc<BTreeMap<String, EventDefinition>>,
     conditions: Arc<BTreeMap<String, crate::Condition>>,
+    once_events: Arc<BTreeSet<String>>,
 }
 
 impl EventCatalog {
@@ -56,6 +57,7 @@ impl EventCatalog {
         Ok(Self {
             definitions: Arc::new(result),
             conditions: Arc::default(),
+            once_events: Arc::default(),
         })
     }
 
@@ -77,6 +79,19 @@ impl EventCatalog {
 
     pub fn conditions(&self) -> &BTreeMap<String, crate::Condition> {
         &self.conditions
+    }
+
+    /// Events that may complete dispatch only once across a saved session.
+    pub fn with_once_events(mut self, events: BTreeSet<String>) -> Result<Self, Error> {
+        for event in &events {
+            self.get(event)?;
+        }
+        self.once_events = Arc::new(events);
+        Ok(self)
+    }
+
+    pub fn once_events(&self) -> &BTreeSet<String> {
+        &self.once_events
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
@@ -126,11 +141,13 @@ pub struct EventChoice {
 pub(crate) struct EventQueue {
     next_id: u64,
     pending: Vec<PendingEvent>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    fired: BTreeSet<String>,
 }
 
 impl EventQueue {
     pub(crate) fn is_empty(&self) -> bool {
-        self.next_id == 0 && self.pending.is_empty()
+        self.next_id == 0 && self.pending.is_empty() && self.fired.is_empty()
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
@@ -138,6 +155,14 @@ impl EventQueue {
             return Err(Error::Invalid(
                 "event content is required to restore this session".into(),
             ));
+        }
+        for event in &self.fired {
+            world.event_catalog.get(event)?;
+            if self.next_id == 0 || !world.event_catalog.once_events.contains(event) {
+                return Err(Error::Invalid(
+                    "invalid saved once-only event record".into(),
+                ));
+            }
         }
         let mut previous = None;
         for pending in &self.pending {
@@ -152,6 +177,13 @@ impl EventQueue {
             if world.entity(pending.current)?.kind != definition.scope {
                 return Err(Error::Invalid("invalid saved event scope".into()));
             }
+            if world.event_catalog.once_events.contains(&pending.event)
+                && !self.fired.contains(&pending.event)
+            {
+                return Err(Error::Invalid(
+                    "missing saved once-only event record".into(),
+                ));
+            }
         }
         Ok(())
     }
@@ -162,6 +194,9 @@ impl World {
         let definition = self.event_catalog.get(event)?;
         if self.entity(current)?.kind != definition.scope {
             return Err(Error::Invalid("event scope does not match entity".into()));
+        }
+        if self.event_queue.fired.contains(event) {
+            return Ok(false);
         }
         match self.event_catalog.conditions.get(event) {
             Some(condition) => condition.evaluate(self, current),
@@ -204,7 +239,6 @@ impl World {
             return Ok(None);
         }
         self.trigger_event_inner(event, current, budget, depth)
-            .map(Some)
     }
 
     /// Install content before the first event is triggered. Content is not save state.
@@ -227,6 +261,11 @@ impl World {
         &self.event_queue.pending
     }
 
+    /// Completed once-only dispatches, shared by every entity in this session.
+    pub fn fired_events(&self) -> &BTreeSet<String> {
+        &self.event_queue.fired
+    }
+
     /// Explicit dispatch only: candidate generation and AI selection are separate.
     pub fn trigger_event(
         &mut self,
@@ -239,11 +278,20 @@ impl World {
         if self.entity(current)?.kind != definition.scope {
             return Err(Error::Invalid("event scope does not match entity".into()));
         }
+        if self.event_queue.fired.contains(event) {
+            return Err(Error::Invalid(format!(
+                "once-only event {event} has already fired"
+            )));
+        }
         self.event_queue
             .next_id
             .checked_add(1)
             .ok_or(Error::Overflow)?;
-        let result = self.trigger_event_inner(event, current, &mut 100_000, 0);
+        let result = self
+            .trigger_event_inner(event, current, &mut 100_000, 0)
+            .and_then(|pending| {
+                pending.ok_or_else(|| Error::Invalid("event was not dispatched".into()))
+            });
         if result.is_err() {
             self.failed = true;
         }
@@ -256,16 +304,19 @@ impl World {
         current: EntityId,
         budget: &mut usize,
         depth: usize,
-    ) -> Result<PendingEventId, Error> {
-        self.event_queue
-            .next_id
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
+    ) -> Result<Option<PendingEventId>, Error> {
         let catalog = self.event_catalog.clone();
         let definition = catalog.get(event)?;
         if self.entity(current)?.kind != definition.scope {
             return Err(Error::Invalid("event scope does not match entity".into()));
         }
+        if self.event_queue.fired.contains(event) {
+            return Ok(None);
+        }
+        self.event_queue
+            .next_id
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
         self.execute_inner(current, &definition.immediate, budget, depth)?;
         // Nested immediate effects can append their own pending records first.
         let id = PendingEventId(self.event_queue.next_id);
@@ -277,7 +328,11 @@ impl World {
             current,
             day: self.day(),
         });
-        Ok(id)
+        // Registration follows immediate execution, including any nested dispatches.
+        if catalog.once_events.contains(event) {
+            self.event_queue.fired.insert(event.into());
+        }
+        Ok(Some(id))
     }
 
     /// Validate the command before any write, then run option and after in one plan.

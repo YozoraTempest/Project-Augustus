@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace = once
+country_event = { id = once.1 is_triggered_only = yes fire_only_once = yes
+ immediate = { log = once_ready }
+ option = { name = accept country_event = { id = once.1 } log = once_selected }
+ after = { log = once_closed }
+}
+country_event = { id = once.2 is_triggered_only = yes fire_only_once = yes
+ immediate = {
+  change_variable = { which = depth value = 1 }
+  log = enter
+  if = { limit = { check_variable = { which = depth value = 2 } } log = inner }
+  else = { country_event = { id = once.2 } log = outer }
+ }
+ option = { name = accept }
+}
+country_event = { id = once.3 is_triggered_only = yes fire_only_once = yes
+ immediate = { log = delayed } option = { name = accept }
+}
+country_event = { id = once.control is_triggered_only = yes fire_only_once = no
+ immediate = { country_event = { id = once.3 days = 2 } country_event = { id = once.3 days = 2 } }
+ option = { name = accept }
+}

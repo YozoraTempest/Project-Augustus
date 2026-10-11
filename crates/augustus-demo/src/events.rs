@@ -71,10 +71,11 @@ impl EventDemo {
     pub fn embedded(input: Input) -> Result<Self, Error> {
         let scene: Scene =
             serde_json::from_str(include_str!("../../../examples/events/scene.json"))?;
-        let (definitions, conditions) = match input {
+        let (definitions, conditions, once_events) = match input {
             Input::Native => (
                 serde_json::from_str(include_str!("../../../examples/events/events.json"))?,
                 BTreeMap::new(),
+                Default::default(),
             ),
             Input::Eu4 => {
                 let schema = Schema::new(scene.fields.clone())?;
@@ -89,10 +90,14 @@ impl EventDemo {
                         "demo/events.txt",
                         include_str!("../../../examples/events/eu4/events/demo.txt"),
                     ))?;
-                (compiled.definitions, compiled.conditions)
+                (
+                    compiled.definitions,
+                    compiled.conditions,
+                    compiled.once_events,
+                )
             }
         };
-        Self::load(scene, definitions, conditions)
+        Self::load(scene, definitions, conditions, once_events)
     }
 
     pub fn from_directory(root: &Path, input: Input) -> Result<Self, Error> {
@@ -103,16 +108,22 @@ impl EventDemo {
                 .map_err(|error| Error::Invalid(error.to_string()))
         };
         let scene: Scene = serde_json::from_str(&read_json("scene.json")?)?;
-        let (definitions, conditions) = match input {
+        let (definitions, conditions, once_events) = match input {
             Input::Native => {
                 let conditions = if root.path().join("conditions.json").exists() {
                     serde_json::from_str(&read_json("conditions.json")?)?
                 } else {
                     BTreeMap::new()
                 };
+                let once_events = if root.path().join("once_events.json").exists() {
+                    serde_json::from_str(&read_json("once_events.json")?)?
+                } else {
+                    Default::default()
+                };
                 (
                     serde_json::from_str(&read_json("events.json")?)?,
                     conditions,
+                    once_events,
                 )
             }
             Input::Eu4 => {
@@ -124,25 +135,40 @@ impl EventDemo {
                 let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_global_scope_types(scene.global_scope_types.clone())
                     .compile_events(&content.read_text("events/demo.txt", TextEncoding::Utf8)?)?;
-                (compiled.definitions, compiled.conditions)
+                (
+                    compiled.definitions,
+                    compiled.conditions,
+                    compiled.once_events,
+                )
             }
         };
-        Self::load(scene, definitions, conditions)
+        Self::load(scene, definitions, conditions, once_events)
     }
 
     fn load(
         scene: Scene,
         definitions: Vec<EventDefinition>,
         conditions: BTreeMap<String, augustus_core::Condition>,
+        once_events: std::collections::BTreeSet<String>,
     ) -> Result<Self, Error> {
         if scene.version != 1 || scene.entities.is_empty() {
             return Err(Error::Invalid(
                 "expected event scene version 1 and entities".into(),
             ));
         }
-        let catalog = EventCatalog::new(definitions)?.with_conditions(conditions)?;
+        let catalog = EventCatalog::new(definitions)?
+            .with_conditions(conditions)?
+            .with_once_events(once_events)?;
         // Canonical effective content, including initial state and compiled plans.
-        let content = if catalog.conditions().is_empty() {
+        let content = if !catalog.once_events().is_empty() {
+            serde_json::to_string(&(
+                "augustus-events:1",
+                &scene,
+                catalog.definitions(),
+                catalog.conditions(),
+                catalog.once_events(),
+            ))?
+        } else if catalog.conditions().is_empty() {
             serde_json::to_string(&("augustus-events:1", &scene, catalog.definitions()))?
         } else {
             serde_json::to_string(&(

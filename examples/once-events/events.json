@@ -1,0 +1,137 @@
+[
+  {
+    "id": "once.1",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "once_ready"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "TriggerEvent": {
+              "event": "once.1"
+            }
+          },
+          {
+            "Emit": "once_selected"
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "once_closed"
+      }
+    ]
+  },
+  {
+    "id": "once.2",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Add": {
+          "target": "Current",
+          "field": 0,
+          "value": 1000
+        }
+      },
+      {
+        "Emit": "enter"
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "AtLeast": {
+                  "target": "Current",
+                  "field": 0,
+                  "value": 2000
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "inner"
+            }
+          ],
+          "otherwise": [
+            {
+              "TriggerEvent": {
+                "event": "once.2"
+              }
+            },
+            {
+              "Emit": "outer"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "once.3",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "delayed"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "once.control",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Schedule": {
+          "delay": 2,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "once.3"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 2,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "once.3"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

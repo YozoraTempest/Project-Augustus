@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "fields": [
+    "variable/depth"
+  ],
+  "entities": [
+    {
+      "name": "River Union",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Coastal League",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ]
+}

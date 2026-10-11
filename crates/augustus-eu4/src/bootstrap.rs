@@ -654,10 +654,16 @@ impl VanillaWorld {
         let catalog = initial.world().event_catalog();
         if !catalog.definitions().is_empty() {
             digest.update(b"\0events\0");
-            digest.update(
+            let events = if catalog.once_events().is_empty() {
                 serde_json::to_vec(&(catalog.definitions(), catalog.conditions()))
-                    .map_err(|e| Error::caused_by(root.path(), e))?,
-            );
+            } else {
+                serde_json::to_vec(&(
+                    catalog.definitions(),
+                    catalog.conditions(),
+                    catalog.once_events(),
+                ))
+            };
+            digest.update(events.map_err(|e| Error::caused_by(root.path(), e))?);
         }
         let fingerprint: String = digest
             .finalize()

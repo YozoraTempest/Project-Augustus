@@ -196,6 +196,7 @@ pub struct CompiledScript {
 pub struct CompiledEvents {
     pub definitions: Vec<EventDefinition>,
     pub conditions: BTreeMap<String, Condition>,
+    pub once_events: BTreeSet<String>,
     pub sources: Vec<(PathBuf, SourceLocation)>,
     pub folded_branches: usize,
 }
@@ -321,6 +322,7 @@ impl<'a> ScriptCompiler<'a> {
     fn events(&mut self, fields: &[Field]) -> Result<CompiledEvents, Error> {
         let mut definitions = Vec::new();
         let mut conditions = BTreeMap::new();
+        let mut once_events = BTreeSet::new();
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             let scope = match field.name.as_str() {
@@ -348,6 +350,7 @@ impl<'a> ScriptCompiler<'a> {
             let mut seen = std::collections::BTreeSet::new();
             let mut explicit = false;
             let mut condition = None;
+            let mut once = false;
             for part in field.block()? {
                 self.sources.push((part.path.clone(), part.location));
                 if part.name != "option" && !seen.insert(&part.name) {
@@ -361,6 +364,7 @@ impl<'a> ScriptCompiler<'a> {
                             return Err(part.error("automatic event dispatch is not supported"));
                         }
                     }
+                    "fire_only_once" => once = boolean(part)?,
                     "title" | "desc" | "picture" => {
                         part.scalar()?;
                     }
@@ -402,6 +406,9 @@ impl<'a> ScriptCompiler<'a> {
             {
                 return Err(field.error("duplicate event trigger identifier"));
             }
+            if once {
+                once_events.insert(definition.id.clone());
+            }
             definitions.push(definition);
         }
         if self.optimise {
@@ -427,6 +434,7 @@ impl<'a> ScriptCompiler<'a> {
         Ok(CompiledEvents {
             definitions,
             conditions,
+            once_events,
             sources: std::mem::take(&mut self.sources),
             folded_branches: self.folded,
         })

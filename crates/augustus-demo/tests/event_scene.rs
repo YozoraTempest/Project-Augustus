@@ -5,6 +5,85 @@ use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 
 #[test]
+fn once_events_share_registry_reentry_and_delayed_restore_across_inputs() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/once-events");
+    let mut compiled = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(compiled.save().unwrap(), native.save().unwrap());
+    for demo in [&mut compiled, &mut native] {
+        let pending = demo.trigger("once.1", 0).unwrap();
+        demo.candidates(&["once.1".into()], 1).unwrap();
+        let before = demo.save().unwrap();
+        assert!(demo.trigger("once.1", 1).is_err());
+        assert_eq!(demo.save().unwrap(), before);
+        demo.choose(&EventChoice {
+            pending,
+            option: "0".into(),
+        })
+        .unwrap();
+        assert_eq!(demo.trigger("once.2", 0).unwrap(), PendingEventId(2));
+        demo.trigger("once.control", 0).unwrap();
+        demo.advance(1).unwrap();
+    }
+    let saved = compiled.save().unwrap();
+    assert_eq!(saved, native.save().unwrap());
+    native.restore(&saved).unwrap();
+    for demo in [&mut compiled, &mut native] {
+        demo.advance(1).unwrap();
+        for id in 1..=4 {
+            demo.choose(&EventChoice {
+                pending: PendingEventId(id),
+                option: "0".into(),
+            })
+            .unwrap();
+        }
+        demo.trigger("once.control", 1).unwrap();
+        demo.advance(2).unwrap();
+        assert_eq!(demo.world().pending_events().len(), 1);
+        assert_eq!(demo.world().fired_events().len(), 3);
+        assert_eq!(
+            demo.view().unwrap().entities[0].values["variable/depth"],
+            2000
+        );
+        assert_eq!(
+            demo.world()
+                .events()
+                .iter()
+                .map(|e| (e.0, e.2.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (0, "once_ready"),
+                (0, "once_selected"),
+                (0, "once_closed"),
+                (0, "enter"),
+                (0, "enter"),
+                (0, "inner"),
+                (0, "outer"),
+                (2, "delayed")
+            ]
+        );
+    }
+    assert_eq!(compiled.save().unwrap(), native.save().unwrap());
+}
+
+#[test]
+fn once_policy_is_immutable_content_even_before_the_event_is_fired() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/once-events");
+    let temp = tempfile::tempdir().unwrap();
+    for file in ["scene.json", "events.json", "once_events.json"] {
+        std::fs::copy(root.join(file), temp.path().join(file)).unwrap();
+    }
+    let mut demo = EventDemo::from_directory(temp.path(), Input::Native).unwrap();
+    let original = demo.save().unwrap();
+    std::fs::write(temp.path().join("once_events.json"), "[]").unwrap();
+    let mut changed = EventDemo::from_directory(temp.path(), Input::Native).unwrap();
+    assert!(changed.restore(&original).is_err());
+    assert!(demo.restore(&changed.save().unwrap()).is_err());
+    std::fs::write(temp.path().join("once_events.json"), "[\"missing\"]").unwrap();
+    assert!(EventDemo::from_directory(temp.path(), Input::Native).is_err());
+}
+
+#[test]
 fn candidate_batches_and_delayed_conditions_match_across_inputs_and_saved_tasks() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/event-candidates");

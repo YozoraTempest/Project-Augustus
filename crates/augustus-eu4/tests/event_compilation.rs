@@ -25,6 +25,49 @@ fn event_call_fields_compile_to_direct_calls_or_existing_scheduled_plans() {
 }
 
 #[test]
+fn once_policy_survives_compilation_and_call_simplification() {
+    let schema = Schema::new(["treasury"]).unwrap();
+    let library = ScriptLibrary::new();
+    let text = document(
+        "country_event={id=probe.once is_triggered_only=yes fire_only_once=yes immediate={log=once} option={name=accept country_event={id=probe.once}}} country_event={id=probe.repeat is_triggered_only=yes fire_only_once=no immediate={country_event={id=probe.once} country_event={id=probe.once}} option={name=accept}}",
+    );
+    let mut saved = Vec::new();
+    for optimise in [false, true] {
+        let compiled = ScriptCompiler::new(&schema, &library, optimise)
+            .compile_events(&text)
+            .unwrap();
+        assert_eq!(compiled.once_events, ["probe.once".into()].into());
+        let repeat = &compiled.definitions[1].immediate[0];
+        if optimise {
+            assert!(matches!(repeat, Action::TriggerEvent { .. }));
+        } else {
+            assert!(matches!(repeat, Action::TryEvent { .. }));
+        }
+        let catalog = EventCatalog::new(compiled.definitions)
+            .unwrap()
+            .with_conditions(compiled.conditions)
+            .unwrap()
+            .with_once_events(compiled.once_events)
+            .unwrap();
+        let mut world = World::new(schema.clone());
+        let country = world.add_entity("Union", EntityKind::Country);
+        world.set_event_catalog(catalog).unwrap();
+        world.trigger_event("probe.repeat", country).unwrap();
+        world
+            .choose_event(&EventChoice {
+                pending: world.pending_events()[0].id,
+                option: "0".into(),
+            })
+            .unwrap();
+        assert_eq!(world.events().len(), 1);
+        assert_eq!(world.pending_events().len(), 1);
+        assert_eq!(world.fired_events().len(), 1);
+        saved.push(world.save("compiled-once").unwrap());
+    }
+    assert_eq!(saved[0], saved[1]);
+}
+
+#[test]
 fn unsupported_event_call_parameters_and_wrong_scopes_have_source_locations() {
     let schema = Schema::new(["treasury"]).unwrap();
     let library = ScriptLibrary::new();
@@ -121,7 +164,8 @@ fn unsupported_event_semantics_are_diagnostics_even_in_unselected_options() {
     for fragment in [
         "trigger={unsupported_trigger=yes}",
         "mean_time_to_happen={months=10}",
-        "fire_only_once=yes",
+        "fire_only_once=invalid",
+        "fire_only_once=yes fire_only_once=no",
         "hidden=yes",
         "option={name=other ai_chance={factor=1} log=unsupported}",
         "option={name=other trigger={always=yes} log=unsupported}",
