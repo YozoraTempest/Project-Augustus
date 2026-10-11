@@ -244,6 +244,18 @@ func select_province(id: int) -> bool:
 	if province.tax_milli != null and province.production_milli != null and province.manpower_milli != null:
 		development = "%.3f / %.3f / %.3f" % [province.tax_milli / 1000.0, province.production_milli / 1000.0, province.manpower_milli / 1000.0]
 	province_details.text = "%s · %d\n所有者 %s · 控制者 %s\n文化 %s · 宗教 %s\n商品 %s\n税收 / 生产 / 人力：\n%s" % [province.name, province.id, shown(province.owner), shown(province.controller), shown(province.culture), shown(province.religion), shown(province.trade_good), development]
+	if province.trade_good_definition != null:
+		var price: Variant = province.trade_good_definition.base_price_milli
+		province_details.text += "\n商品基础价格：" + ("未声明" if price == null else "%.3f" % (price / 1000.0))
+		if province.trade_good_definition.gold_type == true:
+			province_details.text += "（金矿类）"
+	var buildings := "未载入"
+	if province.buildings != null:
+		buildings = "无历史记载" if province.buildings.is_empty() else ", ".join(province.buildings)
+	province_details.text += "\n历史记载建筑：" + buildings
+	province_details.text += "\n贸易节点：" + shown(province.trade_node)
+	if province.trade_node_outgoing != null:
+		province_details.text += "\n流向：" + ("无下游" if province.trade_node_outgoing.is_empty() else ", ".join(province.trade_node_outgoing))
 	selection_revision += 1
 	reveal_province.call_deferred(selection_revision)
 	return true

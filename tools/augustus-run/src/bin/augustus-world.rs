@@ -21,11 +21,29 @@ struct Cli {
     province: Option<u32>,
     #[arg(long)]
     diplomacy: bool,
+    #[arg(long)]
+    economy: bool,
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let loaded = VanillaWorld::load(cli.game_root, &cli.date)?;
     let mut output = serde_json::json!({"report": loaded.report});
+    if cli.economy {
+        let economy = loaded.initial.world().economy();
+        let province_id = |entity| -> Result<u32, Box<dyn std::error::Error>> {
+            Ok(loaded.initial.world().entity(entity)?.name.parse()?)
+        };
+        let nodes = economy.trade_nodes.iter().map(|(id, node)| {
+            Ok(serde_json::json!({
+                "id": id, "location": province_id(node.location)?,
+                "members": node.members.iter().copied().map(&province_id).collect::<Result<Vec<_>, _>>()?,
+                "outgoing": node.outgoing, "inland": node.inland, "end": node.end,
+            }))
+        }).collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+        output["economy"] = serde_json::json!({
+            "buildings": economy.buildings, "trade_goods": economy.trade_goods, "trade_nodes": nodes,
+        });
+    }
     if cli.diplomacy {
         output["diplomacy"] = serde_json::to_value(loaded.diplomacy())?;
         output["political_offices"] = serde_json::json!(
@@ -52,8 +70,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         output["country_sources"] = serde_json::to_value(&loaded.country_sources[&id])?;
     }
     if let Some(id) = cli.province {
-        output["province"] =
-            serde_json::to_value(loaded.initial.province(id).ok_or("unknown province")?)?;
+        output["province"] = serde_json::to_value(loaded.province(id).ok_or("unknown province")?)?;
         output["province_sources"] = serde_json::to_value(&loaded.province_sources[&id])?;
     }
     println!("{}", serde_json::to_string_pretty(&output)?);

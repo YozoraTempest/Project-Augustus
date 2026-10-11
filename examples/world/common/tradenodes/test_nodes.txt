@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+river = {
+    location = 1
+    inland = yes
+    outgoing = { name = harbor path = { 1 2 } }
+    members = { 1 }
+}
+harbor = {
+    location = 2
+    end = yes
+    members = { 2 3 }
+}

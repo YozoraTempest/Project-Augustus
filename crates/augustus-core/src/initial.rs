@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntityKind, Error, FieldId, Politics, Schema, World};
+use crate::{Economy, EntityId, EntityKind, Error, FieldId, Politics, Schema, World};
 
 /// A calendar label supplied by the content adapter; no calendar arithmetic is implied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
@@ -181,6 +181,10 @@ impl InitialWorld {
 
     pub fn set_politics(&mut self, politics: Politics) -> Result<(), Error> {
         self.world.set_politics(politics)
+    }
+
+    pub fn set_economy(&mut self, economy: Economy) -> Result<(), Error> {
+        self.world.set_economy(economy)
     }
 
     pub fn world(&self) -> &World {

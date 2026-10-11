@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+test_market = { cost = 87.125 time = 9 modifier = { test_power = 0.5 } }
+test_fort = { cost = 200 time = 18 }

@@ -5,11 +5,13 @@
 
 #![forbid(unsafe_code)]
 
+mod economy;
 mod initial;
 mod plan;
 mod politics;
 mod world;
 
+pub use economy::{BuildingDefinition, Economy, ProvinceEconomy, TradeGoodDefinition, TradeNode};
 pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
 pub use plan::{Action, Condition, Plan, Target};
 pub use politics::{CountryPolitics, DiplomaticKind, DiplomaticRelation, PersonState, Politics};

@@ -108,7 +108,6 @@ impl AugustusWorldSession {
         world_reply(self.loaded().and_then(|loaded| {
             let id = u32::try_from(id).map_err(|_| "invalid province identifier")?;
             loaded
-                .initial
                 .province(id)
                 .map(|p| serde_json::json!(p))
                 .ok_or_else(|| "unknown province".into())

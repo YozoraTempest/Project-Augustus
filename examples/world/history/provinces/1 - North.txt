@@ -14,3 +14,7 @@ hre = no
 1430.1.1 = { owner = AAA }
 1440.1.1 = { add_core = BBB base_tax = 2.125 }
 discovered_by = AAA
+test_market = yes
+1450.1.1 = { test_fort = no trade_goods = cloth }
+1440.1.1 = { test_fort = yes }
+1435.1.1 = { test_market = no }

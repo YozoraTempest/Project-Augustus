@@ -14,6 +14,7 @@ use jomini::{
 };
 use serde::Serialize;
 
+use crate::economy::{EconomyDraft, EconomyReport};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
 use crate::{ContentRoot, Error, ParsedText, SourceLocation, TextEncoding};
 
@@ -56,6 +57,17 @@ pub struct BootstrapReport {
     pub unapplied_country_fields: BTreeMap<String, usize>,
     pub unapplied_province_fields: BTreeMap<String, usize>,
     pub unapplied_examples: BTreeMap<String, LoadedSource>,
+    pub economy: EconomyReport,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProvinceView<'a> {
+    #[serde(flatten)]
+    pub state: &'a ProvinceState,
+    pub buildings: Option<Vec<&'a str>>,
+    pub trade_node: Option<&'a str>,
+    pub trade_node_outgoing: Option<Vec<&'a str>>,
+    pub trade_good_definition: Option<&'a augustus_core::TradeGoodDefinition>,
 }
 
 #[derive(Debug, Serialize)]
@@ -173,6 +185,7 @@ impl VanillaWorld {
             unapplied_country_fields: BTreeMap::new(),
             unapplied_province_fields: BTreeMap::new(),
             unapplied_examples: BTreeMap::new(),
+            economy: EconomyReport::default(),
         };
         let mut provinces = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
@@ -349,6 +362,7 @@ impl VanillaWorld {
         if countries.is_empty() || provinces.is_empty() {
             return Err(Error::message(root.path(), "empty world definitions"));
         }
+        let mut economy = EconomyDraft::load(&root, &files, &mut report.economy)?;
         let mut political_drafts = BTreeMap::new();
         let mut country_histories = BTreeSet::new();
         let mut province_histories = BTreeSet::new();
@@ -441,7 +455,7 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
-                apply_province(&parsed, reader, province, &mut report)
+                apply_province(&parsed, reader, province, &mut economy, &mut report)
             })?;
         }
         report.country_history_files = country_histories.len();
@@ -461,6 +475,10 @@ impl VanillaWorld {
         initial
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        let economy = economy.bind(&initial, &province_histories, &mut report.economy)?;
+        initial
+            .set_economy(economy)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
         report.countries = initial.countries().len();
         report.provinces = initial.provinces().len();
         for country in initial.countries() {
@@ -477,6 +495,28 @@ impl VanillaWorld {
             province_bitmap: bitmap.source().into(),
             country_sources,
             province_sources,
+        })
+    }
+
+    pub fn province(&self, id: u32) -> Option<ProvinceView<'_>> {
+        let state = self.initial.province(id)?;
+        let economy = self.initial.world().economy();
+        let entity = self.initial.province_entity(id)?;
+        let economic_state = economy.provinces.get(&entity);
+        Some(ProvinceView {
+            state,
+            buildings: economic_state.map(|s| s.buildings.iter().map(String::as_str).collect()),
+            trade_node: economy.province_node(entity),
+            trade_node_outgoing: economy.province_node(entity).map(|name| {
+                economy.trade_nodes[name]
+                    .outgoing
+                    .iter()
+                    .map(String::as_str)
+                    .collect()
+            }),
+            trade_good_definition: economic_state
+                .and_then(|s| s.trade_good.as_ref())
+                .and_then(|name| economy.trade_goods.get(name)),
         })
     }
 
@@ -791,6 +831,7 @@ fn apply_province(
     parsed: &ParsedText<'_>,
     reader: ObjectReader<'_, '_, TextEncoding>,
     province: &mut ProvinceState,
+    economy: &mut EconomyDraft,
     report: &mut BootstrapReport,
 ) -> Result<(), Error> {
     for (key, op, value) in reader.fields() {
@@ -800,12 +841,34 @@ fn apply_province(
         }
         let location = parsed.field_location(&key);
         let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
+        if economy.is_building(&name) {
+            equal(op, &fail)?;
+            economy.apply_building(
+                parsed,
+                &name,
+                value,
+                province.id,
+                location,
+                &mut report.economy,
+            )?;
+            continue;
+        }
         match name.as_str() {
             "owner" | "controller" | "culture" | "religion" | "trade_goods" => {
                 equal(op, &fail)?;
                 let text = value
                     .read_string()
                     .map_err(|_| fail("expected province history scalar"))?;
+                if name == "trade_goods"
+                    && text != "---"
+                    && !text.is_empty()
+                    && !economy.has_trade_good(&text)
+                {
+                    return Err(fail(&format!(
+                        "province {} references unknown trade good {text}",
+                        province.id
+                    )));
+                }
                 let slot = match name.as_str() {
                     "owner" => &mut province.owner,
                     "controller" => &mut province.controller,

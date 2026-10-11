@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
 
-use crate::{Action, Error, Plan, Politics, Target};
+use crate::{Action, Economy, Error, Plan, Politics, Target};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EntityId(pub usize);
@@ -79,6 +79,7 @@ pub struct World {
     tasks: BTreeMap<(u64, u64), Task>,
     events: Vec<(u64, EntityId, String)>,
     pub(crate) politics: Politics,
+    economy: Economy,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
@@ -98,6 +99,8 @@ struct Snapshot {
     random: ChaCha8Rng,
     #[serde(default, skip_serializing_if = "Politics::is_empty")]
     politics: Politics,
+    #[serde(default, skip_serializing_if = "Economy::is_empty")]
+    economy: Economy,
 }
 
 impl World {
@@ -119,6 +122,7 @@ impl World {
             tasks: BTreeMap::new(),
             events: Vec::new(),
             politics: Politics::default(),
+            economy: Economy::default(),
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
@@ -127,6 +131,17 @@ impl World {
 
     pub fn schema(&self) -> &Schema {
         &self.schema
+    }
+
+    pub fn economy(&self) -> &Economy {
+        &self.economy
+    }
+
+    pub fn set_economy(&mut self, economy: Economy) -> Result<(), Error> {
+        self.require_running()?;
+        economy.validate(self)?;
+        self.economy = economy;
+        Ok(())
     }
     pub fn day(&self) -> u64 {
         self.day
@@ -272,6 +287,7 @@ impl World {
             events: self.events.clone(),
             random: self.random.clone(),
             politics: self.politics.clone(),
+            economy: self.economy.clone(),
         })?)
     }
 
@@ -302,6 +318,7 @@ impl World {
             rules,
             random: snapshot.random,
             politics: snapshot.politics,
+            economy: snapshot.economy,
         };
         for rule in &world.rules {
             validate_plan(rule, schema, world.rules.len())?;
@@ -324,6 +341,7 @@ impl World {
             }
         }
         world.politics.validate(&world)?;
+        world.economy.validate(&world)?;
         let mut sequences = std::collections::BTreeSet::new();
         for task in snapshot.tasks {
             if task.day <= world.day

@@ -9,7 +9,7 @@ fn world_cli_reports_state_sources_and_query_failures() {
     let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
         .arg("--game-root")
         .arg(&fixture)
-        .args(["--country", "AAA", "--province", "1"])
+        .args(["--country", "AAA", "--province", "1", "--economy"])
         .output()
         .unwrap();
     assert!(
@@ -23,6 +23,19 @@ fn world_cli_reports_state_sources_and_query_failures() {
     assert_eq!(value["province_sources"][0]["line"], 2);
     assert_eq!(value["country"]["politics"]["ruler"]["name"], "Iris");
     assert_eq!(value["country"]["diplomacy"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        value["province"]["buildings"],
+        serde_json::json!(["test_fort"])
+    );
+    assert_eq!(value["province"]["trade_node"], "river");
+    assert_eq!(
+        value["economy"]["buildings"]["test_market"]["cost_milli"],
+        87125
+    );
+    assert_eq!(
+        value["economy"]["trade_nodes"][1]["members"],
+        serde_json::json!([1])
+    );
     let all = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
         .arg("--game-root")
         .arg(&fixture)

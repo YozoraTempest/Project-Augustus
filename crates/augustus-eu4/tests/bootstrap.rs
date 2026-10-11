@@ -103,6 +103,33 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
         "offices":{"imperial_emperor":0,"celestial_emperor":1}
     }"#).unwrap();
     native.set_politics(politics).unwrap();
+    native
+        .set_economy(
+            serde_json::from_str(
+                r#"{
+        "buildings": {
+            "test_market":{"cost_milli":87125,"construction_months":9},
+            "test_fort":{"cost_milli":200000,"construction_months":18}
+        },
+        "trade_goods": {
+            "grain":{"base_price_milli":2125},
+            "cloth":{"base_price_milli":3000},
+            "gold":{"base_price_milli":0,"gold_type":true}
+        },
+        "trade_nodes": {
+            "river":{"location":2,"members":[2],"outgoing":["harbor"],"inland":true},
+            "harbor":{"location":3,"members":[3,4],"outgoing":[],"end":true}
+        },
+        "provinces": {
+            "2":{"buildings":["test_fort"],"trade_good":"grain"},
+            "3":{"buildings":["test_market"],"trade_good":"cloth"},
+            "5":{"buildings":[]}
+        }
+    }"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
     assert_eq!(loaded.initial.world(), &native);
     let earlier = VanillaWorld::load(fixture(), "1435.1.1").unwrap();
     assert_eq!(

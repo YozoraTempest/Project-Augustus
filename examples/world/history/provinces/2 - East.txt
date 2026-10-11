@@ -7,3 +7,4 @@ base_manpower = 6
 culture = alpha
 religion = test_faith
 trade_goods = cloth
+test_market = yes

@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+grain = { base_price = 2.125 }
+cloth = { base_price = 3 }
+gold = { base_price = 0 goldtype = yes }

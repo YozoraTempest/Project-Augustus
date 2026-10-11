@@ -23,6 +23,9 @@ func _initialize() -> void:
 	check(alpha.value.diplomacy.size() == 5, "diplomatic relationships reach the UI query")
 	var north: Dictionary = JSON.parse_string(session.query_province(1))
 	check(north.value.owner == "BBB" and north.value.tax_milli == 2125, "dated history reaches the Rust core")
+	check(north.value.buildings == ["test_fort"], "existing buildings reach the province query")
+	check(north.value.trade_good_definition.base_price_milli == 2125, "base price preserves precision")
+	check(north.value.trade_node == "river" and north.value.trade_node_outgoing == ["harbor"], "province query follows the trade graph")
 	check(not JSON.parse_string(session.query_province(-1)).ok, "negative province query fails")
 	check(not JSON.parse_string(session.query_province(999)).ok, "unknown province query fails")
 	check(not JSON.parse_string(session.load_world(fixture, "1444.13.1")).ok, "invalid replacement fails")
@@ -60,6 +63,8 @@ func verify_ui(ui: Control) -> void:
 		check(ui.diplomacy_details.text.contains("贸易联盟成员 BBB"), "country panel preserves trade league meaning")
 		check(ui.province_details.text.contains("North · 1"), "map click follows BMP orientation and letterboxing")
 		check(ui.province_details.text.contains("BBB"), "clicked province displays current owner")
+		check(ui.province_details.text.contains("test_fort") and ui.province_details.text.contains("2.125"), "province panel displays buildings and declared prices")
+		check(ui.province_details.text.contains("river") and ui.province_details.text.contains("harbor"), "province panel displays trade routes")
 		ui.select_country(0)
 		await process_frame
 		await process_frame
