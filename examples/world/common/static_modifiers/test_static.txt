@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+city = { local_tax_modifier = 0.25 }
+occupied = { local_tax_modifier = -0.5 local_manpower_modifier = -0.5 }
+base_values = { global_manpower = 8 }

@@ -210,6 +210,8 @@ func select_country(index: int) -> void:
 		country_details.text += "\n国库 %s · 人力 %s\n重商主义 %s" % [scaled(resources.treasury_milli, 1000), scaled(resources.manpower_milli, 1000), scaled(resources.mercantilism_milli, 1000)]
 	if not packet.value.modifiers.is_empty():
 		country_details.text += "\n历史修正：" + ", ".join(packet.value.modifiers)
+	var totals: Dictionary = packet.value.province_attribute_totals
+	country_details.text += "\n省份贡献合计（已接入部分，自治前）\n税收基数 %s · 人力 %s\n完整属性与结算尚未接入" % [scaled(totals.tax_basis.known_subtotal_micros, 1000000), scaled(totals.manpower_contribution.known_subtotal_micros, 1000000)]
 	var people: Array[String] = []
 	for role in ["ruler", "heir", "consort"]:
 		var title: String = {"ruler": "君主", "heir": "继承人", "consort": "配偶"}[role]
@@ -271,9 +273,44 @@ func select_province(id: int) -> bool:
 		var labels := {"province_trade_power_value": "省份贸易力量", "local_development_cost": "本地发展成本修正", "local_tax_modifier": "本地税收修正"}
 		for key in province.declared_modifier_totals_micros:
 			province_details.text += "\n%s（声明值）：%s" % [labels.get(key, key), scaled(province.declared_modifier_totals_micros[key], 1000000)]
+	province_details.text += attribute_text(province.attributes)
 	selection_revision += 1
 	reveal_province.call_deferred(selection_revision)
 	return true
+
+func attribute_text(attributes: Dictionary) -> String:
+	if attributes.is_empty():
+		return ""
+	var text := "\n属性计算（已接入部分，自治前）"
+	var labels := {"tax_basis": "税收基数", "manpower_contribution": "人力贡献"}
+	var missing: Dictionary = {}
+	for name in attributes:
+		var value: Dictionary = attributes[name]
+		text += "\n%s：%s" % [labels.get(name, name), scaled(value.known_subtotal_micros, 1000000)]
+		for step in value.steps:
+			for contribution in step.contributions:
+				var source_name: String = contribution.source
+				if source_name == "static:city":
+					source_name = "城市"
+				elif source_name == "static:occupied":
+					source_name = "被占领"
+				elif source_name.begins_with("building:"):
+					source_name = "建筑 " + source_name.trim_prefix("building:")
+				elif source_name.begins_with("trade_good:"):
+					source_name = "商品 " + source_name.trim_prefix("trade_good:")
+				elif source_name.begins_with("modifier:"):
+					source_name = "历史修正 " + source_name.trim_prefix("modifier:")
+				var amount: String = "%.4f%%" % (float(contribution.micros) / 10000) if contribution.is_rate else scaled(contribution.micros, 1000000)
+				text += "\n  %s：%s" % [source_name, amount]
+		for reason in value.unresolved:
+			missing[reason] = true
+	var reasons := {"autonomy_and_state_rules": "自治与州规则", "culture_and_religion": "文化与宗教", "government_ideas_estates_and_other_effects": "政体、理念、阶层等效果", "building_retention_conditions": "建筑保留条件", "original_runtime_comparison": "原版运行核对", "city_status": "城市状态"}
+	var descriptions: Array[String] = []
+	for reason in missing:
+		descriptions.append(reasons.get(reason, reason))
+	if not descriptions.is_empty():
+		text += "\n缺项：" + "、".join(descriptions)
+	return text
 
 func reveal_province(revision: int) -> void:
 	await get_tree().process_frame

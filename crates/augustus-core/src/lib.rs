@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod attributes;
 mod economy;
 mod initial;
 mod modifiers;
@@ -14,6 +15,10 @@ mod resources;
 mod technology;
 mod world;
 
+pub use attributes::{
+    AttributeAggregate, AttributeBase, AttributeChannel, AttributeContribution,
+    AttributeEvaluation, AttributeFormula, AttributeStep, AttributeTerm, Attributes,
+};
 pub use economy::{BuildingDefinition, Economy, ProvinceEconomy, TradeGoodDefinition, TradeNode};
 pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
 pub use modifiers::{ModifierDefinition, ModifierInstance, Modifiers};

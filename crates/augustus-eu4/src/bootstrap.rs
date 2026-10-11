@@ -14,6 +14,7 @@ use jomini::{
 };
 use serde::Serialize;
 
+use crate::attributes::{ATTRIBUTE_NAMES, AttributeDraft, AttributeReport};
 use crate::economy::{EconomyDraft, EconomyReport};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
 use crate::setup::{SetupDraft, SetupReport};
@@ -60,6 +61,7 @@ pub struct BootstrapReport {
     pub unapplied_examples: BTreeMap<String, LoadedSource>,
     pub economy: EconomyReport,
     pub setup: SetupReport,
+    pub attributes: AttributeReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -72,6 +74,7 @@ pub struct ProvinceView<'a> {
     pub trade_good_definition: Option<&'a augustus_core::TradeGoodDefinition>,
     pub modifiers: Vec<&'a str>,
     pub declared_modifier_totals_micros: BTreeMap<String, i64>,
+    pub attributes: BTreeMap<String, augustus_core::AttributeEvaluation>,
 }
 
 #[derive(Debug, Serialize)]
@@ -86,6 +89,7 @@ pub struct CountryView<'a> {
     pub resources: Option<&'a augustus_core::CountryResources>,
     pub modifiers: Vec<&'a str>,
     pub declared_modifier_totals_micros: BTreeMap<String, i64>,
+    pub province_attribute_totals: BTreeMap<String, augustus_core::AttributeAggregate>,
 }
 
 #[derive(Debug, Serialize)]
@@ -195,6 +199,7 @@ impl VanillaWorld {
             unapplied_examples: BTreeMap::new(),
             economy: EconomyReport::default(),
             setup: SetupReport::default(),
+            attributes: AttributeReport::default(),
         };
         let mut provinces = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
@@ -373,6 +378,7 @@ impl VanillaWorld {
         }
         let mut economy = EconomyDraft::load(&root, &files, &mut report.economy)?;
         let mut setup = SetupDraft::load(&root, &files, &mut report.setup)?;
+        let attribute_draft = AttributeDraft::load(&root, &files, &mut report.attributes)?;
         let mut political_drafts = BTreeMap::new();
         let mut country_histories = BTreeSet::new();
         let mut province_histories = BTreeSet::new();
@@ -498,6 +504,10 @@ impl VanillaWorld {
             .set_economy(economy)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         setup.bind(&mut initial, date, &mut report.setup)?;
+        let attributes = attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
+        initial
+            .set_attributes(attributes)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
         report.countries = initial.countries().len();
         report.provinces = initial.provinces().len();
         for country in initial.countries() {
@@ -537,6 +547,28 @@ impl VanillaWorld {
                 .and_then(|s| s.trade_good.as_ref())
                 .and_then(|name| economy.trade_goods.get(name)),
             modifiers: self.modifier_names(entity),
+            attributes: self
+                .initial
+                .world()
+                .attributes()
+                .formulas
+                .get(&entity)
+                .map(|formulas| {
+                    formulas
+                        .keys()
+                        .map(|name| {
+                            (
+                                name.clone(),
+                                self.initial
+                                    .world()
+                                    .attributes()
+                                    .evaluate(self.initial.world(), entity, name)
+                                    .expect("validated attributes"),
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             declared_modifier_totals_micros: self
                 .initial
                 .world()
@@ -585,6 +617,23 @@ impl VanillaWorld {
                 .technology()
                 .countries
                 .get(&self.initial.country_entity(id).expect("registered country")),
+            province_attribute_totals: ATTRIBUTE_NAMES
+                .into_iter()
+                .map(|name| {
+                    (
+                        name.into(),
+                        self.initial
+                            .world()
+                            .attributes()
+                            .sum_owned(
+                                self.initial.world(),
+                                self.initial.country_entity(id).expect("registered country"),
+                                name,
+                            )
+                            .expect("validated attribute totals"),
+                    )
+                })
+                .collect(),
             resources: self
                 .initial
                 .world()

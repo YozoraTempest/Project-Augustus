@@ -41,6 +41,15 @@ fn world_cli_reports_state_sources_and_query_failures() {
     assert_eq!(value["country"]["technology"]["administrative"], 3);
     assert_eq!(value["country"]["resources"]["mercantilism_milli"], 18500);
     assert_eq!(
+        value["province"]["attributes"]["tax_basis"]["known_subtotal_micros"],
+        2656250
+    );
+    assert!(value["province"]["attributes"]["tax_basis"]["value_micros"].is_null());
+    assert_eq!(
+        value["country"]["province_attribute_totals"]["tax_basis"]["known_subtotal_micros"],
+        5100000
+    );
+    assert_eq!(
         value["modifier"]["definition"]["values_micros"]["test_growth"],
         -2500
     );

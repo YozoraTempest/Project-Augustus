@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Project Augustus contributors
 
-grain = { color = { 0.9 0.8 0.3 } }
-cloth = { color = { 0.2 0.3 0.8 } }
+grain = { color = { 0.9 0.8 0.3 } province = { local_manpower_modifier = 0.1 } }
+cloth = { color = { 0.2 0.3 0.8 } province = { local_tax_modifier = 0.15 } }
 gold = { color = { 1.0 0.9 0.0 } }

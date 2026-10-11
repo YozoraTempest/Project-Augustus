@@ -80,7 +80,7 @@ fn scalar(
         .map_err(|_| fail("expected setup scalar"))
 }
 
-fn block<'a>(
+pub(super) fn block<'a>(
     value: &ValueReader<'a, 'a, TextEncoding>,
     fail: &impl Fn(&str) -> Error,
 ) -> Result<ObjectReader<'a, 'a, TextEncoding>, Error> {
@@ -107,7 +107,7 @@ fn flag(text: &str) -> Option<bool> {
     }
 }
 
-fn micros(text: &str) -> Option<i64> {
+pub(super) fn micros(text: &str) -> Option<i64> {
     let (negative, text) = text.strip_prefix('-').map_or((false, text), |v| (true, v));
     let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
     if whole.is_empty()
@@ -129,12 +129,41 @@ fn micros(text: &str) -> Option<i64> {
     i64::try_from(if negative { -value } else { value }).ok()
 }
 
-fn properties(
+pub(super) trait PropertyDiagnostics {
+    fn unsupported(
+        &mut self,
+        parsed: &ParsedText<'_>,
+        kind: &str,
+        name: &str,
+        location: SourceLocation,
+    );
+    fn ambiguous(&mut self, key: String, first: LoadedSource, next: LoadedSource);
+}
+
+impl PropertyDiagnostics for SetupReport {
+    fn unsupported(
+        &mut self,
+        parsed: &ParsedText<'_>,
+        kind: &str,
+        name: &str,
+        location: SourceLocation,
+    ) {
+        unknown(parsed, kind, name, location, self);
+    }
+    fn ambiguous(&mut self, key: String, first: LoadedSource, next: LoadedSource) {
+        self.ambiguous_properties
+            .entry(key)
+            .or_insert_with(|| vec![first])
+            .push(next);
+    }
+}
+
+pub(super) fn properties(
     parsed: &ParsedText<'_>,
     reader: ObjectReader<'_, '_, TextEncoding>,
     kind: &str,
     id: &str,
-    report: &mut SetupReport,
+    report: &mut impl PropertyDiagnostics,
 ) -> Result<ModifierDefinition, Error> {
     let mut definition = ModifierDefinition::default();
     let mut seen = BTreeMap::<String, LoadedSource>::new();
@@ -143,7 +172,7 @@ fn properties(
         let location = parsed.field_location(&key);
         let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
         if matches!(name.as_str(), "picture" | "desc") {
-            unknown(parsed, kind, &name, location, report);
+            report.unsupported(parsed, kind, &name, location);
             continue;
         }
         if let Ok(text) = value.read_string() {
@@ -152,11 +181,11 @@ fn properties(
                 if let Some(first) = seen.get(&name) {
                     definition.values_micros.remove(&name);
                     definition.flags.remove(&name);
-                    let origins = report
-                        .ambiguous_properties
-                        .entry(format!("{kind}:{id}:{name}"))
-                        .or_insert_with(|| vec![first.clone()]);
-                    origins.push(source(parsed, location));
+                    report.ambiguous(
+                        format!("{kind}:{id}:{name}"),
+                        first.clone(),
+                        source(parsed, location),
+                    );
                     continue;
                 }
                 seen.insert(name.clone(), source(parsed, location));
@@ -185,7 +214,7 @@ fn properties(
                 ));
             }
         }
-        unknown(parsed, kind, &name, location, report);
+        report.unsupported(parsed, kind, &name, location);
     }
     Ok(definition)
 }

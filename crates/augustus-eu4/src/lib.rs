@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod attributes;
 mod bootstrap;
 mod content;
 mod definitions;
@@ -17,6 +18,7 @@ mod script;
 mod setup;
 mod text;
 
+pub use attributes::AttributeReport;
 pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView, VanillaWorld,
 };

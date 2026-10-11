@@ -189,6 +189,14 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
         },
         "active":{"0":{"test_state":{"hidden":true}},"2":{"test_harbor":{},"test_river":{}}}
     }"#).unwrap()).unwrap();
+    native
+        .set_attributes(
+            serde_json::from_str(include_str!(
+                "../../../examples/world/native_attributes.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
     assert_eq!(loaded.initial.world(), &native);
     let earlier = VanillaWorld::load(fixture(), "1435.1.1").unwrap();
     assert_eq!(
