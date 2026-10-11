@@ -31,6 +31,10 @@ pub enum AttributeBase {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AttributeTerm {
+    Government {
+        target: Target,
+        property: String,
+    },
     /// A separate multiplicative channel applies one minus effective autonomy.
     Autonomy,
     AffiliationRelation {
@@ -318,6 +322,20 @@ impl Attributes {
             Ok(())
         };
         match term {
+            AttributeTerm::Government { target, property } => {
+                if let Some(target) = attribute_target(world, entity, *target)? {
+                    let result = world.governments().property_effects(target, property)?;
+                    unresolved.extend(result.unresolved);
+                    values.extend(
+                        result
+                            .contributions
+                            .into_iter()
+                            .map(|v| (v.source, v.property, v.micros)),
+                    );
+                } else {
+                    unresolved.insert(format!("target:{target:?}:unknown"));
+                }
+            }
             AttributeTerm::AffiliationRelation {
                 dimension,
                 target,
@@ -528,7 +546,8 @@ impl Attributes {
                             world.entity(entity)?.kind == EntityKind::Province
                                 && !property.is_empty()
                         }
-                        AttributeTerm::Modifiers { property, .. } => !property.is_empty(),
+                        AttributeTerm::Modifiers { property, .. }
+                        | AttributeTerm::Government { property, .. } => !property.is_empty(),
                     };
                     if !valid {
                         return Err(Error::Invalid("invalid attribute term".into()));

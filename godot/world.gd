@@ -202,7 +202,16 @@ func select_country(index: int) -> void:
 		status.text = packet.error
 		return
 	var country: Dictionary = packet.value.state
-	country_details.text = "%s · %s\n领土 %d 个省份 · 首都 %s\n文化 %s · 宗教 %s\n政体 %s" % [country.id, country.name, packet.value.owned_provinces.size(), shown(packet.value.bound_capital), shown(country.primary_culture), shown(country.religion), shown(country.government)]
+	var government: Variant = packet.value.government
+	country_details.text = "%s · %s\n领土 %d 个省份 · 首都 %s\n文化 %s · 宗教 %s\n政体 %s" % [country.id, country.name, packet.value.owned_provinces.size(), shown(packet.value.bound_capital), shown(country.primary_culture), shown(country.religion), shown(null if government == null else government.kind)]
+	if government != null:
+		country_details.text += "\n已选改革：" + ("未载入" if government.reforms == null else ", ".join(government.reforms))
+		if government.metrics == null:
+			country_details.text += "\n合法性：适用状态未确定"
+		elif government.metrics.has("legitimacy"):
+			country_details.text += "\n合法性（历史初值）：" + ("未载入" if government.metrics.legitimacy == null else "%.3f" % (float(government.metrics.legitimacy) / 1000.0))
+		else:
+			country_details.text += "\n合法性：此政体不使用"
 	var tech: Variant = packet.value.technology
 	country_details.text += "\n行政 / 外交 / 军事科技：\n" + ("未载入" if tech == null else "%s / %s / %s" % [shown(tech.get("administrative")), shown(tech.get("diplomatic")), shown(tech.get("military"))])
 	var resources: Variant = packet.value.resources
@@ -311,6 +320,10 @@ func attribute_text(attributes: Dictionary) -> String:
 					source_name = "国教 " + source_name.trim_prefix("affiliation:religion:country:")
 				elif source_name.begins_with("building:"):
 					source_name = "建筑 " + source_name.trim_prefix("building:")
+				elif source_name.begins_with("government:reform:"):
+					source_name = "政体改革 " + source_name.trim_prefix("government:reform:")
+				elif source_name == "government:metric:legitimacy":
+					source_name = "合法性"
 				elif source_name.begins_with("trade_good:"):
 					source_name = "商品 " + source_name.trim_prefix("trade_good:")
 				elif source_name.begins_with("modifier:"):

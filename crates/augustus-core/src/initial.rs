@@ -198,6 +198,10 @@ impl InitialWorld {
         self.world.set_affiliations(affiliations)
     }
 
+    pub fn set_governments(&mut self, governments: crate::Governments) -> Result<(), Error> {
+        self.world.set_governments(governments)
+    }
+
     pub fn set_administration(&mut self, administration: Administration) -> Result<(), Error> {
         self.world.set_administration(administration)
     }

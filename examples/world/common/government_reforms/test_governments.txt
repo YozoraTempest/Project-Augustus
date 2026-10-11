@@ -1,0 +1,9 @@
+test_court = {
+    monarchy = yes
+    modifiers = { test_court_effect = 0.25 }
+}
+test_council = {
+    republic = yes
+    modifiers = { test_council_effect = -0.125 }
+}
+test_charter = { modifiers = { test_charter_effect = 0.75 } }

@@ -9,7 +9,8 @@
     "territory_core": {"values_micros": {"min_local_autonomy": 80000000}, "flags": {}},
     "territory_non_core": {"values_micros": {"min_local_autonomy": 80000000}, "flags": {}},
     "same_culture_group": {"values_micros": {"local_tax_modifier": -150000, "local_manpower_modifier": -150000}, "flags": {}},
-    "non_accepted_culture": {"values_micros": {"local_tax_modifier": -330000, "local_manpower_modifier": -330000}, "flags": {}}
+    "non_accepted_culture": {"values_micros": {"local_tax_modifier": -330000, "local_manpower_modifier": -330000}, "flags": {}},
+    "legitimacy": {"values_micros": {"test_authority": 750000}, "flags": {}}
   },
   "building_modifiers": {"test_market": {"values_micros": {"test_power": 500000, "local_tax_modifier": 125000}, "flags": {}}, "test_fort": {"values_micros": {}, "flags": {}}},
   "trade_good_modifiers": {"grain": {"values_micros": {"local_manpower_modifier": 100000}, "flags": {}}, "cloth": {"values_micros": {"local_tax_modifier": 150000}, "flags": {}}, "gold": {"values_micros": {}, "flags": {}}},
@@ -30,6 +31,7 @@
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"},
+              {"kind": "government", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_tax_modifier"},
@@ -51,6 +53,7 @@
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"},
+              {"kind": "government", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"},
@@ -77,6 +80,7 @@
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"},
+              {"kind": "government", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_tax_modifier"},
@@ -99,6 +103,7 @@
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"},
+              {"kind": "government", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"},
@@ -128,6 +133,7 @@
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"},
+              {"kind": "government", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_tax_modifier"}
@@ -148,6 +154,7 @@
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"},
+              {"kind": "government", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"}
@@ -173,6 +180,7 @@
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"},
+              {"kind": "government", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_tax_modifier"}
@@ -194,6 +202,7 @@
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"},
+              {"kind": "government", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"}

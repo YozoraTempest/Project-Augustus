@@ -9,6 +9,7 @@ mod administration;
 mod affiliations;
 mod attributes;
 mod economy;
+mod governments;
 mod initial;
 mod modifiers;
 mod plan;
@@ -29,6 +30,10 @@ pub use attributes::{
     AttributeEvaluation, AttributeFormula, AttributeStep, AttributeTerm, Attributes,
 };
 pub use economy::{BuildingDefinition, Economy, ProvinceEconomy, TradeGoodDefinition, TradeNode};
+pub use governments::{
+    GovernmentContribution, GovernmentEvaluation, GovernmentMetric, GovernmentReform,
+    GovernmentState, Governments,
+};
 pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
 pub use modifiers::{ModifierDefinition, ModifierInstance, Modifiers};
 pub use plan::{Action, Condition, Plan, Target};

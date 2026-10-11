@@ -61,6 +61,7 @@ impl PropertyDiagnostics for AttributeReport {
 
 pub(super) struct AttributeDraft {
     attributes: Attributes,
+    static_unresolved: BTreeMap<String, BTreeSet<String>>,
     manpower_per_base: i64,
 }
 
@@ -95,12 +96,22 @@ fn used_property(name: &str) -> bool {
 }
 
 impl AttributeDraft {
+    pub(super) fn static_modifier(&self, name: &str) -> Option<&augustus_core::ModifierDefinition> {
+        self.attributes.static_modifiers.get(name)
+    }
+    pub(super) fn static_unresolved_properties(&self, name: &str) -> BTreeSet<String> {
+        self.static_unresolved
+            .get(name)
+            .cloned()
+            .unwrap_or_default()
+    }
     pub(super) fn load(
         root: &ContentRoot,
         files: &[FileEntry],
         report: &mut AttributeReport,
     ) -> Result<Self, Error> {
         let mut attributes = Attributes::default();
+        let mut static_unresolved = BTreeMap::new();
         for kind in ["static_modifiers", "buildings", "tradegoods"] {
             for file in files
                 .iter()
@@ -118,7 +129,19 @@ impl AttributeDraft {
                     }
                     let reader = block(&value, &fail)?;
                     let definition = if kind == "static_modifiers" {
-                        properties(&parsed, reader, kind, &name, report)?
+                        let definition = properties(&parsed, reader.clone(), kind, &name, report)?;
+                        static_unresolved.insert(
+                            name.clone(),
+                            reader
+                                .fields()
+                                .map(|(key, _, _)| key.read_string())
+                                .filter(|p| {
+                                    !definition.values_micros.contains_key(p)
+                                        && !definition.flags.contains_key(p)
+                                })
+                                .collect(),
+                        );
+                        definition
                     } else {
                         let field = if kind == "buildings" {
                             "modifier"
@@ -195,6 +218,7 @@ impl AttributeDraft {
         let manpower_per_base = manpower_define(root, files, report)?;
         Ok(Self {
             attributes,
+            static_unresolved,
             manpower_per_base,
         })
     }
@@ -272,6 +296,10 @@ impl AttributeDraft {
                             property: local_rate.into(),
                         },
                         AttributeTerm::Modifiers {
+                            target: Target::Owner,
+                            property: global_rate.into(),
+                        },
+                        AttributeTerm::Government {
                             target: Target::Owner,
                             property: global_rate.into(),
                         },
@@ -585,7 +613,7 @@ impl AttributeDraft {
                         );
                     }
                 }
-                AttributeTerm::Autonomy => (),
+                AttributeTerm::Autonomy | AttributeTerm::Government { .. } => (),
                 _ => (),
             }
         }

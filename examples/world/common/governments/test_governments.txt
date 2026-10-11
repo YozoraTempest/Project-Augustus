@@ -1,0 +1,2 @@
+monarchy = { basic_reform = test_court }
+republic = { basic_reform = test_council }

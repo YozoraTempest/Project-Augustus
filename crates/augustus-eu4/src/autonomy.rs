@@ -685,7 +685,21 @@ impl AutonomyDraft {
         }
         let mut rank = seed.rank?;
         let mut fixed_rank = None;
-        for reform in &seed.reforms {
+        let entity = initial.country_entity(country)?;
+        // Partial histories may declare ranks without a government. When a
+        // government is declared, use its resolved selection, including tier replacements.
+        let reforms = if initial.country(country)?.government.is_some() {
+            initial
+                .world()
+                .governments()
+                .countries
+                .get(&entity)?
+                .reforms
+                .as_ref()?
+        } else {
+            &seed.reforms
+        };
+        for reform in reforms {
             let fixed = self.reform_ranks.get(reform).copied().flatten()?;
             if fixed > 0 {
                 if fixed_rank.is_some_and(|v| v != fixed) {
@@ -697,7 +711,6 @@ impl AutonomyDraft {
         if let Some(fixed) = fixed_rank {
             rank = fixed;
         }
-        let entity = initial.country_entity(country)?;
         for relation in &initial.world().politics().relations {
             if relation.kind == DiplomaticKind::Subject && relation.second == entity {
                 let maximum = self
@@ -818,9 +831,18 @@ fn condition(
     reader: Reader<'_, '_>,
     country: bool,
 ) -> Result<Option<Predicate>, Error> {
+    condition_named(parsed, reader, country, "limit")
+}
+
+fn condition_named(
+    parsed: &ParsedText<'_>,
+    reader: Reader<'_, '_>,
+    country: bool,
+    field: &str,
+) -> Result<Option<Predicate>, Error> {
     let fields: Vec<_> = reader
         .fields()
-        .filter(|(k, _, _)| k.read_string() == "limit")
+        .filter(|(k, _, _)| k.read_string() == field)
         .collect();
     if fields.len() != 1 {
         return Ok(None);
@@ -893,4 +915,30 @@ fn condition(
         Ok(Some(Predicate::And(terms)))
     }
     parse(parsed, block(value, &fail)?, country, 0)
+}
+
+pub(super) fn constant_condition(
+    parsed: &ParsedText<'_>,
+    reader: Reader<'_, '_>,
+    field: &str,
+) -> Result<Option<bool>, Error> {
+    fn test(predicate: &Predicate) -> Option<bool> {
+        match predicate {
+            Predicate::Constant(value) => Some(*value),
+            Predicate::Not(value) => test(value).map(|v| !v),
+            Predicate::And(values) | Predicate::Or(values) => {
+                let and = matches!(predicate, Predicate::And(_));
+                let values = values.iter().map(test).collect::<Option<Vec<_>>>()?;
+                Some(if and {
+                    values.into_iter().all(|v| v)
+                } else {
+                    values.into_iter().any(|v| v)
+                })
+            }
+            _ => None,
+        }
+    }
+    Ok(condition_named(parsed, reader, true, field)?
+        .as_ref()
+        .and_then(test))
 }

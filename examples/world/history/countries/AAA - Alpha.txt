@@ -2,6 +2,8 @@ capital = 1
 primary_culture = alpha
 religion = test_faith
 government = monarchy
+add_government_reform = test_charter
+legitimacy = 75.125
 technology_group = test_group
 1450.1.1 = { capital = 1 }
 1440.1.1 = { capital = 2 }

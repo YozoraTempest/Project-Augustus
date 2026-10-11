@@ -17,6 +17,7 @@ use serde::Serialize;
 use crate::administration::{AdministrationDraft, AdministrationReport};
 use crate::attributes::{ATTRIBUTE_NAMES, AttributeDraft, AttributeReport};
 use crate::economy::{EconomyDraft, EconomyReport};
+use crate::governments::{GovernmentDraft, GovernmentReport};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
 use crate::setup::{SetupDraft, SetupReport};
 use crate::{ContentRoot, Error, ParsedText, SourceLocation, TextEncoding};
@@ -64,6 +65,7 @@ pub struct BootstrapReport {
     pub setup: SetupReport,
     pub attributes: AttributeReport,
     pub administration: AdministrationReport,
+    pub governments: GovernmentReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -82,6 +84,8 @@ pub struct ProvinceView<'a> {
 
 #[derive(Debug, Serialize)]
 pub struct CountryView<'a> {
+    pub government: Option<&'a augustus_core::GovernmentState>,
+    pub declared_government_effects: augustus_core::GovernmentEvaluation,
     pub state: &'a CountryState,
     pub owned_provinces: Vec<u32>,
     pub bound_capital: Option<u32>,
@@ -205,6 +209,7 @@ impl VanillaWorld {
             setup: SetupReport::default(),
             attributes: AttributeReport::default(),
             administration: AdministrationReport::default(),
+            governments: GovernmentReport::default(),
         };
         let mut provinces = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
@@ -382,6 +387,7 @@ impl VanillaWorld {
             return Err(Error::message(root.path(), "empty world definitions"));
         }
         let mut economy = EconomyDraft::load(&root, &files, &mut report.economy)?;
+        let mut governments = GovernmentDraft::load(&root, &files, &mut report.governments)?;
         let mut setup = SetupDraft::load(&root, &files, &mut report.setup)?;
         let attribute_draft = AttributeDraft::load(&root, &files, &mut report.attributes)?;
         let mut administration =
@@ -435,6 +441,12 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
+                governments.country_history(
+                    &parsed,
+                    reader.clone(),
+                    &id,
+                    &mut report.governments,
+                )?;
                 administration.country_history(
                     &parsed,
                     reader.clone(),
@@ -523,6 +535,15 @@ impl VanillaWorld {
             .set_economy(economy)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         setup.bind(&mut initial, date, &mut report.setup)?;
+        let governments = governments.bind(
+            &initial,
+            &attribute_draft,
+            &report.start_date,
+            &mut report.governments,
+        );
+        initial
+            .set_governments(governments)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
         initial
             .set_affiliations(administration.affiliations(&initial))
             .map_err(|e| Error::caused_by(root.path(), e))?;
@@ -626,6 +647,18 @@ impl VanillaWorld {
 
     pub fn country(&self, id: &str) -> Option<CountryView<'_>> {
         self.initial.country(id).map(|state| CountryView {
+            government: self
+                .initial
+                .world()
+                .governments()
+                .countries
+                .get(&self.initial.country_entity(id).expect("registered country")),
+            declared_government_effects: self
+                .initial
+                .world()
+                .governments()
+                .declared_effects(self.initial.country_entity(id).expect("registered country"))
+                .expect("validated government effects"),
             administrative_areas: self.initial.country_entity(id).and_then(|entity| {
                 self.initial
                     .world()
@@ -949,6 +982,7 @@ fn apply_country(
         let location = parsed.field_location(&key);
         let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
         match name.as_str() {
+            "legitimacy" | "add_government_reform" | "remove_government_reform" => (),
             "monarch" | "heir" | "queen" | "monarch_consort" => {
                 equal(op, &fail)?;
                 let person = politics::person(parsed, value, &name, location, report)?;

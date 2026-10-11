@@ -1,0 +1,1 @@
+legitimacy = { test_authority = 0.75 }

@@ -7,8 +7,8 @@ use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Action, Administration, Affiliations, Attributes, CountryResources, Economy, Error, Modifiers,
-    Plan, Politics, Target, Technology,
+    Action, Administration, Affiliations, Attributes, CountryResources, Economy, Error,
+    Governments, Modifiers, Plan, Politics, Target, Technology,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -89,6 +89,7 @@ pub struct World {
     attributes: Attributes,
     administration: Administration,
     affiliations: Affiliations,
+    governments: Governments,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
@@ -122,6 +123,8 @@ struct Snapshot {
     administration: Administration,
     #[serde(default, skip_serializing_if = "Affiliations::is_empty")]
     affiliations: Affiliations,
+    #[serde(default, skip_serializing_if = "Governments::is_empty")]
+    governments: Governments,
 }
 
 impl World {
@@ -150,6 +153,7 @@ impl World {
             attributes: Attributes::default(),
             administration: Administration::default(),
             affiliations: Affiliations::default(),
+            governments: Governments::default(),
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
@@ -170,6 +174,17 @@ impl World {
 
     pub fn affiliations(&self) -> &Affiliations {
         &self.affiliations
+    }
+
+    pub fn governments(&self) -> &Governments {
+        &self.governments
+    }
+
+    pub fn set_governments(&mut self, governments: Governments) -> Result<(), Error> {
+        self.require_running()?;
+        governments.validate(self)?;
+        self.governments = governments;
+        Ok(())
     }
 
     pub fn set_affiliations(&mut self, affiliations: Affiliations) -> Result<(), Error> {
@@ -403,6 +418,7 @@ impl World {
             attributes: self.attributes.clone(),
             administration: self.administration.clone(),
             affiliations: self.affiliations.clone(),
+            governments: self.governments.clone(),
         })?)
     }
 
@@ -440,6 +456,7 @@ impl World {
             attributes: snapshot.attributes,
             administration: snapshot.administration,
             affiliations: snapshot.affiliations,
+            governments: snapshot.governments,
         };
         for rule in &world.rules {
             validate_plan(rule, schema, world.rules.len())?;
@@ -468,6 +485,7 @@ impl World {
         world.validate_resources(&world.country_resources)?;
         world.administration.validate(&world)?;
         world.affiliations.validate(&world)?;
+        world.governments.validate(&world)?;
         world.attributes.validate(&world)?;
         let mut sequences = std::collections::BTreeSet::new();
         for task in snapshot.tasks {
