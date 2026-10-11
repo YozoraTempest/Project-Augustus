@@ -5,9 +5,11 @@
 
 #![forbid(unsafe_code)]
 
+mod initial;
 mod plan;
 mod world;
 
+pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
 pub use plan::{Action, Condition, Plan, Target};
 pub use world::{Entity, EntityId, EntityKind, FieldId, RuleId, Schema, World};
 

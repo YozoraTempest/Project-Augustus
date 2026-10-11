@@ -1,0 +1,16 @@
+owner = AAA
+controller = AAA
+add_core = AAA
+culture = alpha
+religion = test_faith
+trade_goods = grain
+base_tax = 1.125
+base_production = 2
+base_manpower = 3.5
+is_city = yes
+hre = no
+1450.1.1 = { owner = AAA }
+1440.1.1 = { owner = BBB controller = BBB remove_core = AAA }
+1430.1.1 = { owner = AAA }
+1440.1.1 = { add_core = BBB base_tax = 2.125 }
+discovered_by = AAA

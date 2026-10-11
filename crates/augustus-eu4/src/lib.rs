@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod bootstrap;
 mod content;
 mod definitions;
 mod descriptor;
@@ -13,6 +14,7 @@ mod load;
 mod script;
 mod text;
 
+pub use bootstrap::{BootstrapReport, CountryView, LoadedSource, MapEntry, VanillaWorld};
 pub use content::{ContentRoot, FileEntry};
 pub use definitions::{DefinitionIndex, DefinitionKind, DefinitionOrigin};
 pub use descriptor::ModDescriptor;

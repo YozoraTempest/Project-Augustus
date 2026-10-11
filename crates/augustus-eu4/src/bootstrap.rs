@@ -1,0 +1,791 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Project Augustus contributors
+
+use std::{
+    collections::{BTreeMap, BTreeSet, HashSet},
+    path::{Path, PathBuf},
+};
+
+use augustus_core::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
+use jomini::{
+    Encoding,
+    common::{Date, PdsDate},
+    text::{ObjectReader, Operator},
+};
+use serde::Serialize;
+
+use crate::{ContentRoot, Error, ParsedText, SourceLocation, TextEncoding};
+
+const ENCODING: TextEncoding = TextEncoding::Windows1252;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LoadedSource {
+    pub path: PathBuf,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BootstrapReport {
+    pub ruleset: &'static str,
+    pub game_version: String,
+    pub start_date: WorldDate,
+    pub map_width: u32,
+    pub map_height: u32,
+    pub countries: usize,
+    pub active_countries: usize,
+    pub provinces: usize,
+    pub country_history_files: usize,
+    pub province_history_files: usize,
+    pub missing_province_history: Vec<u32>,
+    pub unmapped_definition_ids: Vec<u32>,
+    pub unknown_map_colors: Vec<[u8; 3]>,
+    pub unbound_active_capitals: Vec<String>,
+    pub ambiguous_country_histories: BTreeMap<String, Vec<PathBuf>>,
+    pub unapplied_country_fields: BTreeMap<String, usize>,
+    pub unapplied_province_fields: BTreeMap<String, usize>,
+    pub unapplied_examples: BTreeMap<String, LoadedSource>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CountryView<'a> {
+    pub state: &'a CountryState,
+    pub owned_provinces: Vec<u32>,
+    pub bound_capital: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MapEntry {
+    pub province: u32,
+    pub color: [u8; 3],
+    pub display_color: [u8; 3],
+}
+
+#[derive(Debug)]
+pub struct VanillaWorld {
+    pub initial: InitialWorld,
+    pub report: BootstrapReport,
+    pub province_bitmap: PathBuf,
+    pub country_sources: BTreeMap<String, Vec<LoadedSource>>,
+    pub province_sources: BTreeMap<u32, Vec<LoadedSource>>,
+}
+
+impl VanillaWorld {
+    /// Loads the supported initial-state fields; no game systems are advanced here.
+    /// Final-edition rules always target all expansion mechanics, independently of launcher switches.
+    pub fn load(path: impl AsRef<Path>, date: &str) -> Result<Self, Error> {
+        let root = ContentRoot::open(path)?;
+        let date = Date::parse(date).map_err(|e| Error::caused_by(root.path(), e))?;
+        let metadata_path = root.path().join("launcher-settings.json");
+        let metadata = root.read_text("launcher-settings.json", TextEncoding::Utf8)?;
+        let metadata: serde_json::Value = serde_json::from_slice(metadata.bytes())
+            .map_err(|e| Error::caused_by(&metadata_path, e))?;
+        let version = metadata
+            .get("rawVersion")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| Error::message(&metadata_path, "missing rawVersion"))?;
+        if !matches!(version, "v1.37.5.0" | "1.37.5.0" | "1.37.5") {
+            return Err(Error::message(
+                &metadata_path,
+                "world loader targets EU4 1.37.5 final edition",
+            ));
+        }
+        let map_document = root.read_text("map/default.map", ENCODING)?;
+        let map_parsed = map_document.parse()?;
+        let map = map_parsed.reader();
+        let width = required_u32(&map_parsed, map.clone(), "width")?;
+        let height = required_u32(&map_parsed, map.clone(), "height")?;
+        let max = required_u32(&map_parsed, map.clone(), "max_provinces")?;
+        if width == 0 || height == 0 || max < 2 {
+            return Err(Error::message(
+                map_document.source(),
+                "invalid map dimensions or province limit",
+            ));
+        }
+        let definition_file = map_file(&map_parsed, map.clone(), "definitions")?;
+        let bitmap_file = map_file(&map_parsed, map.clone(), "provinces")?;
+        // Resolve through the same traversal checks used for text inputs.
+        let bitmap = root.read_text(&bitmap_file, ENCODING)?;
+        let pixels = image::ImageReader::new(std::io::Cursor::new(bitmap.bytes()))
+            .with_guessed_format()
+            .map_err(|e| Error::caused_by(bitmap.source(), e))?
+            .decode()
+            .map_err(|e| Error::caused_by(bitmap.source(), e))?
+            .into_rgb8();
+        if pixels.width() != width || pixels.height() != height {
+            return Err(Error::message(
+                bitmap.source(),
+                "province bitmap dimensions do not match default.map",
+            ));
+        }
+        let used_colors: HashSet<[u8; 3]> = pixels.pixels().map(|p| p.0).collect();
+        let sea = ids(&map_parsed, map.clone(), "sea_starts")?;
+        let lakes = ids(&map_parsed, map.clone(), "lakes")?;
+        let unused = ids(&map_parsed, map.clone(), "only_used_for_random")?;
+        let climate_file = map_file(&map_parsed, map.clone(), "climate")?;
+        let climate = root.read_text(climate_file, ENCODING)?;
+        let climate_parsed = climate.parse()?;
+        let wasteland = ids(&climate_parsed, climate_parsed.reader(), "impassable")?;
+        let mut report = BootstrapReport {
+            ruleset: "eu4-final-all-dlc",
+            game_version: version.into(),
+            start_date: WorldDate {
+                year: date.year(),
+                month: date.month(),
+                day: date.day(),
+            },
+            map_width: width,
+            map_height: height,
+            countries: 0,
+            active_countries: 0,
+            provinces: 0,
+            country_history_files: 0,
+            province_history_files: 0,
+            missing_province_history: Vec::new(),
+            unbound_active_capitals: Vec::new(),
+            unmapped_definition_ids: Vec::new(),
+            unknown_map_colors: Vec::new(),
+            ambiguous_country_histories: BTreeMap::new(),
+            unapplied_country_fields: BTreeMap::new(),
+            unapplied_province_fields: BTreeMap::new(),
+            unapplied_examples: BTreeMap::new(),
+        };
+        let mut provinces = BTreeMap::new();
+        let mut province_sources = BTreeMap::new();
+        let definitions = root.read_text(&definition_file, ENCODING)?;
+        let mut csv = csv::ReaderBuilder::new()
+            .delimiter(b';')
+            .flexible(true)
+            .from_reader(definitions.bytes());
+        let header = csv
+            .byte_headers()
+            .map_err(|e| Error::caused_by(definitions.source(), e))?;
+        if header.get(0) != Some(b"province".as_slice()) {
+            return Err(Error::message(
+                definitions.source(),
+                "expected province definition header",
+            ));
+        }
+        for row in csv.byte_records() {
+            let row = row.map_err(|e| Error::caused_by(definitions.source(), e))?;
+            let line = row.position().map_or(1, |p| p.line() as usize);
+            let fail = |m: &str| {
+                Error::message(definitions.source(), m)
+                    .with_location(SourceLocation { line, column: 1 })
+            };
+            let integer = |index| -> Result<u32, Error> {
+                std::str::from_utf8(
+                    row.get(index)
+                        .ok_or_else(|| fail("missing definition column"))?,
+                )
+                .map_err(|_| fail("invalid definition integer"))?
+                .trim()
+                .parse()
+                .map_err(|_| fail("invalid definition integer"))
+            };
+            let id = integer(0)?;
+            if id == 0 || id >= max {
+                continue;
+            }
+            let mut color = [0; 3];
+            for (i, component) in color.iter_mut().enumerate() {
+                *component =
+                    u8::try_from(integer(i + 1)?).map_err(|_| fail("map color out of range"))?;
+            }
+            let name = ENCODING
+                .decode(row.get(4).ok_or_else(|| fail("missing province name"))?)
+                .into_owned();
+            let class = if unused.contains(&id) || !used_colors.contains(&color) {
+                ProvinceClass::Unused
+            } else if sea.contains(&id) {
+                ProvinceClass::Sea
+            } else if lakes.contains(&id) {
+                ProvinceClass::Lake
+            } else if wasteland.contains(&id) {
+                ProvinceClass::Wasteland
+            } else {
+                ProvinceClass::Land
+            };
+            let province = ProvinceState {
+                id,
+                name,
+                color,
+                class,
+                owner: None,
+                controller: None,
+                cores: Vec::new(),
+                culture: None,
+                religion: None,
+                trade_good: None,
+                tax_milli: None,
+                production_milli: None,
+                manpower_milli: None,
+                is_city: None,
+                in_empire: None,
+            };
+            if provinces.insert(id, province).is_some() {
+                return Err(fail("duplicate province identifier"));
+            }
+            province_sources.insert(
+                id,
+                vec![LoadedSource {
+                    path: definitions.source().into(),
+                    line,
+                    column: 1,
+                }],
+            );
+        }
+        for id in sea
+            .iter()
+            .chain(lakes.iter())
+            .chain(unused.iter())
+            .chain(wasteland.iter())
+        {
+            if !provinces.contains_key(id) {
+                return Err(Error::message(
+                    map_document.source(),
+                    format!("map category references unknown province {id}"),
+                ));
+            }
+        }
+        let defined_colors: HashSet<_> = provinces.values().map(|p| p.color).collect();
+        report.unknown_map_colors = used_colors.difference(&defined_colors).copied().collect();
+        report.unknown_map_colors.sort();
+        report.unmapped_definition_ids = provinces
+            .values()
+            .filter(|p| p.class == ProvinceClass::Unused)
+            .map(|p| p.id)
+            .collect();
+        let files = root.files()?;
+        let mut countries = BTreeMap::new();
+        let mut country_sources = BTreeMap::new();
+        for file in files
+            .iter()
+            .filter(|f| direct_txt(&f.relative_path, "common/country_tags"))
+        {
+            let doc = root.read_text(&file.relative_path, ENCODING)?;
+            let parsed = doc.parse()?;
+            for (key, op, value) in parsed.reader().fields() {
+                let id = key.read_string();
+                let location = parsed.field_location(&key);
+                let fail = |m: &str| Error::message(doc.source(), m).with_location(location);
+                equal(op, &fail)?;
+                if id.len() != 3
+                    || !id
+                        .bytes()
+                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+                {
+                    return Err(fail("invalid country identifier"));
+                }
+                let file = value
+                    .read_string()
+                    .map_err(|_| fail("country definition must be a path"))?;
+                if !file.starts_with("countries/") {
+                    return Err(fail("expected countries/ definition path"));
+                }
+                let country_doc = root.read_text(format!("common/{file}"), ENCODING)?;
+                let country_parsed = country_doc.parse()?;
+                let rgb = array_strings(&country_parsed, country_parsed.reader(), "color")?;
+                let color: [u8; 3] = rgb
+                    .iter()
+                    .map(|v| v.parse::<u8>().map_err(|_| fail("invalid country color")))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .try_into()
+                    .map_err(|_| fail("country color requires three components"))?;
+                let country = CountryState {
+                    id: id.clone(),
+                    name: Path::new(&file)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(&id)
+                        .into(),
+                    color,
+                    declared_capital: None,
+                    primary_culture: None,
+                    religion: None,
+                    government: None,
+                    technology_group: None,
+                };
+                if countries.insert(id.clone(), country).is_some() {
+                    return Err(fail("duplicate country identifier"));
+                }
+                country_sources.insert(
+                    id,
+                    vec![
+                        source(&parsed, location),
+                        LoadedSource {
+                            path: country_doc.source().into(),
+                            line: 1,
+                            column: 1,
+                        },
+                    ],
+                );
+            }
+        }
+        if countries.is_empty() || provinces.is_empty() {
+            return Err(Error::message(root.path(), "empty world definitions"));
+        }
+        let mut country_histories = BTreeSet::new();
+        let mut province_histories = BTreeSet::new();
+        let mut history_groups: BTreeMap<String, Vec<&Path>> = BTreeMap::new();
+        for file in files
+            .iter()
+            .filter(|f| direct_txt(&f.relative_path, "history/countries"))
+        {
+            history_groups
+                .entry(history_id(&file.relative_path)?)
+                .or_default()
+                .push(&file.relative_path);
+        }
+        for (id, paths) in &history_groups {
+            if paths.len() > 1 {
+                report.ambiguous_country_histories.insert(
+                    id.clone(),
+                    paths.iter().map(|p| root.path().join(p)).collect(),
+                );
+            }
+        }
+        for file in files
+            .iter()
+            .filter(|f| direct_txt(&f.relative_path, "history/countries"))
+        {
+            let id = history_id(&file.relative_path)?;
+            let Some(country) = countries.get_mut(&id) else {
+                return Err(Error::message(
+                    root.path().join(&file.relative_path),
+                    format!("history references unknown country {id}"),
+                ));
+            };
+            // Selection of duplicate history files has not been validated. Preserve the
+            // ambiguity and leave those history-derived fields unset instead of guessing.
+            if history_groups[&id].len() > 1 {
+                continue;
+            }
+            country_histories.insert(id.clone());
+            let doc = root.read_text(&file.relative_path, ENCODING)?;
+            let parsed = doc.parse()?;
+            country_sources
+                .get_mut(&id)
+                .expect("registered country")
+                .push(LoadedSource {
+                    path: doc.source().into(),
+                    line: 1,
+                    column: 1,
+                });
+            visit_history(&parsed, date, |reader| {
+                apply_country(&parsed, reader, country, &mut report)
+            })?;
+        }
+        for file in files
+            .iter()
+            .filter(|f| direct_txt(&f.relative_path, "history/provinces"))
+        {
+            let id = history_id(&file.relative_path)?
+                .parse::<u32>()
+                .map_err(|_| {
+                    Error::message(&file.relative_path, "invalid province history identifier")
+                })?;
+            let Some(province) = provinces.get_mut(&id) else {
+                return Err(Error::message(
+                    root.path().join(&file.relative_path),
+                    format!("history references unknown province {id}"),
+                ));
+            };
+            if !province_histories.insert(id) {
+                return Err(Error::message(
+                    &file.relative_path,
+                    "duplicate province history",
+                ));
+            }
+            let doc = root.read_text(&file.relative_path, ENCODING)?;
+            let parsed = doc.parse()?;
+            province_sources
+                .get_mut(&id)
+                .expect("registered province")
+                .push(LoadedSource {
+                    path: doc.source().into(),
+                    line: 1,
+                    column: 1,
+                });
+            visit_history(&parsed, date, |reader| {
+                apply_province(&parsed, reader, province, &mut report)
+            })?;
+        }
+        report.country_history_files = country_histories.len();
+        report.province_history_files = province_histories.len();
+        report.missing_province_history = provinces
+            .keys()
+            .filter(|id| !province_histories.contains(id))
+            .copied()
+            .collect();
+        let initial = InitialWorld::new(
+            countries.into_values().collect(),
+            provinces.into_values().collect(),
+        )
+        .map_err(|e| Error::caused_by(root.path(), e))?;
+        report.countries = initial.countries().len();
+        report.provinces = initial.provinces().len();
+        for country in initial.countries() {
+            if !initial.owned_provinces(&country.id).is_empty() {
+                report.active_countries += 1;
+                if initial.bound_capital(&country.id).is_none() {
+                    report.unbound_active_capitals.push(country.id.clone());
+                }
+            }
+        }
+        Ok(Self {
+            initial,
+            report,
+            province_bitmap: bitmap.source().into(),
+            country_sources,
+            province_sources,
+        })
+    }
+
+    pub fn country(&self, id: &str) -> Option<CountryView<'_>> {
+        self.initial.country(id).map(|state| CountryView {
+            state,
+            owned_provinces: self.initial.owned_provinces(id),
+            bound_capital: self.initial.bound_capital(id),
+        })
+    }
+
+    pub fn palette(&self) -> Vec<MapEntry> {
+        let mut entries: Vec<_> = self
+            .initial
+            .provinces()
+            .iter()
+            .filter(|p| p.class != ProvinceClass::Unused)
+            .map(|p| {
+                let color = match p.class {
+                    ProvinceClass::Sea | ProvinceClass::Lake => [32, 64, 96],
+                    ProvinceClass::Wasteland | ProvinceClass::Unused => [48, 48, 48],
+                    ProvinceClass::Land => p
+                        .owner
+                        .as_deref()
+                        .and_then(|id| self.initial.country(id))
+                        .map_or([112, 112, 104], |c| c.color),
+                };
+                MapEntry {
+                    province: p.id,
+                    color: p.color,
+                    display_color: color,
+                }
+            })
+            .collect();
+        entries.sort_by_key(|p| p.color);
+        entries
+    }
+}
+
+fn direct_txt(path: &Path, directory: &str) -> bool {
+    path.parent() == Some(Path::new(directory))
+        && path
+            .extension()
+            .is_some_and(|s| s.eq_ignore_ascii_case("txt"))
+}
+
+fn history_id(path: &Path) -> Result<String, Error> {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .and_then(|s| s.split([' ', '-']).next())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .ok_or_else(|| Error::message(path, "invalid history filename"))
+}
+
+fn source(parsed: &ParsedText<'_>, location: SourceLocation) -> LoadedSource {
+    LoadedSource {
+        path: parsed.source().into(),
+        line: location.line,
+        column: location.column,
+    }
+}
+
+fn equal(op: Option<Operator>, fail: &impl Fn(&str) -> Error) -> Result<(), Error> {
+    if op.is_some_and(|o| o != Operator::Equal) {
+        Err(fail("expected assignment operator"))
+    } else {
+        Ok(())
+    }
+}
+
+fn required_u32(
+    parsed: &ParsedText<'_>,
+    reader: ObjectReader<'_, '_, TextEncoding>,
+    name: &str,
+) -> Result<u32, Error> {
+    for (key, op, value) in reader.fields() {
+        if key.read_string() == name {
+            let fail = |m: &str| {
+                Error::message(parsed.source(), m).with_location(parsed.field_location(&key))
+            };
+            equal(op, &fail)?;
+            return value
+                .read_string()
+                .map_err(|_| fail("expected integer"))?
+                .parse()
+                .map_err(|_| fail("invalid integer"));
+        }
+    }
+    Err(Error::message(parsed.source(), format!("missing {name}")))
+}
+
+fn map_file(
+    parsed: &ParsedText<'_>,
+    reader: ObjectReader<'_, '_, TextEncoding>,
+    name: &str,
+) -> Result<String, Error> {
+    for (key, op, value) in reader.fields() {
+        if key.read_string() == name {
+            let fail = |m: &str| {
+                Error::message(parsed.source(), m).with_location(parsed.field_location(&key))
+            };
+            equal(op, &fail)?;
+            return value
+                .read_string()
+                .map(|v| format!("map/{v}"))
+                .map_err(|_| fail("expected map filename"));
+        }
+    }
+    Err(Error::message(
+        parsed.source(),
+        format!("missing map {name}"),
+    ))
+}
+
+fn array_strings(
+    parsed: &ParsedText<'_>,
+    reader: ObjectReader<'_, '_, TextEncoding>,
+    name: &str,
+) -> Result<Vec<String>, Error> {
+    for (key, op, value) in reader.fields() {
+        if key.read_string() == name {
+            let fail = |m: &str| {
+                Error::message(parsed.source(), m).with_location(parsed.field_location(&key))
+            };
+            equal(op, &fail)?;
+            return value
+                .read_array()
+                .map_err(|_| fail("expected scalar array"))?
+                .values()
+                .map(|v| {
+                    v.read_string()
+                        .map_err(|_| fail("expected scalar array entry"))
+                })
+                .collect();
+        }
+    }
+    Ok(Vec::new())
+}
+
+fn ids(
+    parsed: &ParsedText<'_>,
+    reader: ObjectReader<'_, '_, TextEncoding>,
+    name: &str,
+) -> Result<BTreeSet<u32>, Error> {
+    array_strings(parsed, reader, name)?
+        .into_iter()
+        .map(|v| {
+            v.parse().map_err(|_| {
+                Error::message(
+                    parsed.source(),
+                    format!("invalid {name} province identifier"),
+                )
+            })
+        })
+        .collect()
+}
+
+fn visit_history<'a>(
+    parsed: &'a ParsedText<'_>,
+    date: Date,
+    mut apply: impl FnMut(ObjectReader<'a, 'a, TextEncoding>) -> Result<(), Error>,
+) -> Result<(), Error> {
+    apply(parsed.reader())?;
+    let mut dated = Vec::new();
+    for (key, op, value) in parsed.reader().fields() {
+        let name = key.read_string();
+        if name.as_bytes().first().is_some_and(u8::is_ascii_digit) && name.contains('.') {
+            let fail = |m: &str| {
+                Error::message(parsed.source(), m).with_location(parsed.field_location(&key))
+            };
+            equal(op, &fail)?;
+            let timestamp = Date::parse(&name).map_err(|_| fail("invalid history date"))?;
+            let block = value
+                .read_object()
+                .map_err(|_| fail("dated history requires a block"))?;
+            if timestamp <= date {
+                dated.push((timestamp, block));
+            }
+        }
+    }
+    dated.sort_by_key(|entry| entry.0);
+    for (_, reader) in dated {
+        apply(reader)?;
+    }
+    Ok(())
+}
+
+fn dated_name(name: &str) -> bool {
+    name.as_bytes().first().is_some_and(u8::is_ascii_digit) && name.contains('.')
+}
+
+fn unapplied(
+    parsed: &ParsedText<'_>,
+    name: String,
+    location: SourceLocation,
+    country: bool,
+    report: &mut BootstrapReport,
+) {
+    let fields = if country {
+        &mut report.unapplied_country_fields
+    } else {
+        &mut report.unapplied_province_fields
+    };
+    *fields.entry(name.clone()).or_default() += 1;
+    let key = format!("{}:{name}", if country { "country" } else { "province" });
+    report
+        .unapplied_examples
+        .entry(key)
+        .or_insert_with(|| source(parsed, location));
+}
+
+fn apply_country(
+    parsed: &ParsedText<'_>,
+    reader: ObjectReader<'_, '_, TextEncoding>,
+    country: &mut CountryState,
+    report: &mut BootstrapReport,
+) -> Result<(), Error> {
+    for (key, op, value) in reader.fields() {
+        let name = key.read_string();
+        if dated_name(&name) {
+            continue;
+        }
+        let location = parsed.field_location(&key);
+        let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
+        match name.as_str() {
+            "capital" => {
+                equal(op, &fail)?;
+                let id: u32 = value
+                    .read_string()
+                    .map_err(|_| fail("expected capital identifier"))?
+                    .parse()
+                    .map_err(|_| fail("invalid capital identifier"))?;
+                country.declared_capital = (id != 0).then_some(id);
+            }
+            "primary_culture" | "religion" | "government" | "technology_group" => {
+                equal(op, &fail)?;
+                let text = value
+                    .read_string()
+                    .map_err(|_| fail("expected country history scalar"))?;
+                let slot = match name.as_str() {
+                    "primary_culture" => &mut country.primary_culture,
+                    "religion" => &mut country.religion,
+                    "government" => &mut country.government,
+                    _ => &mut country.technology_group,
+                };
+                *slot = Some(text);
+            }
+            _ => unapplied(parsed, name, location, true, report),
+        }
+    }
+    Ok(())
+}
+
+fn apply_province(
+    parsed: &ParsedText<'_>,
+    reader: ObjectReader<'_, '_, TextEncoding>,
+    province: &mut ProvinceState,
+    report: &mut BootstrapReport,
+) -> Result<(), Error> {
+    for (key, op, value) in reader.fields() {
+        let name = key.read_string();
+        if dated_name(&name) {
+            continue;
+        }
+        let location = parsed.field_location(&key);
+        let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
+        match name.as_str() {
+            "owner" | "controller" | "culture" | "religion" | "trade_goods" => {
+                equal(op, &fail)?;
+                let text = value
+                    .read_string()
+                    .map_err(|_| fail("expected province history scalar"))?;
+                let slot = match name.as_str() {
+                    "owner" => &mut province.owner,
+                    "controller" => &mut province.controller,
+                    "culture" => &mut province.culture,
+                    "religion" => &mut province.religion,
+                    _ => &mut province.trade_good,
+                };
+                *slot = (text != "---" && !text.is_empty()).then_some(text);
+            }
+            "add_core" | "remove_core" => {
+                equal(op, &fail)?;
+                let text = value
+                    .read_string()
+                    .map_err(|_| fail("expected core country"))?;
+                if name == "add_core" {
+                    if !province.cores.contains(&text) {
+                        province.cores.push(text);
+                    }
+                } else {
+                    province.cores.retain(|c| c != &text);
+                }
+            }
+            "base_tax" | "base_production" | "base_manpower" => {
+                equal(op, &fail)?;
+                let text = value
+                    .read_string()
+                    .map_err(|_| fail("expected literal base value"))?;
+                let number = nonnegative_milli(&text).ok_or_else(|| {
+                    fail("expected nonnegative base value with at most three decimal digits")
+                })?;
+                *match name.as_str() {
+                    "base_tax" => &mut province.tax_milli,
+                    "base_production" => &mut province.production_milli,
+                    _ => &mut province.manpower_milli,
+                } = Some(number);
+            }
+            "is_city" | "hre" => {
+                equal(op, &fail)?;
+                let text = value
+                    .read_string()
+                    .map_err(|_| fail("expected yes or no"))?;
+                let flag = match text.as_str() {
+                    "yes" => true,
+                    "no" => false,
+                    _ => return Err(fail("expected yes or no")),
+                };
+                *if name == "is_city" {
+                    &mut province.is_city
+                } else {
+                    &mut province.in_empire
+                } = Some(flag);
+            }
+            _ => unapplied(parsed, name, location, false, report),
+        }
+    }
+    Ok(())
+}
+
+fn nonnegative_milli(text: &str) -> Option<i64> {
+    let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
+    if whole.is_empty()
+        || !whole.bytes().all(|b| b.is_ascii_digit())
+        || fraction.len() > 3
+        || !fraction.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    whole
+        .parse::<i64>()
+        .ok()?
+        .checked_mul(1000)?
+        .checked_add(if fraction.is_empty() {
+            0
+        } else {
+            fraction.parse::<i64>().ok()? * 10_i64.pow(3 - fraction.len() as u32)
+        })
+}

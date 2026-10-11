@@ -3,7 +3,7 @@ config_version=5
 
 [application]
 config/name="Project Augustus"
-run/main_scene="res://main.tscn"
+run/main_scene="res://world.tscn"
 
 [display]
 window/size/viewport_width=1100

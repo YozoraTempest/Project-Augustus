@@ -1,0 +1,9 @@
+capital = 1
+primary_culture = alpha
+religion = test_faith
+government = monarchy
+technology_group = test_group
+1450.1.1 = { capital = 1 }
+1440.1.1 = { capital = 2 }
+1430.1.1 = { capital = 1 }
+set_country_flag = not_implemented

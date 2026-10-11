@@ -23,14 +23,14 @@ cargo run -p augustus-run --locked -- --content examples/construction --system c
 
 ## Godot 界面
 
-使用 Godot 4.7.2 和 Rust 工具链。先在仓库根目录构建扩展，再打开 `godot/project.godot`：
+使用 Godot 4.7.2 和 Rust 工具链。先在仓库根目录构建扩展，再启动建造演示：
 
 ```sh
 cargo build -p augustus-godot --locked
-godot --path godot
+godot --path godot res://main.tscn
 ```
 
-界面初始暂停。选中省份和建筑，点击“开始建造”；可以逐日推进、连续运行或保存、恢复。选择回调格式和建造系统后，点击“重新开始”生效。界面存档写入 Godot 的用户数据目录，不修改游戏安装。
+直接运行项目会进入原版开局查看，也可点击其中的“建造演示”。演示界面初始暂停。选中省份和建筑，点击“开始建造”；可以逐日推进、连续运行或保存、恢复。选择回调格式和建造系统后，点击“重新开始”生效。界面存档写入 Godot 的用户数据目录，不修改游戏安装。
 
 固定工期使用自制的 30 天和 70 天。按建设能力推进时，每天累加省份当前能力；“调整施工安排”会随机改变能力，用于观察后续建造和存档是否一致。这些数值与规则属于演示，不代表 EU4 原版建造机制。
 

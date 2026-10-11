@@ -39,6 +39,83 @@ impl AugustusSession {
     }
 }
 
+#[derive(GodotClass)]
+#[class(init, base=RefCounted)]
+struct AugustusWorldSession {
+    loaded: Option<augustus_eu4::VanillaWorld>,
+}
+
+fn world_reply<T: Serialize>(result: Result<T, String>) -> GString {
+    match result {
+        Ok(value) => serde_json::json!({"ok": true, "value": value}),
+        Err(error) => serde_json::json!({"ok": false, "error": error}),
+    }
+    .to_string()
+    .as_str()
+    .into()
+}
+
+impl AugustusWorldSession {
+    fn loaded(&self) -> Result<&augustus_eu4::VanillaWorld, String> {
+        self.loaded
+            .as_ref()
+            .ok_or_else(|| "load a world first".into())
+    }
+}
+
+#[godot_api]
+impl AugustusWorldSession {
+    #[func]
+    fn load_world(&mut self, path: GString, date: GString) -> GString {
+        match augustus_eu4::VanillaWorld::load(path.to_string(), &date.to_string()) {
+            Ok(loaded) => {
+                self.loaded = Some(loaded);
+                self.world_overview()
+            }
+            Err(e) => world_reply::<serde_json::Value>(Err(e.to_string())),
+        }
+    }
+
+    #[func]
+    fn world_overview(&self) -> GString {
+        world_reply(self.loaded().map(|loaded| {
+            let countries: Vec<_> = loaded
+                .initial
+                .countries()
+                .iter()
+                .map(|c| {
+                    serde_json::json!({"id": c.id, "name": c.name,
+                    "province_count": loaded.initial.owned_provinces(&c.id).len()})
+                })
+                .collect();
+            serde_json::json!({"report": loaded.report, "countries": countries,
+                "palette": loaded.palette(), "province_bitmap": loaded.province_bitmap})
+        }))
+    }
+
+    #[func]
+    fn query_country(&self, id: GString) -> GString {
+        world_reply(self.loaded().and_then(|loaded| {
+            loaded
+                .country(&id.to_string())
+                .map(|c| serde_json::json!(c))
+                .ok_or_else(|| "unknown country".into())
+        }))
+    }
+
+    #[func]
+    fn query_province(&self, id: i64) -> GString {
+        world_reply(self.loaded().and_then(|loaded| {
+            let id = u32::try_from(id).map_err(|_| "invalid province identifier")?;
+            loaded
+                .initial
+                .province(id)
+                .map(|p| serde_json::json!(p))
+                .ok_or_else(|| "unknown province".into())
+        }))
+    }
+}
+
 #[godot_api]
 impl AugustusSession {
     #[func]

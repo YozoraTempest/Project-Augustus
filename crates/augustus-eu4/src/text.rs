@@ -75,6 +75,10 @@ impl TextDocument {
         self.bytes.len()
     }
 
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
     pub fn parse(&self) -> Result<ParsedText<'_>, Error> {
         if self.encoding == TextEncoding::Utf8 {
             std::str::from_utf8(&self.bytes).map_err(|cause| {

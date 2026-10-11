@@ -13,6 +13,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 augustus-demo = { path = "../augustus-demo" }
+augustus-eu4 = { path = "../augustus-eu4" }
 godot.workspace = true
 serde.workspace = true
 serde_json.workspace = true

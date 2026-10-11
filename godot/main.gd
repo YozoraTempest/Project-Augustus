@@ -59,6 +59,7 @@ func _ready() -> void:
 	system_choice.add_item("按建设能力推进")
 	settings.add_child(system_choice)
 	settings.add_child(button("重新开始", new_session))
+	settings.add_child(button("原版开局", func(): get_tree().change_scene_to_file("res://world.tscn")))
 	settings.add_child(label("切换规则后重新开始", 15))
 	var controls := HBoxContainer.new()
 	page.add_child(controls)

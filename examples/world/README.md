@@ -1,0 +1,5 @@
+# 自制开局样本
+
+这个小世界用于检查原版格式的输入、开局历史处理和 Godot 地图显示，不包含原版游戏内容。两个虚构国家、六个省份定义；固定地图只使用其中四个省份，另两个用于检查未使用的重复颜色。历史文件故意包含乱序日期、相同日期和未来条目。
+
+本目录全部文本和位图由 Project Augustus contributors 自制，采用 GPL-3.0-only。Copyright (C) 2026 Project Augustus contributors。根目录 LICENSE 为完整许可文本。

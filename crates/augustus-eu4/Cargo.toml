@@ -13,6 +13,10 @@ augustus-core = { path = "../augustus-core" }
 jomini.workspace = true
 walkdir.workspace = true
 thiserror.workspace = true
+csv.workspace = true
+image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

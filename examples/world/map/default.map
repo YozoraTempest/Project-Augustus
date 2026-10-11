@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+width = 4
+height = 2
+max_provinces = 7
+definitions = "definition.csv"
+provinces = "provinces.bmp"
+climate = "climate.txt"
+sea_starts = { 3 }
+lakes = {}
+only_used_for_random = {}

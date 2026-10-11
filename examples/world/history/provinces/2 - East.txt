@@ -1,0 +1,9 @@
+owner = AAA
+controller = AAA
+add_core = AAA
+base_tax = 4
+base_production = 5
+base_manpower = 6
+culture = alpha
+religion = test_faith
+trade_goods = cloth
