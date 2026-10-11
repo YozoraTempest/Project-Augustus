@@ -15,6 +15,13 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    /// Compare a target's stable entity name with a content identifier.
+    EntityNamed {
+        target: Target,
+        name: String,
+    },
+    /// Read the current simulation calendar; a calendar is required.
+    YearAtLeast(i16),
     /// Compare the current entity with a live office or global reference.
     ScopeIsCurrent(crate::ScopeSelector),
     Always(bool),
@@ -24,6 +31,7 @@ pub enum Condition {
         value: i64,
     },
     All(Vec<Condition>),
+    Any(Vec<Condition>),
     Not(Box<Condition>),
 }
 
@@ -110,6 +118,23 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::EntityNamed { target, name } => {
+                if name.is_empty() {
+                    return Err(Error::Invalid("empty entity condition name".into()));
+                }
+                Ok(world.entity(world.target(current, *target)?)?.name == *name)
+            }
+            Self::YearAtLeast(year) => {
+                if *year < 1 {
+                    return Err(Error::Invalid(
+                        "year condition requires a positive year".into(),
+                    ));
+                }
+                let date = world
+                    .date()?
+                    .ok_or_else(|| Error::Invalid("year condition requires a calendar".into()))?;
+                Ok(date.year >= *year)
+            }
             Self::ScopeIsCurrent(selector) => {
                 world.entity(current)?;
                 Ok(world.resolve_scope(selector)? == Some(current))
@@ -127,6 +152,14 @@ impl Condition {
                     }
                 }
                 Ok(true)
+            }
+            Self::Any(conditions) => {
+                for condition in conditions {
+                    if condition.evaluate(world, current)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
             }
             Self::Not(condition) => Ok(!condition.evaluate(world, current)?),
         }

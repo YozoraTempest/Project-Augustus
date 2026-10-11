@@ -75,3 +75,18 @@ pub(crate) const EXPANSIONS: [&str; 22] = [
     "King of Kings",
     "Winds of Change",
 ];
+
+/// Recognized DLC queries under the fixed final-edition, all-DLC ruleset.
+/// Mechanism support remains separate from content availability.
+pub(crate) fn is_known_dlc(name: &str) -> bool {
+    EXPANSIONS.contains(&name)
+        || [
+            "American Dream",
+            "Purple Phoenix",
+            "Star and Crescent",
+            "Women in History",
+            "Dharma - Hindu Unit Pack",
+            "Dharma - Indian Sultanate Pack",
+        ]
+        .contains(&name)
+}

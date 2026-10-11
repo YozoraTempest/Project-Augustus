@@ -87,7 +87,7 @@ impl Condition {
                         let id = value
                             .read_string()
                             .map_err(|_| fail("expected expansion name"))?;
-                        if crate::EXPANSIONS.contains(&id.as_str()) {
+                        if crate::is_known_dlc(&id) {
                             Self::Literal(true)
                         } else {
                             report.unsupported(parsed, "trigger", &name, at);
@@ -140,7 +140,7 @@ impl Condition {
                             Self::None(vec![feature])
                         }
                     }
-                    "AND" | "OR" | "NOT" => {
+                    "AND" | "and" | "OR" | "or" | "NOT" | "not" => {
                         let children = Self::compile(
                             parsed,
                             block(&value, &fail)?,
@@ -151,8 +151,8 @@ impl Condition {
                             false,
                         )?;
                         match name.as_str() {
-                            "AND" => Self::All(children),
-                            "OR" => Self::Any(children),
+                            "AND" | "and" => Self::All(children),
+                            "OR" | "or" => Self::Any(children),
                             _ => Self::None(children),
                         }
                     }

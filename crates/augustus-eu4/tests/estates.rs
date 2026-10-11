@@ -62,6 +62,72 @@ fn loyalty(amount: i64) -> Action {
 }
 
 #[test]
+fn startup_event_conditions_read_loaded_country_identity_and_calendar() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        r#"on_startup={
+      if={limit={and={tag=AAA has_dlc="Women in History"}} log=startup}
+      events={calendar.before calendar.after}
+    }"#,
+    );
+    write(
+        temp.path(),
+        "events/calendar.txt",
+        r#"
+      country_event={id=calendar.before is_triggered_only=yes
+        trigger={has_dlc="Domination" tag=AAA not={is_year=1445}}
+        immediate={log=before} option={name=accept country_event={id=calendar.after days=51}}
+      }
+      country_event={id=calendar.after is_triggered_only=yes
+        trigger={has_dlc="Women in History" TAG=AAA is_year=1445}
+        immediate={log=after} option={name=accept}
+      }
+    "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.pending_startup_effects.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    assert_eq!(loaded.initial.world().pending_events().len(), 1);
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|e| e.2.as_str())
+            .collect::<Vec<_>>(),
+        ["before", "startup"]
+    );
+    loaded
+        .initial
+        .choose_event(&augustus_core::EventChoice {
+            pending: loaded.initial.world().pending_events()[0].id,
+            option: "0".into(),
+        })
+        .unwrap();
+    let saved = loaded.save().unwrap();
+    let mut resumed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    resumed.restore(&saved).unwrap();
+    loaded.advance(51).unwrap();
+    resumed.advance(51).unwrap();
+    assert_eq!(loaded.save().unwrap(), resumed.save().unwrap());
+    assert_eq!(loaded.initial.world().events().last().unwrap().2, "after");
+    assert_eq!(
+        loaded.initial.world().date().unwrap(),
+        Some(augustus_core::WorldDate {
+            year: 1445,
+            month: 1,
+            day: 1
+        })
+    );
+}
+
+#[test]
 fn startup_once_records_are_global_persistent_and_part_of_content_identity() {
     let temp = startup_fixture();
     write(

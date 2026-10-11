@@ -815,7 +815,7 @@ fn condition_named(
                     let name = value
                         .read_string()
                         .map_err(|_| fail("expected expansion name"))?;
-                    if !crate::EXPANSIONS.contains(&name.as_str()) {
+                    if !crate::is_known_dlc(&name) {
                         return Ok(None);
                     }
                     Predicate::Constant(true)
@@ -830,15 +830,15 @@ fn condition_named(
                         Predicate::Region(text)
                     }
                 }
-                "AND" | "OR" | "NOT" => {
+                "AND" | "and" | "OR" | "or" | "NOT" | "not" => {
                     let Some(Predicate::And(terms)) =
                         parse(parsed, block(&value, &fail)?, country, depth + 1)?
                     else {
                         return Ok(None);
                     };
                     match name.as_str() {
-                        "AND" => Predicate::And(terms),
-                        "OR" => Predicate::Or(terms),
+                        "AND" | "and" => Predicate::And(terms),
+                        "OR" | "or" => Predicate::Or(terms),
                         _ if terms.len() == 1 => Predicate::Not(Box::new(Predicate::And(terms))),
                         _ => return Ok(None),
                     }

@@ -5,6 +5,57 @@ use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 
 #[test]
+fn runtime_calendar_predicates_share_content_and_cross_input_saved_tasks() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/runtime-predicates");
+    let mut continuous = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(continuous.save().unwrap(), native.save().unwrap());
+    continuous.trigger("calendar.control", 0).unwrap();
+    let saved = continuous.save().unwrap();
+    native.restore(&saved).unwrap();
+    for demo in [&mut continuous, &mut native] {
+        demo.advance(1).unwrap();
+        assert_eq!(demo.world().date().unwrap().unwrap().year, 1445);
+        assert_eq!(
+            demo.world()
+                .events()
+                .iter()
+                .map(|e| (e.0, e.2.as_str()))
+                .collect::<Vec<_>>(),
+            [(0, "before"), (1, "after")]
+        );
+        assert_eq!(demo.world().pending_tasks(), 0);
+        demo.candidates(&["calendar.before".into(), "calendar.after".into()], 1)
+            .unwrap();
+        assert_eq!(demo.world().pending_events().len(), 3);
+        for id in 0..3 {
+            demo.choose(&EventChoice {
+                pending: PendingEventId(id),
+                option: "0".into(),
+            })
+            .unwrap();
+        }
+    }
+    assert_eq!(continuous.save().unwrap(), native.save().unwrap());
+    let temp = tempfile::tempdir().unwrap();
+    for file in ["scene.json", "events.json", "conditions.json"] {
+        std::fs::copy(root.join(file), temp.path().join(file)).unwrap();
+    }
+    let mut scene: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(temp.path().join("scene.json")).unwrap())
+            .unwrap();
+    scene["calendar"]["month_lengths"][0] = serde_json::json!(30);
+    std::fs::write(temp.path().join("scene.json"), scene.to_string()).unwrap();
+    assert!(
+        EventDemo::from_directory(temp.path(), Input::Native)
+            .unwrap()
+            .restore(&saved)
+            .is_err()
+    );
+}
+
+#[test]
 fn once_events_share_registry_reentry_and_delayed_restore_across_inputs() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/once-events");
     let mut compiled = EventDemo::from_directory(&root, Input::Eu4).unwrap();

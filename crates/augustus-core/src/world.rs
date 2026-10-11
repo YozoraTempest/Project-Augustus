@@ -831,11 +831,17 @@ pub(crate) fn validate_condition(
     schema: &Schema,
 ) -> Result<(), Error> {
     match condition {
+        crate::Condition::EntityNamed { name, .. } if name.is_empty() => {
+            Err(Error::Invalid("empty entity condition name".into()))
+        }
+        crate::Condition::YearAtLeast(year) if *year < 1 => Err(Error::Invalid(
+            "year condition requires a positive year".into(),
+        )),
         crate::Condition::ScopeIsCurrent(selector) => selector.validate(),
         crate::Condition::AtLeast { field, .. } if field.0 >= schema.fields.len() => {
             Err(Error::Invalid("invalid saved condition field".into()))
         }
-        crate::Condition::All(conditions) => {
+        crate::Condition::All(conditions) | crate::Condition::Any(conditions) => {
             for condition in conditions {
                 validate_condition(condition, schema)?;
             }

@@ -24,6 +24,8 @@ struct Scene {
     offices: BTreeMap<String, EntityId>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     global_scope_types: BTreeMap<String, EntityKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    calendar: Option<augustus_core::Calendar>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -179,6 +181,9 @@ impl EventDemo {
             ))?
         };
         let mut world = World::new(Schema::new(scene.fields.clone())?);
+        if let Some(calendar) = scene.calendar {
+            world.set_calendar(calendar)?;
+        }
         world.set_event_catalog(catalog)?;
         for entity in &scene.entities {
             world.add_entity(&entity.name, entity.kind);

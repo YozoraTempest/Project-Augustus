@@ -1,0 +1,40 @@
+{
+  "calendar.before": {
+    "All": [
+      {
+        "Always": true
+      },
+      {
+        "EntityNamed": {
+          "target": "Current",
+          "name": "AAA"
+        }
+      },
+      {
+        "Not": {
+          "All": [
+            {
+              "YearAtLeast": 1445
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "calendar.after": {
+    "All": [
+      {
+        "Always": true
+      },
+      {
+        "EntityNamed": {
+          "target": "Current",
+          "name": "AAA"
+        }
+      },
+      {
+        "YearAtLeast": 1445
+      }
+    ]
+  }
+}

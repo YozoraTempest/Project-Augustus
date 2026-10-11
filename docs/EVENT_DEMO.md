@@ -68,6 +68,15 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/o
 
 第二天只出现一个 `delayed` 记录。EU4 定义使用 `fire_only_once = yes`；原生入口在可选的 `once_events.json` 中列出相应事件标识。记录在整局游戏中共享，换实体、完成选项或保存恢复都不会重新开放触发机会。`once.2` 还演示有终止条件的自调用，其日志为 `enter`、`enter`、`inner`、`outer`。
 
+`examples/runtime-predicates` 从 1444.12.31 开始，演示国家标识和跨年条件。当天调用只执行 `before`，次日到期的两个调用只执行 `after`：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/runtime-predicates --trigger calendar.control --save calendar_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/runtime-predicates --input native --load calendar_waiting.json --days 1 --choose 0:0 --choose 1:0 --choose 2:0
+```
+
+场景的可选 `calendar` 声明起始日期和十二个月的长度；年份条件随核心日期变化，延迟任务不会沿用安排时的判断。另一个国家的候选列表不会触发这些要求 `AAA` 身份的事件。
+
 ## 运行规则
 
 事件先执行 `immediate`，成功后保存当前实体和触发日期。等待期间的数值及实体关系保持实时更新；选择时执行选项效果，再执行 `after`，成功后移除对应记录。多个同类事件各有独立编号。读档不重复即时效果，重复选择、未知选项和错误实体类型会在写入前被拒绝。效果运行错误保留已经发生的写入并停止模拟，不能继续推进或保存。
@@ -90,7 +99,13 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/o
 
 事件调用支持匹配当前类型的 `country_event = { id = ... days = ... }` 和 `province_event = { id = ... days = ... }`。`days` 只接受非负整数；负值、小数、随机延迟及其他参数会被拒绝。原生条件调用使用 `TryEvent`，延迟执行使用 `Schedule`。已绑定的无条件调用可以编译成直接执行计划。
 
-事件 `trigger` 支持已有的常量、变量、国库和无参数脚本条件，以及国家作用域的 `is_emperor`、`is_emperor_of_china`；职位条件读取当前持有人。原版世界入口可以读取 `on_startup` 的 `events` 列表和普通国家事件调用，只绑定直接及间接引用的受支持事件，先处理候选列表，再运行启动效果。该入口中的事件脚本宏、其他事件字段及未注册状态字段仍会报告阻塞来源。启动处理未完成时，候选事件和其他启动写入一起撤销，避免留下部分初始化结果。
+事件 `trigger` 支持已有的常量、变量、国库和无参数脚本条件，以及国家作用域的 `is_emperor`、`is_emperor_of_china`；职位条件读取当前持有人。`tag`／`TAG` 比较当前国家的字面标识，要求三位大写字母或数字；动态 `ROOT`、`FROM`、`PREV` 标识及国家标签变更尚未支持。`is_year` 表示当前年份大于或等于给定正整数，要求场景已提供日历。原生条件分别使用 `EntityNamed`、`YearAtLeast`。
+
+`AND`、`OR`、`NOT` 及其小写写法可以嵌套，条件按声明顺序短路求值。多项 `NOT` 要求内部每项都不成立；未知触发器即使出现在常量分支中，也会报告编译错误。原生组合使用 `All`、`Any` 和 `Not`。
+
+`has_dlc` 使用固定终版、全部 DLC 基线，识别 22 个玩法资料片以及 American Dream、Purple Phoenix、Star and Crescent、Women in History、Dharma 的两个单位包。已识别名称编译为真，名称大小写或其他名称不匹配会报错。这只表示所选规则基线的内容可用性，各机制与效果的支持范围仍分别校验。
+
+原版世界入口可以读取 `on_startup` 的 `events` 列表和普通国家事件调用，只绑定直接及间接引用的受支持事件，先处理候选列表，再运行启动效果。该入口中的事件脚本宏、其他事件字段及未注册状态字段仍会报告阻塞来源。启动处理未完成时，候选事件和其他启动写入一起撤销，避免留下部分初始化结果。
 
 命名作用域支持 `emperor = { ... }`、`save_global_event_target_as`、`clear_global_event_target`，以及已经声明类型的 `event_target:name = { ... }`。本入口仅处理全局目标；局部事件目标、动态目标名及完整原版目录中的类型推导尚未支持。原版启动入口也能使用皇帝作用域和全局国家目标，其他未支持效果仍会报告阻塞位置。
 

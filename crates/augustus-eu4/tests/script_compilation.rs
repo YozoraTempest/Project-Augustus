@@ -114,7 +114,6 @@ fn unsupported_semantics_recursion_and_scope_errors_report_source_positions() {
         "set_variable={which=x value=1 value=2}",
         "else={log=orphan}",
         "if={limit={unsupported=yes} log=x}",
-        "if={limit={NOT={always=yes always=no}} log=x}",
         "if={limit={NOT={}} log=x}",
     ] {
         let error = ScriptCompiler::new(&schema, &library, true)

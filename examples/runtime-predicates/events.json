@@ -1,0 +1,81 @@
+[
+  {
+    "id": "calendar.before",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "before"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "calendar.after",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "after"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "calendar.control",
+    "scope": "Country",
+    "immediate": [
+      {
+        "TryEvent": {
+          "event": "calendar.before"
+        }
+      },
+      {
+        "TryEvent": {
+          "event": "calendar.after"
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TryEvent": {
+                "event": "calendar.before"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TryEvent": {
+                "event": "calendar.after"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

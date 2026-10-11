@@ -657,12 +657,62 @@ impl<'a> ScriptCompiler<'a> {
                     }
                 }
                 "always" => Condition::Always(boolean(field)?),
-                "NOT" => {
-                    let body = field.block()?;
-                    if body.len() != 1 {
-                        return Err(field.error("NOT currently requires one enclosed trigger"));
+                "has_dlc" => {
+                    let expansion = field.scalar()?;
+                    if !crate::is_known_dlc(expansion) {
+                        return Err(field.error(format!("unsupported expansion {expansion}")));
                     }
-                    Condition::Not(Box::new(self.conditions(body, scope)?))
+                    Condition::Always(true)
+                }
+                "tag" | "TAG" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("tag trigger requires country scope"));
+                    }
+                    let tag = field.scalar()?;
+                    if tag.len() != 3
+                        || !tag
+                            .bytes()
+                            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+                    {
+                        return Err(field.error(
+                            "tag trigger requires a literal three-character country identifier",
+                        ));
+                    }
+                    Condition::EntityNamed {
+                        target: Target::Current,
+                        name: tag.into(),
+                    }
+                }
+                "is_year" => {
+                    let year = field
+                        .scalar()?
+                        .parse::<i16>()
+                        .ok()
+                        .filter(|year| *year > 0)
+                        .ok_or_else(|| field.error("expected a positive integer year"))?;
+                    Condition::YearAtLeast(year)
+                }
+                "AND" | "and" => self.conditions(field.block()?, scope)?,
+                "OR" | "or" => {
+                    let Condition::All(children) = self.conditions(field.block()?, scope)? else {
+                        unreachable!("condition blocks produce conjunctions")
+                    };
+                    Condition::Any(children)
+                }
+                "NOT" | "not" => {
+                    let body = field.block()?;
+                    if body.is_empty() {
+                        return Err(field.error("NOT requires at least one enclosed trigger"));
+                    }
+                    let condition = self.conditions(body, scope)?;
+                    if body.len() == 1 {
+                        Condition::Not(Box::new(condition))
+                    } else {
+                        let Condition::All(children) = condition else {
+                            unreachable!("condition blocks produce conjunctions")
+                        };
+                        Condition::Not(Box::new(Condition::Any(children)))
+                    }
                 }
                 "check_variable" => {
                     let (name, value) = variable(field)?;
@@ -773,6 +823,11 @@ fn constant(condition: &Condition) -> Option<bool> {
             .map(constant)
             .collect::<Option<Vec<_>>>()
             .map(|values| values.iter().all(|value| *value)),
+        Condition::Any(conditions) => conditions
+            .iter()
+            .map(constant)
+            .collect::<Option<Vec<_>>>()
+            .map(|values| values.iter().any(|value| *value)),
         _ => None,
     }
 }
