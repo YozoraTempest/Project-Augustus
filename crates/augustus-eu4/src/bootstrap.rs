@@ -585,6 +585,8 @@ impl VanillaWorld {
         initial
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        let estate_flags = estates.flags();
+        let startup = crate::estates::EstateStartup::load(&root, &files, &mut report.estates)?;
         let estates = estates.bind(&initial, &mut report.estates)?;
         initial
             .set_estates(estates)
@@ -612,6 +614,7 @@ impl VanillaWorld {
                     .collect(),
             ))
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        startup.run(&mut initial, &estate_flags, &mut report.estates)?;
         report.countries = initial.countries().len();
         report.provinces = initial.provinces().len();
         for country in initial.countries() {

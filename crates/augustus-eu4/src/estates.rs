@@ -21,7 +21,9 @@ use crate::{
 };
 
 mod initialization;
+mod startup;
 use initialization::{EstateInitialization, HistoryMetric};
+pub(super) use startup::EstateStartup;
 
 type Reader<'a, 'b> = ObjectReader<'a, 'b, TextEncoding>;
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
@@ -45,6 +47,10 @@ pub struct EstateReport {
     pub unresolved_countries: BTreeMap<String, BTreeSet<String>>,
     pub pending_land_changes: BTreeMap<String, Vec<LoadedSource>>,
     pub pending_loyalty_changes: BTreeMap<String, Vec<LoadedSource>>,
+    pub applied_startup_effects: usize,
+    pub startup_effect_sources: Vec<LoadedSource>,
+    pub pending_startup_effects: Vec<LoadedSource>,
+    pub startup_unresolved: BTreeSet<String>,
 }
 
 impl PropertyDiagnostics for EstateReport {
@@ -69,6 +75,7 @@ struct History {
     unknown_flags: bool,
     privileges: BTreeSet<String>,
     privilege_operations: BTreeSet<String>,
+    revoked_privileges: BTreeSet<String>,
     unknown_privileges: bool,
     metrics: Vec<HistoryMetric>,
     unknown_land: bool,
@@ -89,6 +96,17 @@ pub(super) struct EstateDraft {
 }
 
 impl EstateDraft {
+    pub(super) fn flags(&self) -> BTreeMap<String, Option<BTreeSet<String>>> {
+        self.histories
+            .iter()
+            .map(|(tag, history)| {
+                (
+                    tag.clone(),
+                    (!history.unknown_flags).then(|| history.flags.clone()),
+                )
+            })
+            .collect()
+    }
     pub(super) fn load(
         root: &ContentRoot,
         files: &[FileEntry],
@@ -382,6 +400,9 @@ impl EstateDraft {
                     }
                     if name.contains("privilege") {
                         history.privilege_operations.insert(id.clone());
+                        if name == "remove_estate_privilege" {
+                            history.revoked_privileges.insert(id.clone());
+                        }
                         report
                             .history_sources
                             .insert(format!("{tag}:{id}"), source(parsed, at));

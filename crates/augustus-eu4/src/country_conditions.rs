@@ -20,6 +20,7 @@ pub(super) enum Condition {
     Status(String, bool),
     Feature(String),
     Estate(String),
+    EstatePrivilege(String),
     If(Box<Self>, Box<Self>),
     Capital(Vec<Self>),
     Region(String, bool),
@@ -100,6 +101,15 @@ impl Condition {
                             return Err(fail("empty estate identifier"));
                         }
                         Self::Estate(id)
+                    }
+                    "has_estate_privilege" if country => {
+                        let id = value
+                            .read_string()
+                            .map_err(|_| fail("expected estate privilege identifier"))?;
+                        if id.is_empty() {
+                            return Err(fail("empty estate privilege identifier"));
+                        }
+                        Self::EstatePrivilege(id)
                     }
                     "is_nomad" if country => {
                         let expected = flag(
@@ -252,6 +262,32 @@ impl Condition {
         estates: EstateLookup<'_>,
     ) -> Option<bool> {
         match self {
+            Self::EstatePrivilege(id) => {
+                let entity = initial.country_entity(tag).expect("registered country");
+                let result = initial
+                    .world()
+                    .estates()
+                    .countries
+                    .get(&entity)
+                    .and_then(|states| {
+                        let mut unknown = false;
+                        for state in states.values().filter(|s| s.active != Some(false)) {
+                            match &state.privileges {
+                                Some(ids) if state.active == Some(true) && ids.contains(id) => {
+                                    return Some(true);
+                                }
+                                Some(_) => (),
+                                None => unknown = true,
+                            }
+                            unknown |= state.active.is_none();
+                        }
+                        (!unknown).then_some(false)
+                    });
+                if result.is_none() {
+                    reasons.insert(format!("unknown_estate_privilege:{id}"));
+                }
+                result
+            }
             Self::If(limit, body) => {
                 let mut pending = BTreeSet::new();
                 let limit = limit.evaluate(initial, tag, flags, &mut pending, province, estates);
@@ -450,7 +486,10 @@ impl Condition {
                 true
             }
             Self::Match(name, value) => replace(name) && replace(value),
-            Self::Feature(id) | Self::Estate(id) | Self::Region(id, _) => replace(id),
+            Self::Feature(id)
+            | Self::Estate(id)
+            | Self::EstatePrivilege(id)
+            | Self::Region(id, _) => replace(id),
             _ => true,
         };
         if !complete {

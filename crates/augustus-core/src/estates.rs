@@ -83,6 +83,8 @@ pub struct Estates {
     pub countries: BTreeMap<EntityId, BTreeMap<String, EstateState>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub unresolved_countries: BTreeMap<EntityId, BTreeSet<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub resolved_privilege_effects: BTreeMap<EntityId, BTreeMap<String, BTreeSet<String>>>,
 }
 
 impl Estates {
@@ -91,6 +93,7 @@ impl Estates {
             && self.privileges.is_empty()
             && self.countries.is_empty()
             && self.unresolved_countries.is_empty()
+            && self.resolved_privilege_effects.is_empty()
             && self.rules == EstateRules::default()
     }
 
@@ -195,7 +198,7 @@ impl Estates {
                         append(
                             &mut result,
                             source.clone(),
-                            &privilege.effect,
+                            &self.resolved_effect(entity, id, &privilege.effect),
                             Some(1_000_000),
                             property,
                         )?;
@@ -225,7 +228,42 @@ impl Estates {
         Ok(result)
     }
 
+    fn resolved_effect(&self, entity: EntityId, id: &str, effect: &EstateEffect) -> EstateEffect {
+        let mut result = effect.clone();
+        if let Some(resolved) = self
+            .resolved_privilege_effects
+            .get(&entity)
+            .and_then(|p| p.get(id))
+        {
+            result
+                .unresolved_effects
+                .retain(|effect| !resolved.contains(effect));
+        }
+        result
+    }
+
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
+        for (&entity, privileges) in &self.resolved_privilege_effects {
+            if world.entity(entity)?.kind != EntityKind::Country || privileges.is_empty() {
+                return Err(Error::Invalid("invalid resolved estate effects".into()));
+            }
+            for (id, effects) in privileges {
+                if effects.is_empty()
+                    || self.countries.get(&entity).is_none_or(|states| {
+                        !states.values().any(|s| {
+                            s.active == Some(true)
+                                && s.privileges.as_ref().is_some_and(|ids| ids.contains(id))
+                        })
+                    })
+                    || self
+                        .privileges
+                        .get(id)
+                        .is_none_or(|p| !effects.is_subset(&p.effect.unresolved_effects))
+                {
+                    return Err(Error::Invalid("invalid resolved privilege effect".into()));
+                }
+            }
+        }
         let ratio = |v: Option<i64>| v.is_none_or(|v| (0..=1_000_000).contains(&v));
         let percent = |v: Option<i64>| v.is_none_or(|v| (0..=100_000).contains(&v));
         if !percent(self.rules.angry_below_milli)

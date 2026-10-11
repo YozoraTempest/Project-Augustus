@@ -27,6 +27,21 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    ChangeEstateMetric {
+        estate: String,
+        metric: crate::EstateMetric,
+        amount: i64,
+        minimum: Option<i64>,
+    },
+    SetEstatePrivilege {
+        estate: String,
+        privilege: String,
+        granted: bool,
+    },
+    ResolveEstatePrivilegeEffect {
+        privilege: String,
+        effect: String,
+    },
     /// Two equally likely branches; exactly one u64 draw, in instruction order.
     RandomBranch {
         then: Plan,
@@ -117,6 +132,20 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::ChangeEstateMetric {
+                    estate,
+                    metric,
+                    amount,
+                    minimum,
+                } => self.change_estate_metric(current, estate, *metric, *amount, *minimum)?,
+                Action::SetEstatePrivilege {
+                    estate,
+                    privilege,
+                    granted,
+                } => self.set_estate_privilege(current, estate, privilege, *granted)?,
+                Action::ResolveEstatePrivilegeEffect { privilege, effect } => {
+                    self.resolve_estate_privilege_effect(current, privilege, effect)?
+                }
                 Action::RandomBranch { then, otherwise } => {
                     let branch = if self.random.next_u64() & 1 == 0 {
                         then

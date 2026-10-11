@@ -21,6 +21,18 @@ pub(super) struct HistoryMetric {
 }
 
 impl HistoryMetric {
+    pub(super) fn action(&self) -> augustus_core::Action {
+        augustus_core::Action::ChangeEstateMetric {
+            estate: self.estate.clone(),
+            metric: if self.land {
+                augustus_core::EstateMetric::LandShare
+            } else {
+                augustus_core::EstateMetric::Loyalty
+            },
+            amount: self.amount,
+            minimum: if self.land { None } else { Some(0) },
+        }
+    }
     pub(super) fn parse(
         parsed: &ParsedText<'_>,
         name: &str,
@@ -86,8 +98,8 @@ pub(super) struct EstateInitialization {
     order: Vec<String>,
     weights: BTreeMap<String, Weight>,
     land_rules: Option<EstateLandRules>,
-    startup_empty: bool,
     privilege_land: BTreeSet<String>,
+    privilege_revocations: BTreeSet<String>,
 }
 
 impl EstateInitialization {
@@ -216,30 +228,6 @@ impl EstateInitialization {
                 normalized_share_quantum_micros: 10,
             });
         }
-        self.startup_empty = true;
-        for file in files
-            .iter()
-            .filter(|f| direct_txt(&f.relative_path, "common/on_actions"))
-        {
-            let doc = root.read_text(&file.relative_path, ENCODING)?;
-            let parsed = doc.parse()?;
-            for (key, op, value) in parsed
-                .reader()
-                .fields()
-                .filter(|(k, _, _)| k.read_string() == "on_startup")
-            {
-                let at = parsed.field_location(&key);
-                let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
-                equal(op, &fail)?;
-                if block(&value, &fail)?.fields().next().is_some() {
-                    self.startup_empty = false;
-                    report.definition_sources.insert(
-                        format!("startup:{}", report.definition_sources.len()),
-                        source(&parsed, at),
-                    );
-                }
-            }
-        }
         for file in files
             .iter()
             .filter(|f| direct_txt(&f.relative_path, "common/estate_privileges"))
@@ -249,11 +237,15 @@ impl EstateInitialization {
             for (key, _, value) in parsed.reader().fields() {
                 let id = key.read_string();
                 let fail = |m: &str| Error::message(parsed.source(), m);
-                for (key, _, value) in block(&value, &fail)?
-                    .fields()
-                    .filter(|(k, _, _)| k.read_string() == "land_share")
-                {
-                    if value.read_string().ok().and_then(|v| micros(&v)) != Some(0) {
+                for (key, _, value) in block(&value, &fail)?.fields() {
+                    if key.read_string() == "on_revoked"
+                        && block(&value, &fail)?.fields().next().is_some()
+                    {
+                        self.privilege_revocations.insert(id.clone());
+                    }
+                    if key.read_string() == "land_share"
+                        && value.read_string().ok().and_then(|v| micros(&v)) != Some(0)
+                    {
                         self.privilege_land.insert(id.clone());
                         report.definition_sources.insert(
                             format!("privilege:{id}:land_share"),
@@ -376,7 +368,10 @@ impl EstateInitialization {
             .filter_map(|id| states[*id].privileges.as_ref())
             .flatten()
             .chain(history.into_iter().flat_map(|h| &h.privilege_operations));
-        let unexecuted_privilege = affected_privileges.any(|id| {
+        let unexecuted_privilege = history.is_some_and(|h| {
+            !h.revoked_privileges
+                .is_disjoint(&self.privilege_revocations)
+        }) || affected_privileges.any(|id| {
             self.privilege_land.contains(id)
                 || privileges
                     .get(id)
@@ -388,8 +383,7 @@ impl EstateInitialization {
         if self.land_rules.is_none() {
             reasons.insert("missing_land_distribution_defines".into());
         }
-        let land_known = self.startup_empty
-            && !uncertain_presence
+        let land_known = !uncertain_presence
             && !selected_unknown
             && !unexecuted_privilege
             && history.is_some_and(|h| !h.unknown_land)
@@ -402,13 +396,9 @@ impl EstateInitialization {
                 states.get_mut(*id).unwrap().land_share_micros = Some(share);
             }
         }
-        let loyalty_known = self.startup_empty
-            && !selected_unknown
+        let loyalty_known = !selected_unknown
             && !unexecuted_privilege
             && history.is_some_and(|h| !h.unknown_loyalty);
-        if !self.startup_empty {
-            reasons.insert("unexecuted_startup_estate_effects".into());
-        }
         if loyalty_known {
             for id in &active {
                 states.get_mut(*id).unwrap().loyalty_milli = Some(50_000);

@@ -61,7 +61,7 @@ pub struct ProvinceState {
 
 /// Standard world data backed by the same simulation state used by native systems.
 /// Missing history values remain explicit in the public records.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InitialWorld {
     world: World,
     countries: Vec<CountryState>,
@@ -216,6 +216,10 @@ impl InitialWorld {
 
     pub fn world(&self) -> &World {
         &self.world
+    }
+
+    pub fn execute(&mut self, current: EntityId, plan: &[crate::Action]) -> Result<(), Error> {
+        self.world.execute(current, plan)
     }
 
     pub fn set_calendar(&mut self, calendar: crate::Calendar) -> Result<(), Error> {

@@ -95,7 +95,7 @@ pub struct World {
     affiliations: Affiliations,
     governments: Governments,
     ideas: Ideas,
-    estates: crate::Estates,
+    pub(crate) estates: crate::Estates,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
