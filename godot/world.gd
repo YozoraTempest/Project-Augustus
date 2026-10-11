@@ -192,7 +192,7 @@ func select_province(id: int) -> bool:
 	var development := "未载入"
 	if province.tax_milli != null and province.production_milli != null and province.manpower_milli != null:
 		development = "%.3f / %.3f / %.3f" % [province.tax_milli / 1000.0, province.production_milli / 1000.0, province.manpower_milli / 1000.0]
-	province_details.text = "%s · %d\n所有者 %s · 控制者 %s\n文化 %s · 宗教 %s\n商品 %s\n税收 / 生产 / 人力：%s" % [province.name, province.id, shown(province.owner), shown(province.controller), shown(province.culture), shown(province.religion), shown(province.trade_good), development]
+	province_details.text = "%s · %d\n所有者 %s · 控制者 %s\n文化 %s · 宗教 %s\n商品 %s\n税收 / 生产 / 人力：\n%s" % [province.name, province.id, shown(province.owner), shown(province.controller), shown(province.culture), shown(province.religion), shown(province.trade_good), development]
 	return true
 
 func map_input(event: InputEvent) -> void:
