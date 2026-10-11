@@ -23,6 +23,7 @@ mod geography;
 mod governments;
 mod ideas;
 mod load;
+mod missions;
 mod politics;
 mod script;
 mod setup;

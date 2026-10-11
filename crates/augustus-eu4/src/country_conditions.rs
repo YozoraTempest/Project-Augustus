@@ -19,6 +19,7 @@ pub(super) enum Condition {
     Match(String, String),
     Status(String, bool),
     Office(String, bool),
+    Completion(String),
     Feature(String),
     Estate(String),
     EstatePrivilege(String),
@@ -93,6 +94,15 @@ impl Condition {
                             report.unsupported(parsed, "trigger", &name, at);
                             Self::Unknown(name)
                         }
+                    }
+                    "mission_completed" if country => {
+                        let id = value
+                            .read_string()
+                            .map_err(|_| fail("expected mission identifier"))?;
+                        if id.is_empty() {
+                            return Err(fail("empty mission identifier"));
+                        }
+                        Self::Completion(id)
                     }
                     "has_estate" if country => {
                         let id = value
@@ -277,6 +287,14 @@ impl Condition {
         estates: EstateLookup<'_>,
     ) -> Option<bool> {
         match self {
+            Self::Completion(id) => {
+                let entity = initial.country_entity(tag).expect("registered country");
+                let result = initial.world().completion_recorded(entity, id).ok();
+                if result.is_none() {
+                    reasons.insert(format!("unknown_mission_state:{id}"));
+                }
+                result
+            }
             Self::Office(name, expected) => {
                 let entity = initial.country_entity(tag).expect("registered country");
                 let predicate = augustus_core::Condition::ScopeIsCurrent(
@@ -512,6 +530,7 @@ impl Condition {
             }
             Self::Match(name, value) => replace(name) && replace(value),
             Self::Feature(id)
+            | Self::Completion(id)
             | Self::Estate(id)
             | Self::EstatePrivilege(id)
             | Self::Region(id, _) => replace(id),

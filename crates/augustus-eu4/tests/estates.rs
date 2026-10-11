@@ -62,6 +62,140 @@ fn loyalty(amount: i64) -> Action {
 }
 
 #[test]
+fn startup_mission_records_are_live_per_country_and_survive_pending_choices() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "missions/test.txt",
+        r#"sample_series={slot=1 generic=no potential={tag=AAA}
+      sample_first={trigger={always=yes} effect={log=unexecuted_reward}}
+      sample_later={position=2 trigger={always=no} effect={log=unexecuted_reward}}
+    }"#,
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        r#"on_startup={
+      events={records.before}
+      if={limit={tag=AAA}
+        if={limit={mission_completed=sample_first} log=incorrect} else={log=fresh}
+        complete_mission=sample_first complete_mission=sample_first
+        if={limit={mission_completed=sample_first} log=done}
+        country_event={id=records.later days=1}
+      }
+    }"#,
+    );
+    write(
+        temp.path(),
+        "events/test.txt",
+        r#"
+      country_event={id=records.before is_triggered_only=yes trigger={tag=AAA NOT={mission_completed=sample_first}}
+        immediate={log=before} option={name=accept complete_mission=sample_later}
+        after={if={limit={mission_completed=sample_later} log=after}}
+      }
+      country_event={id=records.later is_triggered_only=yes trigger={mission_completed=sample_later}
+        immediate={log=later} option={name=accept}
+      }
+    "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.pending_startup_effects.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    let first = loaded.initial.country_entity("AAA").unwrap();
+    let other = loaded.initial.country_entity("BBB").unwrap();
+    assert!(
+        loaded
+            .initial
+            .world()
+            .completion_recorded(first, "sample_first")
+            .unwrap()
+    );
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .completion_recorded(other, "sample_first")
+            .unwrap()
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|e| e.2.as_str())
+            .collect::<Vec<_>>(),
+        ["before", "fresh", "done"]
+    );
+    let pending = loaded.initial.world().pending_events()[0].id;
+    loaded
+        .initial
+        .choose_event(&augustus_core::EventChoice {
+            pending,
+            option: "0".into(),
+        })
+        .unwrap();
+    let saved = loaded.save().unwrap();
+    let mut resumed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    resumed.restore(&saved).unwrap();
+    loaded.advance(1).unwrap();
+    resumed.advance(1).unwrap();
+    assert_eq!(loaded.save().unwrap(), resumed.save().unwrap());
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|e| (e.0, e.2.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (0, "before"),
+            (0, "fresh"),
+            (0, "done"),
+            (0, "after"),
+            (1, "later")
+        ]
+    );
+}
+
+#[test]
+fn incomplete_startup_rolls_back_mission_records_and_other_dates_stay_unknown() {
+    for (date, body) in [
+        (
+            "1444.11.11",
+            "complete_mission=sample_first log=prefix unsupported=yes",
+        ),
+        (
+            "1450.1.1",
+            "if={limit={mission_completed=sample_first} log=done} else={log=not_done}",
+        ),
+    ] {
+        let temp = startup_fixture();
+        write(
+            temp.path(),
+            "missions/test.txt",
+            "sample_series={slot=1 sample_first={position=1 trigger={always=yes} effect={log=reward}}}",
+        );
+        write(
+            temp.path(),
+            "common/on_actions/test.txt",
+            &format!("on_startup={{if={{limit={{tag=AAA}} {body}}}}}"),
+        );
+        let loaded = VanillaWorld::load(temp.path(), date).unwrap();
+        assert!(
+            !loaded.report.estates.pending_startup_effects.is_empty(),
+            "{date}"
+        );
+        assert!(loaded.initial.world().completions().is_empty());
+        assert!(loaded.initial.world().events().is_empty());
+    }
+}
+
+#[test]
 fn startup_follows_event_references_inside_hidden_containers() {
     let temp = startup_fixture();
     write(

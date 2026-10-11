@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace = records
+country_event = { id = records.first is_triggered_only = yes
+ immediate = { log = before }
+ option = { name = accept complete_mission = sample_first complete_mission = sample_first }
+ after = { if = { limit = { mission_completed = sample_first } log = after } }
+}
+country_event = { id = records.gated is_triggered_only = yes
+ trigger = { mission_completed = sample_first }
+ immediate = { log = gated } option = { name = accept }
+}
+country_event = { id = records.control is_triggered_only = yes
+ immediate = {
+  country_event = { id = records.gated }
+  country_event = { id = records.first }
+  country_event = { id = records.gated days = 1 }
+ }
+ option = { name = accept }
+}

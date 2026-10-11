@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "completions": {
+    "identifiers": [
+      "sample_first"
+    ],
+    "entities": {
+      "0": [],
+      "1": []
+    }
+  }
+}

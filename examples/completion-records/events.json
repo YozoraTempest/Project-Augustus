@@ -1,0 +1,101 @@
+[
+  {
+    "id": "records.first",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "before"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "RecordCompletion": {
+              "id": "sample_first"
+            }
+          },
+          {
+            "RecordCompletion": {
+              "id": "sample_first"
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "CompletionRecorded": {
+                  "target": "Current",
+                  "id": "sample_first"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "after"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "records.gated",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "gated"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "records.control",
+    "scope": "Country",
+    "immediate": [
+      {
+        "TryEvent": {
+          "event": "records.gated"
+        }
+      },
+      {
+        "TriggerEvent": {
+          "event": "records.first"
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TryEvent": {
+                "event": "records.gated"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

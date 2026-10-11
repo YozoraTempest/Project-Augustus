@@ -5,6 +5,50 @@ use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 
 #[test]
+fn completions_survive_cross_input_choices_and_delayed_checks_without_becoming_global() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/completion-records");
+    let mut compatible = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    compatible.trigger("records.control", 0).unwrap();
+    let waiting = compatible.save().unwrap();
+    native.restore(&waiting).unwrap();
+    for demo in [&mut compatible, &mut native] {
+        for id in 0..2 {
+            demo.choose(&EventChoice {
+                pending: PendingEventId(id),
+                option: "0".into(),
+            })
+            .unwrap();
+        }
+        demo.advance(1).unwrap();
+        assert_eq!(
+            demo.world()
+                .events()
+                .iter()
+                .map(|e| (e.0, e.2.as_str()))
+                .collect::<Vec<_>>(),
+            [(0, "before"), (0, "after"), (1, "gated")]
+        );
+        demo.choose(&EventChoice {
+            pending: PendingEventId(2),
+            option: "0".into(),
+        })
+        .unwrap();
+        let saved = demo.save().unwrap();
+        demo.candidates(&["records.gated".into()], 1).unwrap();
+        assert_eq!(demo.save().unwrap(), saved);
+    }
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    let before = native.save().unwrap();
+    let mut corrupt: serde_json::Value = serde_json::from_str(&before).unwrap();
+    corrupt["completions"]["identifiers"] = serde_json::json!(["invented", "sample_first"]);
+    assert!(native.restore(&corrupt.to_string()).is_err());
+    assert_eq!(native.save().unwrap(), before);
+}
+
+#[test]
 fn runtime_calendar_predicates_share_content_and_cross_input_saved_tasks() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/runtime-predicates");

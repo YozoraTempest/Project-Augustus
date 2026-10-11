@@ -96,14 +96,20 @@ impl EventCatalog {
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
         for condition in self.conditions.values() {
-            crate::world::validate_condition(condition, world.schema())?;
+            crate::world::validate_condition(condition, world.schema(), world.completions())?;
         }
         for definition in self.definitions.values() {
             for plan in std::iter::once(&definition.immediate)
                 .chain(definition.options.iter().map(|option| &option.effects))
                 .chain(std::iter::once(&definition.after))
             {
-                crate::world::validate_plan(plan, world.schema(), world.rules.len(), self)?;
+                crate::world::validate_plan(
+                    plan,
+                    world.schema(),
+                    world.rules.len(),
+                    self,
+                    world.completions(),
+                )?;
             }
         }
         Ok(())

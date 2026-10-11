@@ -26,6 +26,8 @@ struct Scene {
     global_scope_types: BTreeMap<String, EntityKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     calendar: Option<augustus_core::Calendar>,
+    #[serde(default, skip_serializing_if = "augustus_core::Completions::is_empty")]
+    completions: augustus_core::Completions,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,6 +63,8 @@ pub struct EventView {
     pub entities: Vec<EventEntityView>,
     pub pending_events: Vec<PendingChoiceView>,
     pub log: Vec<(u64, EntityId, String)>,
+    #[serde(skip_serializing_if = "augustus_core::Completions::is_empty")]
+    pub completions: augustus_core::Completions,
 }
 
 /// Self-authored scenario exercising the same core from two content formats.
@@ -87,6 +91,7 @@ impl EventDemo {
                     include_str!("../../../examples/events/eu4/common/scripted_effects/demo.txt"),
                 ))?;
                 let compiled = ScriptCompiler::new(&schema, &library, true)
+                    .with_mission_ids(scene.completions.identifiers.clone())
                     .with_global_scope_types(scene.global_scope_types.clone())
                     .compile_events(&document(
                         "demo/events.txt",
@@ -135,6 +140,7 @@ impl EventDemo {
                 let library = ScriptLibrary::from_content(&content, TextEncoding::Utf8)?;
                 let schema = Schema::new(scene.fields.clone())?;
                 let compiled = ScriptCompiler::new(&schema, &library, true)
+                    .with_mission_ids(scene.completions.identifiers.clone())
                     .with_global_scope_types(scene.global_scope_types.clone())
                     .compile_events(&content.read_text("events/demo.txt", TextEncoding::Utf8)?)?;
                 (
@@ -184,7 +190,6 @@ impl EventDemo {
         if let Some(calendar) = scene.calendar {
             world.set_calendar(calendar)?;
         }
-        world.set_event_catalog(catalog)?;
         for entity in &scene.entities {
             world.add_entity(&entity.name, entity.kind);
         }
@@ -212,6 +217,8 @@ impl EventDemo {
                 ..Default::default()
             })?;
         }
+        world.set_completions(scene.completions)?;
+        world.set_event_catalog(catalog)?;
         Ok(Self { world, content })
     }
 
@@ -261,6 +268,7 @@ impl EventDemo {
             self.world.event_catalog().clone(),
         )?;
         if restored.entities().len() != self.world.entities().len()
+            || restored.completions().identifiers != self.world.completions().identifiers
             || restored
                 .entities()
                 .iter()
@@ -323,6 +331,7 @@ impl EventDemo {
             entities,
             pending_events,
             log: self.world.events().to_vec(),
+            completions: self.world.completions().clone(),
         })
     }
 }

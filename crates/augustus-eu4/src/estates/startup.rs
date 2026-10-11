@@ -37,12 +37,14 @@ struct Compiler {
     visiting: Vec<String>,
     needed_privileges: BTreeSet<String>,
     startup_metadata: bool,
+    mission_ids: BTreeSet<String>,
 }
 
 pub(crate) struct EstateStartup {
     steps: Vec<Step>,
     callbacks: BTreeMap<String, Callback>,
     events: EventCatalog,
+    mission_ids: BTreeSet<String>,
 }
 
 impl Compiler {
@@ -68,6 +70,15 @@ impl Compiler {
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             equal(op, &fail)?;
             match name.as_str() {
+                "complete_mission" => {
+                    let id = value
+                        .read_string()
+                        .map_err(|_| fail("expected mission identifier"))?;
+                    if !self.mission_ids.contains(&id) {
+                        return Err(fail("unknown mission identifier"));
+                    }
+                    result.push(Step::Metric(Action::RecordCompletion { id }, location));
+                }
                 "events" if self.startup_metadata && depth == 0 => (),
                 "log" => result.push(Step::Metric(
                     Action::Emit(
@@ -289,6 +300,7 @@ impl EstateStartup {
             visiting: Vec::new(),
             needed_privileges: BTreeSet::new(),
             startup_metadata: false,
+            mission_ids: crate::missions::identifiers(root, files)?,
         };
         for file in files
             .iter()
@@ -454,7 +466,7 @@ impl EstateStartup {
             collect_references(&callback.granted, &mut references);
             collect_references(&callback.revoked, &mut references);
         }
-        let events = match load_events(root, files, schema, references) {
+        let events = match load_events(root, files, schema, references, &compiler.mission_ids) {
             Ok(events) => events,
             Err(error) => {
                 let at = error
@@ -478,6 +490,7 @@ impl EstateStartup {
             steps,
             callbacks,
             events,
+            mission_ids: compiler.mission_ids,
         })
     }
 
@@ -491,6 +504,38 @@ impl EstateStartup {
             return Ok(());
         }
         let mut candidate = initial.clone();
+        if !self.mission_ids.is_empty() {
+            let entities = if initial
+                .world()
+                .date()
+                .map_err(|e| Error::caused_by("missions", e))?
+                == Some(augustus_core::WorldDate {
+                    year: 1444,
+                    month: 11,
+                    day: 11,
+                }) {
+                initial
+                    .countries()
+                    .iter()
+                    .map(|country| {
+                        (
+                            initial
+                                .country_entity(&country.id)
+                                .expect("registered country"),
+                            BTreeSet::new(),
+                        )
+                    })
+                    .collect()
+            } else {
+                BTreeMap::new()
+            };
+            candidate
+                .set_completions(augustus_core::Completions {
+                    identifiers: self.mission_ids.clone(),
+                    entities,
+                })
+                .map_err(|e| Error::caused_by("missions", e))?;
+        }
         candidate
             .set_event_catalog(self.events.clone())
             .map_err(|e| Error::caused_by("events", e))?;
@@ -810,6 +855,7 @@ fn load_events(
     files: &[FileEntry],
     schema: &Schema,
     mut needed: BTreeSet<String>,
+    mission_ids: &BTreeSet<String>,
 ) -> Result<EventCatalog, Error> {
     if needed.is_empty() {
         return Ok(EventCatalog::default());
@@ -827,6 +873,7 @@ fn load_events(
         {
             let document = root.read_text(&file.relative_path, ENCODING)?;
             let compiled = crate::ScriptCompiler::new(schema, &library, true)
+                .with_mission_ids(mission_ids.clone())
                 .compile_selected_events(&document, &requested)?;
             for definition in compiled.definitions {
                 if !found.insert(definition.id.clone()) {

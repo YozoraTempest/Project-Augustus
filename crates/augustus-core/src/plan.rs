@@ -15,6 +15,10 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    CompletionRecorded {
+        target: Target,
+        id: String,
+    },
     /// Compare a target's stable entity name with a content identifier.
     EntityNamed {
         target: Target,
@@ -37,6 +41,9 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    RecordCompletion {
+        id: String,
+    },
     /// Filter the entire list before executing any selected event.
     EventCandidates {
         events: Vec<String>,
@@ -118,6 +125,9 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::CompletionRecorded { target, id } => {
+                world.completion_recorded(world.target(current, *target)?, id)
+            }
             Self::EntityNamed { target, name } => {
                 if name.is_empty() {
                     return Err(Error::Invalid("empty entity condition name".into()));
@@ -206,6 +216,9 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::RecordCompletion { id } => {
+                    self.record_completion(current, id)?;
+                }
                 Action::EventCandidates { events } => {
                     self.event_candidates_inner(events, current, budget, depth + 1)?;
                 }

@@ -209,6 +209,7 @@ pub struct ScriptCompiler<'a> {
     sources: Vec<(PathBuf, SourceLocation)>,
     folded: usize,
     global_scope_types: BTreeMap<String, EntityKind>,
+    mission_ids: BTreeSet<String>,
 }
 
 impl<'a> ScriptCompiler<'a> {
@@ -221,6 +222,7 @@ impl<'a> ScriptCompiler<'a> {
             sources: Vec::new(),
             folded: 0,
             global_scope_types: BTreeMap::new(),
+            mission_ids: BTreeSet::new(),
         }
     }
 
@@ -228,6 +230,22 @@ impl<'a> ScriptCompiler<'a> {
     pub fn with_global_scope_types(mut self, types: BTreeMap<String, EntityKind>) -> Self {
         self.global_scope_types = types;
         self
+    }
+
+    pub fn with_mission_ids(mut self, ids: BTreeSet<String>) -> Self {
+        self.mission_ids = ids;
+        self
+    }
+
+    fn mission_id(&self, field: &Field, scope: EntityKind) -> Result<String, Error> {
+        if scope != EntityKind::Country {
+            return Err(field.error("mission records require country scope"));
+        }
+        let id = field.scalar()?;
+        if id.is_empty() || !self.mission_ids.contains(id) {
+            return Err(field.error(format!("unknown or undeclared mission identifier {id}")));
+        }
+        Ok(id.into())
     }
 
     pub fn compile(
@@ -461,6 +479,9 @@ impl<'a> ScriptCompiler<'a> {
             let field = &fields[index];
             self.sources.push((field.path.clone(), field.location));
             match field.name.as_str() {
+                "complete_mission" => plan.push(Action::RecordCompletion {
+                    id: self.mission_id(field, scope)?,
+                }),
                 "hidden_effect" => plan.extend(self.effects(field.block()?, scope)?),
                 "save_global_event_target_as" | "clear_global_event_target" => {
                     let name = field.scalar()?;
@@ -665,6 +686,10 @@ impl<'a> ScriptCompiler<'a> {
                     }
                     Condition::Always(true)
                 }
+                "mission_completed" => Condition::CompletionRecorded {
+                    target: Target::Current,
+                    id: self.mission_id(field, scope)?,
+                },
                 "tag" | "TAG" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("tag trigger requires country scope"));

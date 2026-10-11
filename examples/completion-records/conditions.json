@@ -1,0 +1,12 @@
+{
+  "records.gated": {
+    "All": [
+      {
+        "CompletionRecorded": {
+          "target": "Current",
+          "id": "sample_first"
+        }
+      }
+    ]
+  }
+}

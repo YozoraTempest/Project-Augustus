@@ -79,6 +79,15 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/r
 
 这个示例的兼容脚本也使用了嵌套 `hidden_effect`，编译后与原生定义得到相同的执行计划和内容标识。它不改变效果的顺序、当前作用域或事件调用；容器中的即时效果、选项、收尾和延迟调用均由已有核心执行。当前演示只处理执行，不生成原版的效果提示。
 
+`examples/completion-records` 演示任务完成记录。先在选项中登记完成并保存，再用原生输入执行次日事件：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/completion-records --trigger records.control --choose 0:0 --choose 1:0 --save completion_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/completion-records --input native --load completion_waiting.json --days 1 --choose 2:0
+```
+
+日志依次为 `before`、`after`、`gated`。查询中的 `completions` 给出已注册标识和各实体的完成记录；`AAA` 已完成 `sample_first`，`BBB` 仍为空。重复登记不会重复生成记录，读档也不会重放登记动作。
+
 ## 运行规则
 
 事件先执行 `immediate`，成功后保存当前实体和触发日期。等待期间的数值及实体关系保持实时更新；选择时执行选项效果，再执行 `after`，成功后移除对应记录。多个同类事件各有独立编号。读档不重复即时效果，重复选择、未知选项和错误实体类型会在写入前被拒绝。效果运行错误保留已经发生的写入并停止模拟，不能继续推进或保存。
@@ -106,6 +115,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/r
 `AND`、`OR`、`NOT` 及其小写写法可以嵌套，条件按声明顺序短路求值。多项 `NOT` 要求内部每项都不成立；未知触发器即使出现在常量分支中，也会报告编译错误。原生组合使用 `All`、`Any` 和 `Not`。
 
 `has_dlc` 使用固定终版、全部 DLC 基线，识别 22 个玩法资料片以及 American Dream、Purple Phoenix、Star and Crescent、Women in History、Dharma 的两个单位包。已识别名称编译为真，名称大小写或其他名称不匹配会报错。这只表示所选规则基线的内容可用性，各机制与效果的支持范围仍分别校验。
+
+国家作用域支持 `complete_mission = 标识` 和 `mission_completed = 标识`，分别编译为核心 `RecordCompletion` 和 `CompletionRecorded`。登记只修改当前国家的记录，不检查任务条件、不执行奖励；条件读取执行时的状态。原生场景通过 `completions.identifiers` 注册标识，通过 `completions.entities` 提供已知记录；缺少实体条目表示状态未知，空列表表示已知未完成。标识要求已注册且非空，动态名称和错误作用域会报错；本入口对不存在的任务名称使用严格诊断，不沿用原版的假值查询。直接使用 `ScriptCompiler` 时，通过 `with_mission_ids` 提供注册标识。任务树、可用性、玩家领取奖励和分支切换尚未实现。
 
 原版世界入口可以读取 `on_startup` 的 `events` 列表和普通国家事件调用，只绑定直接及间接引用的受支持事件，先处理候选列表，再运行启动效果。该入口中的事件脚本宏、其他事件字段及未注册状态字段仍会报告阻塞来源。启动处理未完成时，候选事件和其他启动写入一起撤销，避免留下部分初始化结果。
 

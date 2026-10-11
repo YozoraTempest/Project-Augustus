@@ -99,6 +99,7 @@ pub struct World {
     governments: Governments,
     ideas: Ideas,
     pub(crate) estates: crate::Estates,
+    pub(crate) completions: crate::Completions,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
@@ -146,6 +147,8 @@ struct Snapshot {
     ideas: Ideas,
     #[serde(default, skip_serializing_if = "crate::Estates::is_empty")]
     estates: crate::Estates,
+    #[serde(default, skip_serializing_if = "crate::Completions::is_empty")]
+    completions: crate::Completions,
     #[serde(
         default,
         skip_serializing_if = "crate::event_choices::EventQueue::is_empty"
@@ -188,6 +191,7 @@ impl World {
             governments: Governments::default(),
             ideas: Ideas::default(),
             estates: crate::Estates::default(),
+            completions: crate::Completions::default(),
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
@@ -473,7 +477,13 @@ impl World {
     pub fn schedule(&mut self, current: EntityId, delay: u64, plan: Plan) -> Result<(), Error> {
         self.require_running()?;
         self.entity(current)?;
-        validate_plan(&plan, &self.schema, self.rules.len(), &self.event_catalog)?;
+        validate_plan(
+            &plan,
+            &self.schema,
+            self.rules.len(),
+            &self.event_catalog,
+            &self.completions,
+        )?;
         if delay == 0 {
             return Err(Error::Invalid(
                 "scheduled tasks require a positive delay".into(),
@@ -592,6 +602,7 @@ impl World {
             governments: self.governments.clone(),
             ideas: self.ideas.clone(),
             estates: self.estates.clone(),
+            completions: self.completions.clone(),
             event_queue: self.event_queue.clone(),
         })?)
     }
@@ -650,9 +661,16 @@ impl World {
             governments: snapshot.governments,
             ideas: snapshot.ideas,
             estates: snapshot.estates,
+            completions: snapshot.completions,
         };
         for rule in &world.rules {
-            validate_plan(rule, schema, world.rules.len(), &world.event_catalog)?;
+            validate_plan(
+                rule,
+                schema,
+                world.rules.len(),
+                &world.event_catalog,
+                &world.completions,
+            )?;
         }
         world.event_catalog.validate(&world)?;
         world.event_queue.validate(&world)?;
@@ -687,6 +705,7 @@ impl World {
         world.governments.validate(&world)?;
         world.ideas.validate(&world)?;
         world.estates.validate(&world)?;
+        world.completions.validate(&world)?;
         world.attributes.validate(&world)?;
         if let Some(calendar) = &world.calendar {
             calendar.date(world.day)?;
@@ -715,7 +734,13 @@ impl World {
                 return Err(Error::Invalid("invalid saved task order".into()));
             }
             world.entity(task.current)?;
-            validate_plan(&task.plan, schema, world.rules.len(), &world.event_catalog)?;
+            validate_plan(
+                &task.plan,
+                schema,
+                world.rules.len(),
+                &world.event_catalog,
+                &world.completions,
+            )?;
             world.tasks.insert((task.day, task.sequence), task);
         }
         for (day, entity, _) in &world.events {
@@ -742,10 +767,22 @@ impl World {
         catalog: &crate::EventCatalog,
     ) -> Result<(), Error> {
         for rule in &self.rules {
-            validate_plan(rule, &self.schema, self.rules.len(), catalog)?;
+            validate_plan(
+                rule,
+                &self.schema,
+                self.rules.len(),
+                catalog,
+                &self.completions,
+            )?;
         }
         for task in self.tasks.values() {
-            validate_plan(&task.plan, &self.schema, self.rules.len(), catalog)?;
+            validate_plan(
+                &task.plan,
+                &self.schema,
+                self.rules.len(),
+                catalog,
+                &self.completions,
+            )?;
         }
         Ok(())
     }
@@ -756,9 +793,11 @@ pub(crate) fn validate_plan(
     schema: &Schema,
     rule_count: usize,
     events: &crate::EventCatalog,
+    completions: &crate::Completions,
 ) -> Result<(), Error> {
     for action in plan {
         match action {
+            Action::RecordCompletion { id } => completions.identifier(id)?,
             Action::InScope {
                 selector,
                 kind,
@@ -770,7 +809,7 @@ pub(crate) fn validate_plan(
                 {
                     return Err(Error::Invalid("office scope requires country type".into()));
                 }
-                validate_plan(plan, schema, rule_count, events)?;
+                validate_plan(plan, schema, rule_count, events, completions)?;
             }
             Action::BindGlobalScope { name } | Action::ClearGlobalScope { name } => {
                 crate::scopes::validate_name(name)?;
@@ -797,20 +836,22 @@ pub(crate) fn validate_plan(
                 then,
                 otherwise,
             } => {
-                validate_condition(condition, schema)?;
-                validate_plan(then, schema, rule_count, events)?;
-                validate_plan(otherwise, schema, rule_count, events)?;
+                validate_condition(condition, schema, completions)?;
+                validate_plan(then, schema, rule_count, events, completions)?;
+                validate_plan(otherwise, schema, rule_count, events, completions)?;
             }
             Action::RandomBranch { then, otherwise } => {
-                validate_plan(then, schema, rule_count, events)?;
-                validate_plan(otherwise, schema, rule_count, events)?;
+                validate_plan(then, schema, rule_count, events, completions)?;
+                validate_plan(otherwise, schema, rule_count, events, completions)?;
             }
-            Action::With { plan, .. } => validate_plan(plan, schema, rule_count, events)?,
+            Action::With { plan, .. } => {
+                validate_plan(plan, schema, rule_count, events, completions)?
+            }
             Action::Schedule { delay, plan } => {
                 if *delay == 0 {
                     return Err(Error::Invalid("invalid saved task delay".into()));
                 }
-                validate_plan(plan, schema, rule_count, events)?;
+                validate_plan(plan, schema, rule_count, events, completions)?;
             }
             Action::Accumulate { field, source, .. }
                 if field.0 >= schema.fields.len() || source.0 >= schema.fields.len() =>
@@ -829,8 +870,10 @@ pub(crate) fn validate_plan(
 pub(crate) fn validate_condition(
     condition: &crate::Condition,
     schema: &Schema,
+    completions: &crate::Completions,
 ) -> Result<(), Error> {
     match condition {
+        crate::Condition::CompletionRecorded { id, .. } => completions.identifier(id),
         crate::Condition::EntityNamed { name, .. } if name.is_empty() => {
             Err(Error::Invalid("empty entity condition name".into()))
         }
@@ -843,11 +886,11 @@ pub(crate) fn validate_condition(
         }
         crate::Condition::All(conditions) | crate::Condition::Any(conditions) => {
             for condition in conditions {
-                validate_condition(condition, schema)?;
+                validate_condition(condition, schema, completions)?;
             }
             Ok(())
         }
-        crate::Condition::Not(condition) => validate_condition(condition, schema),
+        crate::Condition::Not(condition) => validate_condition(condition, schema, completions),
         _ => Ok(()),
     }
 }
