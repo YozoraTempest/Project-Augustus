@@ -38,6 +38,10 @@ pub enum AttributeTerm {
         mapping: String,
         property: String,
     },
+    Ideas {
+        target: Target,
+        property: String,
+    },
     Government {
         target: Target,
         property: String,
@@ -365,6 +369,20 @@ impl Attributes {
                     unresolved.insert("administration:missing_province".into());
                 }
             }
+            AttributeTerm::Ideas { target, property } => {
+                if let Some(target) = attribute_target(world, entity, *target)? {
+                    let result = world.ideas().property_effects(target, property)?;
+                    unresolved.extend(result.unresolved);
+                    values.extend(
+                        result
+                            .contributions
+                            .into_iter()
+                            .map(|v| (v.source, v.property, v.micros)),
+                    );
+                } else {
+                    unresolved.insert(format!("target:{target:?}:unknown"));
+                }
+            }
             AttributeTerm::Government { target, property } => {
                 if let Some(target) = attribute_target(world, entity, *target)? {
                     let result = world.governments().property_effects(target, property)?;
@@ -614,7 +632,8 @@ impl Attributes {
                                 && !property.is_empty()
                         }
                         AttributeTerm::Modifiers { property, .. }
-                        | AttributeTerm::Government { property, .. } => !property.is_empty(),
+                        | AttributeTerm::Government { property, .. }
+                        | AttributeTerm::Ideas { property, .. } => !property.is_empty(),
                     };
                     if !valid {
                         return Err(Error::Invalid("invalid attribute term".into()));

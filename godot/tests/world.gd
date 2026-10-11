@@ -24,6 +24,7 @@ func _initialize() -> void:
 	check(alpha.value.diplomacy.size() == 5, "diplomatic relationships reach the UI query")
 	check(alpha.value.technology.administrative == 3 and alpha.value.technology.military == 3, "baseline technology reaches the country query")
 	check(alpha.value.government.reforms == ["test_charter", "test_court"] and alpha.value.government.metrics.legitimacy == 75125, "selected reforms and legitimacy reach the country query")
+	check(alpha.value.ideas.groups.test_alpha == 0 and alpha.value.declared_idea_effects.known_totals_micros.test_tradition == 125000, "national traditions apply without unlocking future ideas")
 	check(alpha.value.resources.mercantilism_milli == 18500 and alpha.value.resources.treasury_milli == null, "declared resources preserve precision and unknown stocks")
 	var north: Dictionary = JSON.parse_string(session.query_province(1))
 	check(north.value.owner == "BBB" and north.value.tax_milli == 2125, "dated history reaches the Rust core")
@@ -86,6 +87,7 @@ func verify_ui(ui: Control) -> void:
 	if is_fixture:
 		check(ui.politics_details.text.contains("Iris"), "country panel displays the loaded ruler")
 		check(ui.country_details.text.contains("test_court") and ui.country_details.text.contains("合法性（历史初值）：75.125"), "country panel displays selected reforms and precise legitimacy")
+		check(ui.country_details.text.contains("国家理念 test_alpha · 已解锁 0 项"), "country panel displays selected ideas and progress")
 		check(ui.country_details.text.contains("3 / 3 / 3") and ui.country_details.text.contains("18.500000"), "country panel displays technology and declared resources")
 		check(ui.diplomacy_details.text.contains("贸易联盟成员 BBB"), "country panel preserves trade league meaning")
 		check(ui.province_details.text.contains("North · 1"), "map click follows BMP orientation and letterboxing")

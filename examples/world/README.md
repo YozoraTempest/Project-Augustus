@@ -10,4 +10,6 @@
 
 地区列表与自治历史用于检查地理归属、首都地区、历史追加值和未知的初始基值。自制最低自治规则为 35% 与 80%，用于确认规则来自输入；它们不是原版数值。`native_administration.json` 是独立编写的核心期望输入，和兼容入口产生相同状态。
 
+自制国家理念通过国家标识、历史标记和君主王朝选择；国家传统在开局生效，具体理念与完成奖励按解锁进度生效。`native_ideas.json` 提供相同核心输入，组内项目数由内容定义。
+
 本目录全部文本和位图由 Project Augustus contributors 自制，采用 GPL-3.0-only。Copyright (C) 2026 Project Augustus contributors。根目录 LICENSE 为完整许可文本。

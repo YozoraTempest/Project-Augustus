@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+test_alpha = {
+    free = yes
+    trigger = { tag = AAA has_country_flag = not_implemented dynasty = Sun }
+    start = { test_tradition = 0.125 }
+    test_first = { global_tax_modifier = 0.25 }
+    test_second = { global_manpower_modifier = -0.125 }
+    bonus = { global_tax_modifier = 0.5 }
+}
+test_common = {
+    free = yes
+    start = { test_tradition = -0.0625 }
+    test_first = { global_tax_modifier = 0.375 }
+    bonus = { global_manpower_modifier = 0.25 }
+}

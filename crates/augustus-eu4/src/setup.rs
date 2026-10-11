@@ -99,7 +99,7 @@ pub(super) fn block<'a>(
         .map_err(|_| fail("expected setup block"))
 }
 
-fn flag(text: &str) -> Option<bool> {
+pub(super) fn flag(text: &str) -> Option<bool> {
     match text {
         "yes" => Some(true),
         "no" => Some(false),

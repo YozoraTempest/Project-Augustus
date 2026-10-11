@@ -302,6 +302,15 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 			country_details.text += "\n合法性（历史初值）：" + ("未载入" if government.metrics.legitimacy == null else "%.3f" % (float(government.metrics.legitimacy) / 1000.0))
 		else:
 			country_details.text += "\n合法性：此政体不使用"
+	var ideas: Variant = packet.value.ideas
+	if ideas == null or ideas.groups == null:
+		country_details.text += "
+国家理念：选择未确定"
+	else:
+		for group in ideas.groups:
+			var progress: Variant = ideas.groups[group]
+			country_details.text += "
+国家理念 %s · %s" % [group, "进度未确定" if progress == null else "已解锁 %d 项" % int(progress)]
 	var tech: Variant = packet.value.technology
 	country_details.text += "\n行政 / 外交 / 军事科技：\n" + ("未载入" if tech == null else "%s / %s / %s" % [shown(tech.get("administrative")), shown(tech.get("diplomatic")), shown(tech.get("military"))])
 	var resources: Variant = packet.value.resources
@@ -425,6 +434,12 @@ func attribute_text(attributes: Dictionary) -> String:
 					source_name = "国教 " + source_name.trim_prefix("affiliation:religion:country:")
 				elif source_name.begins_with("building:"):
 					source_name = "建筑 " + source_name.trim_prefix("building:")
+				elif source_name.begins_with("ideas:traditions:"):
+					source_name = "国家传统 " + source_name.trim_prefix("ideas:traditions:")
+				elif source_name.begins_with("ideas:idea:"):
+					source_name = "已解锁理念 " + source_name.trim_prefix("ideas:idea:")
+				elif source_name.begins_with("ideas:completion:"):
+					source_name = "理念完成奖励 " + source_name.trim_prefix("ideas:completion:")
 				elif source_name.begins_with("government:reform:"):
 					source_name = "政体改革 " + source_name.trim_prefix("government:reform:")
 				elif source_name == "government:metric:legitimacy":
@@ -439,7 +454,7 @@ func attribute_text(attributes: Dictionary) -> String:
 				text += "\n  %s：%s" % [source_name, amount]
 		for reason in value.unresolved:
 			missing[reason] = true
-	var reasons := {"autonomy_and_state_rules": "完整自治与州规则", "state_and_core_effects": "州与核心的其他效果", "culture_and_religion": "文化与宗教", "culture_government_effects": "政体对文化待遇的影响", "tolerance_and_religious_mechanics": "宽容度与宗教机制", "affiliation:culture:unknown_relation": "文化待遇未知", "government_ideas_estates_and_other_effects": "政体、理念、阶层等效果", "building_retention_conditions": "建筑保留条件", "original_runtime_comparison": "原版运行核对", "city_status": "城市状态", "administration:area_status": "开局州与领地划分", "administration:core_type": "核心类型", "administration:initial_autonomy": "初始自治度", "administration:minimum_autonomy": "最低自治", "administration:other_minimum_autonomy_effects": "其他最低自治修正", "administration:scoped_country_history": "国家历史中的自治操作"}
+	var reasons := {"autonomy_and_state_rules": "完整自治与州规则", "state_and_core_effects": "州与核心的其他效果", "culture_and_religion": "文化与宗教", "culture_government_effects": "政体对文化待遇的影响", "tolerance_and_religious_mechanics": "宽容度与宗教机制", "affiliation:culture:unknown_relation": "文化待遇未知", "other_government_estate_and_country_effects": "其他政体、阶层及国家效果", "ideas:unknown_selection": "国家理念选择未知", "building_retention_conditions": "建筑保留条件", "original_runtime_comparison": "原版运行核对", "city_status": "城市状态", "administration:area_status": "开局州与领地划分", "administration:core_type": "核心类型", "administration:initial_autonomy": "初始自治度", "administration:minimum_autonomy": "最低自治", "administration:other_minimum_autonomy_effects": "其他最低自治修正", "administration:scoped_country_history": "国家历史中的自治操作"}
 	var descriptions: Array[String] = []
 	reasons["administration:unknown_category"] = "州、领地或所有者核心状态未知"
 	reasons["administration:missing_province"] = "省份行政状态未知"

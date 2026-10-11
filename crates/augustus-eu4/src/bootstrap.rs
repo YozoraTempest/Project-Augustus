@@ -21,6 +21,7 @@ use crate::administration::{AdministrationDraft, AdministrationReport};
 use crate::attributes::{ATTRIBUTE_NAMES, AttributeDraft, AttributeReport};
 use crate::economy::{EconomyDraft, EconomyReport};
 use crate::governments::{GovernmentDraft, GovernmentReport};
+use crate::ideas::{IdeaDraft, IdeaReport};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
 use crate::setup::{SetupDraft, SetupReport};
 use crate::{ContentRoot, Error, ParsedText, SourceLocation, TextEncoding};
@@ -69,6 +70,7 @@ pub struct BootstrapReport {
     pub attributes: AttributeReport,
     pub administration: AdministrationReport,
     pub governments: GovernmentReport,
+    pub ideas: IdeaReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -87,6 +89,8 @@ pub struct ProvinceView<'a> {
 
 #[derive(Debug, Serialize)]
 pub struct CountryView<'a> {
+    pub ideas: Option<&'a augustus_core::IdeaState>,
+    pub declared_idea_effects: augustus_core::IdeaEvaluation,
     pub last_monthly_tax: Option<&'a augustus_core::MonthlyTaxAccount>,
     pub government: Option<&'a augustus_core::GovernmentState>,
     pub declared_government_effects: augustus_core::GovernmentEvaluation,
@@ -215,6 +219,7 @@ impl VanillaWorld {
             attributes: AttributeReport::default(),
             administration: AdministrationReport::default(),
             governments: GovernmentReport::default(),
+            ideas: IdeaReport::default(),
         };
         let mut provinces = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
@@ -393,6 +398,7 @@ impl VanillaWorld {
         }
         let mut economy = EconomyDraft::load(&root, &files, &mut report.economy)?;
         let mut governments = GovernmentDraft::load(&root, &files, &mut report.governments)?;
+        let mut ideas = IdeaDraft::load(&root, &files, &mut report.ideas)?;
         let mut setup = SetupDraft::load(&root, &files, &mut report.setup)?;
         let attribute_draft = AttributeDraft::load(&root, &files, &mut report.attributes)?;
         let mut administration =
@@ -446,6 +452,7 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
+                ideas.country_history(&parsed, reader.clone(), &id, &mut report.ideas)?;
                 governments.country_history(
                     &parsed,
                     reader.clone(),
@@ -551,6 +558,10 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by(root.path(), e))?;
         initial
             .set_affiliations(administration.affiliations(&initial))
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        let ideas = ideas.bind(&initial, report.start_date, &mut report.ideas);
+        initial
+            .set_ideas(ideas)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let attributes = attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
         let administration = administration.bind(
@@ -708,6 +719,16 @@ impl VanillaWorld {
 
     pub fn country(&self, id: &str) -> Option<CountryView<'_>> {
         self.initial.country(id).map(|state| CountryView {
+            ideas: self
+                .initial
+                .country_entity(id)
+                .and_then(|entity| self.initial.world().ideas().countries.get(&entity)),
+            declared_idea_effects: self
+                .initial
+                .world()
+                .ideas()
+                .declared_effects(self.initial.country_entity(id).expect("registered country"))
+                .expect("validated idea effects"),
             last_monthly_tax: self
                 .initial
                 .world()

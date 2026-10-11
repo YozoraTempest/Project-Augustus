@@ -1,0 +1,96 @@
+{
+  "groups": {
+    "test_alpha": {
+      "traditions": {
+        "modifier": {
+          "values_micros": {
+            "test_tradition": 125000
+          },
+          "flags": {}
+        },
+        "unresolved_properties": []
+      },
+      "ideas": [
+        {
+          "id": "test_first",
+          "effect": {
+            "modifier": {
+              "values_micros": {
+                "global_tax_modifier": 250000
+              },
+              "flags": {}
+            },
+            "unresolved_properties": []
+          }
+        },
+        {
+          "id": "test_second",
+          "effect": {
+            "modifier": {
+              "values_micros": {
+                "global_manpower_modifier": -125000
+              },
+              "flags": {}
+            },
+            "unresolved_properties": []
+          }
+        }
+      ],
+      "completion": {
+        "modifier": {
+          "values_micros": {
+            "global_tax_modifier": 500000
+          },
+          "flags": {}
+        },
+        "unresolved_properties": []
+      }
+    },
+    "test_common": {
+      "traditions": {
+        "modifier": {
+          "values_micros": {
+            "test_tradition": -62500
+          },
+          "flags": {}
+        },
+        "unresolved_properties": []
+      },
+      "ideas": [
+        {
+          "id": "test_first",
+          "effect": {
+            "modifier": {
+              "values_micros": {
+                "global_tax_modifier": 375000
+              },
+              "flags": {}
+            },
+            "unresolved_properties": []
+          }
+        }
+      ],
+      "completion": {
+        "modifier": {
+          "values_micros": {
+            "global_manpower_modifier": 250000
+          },
+          "flags": {}
+        },
+        "unresolved_properties": []
+      }
+    }
+  },
+  "countries": {
+    "0": {
+      "groups": {
+        "test_alpha": 0
+      }
+    },
+    "1": {
+      "groups": {
+        "test_common": 0
+      }
+    }
+  }
+}

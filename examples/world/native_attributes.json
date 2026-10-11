@@ -33,6 +33,7 @@
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"},
+              {"kind": "ideas", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "government", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
@@ -43,7 +44,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["autonomy_and_state_rules", "government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["autonomy_and_state_rules", "other_government_estate_and_country_effects", "building_retention_conditions", "original_runtime_comparison", "culture_government_effects", "tolerance_and_religious_mechanics"]
       },
       "manpower_contribution": {
         "base": {"kind": "field", "field": 2, "micros_per_unit": 250000},
@@ -56,6 +57,7 @@
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"},
+              {"kind": "ideas", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "government", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
@@ -66,7 +68,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["autonomy_and_state_rules", "government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["autonomy_and_state_rules", "other_government_estate_and_country_effects", "building_retention_conditions", "original_runtime_comparison", "culture_government_effects", "tolerance_and_religious_mechanics"]
       },
       "tax_after_autonomy": {
         "base": {"kind": "field", "field": 0, "micros_per_unit": 1000},
@@ -84,6 +86,7 @@
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"},
+              {"kind": "ideas", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "government", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
@@ -95,7 +98,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["other_government_estate_and_country_effects", "building_retention_conditions", "original_runtime_comparison", "culture_government_effects", "tolerance_and_religious_mechanics"]
       },
       "manpower_after_autonomy": {
         "base": {"kind": "field", "field": 2, "micros_per_unit": 250000},
@@ -108,6 +111,7 @@
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"},
+              {"kind": "ideas", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "government", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
@@ -119,7 +123,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["other_government_estate_and_country_effects", "building_retention_conditions", "original_runtime_comparison", "culture_government_effects", "tolerance_and_religious_mechanics"]
       }
     },
     "3": {
@@ -139,6 +143,7 @@
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"},
+              {"kind": "ideas", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "government", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
@@ -148,7 +153,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["autonomy_and_state_rules", "government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["autonomy_and_state_rules", "other_government_estate_and_country_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "culture_government_effects", "tolerance_and_religious_mechanics"]
       },
       "manpower_contribution": {
         "base": {"kind": "field", "field": 2, "micros_per_unit": 250000},
@@ -161,6 +166,7 @@
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"},
+              {"kind": "ideas", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "government", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
@@ -170,7 +176,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["autonomy_and_state_rules", "government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["autonomy_and_state_rules", "other_government_estate_and_country_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "culture_government_effects", "tolerance_and_religious_mechanics"]
       },
       "tax_after_autonomy": {
         "base": {"kind": "field", "field": 0, "micros_per_unit": 1000},
@@ -188,6 +194,7 @@
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_tax_modifier"},
+              {"kind": "ideas", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "government", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
@@ -198,7 +205,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["other_government_estate_and_country_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "culture_government_effects", "tolerance_and_religious_mechanics"]
       },
       "manpower_after_autonomy": {
         "base": {"kind": "field", "field": 2, "micros_per_unit": 250000},
@@ -211,6 +218,7 @@
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Owner", "property": "global_manpower_modifier"},
+              {"kind": "ideas", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "government", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
@@ -221,7 +229,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["other_government_estate_and_country_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "culture_government_effects", "tolerance_and_religious_mechanics"]
       }
     }
   },

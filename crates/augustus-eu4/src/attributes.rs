@@ -289,7 +289,7 @@ impl AttributeDraft {
                     "autonomy_and_state_rules",
                     "culture_government_effects",
                     "tolerance_and_religious_mechanics",
-                    "government_ideas_estates_and_other_effects",
+                    "other_government_estate_and_country_effects",
                     "building_retention_conditions",
                     "original_runtime_comparison",
                 ]
@@ -325,6 +325,10 @@ impl AttributeDraft {
                             property: local_rate.into(),
                         },
                         AttributeTerm::Modifiers {
+                            target: Target::Owner,
+                            property: global_rate.into(),
+                        },
+                        AttributeTerm::Ideas {
                             target: Target::Owner,
                             property: global_rate.into(),
                         },

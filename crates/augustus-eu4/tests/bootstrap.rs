@@ -30,6 +30,268 @@ fn copy_fixture() -> tempfile::TempDir {
 }
 
 #[test]
+fn national_traditions_select_from_flags_and_ruler_and_progress_stays_explicit() {
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let alpha = loaded.country("AAA").unwrap();
+    assert_eq!(
+        alpha.ideas.unwrap().groups.as_ref().unwrap()["test_alpha"],
+        Some(0)
+    );
+    assert_eq!(
+        alpha.declared_idea_effects.known_totals_micros["test_tradition"],
+        125_000
+    );
+    assert!(
+        !alpha
+            .declared_idea_effects
+            .known_totals_micros
+            .contains_key("global_tax_modifier")
+    );
+    let later = VanillaWorld::load(fixture(), "1450.1.1").unwrap();
+    assert_eq!(
+        later
+            .country("AAA")
+            .unwrap()
+            .ideas
+            .unwrap()
+            .groups
+            .as_ref()
+            .unwrap()["test_alpha"],
+        None
+    );
+    assert!(later.report.ideas.unresolved_countries["AAA"].contains("unknown_historical_progress"));
+}
+
+#[test]
+fn earlier_unknown_candidate_blocks_fallback_but_false_and_true_short_circuit() {
+    let fixture = copy_fixture();
+    let file = fixture.path().join("common/ideas/00_conditions.txt");
+    fs::write(&file, "first = { free = yes trigger = { OR = { unsupported = yes tag = AAA } } start = { global_tax_modifier = 0.125 } one = {} }\nsecond = { free = yes trigger = { AND = { unsupported = yes tag = AAA } } one = {} }").unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .ideas
+            .unwrap()
+            .groups
+            .as_ref()
+            .unwrap()
+            .contains_key("first")
+    );
+    assert!(
+        loaded
+            .country("BBB")
+            .unwrap()
+            .ideas
+            .unwrap()
+            .groups
+            .is_none()
+    );
+    assert!(
+        loaded.report.ideas.unresolved_countries["BBB"]
+            .contains("candidate:first:unsupported_trigger:unsupported")
+    );
+    fs::write(
+        &file,
+        "first = { free = yes trigger = { AND = { unsupported = yes tag = AAA } } one = {} }",
+    )
+    .unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .ideas
+            .unwrap()
+            .groups
+            .is_none()
+    );
+    assert!(
+        loaded
+            .country("BBB")
+            .unwrap()
+            .ideas
+            .unwrap()
+            .groups
+            .as_ref()
+            .unwrap()
+            .contains_key("test_common")
+    );
+}
+
+#[test]
+fn flag_history_is_ordered_and_unknown_scoped_mutations_are_not_assumed_false() {
+    let fixture = copy_fixture();
+    let path = fixture.path().join("history/countries/AAA - Alpha.txt");
+    let history = fs::read_to_string(&path).unwrap();
+    fs::write(&path, format!("{history}\n1443.1.1 = {{ clr_country_flag = not_implemented }}\n1445.1.1 = {{ set_country_flag = not_implemented }}")).unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .ideas
+            .unwrap()
+            .groups
+            .as_ref()
+            .unwrap()
+            .contains_key("test_common")
+    );
+    fs::write(
+        &path,
+        format!(
+            "{history}\nif = {{ limit = {{ always = yes }} clr_country_flag = not_implemented }}"
+        ),
+    )
+    .unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .ideas
+            .unwrap()
+            .groups
+            .is_none()
+    );
+    fs::write(&path, format!("{history}\nadd_idea_group = test_common")).unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.ideas.unresolved_countries["AAA"].contains("unapplied_history_selection")
+    );
+}
+
+#[test]
+fn duplicate_properties_preserve_missing_effects_and_duplicate_groups_fail_with_source() {
+    let fixture = copy_fixture();
+    let path = fixture.path().join("common/ideas/00_conditions.txt");
+    fs::write(&path, "first = { free = yes trigger = { NOT = { tag = BBB tag = CCC } } start = { global_tax_modifier = 0.25 global_tax_modifier = 0.5 } one = {} }").unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let effects = loaded.country("AAA").unwrap().declared_idea_effects;
+    assert!(
+        effects
+            .unresolved
+            .contains("ideas:traditions:first:unresolved:global_tax_modifier")
+    );
+    assert!(
+        !effects
+            .known_totals_micros
+            .contains_key("global_tax_modifier")
+    );
+    assert!(
+        loaded
+            .country("BBB")
+            .unwrap()
+            .ideas
+            .unwrap()
+            .groups
+            .as_ref()
+            .unwrap()
+            .contains_key("test_common")
+    );
+    fs::write(&path, "test_alpha = { free = yes one = {} }").unwrap();
+    let error = VanillaWorld::load(fixture.path(), "1444.11.11")
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("ambiguous idea group definition") && error.contains("test_ideas.txt"));
+}
+
+#[test]
+fn translated_and_native_progress_have_the_same_live_attribute_effects() {
+    let mut loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let province = loaded.initial.province_entity(2).unwrap();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    let before = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(loaded.initial.world(), province, "tax_basis")
+        .unwrap();
+    let mut ideas = loaded.initial.world().ideas().clone();
+    ideas
+        .countries
+        .get_mut(&alpha)
+        .unwrap()
+        .groups
+        .as_mut()
+        .unwrap()
+        .insert("test_alpha".into(), Some(2));
+    loaded.initial.set_ideas(ideas).unwrap();
+    let after = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(loaded.initial.world(), province, "tax_basis")
+        .unwrap();
+    assert!(after.known_subtotal_micros > before.known_subtotal_micros);
+    assert!(
+        after.steps[0]
+            .contributions
+            .iter()
+            .any(|c| c.source == "ideas:completion:test_alpha" && c.micros == 500_000)
+    );
+    let saved = loaded.save().unwrap();
+    loaded.restore(&saved).unwrap();
+    assert_eq!(
+        after,
+        loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(loaded.initial.world(), province, "tax_basis")
+            .unwrap()
+    );
+}
+
+#[test]
+fn uppercase_tag_paid_groups_and_unlock_scripts_keep_their_actual_scope() {
+    let fixture = copy_fixture();
+    fs::write(fixture.path().join("common/ideas/00_conditions.txt"), "paid = { category = ADM trigger = { always = yes } one = { global_tax_modifier = 5 } }\nfirst = { free = yes trigger = { TAG = AAA } start = { global_tax_modifier = 0.125 } one = { effect = { add_country_modifier = { name = deferred } } } bonus = {} }").unwrap();
+    let mut loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert_eq!(loaded.report.ideas.skipped_paid_groups, 1);
+    assert!(!loaded.initial.world().ideas().groups.contains_key("paid"));
+    assert_eq!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .declared_idea_effects
+            .known_totals_micros["global_tax_modifier"],
+        125_000
+    );
+    let entity = loaded.initial.country_entity("AAA").unwrap();
+    assert!(
+        loaded
+            .initial
+            .world()
+            .ideas()
+            .property_effects(entity, "global_tax_modifier")
+            .unwrap()
+            .unresolved
+            .is_empty()
+    );
+    let mut ideas = loaded.initial.world().ideas().clone();
+    ideas
+        .countries
+        .get_mut(&entity)
+        .unwrap()
+        .groups
+        .as_mut()
+        .unwrap()
+        .insert("first".into(), Some(1));
+    loaded.initial.set_ideas(ideas).unwrap();
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .declared_idea_effects
+            .unresolved
+            .contains("ideas:idea:first:one:unexecuted:unlock_script")
+    );
+}
+
+#[test]
 fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
     let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
     let province = loaded.initial.province(1).unwrap();
@@ -109,6 +371,12 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
                 "../../../examples/world/native_governments.json"
             ))
             .unwrap(),
+        )
+        .unwrap();
+    native
+        .set_ideas(
+            serde_json::from_str(include_str!("../../../examples/world/native_ideas.json"))
+                .unwrap(),
         )
         .unwrap();
     native

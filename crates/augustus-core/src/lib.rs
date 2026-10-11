@@ -11,6 +11,7 @@ mod attributes;
 mod calendar;
 mod economy;
 mod governments;
+mod ideas;
 mod initial;
 mod modifiers;
 mod plan;
@@ -36,6 +37,9 @@ pub use economy::{BuildingDefinition, Economy, ProvinceEconomy, TradeGoodDefinit
 pub use governments::{
     GovernmentContribution, GovernmentEvaluation, GovernmentMetric, GovernmentReform,
     GovernmentState, Governments,
+};
+pub use ideas::{
+    IdeaContribution, IdeaDefinition, IdeaEffect, IdeaEvaluation, IdeaGroup, IdeaState, Ideas,
 };
 pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
 pub use modifiers::{ModifierDefinition, ModifierInstance, Modifiers};
