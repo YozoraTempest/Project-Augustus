@@ -775,8 +775,17 @@ pub(crate) fn validate_plan(
             Action::BindGlobalScope { name } | Action::ClearGlobalScope { name } => {
                 crate::scopes::validate_name(name)?;
             }
-            Action::TriggerEvent { event } if !events.definitions().contains_key(event) => {
+            Action::TriggerEvent { event } | Action::TryEvent { event }
+                if !events.definitions().contains_key(event) =>
+            {
                 return Err(Error::Invalid(format!("unknown event in plan {event}")));
+            }
+            Action::EventCandidates { events: candidates } => {
+                for event in candidates {
+                    if !events.definitions().contains_key(event) {
+                        return Err(Error::Invalid(format!("unknown event in plan {event}")));
+                    }
+                }
             }
             Action::Add { field, .. } | Action::Set { field, .. }
                 if field.0 >= schema.fields.len() =>
@@ -817,8 +826,12 @@ pub(crate) fn validate_plan(
     Ok(())
 }
 
-fn validate_condition(condition: &crate::Condition, schema: &Schema) -> Result<(), Error> {
+pub(crate) fn validate_condition(
+    condition: &crate::Condition,
+    schema: &Schema,
+) -> Result<(), Error> {
     match condition {
+        crate::Condition::ScopeIsCurrent(selector) => selector.validate(),
         crate::Condition::AtLeast { field, .. } if field.0 >= schema.fields.len() => {
             Err(Error::Invalid("invalid saved condition field".into()))
         }

@@ -62,6 +62,172 @@ fn loyalty(amount: i64) -> Action {
 }
 
 #[test]
+fn startup_candidates_run_before_effects_and_restore_the_shared_event_lifecycle() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        r#"on_startup = {
+        if = { limit = { is_emperor = yes is_emperor_of_china = no }
+            log = startup_effect
+            country_event = { id = meeting.false }
+        }
+        events = { meeting.first meeting.false }
+    }"#,
+    );
+    write(
+        temp.path(),
+        "events/first.txt",
+        r#"
+        namespace = meeting
+        country_event = { id = meeting.first is_triggered_only = yes
+            trigger = { is_emperor = yes }
+            immediate = { log = candidate_first }
+            option = { name = accept log = option_first country_event = { id = meeting.child days = 2 } }
+            after = { log = after_first }
+        }
+        country_event = { id = unrelated unsupported_array = { x y z } }
+        country_event = { id = meeting.false is_triggered_only = yes trigger = { always = no }
+            immediate = { log = unreachable } option = { name = accept }
+        }
+    "#,
+    );
+    write(
+        temp.path(),
+        "events/child.txt",
+        r#"country_event = { id = meeting.child is_triggered_only = yes trigger = { always = yes }
+        immediate = { log = child } option = { name = accept log = option_child }
+    }"#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.pending_startup_effects.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|e| e.2.as_str())
+            .collect::<Vec<_>>(),
+        ["candidate_first", "startup_effect"]
+    );
+    assert_eq!(loaded.initial.world().pending_events().len(), 1);
+    let choice = augustus_core::EventChoice {
+        pending: loaded.initial.world().pending_events()[0].id,
+        option: "0".into(),
+    };
+    let saved = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&saved).unwrap();
+    for world in [&mut loaded, &mut restored] {
+        world.initial.choose_event(&choice).unwrap();
+        world.advance(2).unwrap();
+    }
+    assert_eq!(loaded.save().unwrap(), restored.save().unwrap());
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|e| e.2.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "candidate_first",
+            "startup_effect",
+            "option_first",
+            "after_first",
+            "child"
+        ]
+    );
+    assert_eq!(
+        loaded.initial.world().pending_events()[0].event,
+        "meeting.child"
+    );
+    let altered = fs::read_to_string(temp.path().join("events/child.txt"))
+        .unwrap()
+        .replace("option_child", "changed_option");
+    write(temp.path(), "events/child.txt", &altered);
+    assert!(
+        VanillaWorld::load(temp.path(), "1444.11.11")
+            .unwrap()
+            .restore(&saved)
+            .is_err()
+    );
+}
+
+#[test]
+fn unresolved_referenced_events_discard_all_startup_state_and_report_the_source() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup = { emperor = { save_global_event_target_as = prefix } events = { meeting.first } }",
+    );
+    write(
+        temp.path(),
+        "events/first.txt",
+        "country_event = {\n id = meeting.first is_triggered_only = yes\n trigger = { unsupported_trigger = yes } option = { name = accept }\n}",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(loaded.report.estates.pending_startup_effects.len(), 1);
+    let source = &loaded.report.estates.pending_startup_effects[0];
+    assert!(source.path.ends_with("events/first.txt"));
+    assert_eq!(source.line, 3);
+    assert!(loaded.initial.world().global_scopes().is_empty());
+    assert!(loaded.initial.world().pending_events().is_empty());
+    assert!(
+        loaded
+            .initial
+            .world()
+            .event_catalog()
+            .definitions()
+            .is_empty()
+    );
+    assert_eq!(loaded.report.estates.applied_startup_effects, 0);
+}
+
+#[test]
+fn failed_startup_discards_already_dispatched_pending_events_and_catalog() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup = { events = { meeting.first } unsupported_effect = yes }",
+    );
+    write(
+        temp.path(),
+        "events/first.txt",
+        r#"country_event = { id = meeting.first is_triggered_only = yes
+        trigger = { is_emperor = yes } immediate = { log = first save_global_event_target_as = prefix }
+        option = { name = accept }
+    }"#,
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(loaded.report.estates.pending_startup_effects.len(), 1);
+    assert!(loaded.initial.world().pending_events().is_empty());
+    assert!(loaded.initial.world().events().is_empty());
+    assert!(loaded.initial.world().global_scopes().is_empty());
+    assert!(
+        loaded
+            .initial
+            .world()
+            .event_catalog()
+            .definitions()
+            .is_empty()
+    );
+    assert_eq!(loaded.report.estates.applied_startup_effects, 0);
+    let saved = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&saved).unwrap();
+    assert_eq!(saved, restored.save().unwrap());
+}
+
+#[test]
 fn startup_office_and_global_targets_share_core_state_and_restore() {
     let temp = startup_fixture();
     write(

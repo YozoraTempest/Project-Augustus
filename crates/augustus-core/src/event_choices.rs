@@ -31,6 +31,7 @@ pub struct EventOption {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EventCatalog {
     definitions: Arc<BTreeMap<String, EventDefinition>>,
+    conditions: Arc<BTreeMap<String, crate::Condition>>,
 }
 
 impl EventCatalog {
@@ -54,6 +55,7 @@ impl EventCatalog {
         }
         Ok(Self {
             definitions: Arc::new(result),
+            conditions: Arc::default(),
         })
     }
 
@@ -61,7 +63,26 @@ impl EventCatalog {
         &self.definitions
     }
 
+    /// Conditions apply to candidate lists and conditional calls, not forced calls.
+    pub fn with_conditions(
+        mut self,
+        conditions: BTreeMap<String, crate::Condition>,
+    ) -> Result<Self, Error> {
+        for event in conditions.keys() {
+            self.get(event)?;
+        }
+        self.conditions = Arc::new(conditions);
+        Ok(self)
+    }
+
+    pub fn conditions(&self) -> &BTreeMap<String, crate::Condition> {
+        &self.conditions
+    }
+
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
+        for condition in self.conditions.values() {
+            crate::world::validate_condition(condition, world.schema())?;
+        }
         for definition in self.definitions.values() {
             for plan in std::iter::once(&definition.immediate)
                 .chain(definition.options.iter().map(|option| &option.effects))
@@ -137,6 +158,55 @@ impl EventQueue {
 }
 
 impl World {
+    fn event_eligible(&self, event: &str, current: EntityId) -> Result<bool, Error> {
+        let definition = self.event_catalog.get(event)?;
+        if self.entity(current)?.kind != definition.scope {
+            return Err(Error::Invalid("event scope does not match entity".into()));
+        }
+        match self.event_catalog.conditions.get(event) {
+            Some(condition) => condition.evaluate(self, current),
+            None => Ok(true),
+        }
+    }
+
+    pub(crate) fn event_candidates_inner(
+        &mut self,
+        events: &[String],
+        current: EntityId,
+        budget: &mut usize,
+        depth: usize,
+    ) -> Result<(), Error> {
+        let mut selected = Vec::new();
+        for event in events {
+            if *budget == 0 {
+                return Err(Error::Invalid("plan instruction limit exceeded".into()));
+            }
+            *budget -= 1;
+            if self.event_eligible(event, current)? {
+                selected.push(event);
+            }
+        }
+        for event in selected {
+            // Earlier immediate effects must not change membership in this batch.
+            self.trigger_event_inner(event, current, budget, depth)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn try_event_inner(
+        &mut self,
+        event: &str,
+        current: EntityId,
+        budget: &mut usize,
+        depth: usize,
+    ) -> Result<Option<PendingEventId>, Error> {
+        if !self.event_eligible(event, current)? {
+            return Ok(None);
+        }
+        self.trigger_event_inner(event, current, budget, depth)
+            .map(Some)
+    }
+
     /// Install content before the first event is triggered. Content is not save state.
     pub fn set_event_catalog(&mut self, catalog: EventCatalog) -> Result<(), Error> {
         self.require_running()?;

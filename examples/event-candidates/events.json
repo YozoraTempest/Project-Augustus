@@ -1,0 +1,186 @@
+[
+  {
+    "id": "candidate.1",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "candidate_one"
+      },
+      {
+        "Set": {
+          "target": "Current",
+          "field": 0,
+          "value": 2000
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "candidate.2",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "candidate_two"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "candidate.false",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "unreachable"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "delay.true",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "was_true_now_false"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "delay.false",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "was_false_now_true"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "direct.true",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "direct_true"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "delay.control",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "delay_start"
+      },
+      {
+        "Set": {
+          "target": "Current",
+          "field": 1,
+          "value": 1000
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 2,
+          "plan": [
+            {
+              "TryEvent": {
+                "event": "delay.true"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Set": {
+          "target": "Current",
+          "field": 1,
+          "value": 0
+        }
+      },
+      {
+        "Set": {
+          "target": "Current",
+          "field": 2,
+          "value": 0
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 2,
+          "plan": [
+            {
+              "TryEvent": {
+                "event": "delay.false"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Set": {
+          "target": "Current",
+          "field": 2,
+          "value": 1000
+        }
+      },
+      {
+        "TryEvent": {
+          "event": "candidate.false"
+        }
+      },
+      {
+        "TryEvent": {
+          "event": "direct.true"
+        }
+      },
+      {
+        "Emit": "delay_end"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

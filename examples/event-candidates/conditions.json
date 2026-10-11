@@ -1,0 +1,63 @@
+{
+  "candidate.1": {
+    "All": [
+      {
+        "ScopeIsCurrent": {
+          "Office": "imperial_emperor"
+        }
+      }
+    ]
+  },
+  "candidate.2": {
+    "All": [
+      {
+        "ScopeIsCurrent": {
+          "Office": "imperial_emperor"
+        }
+      },
+      {
+        "AtLeast": {
+          "target": "Current",
+          "field": 0,
+          "value": 2000
+        }
+      }
+    ]
+  },
+  "candidate.false": {
+    "All": [
+      {
+        "Always": false
+      }
+    ]
+  },
+  "delay.true": {
+    "All": [
+      {
+        "AtLeast": {
+          "target": "Current",
+          "field": 1,
+          "value": 1000
+        }
+      }
+    ]
+  },
+  "delay.false": {
+    "All": [
+      {
+        "AtLeast": {
+          "target": "Current",
+          "field": 2,
+          "value": 1000
+        }
+      }
+    ]
+  },
+  "direct.true": {
+    "All": [
+      {
+        "Always": true
+      }
+    ]
+  }
+}

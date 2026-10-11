@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace = candidate
+namespace = delay
+namespace = direct
+country_event = { id = candidate.1 is_triggered_only = yes
+ trigger = { is_emperor = yes }
+ immediate = { log = candidate_one set_variable = { which = phase value = 2 } }
+ option = { name = accept }
+}
+country_event = { id = candidate.2 is_triggered_only = yes
+ trigger = { is_emperor = yes check_variable = { which = phase value = 2 } }
+ immediate = { log = candidate_two } option = { name = accept }
+}
+country_event = { id = candidate.false is_triggered_only = yes
+ trigger = { always = no } immediate = { log = unreachable } option = { name = accept }
+}
+country_event = { id = delay.true is_triggered_only = yes
+ trigger = { check_variable = { which = before_true value = 1 } }
+ immediate = { log = was_true_now_false } option = { name = accept }
+}
+country_event = { id = delay.false is_triggered_only = yes
+ trigger = { check_variable = { which = before_false value = 1 } }
+ immediate = { log = was_false_now_true } option = { name = accept }
+}
+country_event = { id = direct.true is_triggered_only = yes
+ trigger = { always = yes } immediate = { log = direct_true } option = { name = accept }
+}
+country_event = { id = delay.control is_triggered_only = yes
+ immediate = {
+  log = delay_start
+  set_variable = { which = before_true value = 1 }
+  country_event = { id = delay.true days = 2 }
+  set_variable = { which = before_true value = 0 }
+  set_variable = { which = before_false value = 0 }
+  country_event = { id = delay.false days = 2 }
+  set_variable = { which = before_false value = 1 }
+  country_event = { id = candidate.false }
+  country_event = { id = direct.true }
+  log = delay_end
+ }
+ option = { name = accept }
+}

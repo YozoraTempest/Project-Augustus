@@ -586,7 +586,12 @@ impl VanillaWorld {
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let estate_flags = estates.flags();
-        let startup = crate::estates::EstateStartup::load(&root, &files, &mut report.estates)?;
+        let startup = crate::estates::EstateStartup::load(
+            &root,
+            &files,
+            initial.world().schema(),
+            &mut report.estates,
+        )?;
         let estates = estates.bind(&initial, &mut report.estates)?;
         initial
             .set_estates(estates)
@@ -646,6 +651,14 @@ impl VanillaWorld {
                 .map_err(|e| Error::caused_by(root.path(), e))?
                 .as_bytes(),
         );
+        let catalog = initial.world().event_catalog();
+        if !catalog.definitions().is_empty() {
+            digest.update(b"\0events\0");
+            digest.update(
+                serde_json::to_vec(&(catalog.definitions(), catalog.conditions()))
+                    .map_err(|e| Error::caused_by(root.path(), e))?,
+            );
+        }
         let fingerprint: String = digest
             .finalize()
             .iter()

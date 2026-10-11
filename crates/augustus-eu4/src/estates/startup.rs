@@ -6,7 +6,7 @@ use super::{Condition, ENCODING, EstateReport, Reader};
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::setup::{PropertyDiagnostics, block, micros};
 use crate::{ContentRoot, Error, FileEntry, LoadedSource, ParsedText, TextDocument};
-use augustus_core::{Action, EntityKind, InitialWorld, ScopeSelector};
+use augustus_core::{Action, EntityKind, EventCatalog, InitialWorld, Schema, ScopeSelector};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -30,16 +30,19 @@ struct Callback {
 }
 
 struct Compiler {
+    schema: Schema,
     effects: Vec<Arc<TextDocument>>,
     effect_index: BTreeMap<String, Option<usize>>,
     triggers: BTreeMap<String, Condition>,
     visiting: Vec<String>,
     needed_privileges: BTreeSet<String>,
+    startup_metadata: bool,
 }
 
 pub(crate) struct EstateStartup {
     steps: Vec<Step>,
     callbacks: BTreeMap<String, Callback>,
+    events: EventCatalog,
 }
 
 impl Compiler {
@@ -65,6 +68,30 @@ impl Compiler {
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             equal(op, &fail)?;
             match name.as_str() {
+                "events" if self.startup_metadata && depth == 0 => (),
+                "log" => result.push(Step::Metric(
+                    Action::Emit(
+                        value
+                            .read_string()
+                            .map_err(|_| fail("expected log message"))?,
+                    ),
+                    location,
+                )),
+                "country_event" => {
+                    let library = crate::ScriptLibrary::new();
+                    let plan = crate::ScriptCompiler::new(&self.schema, &library, true)
+                        .compile_effect_reader(
+                            parsed,
+                            &name,
+                            block(&value, &fail)?,
+                            at,
+                            EntityKind::Country,
+                        )?;
+                    result.extend(
+                        plan.into_iter()
+                            .map(|action| Step::Metric(action, location.clone())),
+                    );
+                }
                 "emperor" => {
                     let office = "imperial_emperor";
                     result.push(Step::Scoped(
@@ -251,14 +278,17 @@ impl EstateStartup {
     pub(crate) fn load(
         root: &ContentRoot,
         files: &[FileEntry],
+        schema: &Schema,
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
         let mut compiler = Compiler {
+            schema: schema.clone(),
             effects: Vec::new(),
             effect_index: BTreeMap::new(),
             triggers: super::library(root, files, report)?,
             visiting: Vec::new(),
             needed_privileges: BTreeSet::new(),
+            startup_metadata: false,
         };
         for file in files
             .iter()
@@ -297,7 +327,33 @@ impl EstateStartup {
                     return Err(fail("duplicate startup action"));
                 }
                 seen = true;
+                let body = block(&value, &fail)?;
+                let mut candidates = None;
+                for (key, op, value) in body
+                    .fields()
+                    .filter(|(key, _, _)| key.read_string() == "events")
+                {
+                    equal(op, &fail)?;
+                    if candidates.is_some() {
+                        return Err(fail("duplicate startup event list"));
+                    }
+                    let values = value
+                        .read_array()
+                        .map_err(|_| fail("expected startup event id list"))?
+                        .values()
+                        .map(|v| v.read_string().map_err(|_| fail("expected event id")))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if values.iter().any(String::is_empty) {
+                        return Err(fail("empty startup event id"));
+                    }
+                    candidates = Some((values, source(&parsed, parsed.field_location(&key))));
+                }
+                if let Some((events, at)) = candidates {
+                    steps.push(Step::Metric(Action::EventCandidates { events }, at));
+                }
+                compiler.startup_metadata = true;
                 steps.extend(compiler.effects(&parsed, block(&value, &fail)?, report, 0, false)?);
+                compiler.startup_metadata = false;
             }
         }
         let mut callbacks = BTreeMap::new();
@@ -392,7 +448,37 @@ impl EstateStartup {
                 }
             }
         }
-        Ok(Self { steps, callbacks })
+        let mut references = BTreeSet::new();
+        collect_references(&steps, &mut references);
+        for callback in callbacks.values() {
+            collect_references(&callback.granted, &mut references);
+            collect_references(&callback.revoked, &mut references);
+        }
+        let events = match load_events(root, files, schema, references) {
+            Ok(events) => events,
+            Err(error) => {
+                let at = error
+                    .location()
+                    .unwrap_or(crate::SourceLocation { line: 1, column: 1 });
+                steps.insert(
+                    0,
+                    Step::Pending(
+                        format!("uncompiled_startup_event:{error}"),
+                        LoadedSource {
+                            path: error.path().into(),
+                            line: at.line,
+                            column: at.column,
+                        },
+                    ),
+                );
+                EventCatalog::default()
+            }
+        };
+        Ok(Self {
+            steps,
+            callbacks,
+            events,
+        })
     }
 
     pub(crate) fn run(
@@ -405,6 +491,9 @@ impl EstateStartup {
             return Ok(());
         }
         let mut candidate = initial.clone();
+        candidate
+            .set_event_catalog(self.events.clone())
+            .map_err(|e| Error::caused_by("events", e))?;
         let mut trace = Vec::new();
         let countries: Vec<_> = candidate
             .countries()
@@ -691,6 +780,81 @@ impl EstateStartup {
             }
         })
     }
+}
+
+fn collect_references(steps: &[Step], references: &mut BTreeSet<String>) {
+    for step in steps {
+        match step {
+            Step::Metric(action, _) => {
+                crate::script::event_references(std::slice::from_ref(action), references)
+            }
+            Step::Branch(branches, otherwise, _) => {
+                for (_, body) in branches {
+                    collect_references(body, references);
+                }
+                if let Some(body) = otherwise {
+                    collect_references(body, references);
+                }
+            }
+            Step::Countries(_, body, _)
+            | Step::Country(_, body, _)
+            | Step::Scoped(_, body, _)
+            | Step::Group(body) => collect_references(body, references),
+            _ => (),
+        }
+    }
+}
+
+fn load_events(
+    root: &ContentRoot,
+    files: &[FileEntry],
+    schema: &Schema,
+    mut needed: BTreeSet<String>,
+) -> Result<EventCatalog, Error> {
+    if needed.is_empty() {
+        return Ok(EventCatalog::default());
+    }
+    let library = crate::ScriptLibrary::new();
+    let mut definitions = BTreeMap::new();
+    let mut conditions = BTreeMap::new();
+    while !needed.is_empty() {
+        let requested = std::mem::take(&mut needed);
+        let mut found = BTreeSet::new();
+        for file in files
+            .iter()
+            .filter(|file| direct_txt(&file.relative_path, "events"))
+        {
+            let document = root.read_text(&file.relative_path, ENCODING)?;
+            let compiled = crate::ScriptCompiler::new(schema, &library, true)
+                .compile_selected_events(&document, &requested)?;
+            for definition in compiled.definitions {
+                if !found.insert(definition.id.clone()) {
+                    return Err(Error::message(
+                        document.source(),
+                        format!("ambiguous startup event {}", definition.id),
+                    ));
+                }
+                for plan in std::iter::once(&definition.immediate)
+                    .chain(definition.options.iter().map(|option| &option.effects))
+                    .chain(std::iter::once(&definition.after))
+                {
+                    crate::script::event_references(plan, &mut needed);
+                }
+                definitions.insert(definition.id.clone(), definition);
+            }
+            conditions.extend(compiled.conditions);
+        }
+        if let Some(missing) = requested.difference(&found).next() {
+            return Err(Error::message(
+                "events",
+                format!("missing startup event {missing}"),
+            ));
+        }
+        needed.retain(|id| !definitions.contains_key(id));
+    }
+    EventCatalog::new(definitions.into_values())
+        .and_then(|catalog| catalog.with_conditions(conditions))
+        .map_err(|e| Error::caused_by("events", e))
 }
 
 struct Pending {

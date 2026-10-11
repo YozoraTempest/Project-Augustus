@@ -222,6 +222,14 @@ impl InitialWorld {
         self.world.execute(current, plan)
     }
 
+    pub fn set_event_catalog(&mut self, catalog: crate::EventCatalog) -> Result<(), Error> {
+        self.world.set_event_catalog(catalog)
+    }
+
+    pub fn choose_event(&mut self, choice: &crate::EventChoice) -> Result<(), Error> {
+        self.world.choose_event(choice)
+    }
+
     pub fn set_calendar(&mut self, calendar: crate::Calendar) -> Result<(), Error> {
         self.world.set_calendar(calendar)
     }
@@ -236,7 +244,13 @@ impl InitialWorld {
     }
 
     pub fn restore(&mut self, snapshot: &str, content: &str) -> Result<(), Error> {
-        let restored = World::restore(snapshot, content, self.world.schema())?;
+        let restored = World::restore_with_events(
+            snapshot,
+            content,
+            self.world.schema(),
+            Vec::new(),
+            self.world.event_catalog().clone(),
+        )?;
         if restored.entities().len() != self.world.entities().len()
             || restored.calendar() != self.world.calendar()
             || restored.monthly_system_id() != self.world.monthly_system_id()

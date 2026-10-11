@@ -71,10 +71,11 @@ impl EventDemo {
     pub fn embedded(input: Input) -> Result<Self, Error> {
         let scene: Scene =
             serde_json::from_str(include_str!("../../../examples/events/scene.json"))?;
-        let definitions = match input {
-            Input::Native => {
-                serde_json::from_str(include_str!("../../../examples/events/events.json"))?
-            }
+        let (definitions, conditions) = match input {
+            Input::Native => (
+                serde_json::from_str(include_str!("../../../examples/events/events.json"))?,
+                BTreeMap::new(),
+            ),
             Input::Eu4 => {
                 let schema = Schema::new(scene.fields.clone())?;
                 let mut library = ScriptLibrary::new();
@@ -82,16 +83,16 @@ impl EventDemo {
                     "demo/effects.txt",
                     include_str!("../../../examples/events/eu4/common/scripted_effects/demo.txt"),
                 ))?;
-                ScriptCompiler::new(&schema, &library, true)
+                let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_global_scope_types(scene.global_scope_types.clone())
                     .compile_events(&document(
                         "demo/events.txt",
                         include_str!("../../../examples/events/eu4/events/demo.txt"),
-                    ))?
-                    .definitions
+                    ))?;
+                (compiled.definitions, compiled.conditions)
             }
         };
-        Self::load(scene, definitions)
+        Self::load(scene, definitions, conditions)
     }
 
     pub fn from_directory(root: &Path, input: Input) -> Result<Self, Error> {
@@ -102,32 +103,55 @@ impl EventDemo {
                 .map_err(|error| Error::Invalid(error.to_string()))
         };
         let scene: Scene = serde_json::from_str(&read_json("scene.json")?)?;
-        let definitions = match input {
-            Input::Native => serde_json::from_str(&read_json("events.json")?)?,
+        let (definitions, conditions) = match input {
+            Input::Native => {
+                let conditions = if root.path().join("conditions.json").exists() {
+                    serde_json::from_str(&read_json("conditions.json")?)?
+                } else {
+                    BTreeMap::new()
+                };
+                (
+                    serde_json::from_str(&read_json("events.json")?)?,
+                    conditions,
+                )
+            }
             Input::Eu4 => {
                 let content = ContentSet::resolve(vec![ContentSource::base(ContentRoot::open(
                     root.path().join("eu4"),
                 )?)])?;
                 let library = ScriptLibrary::from_content(&content, TextEncoding::Utf8)?;
                 let schema = Schema::new(scene.fields.clone())?;
-                ScriptCompiler::new(&schema, &library, true)
+                let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_global_scope_types(scene.global_scope_types.clone())
-                    .compile_events(&content.read_text("events/demo.txt", TextEncoding::Utf8)?)?
-                    .definitions
+                    .compile_events(&content.read_text("events/demo.txt", TextEncoding::Utf8)?)?;
+                (compiled.definitions, compiled.conditions)
             }
         };
-        Self::load(scene, definitions)
+        Self::load(scene, definitions, conditions)
     }
 
-    fn load(scene: Scene, definitions: Vec<EventDefinition>) -> Result<Self, Error> {
+    fn load(
+        scene: Scene,
+        definitions: Vec<EventDefinition>,
+        conditions: BTreeMap<String, augustus_core::Condition>,
+    ) -> Result<Self, Error> {
         if scene.version != 1 || scene.entities.is_empty() {
             return Err(Error::Invalid(
                 "expected event scene version 1 and entities".into(),
             ));
         }
-        let catalog = EventCatalog::new(definitions)?;
+        let catalog = EventCatalog::new(definitions)?.with_conditions(conditions)?;
         // Canonical effective content, including initial state and compiled plans.
-        let content = serde_json::to_string(&("augustus-events:1", &scene, catalog.definitions()))?;
+        let content = if catalog.conditions().is_empty() {
+            serde_json::to_string(&("augustus-events:1", &scene, catalog.definitions()))?
+        } else {
+            serde_json::to_string(&(
+                "augustus-events:1",
+                &scene,
+                catalog.definitions(),
+                catalog.conditions(),
+            ))?
+        };
         let mut world = World::new(Schema::new(scene.fields.clone())?);
         world.set_event_catalog(catalog)?;
         for entity in &scene.entities {
@@ -170,6 +194,18 @@ impl EventDemo {
 
     pub fn choose(&mut self, choice: &EventChoice) -> Result<(), Error> {
         Ok(self.world.choose_event(choice)?)
+    }
+
+    pub fn candidates(&mut self, events: &[String], entity: usize) -> Result<(), Error> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        Ok(self.world.execute(
+            EntityId(entity),
+            &[augustus_core::Action::EventCandidates {
+                events: events.to_vec(),
+            }],
+        )?)
     }
 
     pub fn advance(&mut self, days: u64) -> Result<(), Error> {

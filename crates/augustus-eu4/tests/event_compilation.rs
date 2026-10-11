@@ -17,10 +17,10 @@ fn event_call_fields_compile_to_direct_calls_or_existing_scheduled_plans() {
     let schema = Schema::new(["treasury"]).unwrap();
     let library = ScriptLibrary::new();
     let compiled=ScriptCompiler::new(&schema,&library,true).compile(&document("country_event={id=probe.1} country_event={days=0 id=probe.2} country_event={id=probe.3 days=2} capital_scope={province_event={id=probe.4}}"),EntityKind::Country).unwrap();
-    assert!(matches!(&compiled.plan[0],Action::TriggerEvent { event } if event=="probe.1"));
-    assert!(matches!(&compiled.plan[1],Action::TriggerEvent { event } if event=="probe.2"));
+    assert!(matches!(&compiled.plan[0],Action::TryEvent { event } if event=="probe.1"));
+    assert!(matches!(&compiled.plan[1],Action::TryEvent { event } if event=="probe.2"));
     assert!(
-        matches!(&compiled.plan[2],Action::Schedule { delay:2,plan } if matches!(&plan[0],Action::TriggerEvent {event} if event=="probe.3"))
+        matches!(&compiled.plan[2],Action::Schedule { delay:2,plan } if matches!(&plan[0],Action::TryEvent {event} if event=="probe.3"))
     );
 }
 
@@ -119,7 +119,7 @@ fn unsupported_event_semantics_are_diagnostics_even_in_unselected_options() {
     let schema = Schema::new(["treasury"]).unwrap();
     let library = ScriptLibrary::new();
     for fragment in [
-        "trigger={always=yes}",
+        "trigger={unsupported_trigger=yes}",
         "mean_time_to_happen={months=10}",
         "fire_only_once=yes",
         "hidden=yes",

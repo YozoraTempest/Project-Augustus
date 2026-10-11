@@ -18,6 +18,7 @@ pub(super) enum Condition {
     Literal(bool),
     Match(String, String),
     Status(String, bool),
+    Office(String, bool),
     Feature(String),
     Estate(String),
     EstatePrivilege(String),
@@ -110,6 +111,20 @@ impl Condition {
                             return Err(fail("empty estate privilege identifier"));
                         }
                         Self::EstatePrivilege(id)
+                    }
+                    "is_emperor" | "is_emperor_of_china" if country => {
+                        let expected = flag(
+                            &value
+                                .read_string()
+                                .map_err(|_| fail("expected office holder flag"))?,
+                        )
+                        .ok_or_else(|| fail("expected yes or no"))?;
+                        let office = if name == "is_emperor" {
+                            "imperial_emperor"
+                        } else {
+                            "celestial_emperor"
+                        };
+                        Self::Office(office.into(), expected)
                     }
                     "is_nomad" if country => {
                         let expected = flag(
@@ -262,6 +277,16 @@ impl Condition {
         estates: EstateLookup<'_>,
     ) -> Option<bool> {
         match self {
+            Self::Office(name, expected) => {
+                let entity = initial.country_entity(tag).expect("registered country");
+                let predicate = augustus_core::Condition::ScopeIsCurrent(
+                    augustus_core::ScopeSelector::Office(name.clone()),
+                );
+                predicate
+                    .evaluate(initial.world(), entity)
+                    .ok()
+                    .map(|value| value == *expected)
+            }
             Self::EstatePrivilege(id) => {
                 let entity = initial.country_entity(tag).expect("registered country");
                 let result = initial

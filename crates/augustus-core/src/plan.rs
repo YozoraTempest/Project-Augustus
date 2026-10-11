@@ -15,6 +15,8 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    /// Compare the current entity with a live office or global reference.
+    ScopeIsCurrent(crate::ScopeSelector),
     Always(bool),
     AtLeast {
         target: Target,
@@ -27,6 +29,14 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    /// Filter the entire list before executing any selected event.
+    EventCandidates {
+        events: Vec<String>,
+    },
+    /// Check the event's condition against the current state, then dispatch.
+    TryEvent {
+        event: String,
+    },
     /// Execute in a live named scope; an absent scope skips the body.
     InScope {
         selector: crate::ScopeSelector,
@@ -100,6 +110,10 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::ScopeIsCurrent(selector) => {
+                world.entity(current)?;
+                Ok(world.resolve_scope(selector)? == Some(current))
+            }
             Self::Always(value) => Ok(*value),
             Self::AtLeast {
                 target,
@@ -159,6 +173,12 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::EventCandidates { events } => {
+                    self.event_candidates_inner(events, current, budget, depth + 1)?;
+                }
+                Action::TryEvent { event } => {
+                    self.try_event_inner(event, current, budget, depth + 1)?;
+                }
                 Action::InScope {
                     selector,
                     kind,

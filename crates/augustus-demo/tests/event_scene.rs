@@ -5,6 +5,71 @@ use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 
 #[test]
+fn candidate_batches_and_delayed_conditions_match_across_inputs_and_saved_tasks() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/event-candidates");
+    let mut compiled = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(compiled.save().unwrap(), native.save().unwrap());
+    let candidates = vec![
+        "candidate.1".into(),
+        "candidate.2".into(),
+        "candidate.false".into(),
+    ];
+    for demo in [&mut compiled, &mut native] {
+        demo.candidates(&candidates, 0).unwrap();
+    }
+    assert_eq!(compiled.world().pending_events().len(), 1);
+    assert_eq!(compiled.world().pending_events()[0].event, "candidate.1");
+    assert_eq!(compiled.save().unwrap(), native.save().unwrap());
+    compiled.trigger("delay.control", 0).unwrap();
+    assert_eq!(compiled.world().pending_tasks(), 2);
+    let saved = compiled.save().unwrap();
+    native.restore(&saved).unwrap();
+    for demo in [&mut compiled, &mut native] {
+        demo.advance(2).unwrap();
+    }
+    assert_eq!(compiled.save().unwrap(), native.save().unwrap());
+    assert_eq!(
+        compiled
+            .world()
+            .events()
+            .iter()
+            .map(|entry| (entry.0, entry.2.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (0, "candidate_one"),
+            (0, "delay_start"),
+            (0, "direct_true"),
+            (0, "delay_end"),
+            (2, "was_false_now_true")
+        ]
+    );
+    assert_eq!(compiled.world().pending_tasks(), 0);
+    assert!(
+        !compiled
+            .world()
+            .pending_events()
+            .iter()
+            .any(|pending| pending.event == "delay.true" || pending.event == "candidate.false")
+    );
+    compiled.candidates(&["candidate.2".into()], 0).unwrap();
+    assert_eq!(
+        compiled.world().pending_events().last().unwrap().event,
+        "candidate.2"
+    );
+    native.trigger("candidate.false", 0).unwrap();
+    assert_eq!(native.world().events().last().unwrap().2, "unreachable");
+    let mut changed: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    let content = changed["content"]
+        .as_str()
+        .unwrap()
+        .replace("imperial_emperor", "different_office");
+    changed["content"] = serde_json::json!(content);
+    assert!(native.restore(&changed.to_string()).is_err());
+}
+
+#[test]
 fn both_inputs_share_event_state_plans_and_save_identity() {
     let mut native = EventDemo::embedded(Input::Native).unwrap();
     let mut compiled = EventDemo::embedded(Input::Eu4).unwrap();

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "fields": [
+    "variable/phase",
+    "variable/before_true",
+    "variable/before_false"
+  ],
+  "entities": [
+    {
+      "name": "River Union",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "offices": {
+    "imperial_emperor": 0
+  }
+}

@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 use augustus_core::{
     Action, Condition, EntityKind, EventDefinition, EventOption, FieldId, Plan, Schema,
@@ -192,6 +195,7 @@ pub struct CompiledScript {
 #[derive(Debug)]
 pub struct CompiledEvents {
     pub definitions: Vec<EventDefinition>,
+    pub conditions: BTreeMap<String, Condition>,
     pub sources: Vec<(PathBuf, SourceLocation)>,
     pub folded_branches: usize,
 }
@@ -240,13 +244,84 @@ impl<'a> ScriptCompiler<'a> {
         })
     }
 
+    pub(crate) fn compile_effect_reader(
+        mut self,
+        parsed: &ParsedText<'_>,
+        name: &str,
+        reader: ObjectReader<'_, '_, TextEncoding>,
+        location: SourceLocation,
+        scope: EntityKind,
+    ) -> Result<Plan, Error> {
+        self.effects(
+            &[Field {
+                name: name.into(),
+                value: Value::Block(read_fields(parsed, reader, 1)?),
+                path: parsed.source().into(),
+                location,
+            }],
+            scope,
+        )
+    }
+
     /// Compile explicitly dispatched events with literal IDs and unconditional options.
     /// Semantic fields outside this subset are errors, including automatic selection.
     pub fn compile_events(mut self, document: &TextDocument) -> Result<CompiledEvents, Error> {
         let parsed = document.parse()?;
         let fields = read_fields(&parsed, parsed.reader(), 0)?;
+        self.events(&fields)
+    }
+
+    /// Only selected IDs are compiled; unrelated definitions are not bound content.
+    pub(crate) fn compile_selected_events(
+        mut self,
+        document: &TextDocument,
+        selected: &BTreeSet<String>,
+    ) -> Result<CompiledEvents, Error> {
+        let parsed = document.parse()?;
+        let mut fields = Vec::new();
+        for (key, operator, value) in parsed.reader().fields() {
+            if !matches!(
+                key.read_string().as_str(),
+                "country_event" | "province_event"
+            ) {
+                continue;
+            }
+            let location = parsed.field_location(&key);
+            let body = value.read_object().map_err(|_| {
+                Error::message(parsed.source(), "expected event block").with_location(location)
+            })?;
+            let ids = body
+                .fields()
+                .filter(|(key, _, _)| key.read_string() == "id")
+                .map(|(_, _, value)| value.read_string())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| {
+                    Error::message(parsed.source(), "invalid event identifier")
+                        .with_location(location)
+                })?;
+            if ids.iter().any(|id| selected.contains(id)) {
+                if operator.is_some_and(|operator| operator != Operator::Equal) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "unsupported event declaration operator",
+                    )
+                    .with_location(location));
+                }
+                fields.push(Field {
+                    name: key.read_string(),
+                    value: Value::Block(read_fields(&parsed, body, 1)?),
+                    path: parsed.source().into(),
+                    location,
+                });
+            }
+        }
+        self.events(&fields)
+    }
+
+    fn events(&mut self, fields: &[Field]) -> Result<CompiledEvents, Error> {
         let mut definitions = Vec::new();
-        for field in &fields {
+        let mut conditions = BTreeMap::new();
+        for field in fields {
             self.sources.push((field.path.clone(), field.location));
             let scope = match field.name.as_str() {
                 "namespace" => {
@@ -272,6 +347,7 @@ impl<'a> ScriptCompiler<'a> {
             };
             let mut seen = std::collections::BTreeSet::new();
             let mut explicit = false;
+            let mut condition = None;
             for part in field.block()? {
                 self.sources.push((part.path.clone(), part.location));
                 if part.name != "option" && !seen.insert(&part.name) {
@@ -289,6 +365,7 @@ impl<'a> ScriptCompiler<'a> {
                         part.scalar()?;
                     }
                     "immediate" => definition.immediate = self.effects(part.block()?, scope)?,
+                    "trigger" => condition = Some(self.conditions(part.block()?, scope)?),
                     "after" => definition.after = self.effects(part.block()?, scope)?,
                     "option" => {
                         let mut effects = Vec::new();
@@ -318,11 +395,39 @@ impl<'a> ScriptCompiler<'a> {
             if !explicit || definition.id.is_empty() || definition.options.is_empty() {
                 return Err(field.error("event requires id, is_triggered_only=yes and options"));
             }
+            if let Some(condition) = condition
+                && conditions
+                    .insert(definition.id.clone(), condition)
+                    .is_some()
+            {
+                return Err(field.error("duplicate event trigger identifier"));
+            }
             definitions.push(definition);
+        }
+        if self.optimise {
+            let unconditional: BTreeSet<_> = definitions
+                .iter()
+                .filter(|definition| !conditions.contains_key(&definition.id))
+                .map(|definition| definition.id.clone())
+                .collect();
+            for definition in &mut definitions {
+                for plan in std::iter::once(&mut definition.immediate)
+                    .chain(
+                        definition
+                            .options
+                            .iter_mut()
+                            .map(|option| &mut option.effects),
+                    )
+                    .chain(std::iter::once(&mut definition.after))
+                {
+                    simplify_event_calls(plan, &unconditional);
+                }
+            }
         }
         Ok(CompiledEvents {
             definitions,
-            sources: self.sources,
+            conditions,
+            sources: std::mem::take(&mut self.sources),
             folded_branches: self.folded,
         })
     }
@@ -424,7 +529,7 @@ impl<'a> ScriptCompiler<'a> {
                         }
                     }
                     let event = event.ok_or_else(|| field.error("event call requires id"))?;
-                    let action = Action::TriggerEvent { event };
+                    let action = Action::TryEvent { event };
                     plan.push(match delay.unwrap_or(0) {
                         0 => action,
                         delay => Action::Schedule {
@@ -527,6 +632,22 @@ impl<'a> ScriptCompiler<'a> {
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "is_emperor" | "is_emperor_of_china" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("office holder trigger requires country scope"));
+                    }
+                    let office = if field.name == "is_emperor" {
+                        "imperial_emperor"
+                    } else {
+                        "celestial_emperor"
+                    };
+                    let condition = Condition::ScopeIsCurrent(ScopeSelector::Office(office.into()));
+                    if boolean(field)? {
+                        condition
+                    } else {
+                        Condition::Not(Box::new(condition))
+                    }
+                }
                 "always" => Condition::Always(boolean(field)?),
                 "NOT" => {
                     let body = field.block()?;
@@ -645,5 +766,50 @@ fn constant(condition: &Condition) -> Option<bool> {
             .collect::<Option<Vec<_>>>()
             .map(|values| values.iter().all(|value| *value)),
         _ => None,
+    }
+}
+
+fn simplify_event_calls(plan: &mut Plan, unconditional: &BTreeSet<String>) {
+    for action in plan {
+        match action {
+            Action::TryEvent { event } if unconditional.contains(event) => {
+                *action = Action::TriggerEvent {
+                    event: event.clone(),
+                };
+            }
+            Action::If {
+                then, otherwise, ..
+            }
+            | Action::RandomBranch { then, otherwise } => {
+                simplify_event_calls(then, unconditional);
+                simplify_event_calls(otherwise, unconditional);
+            }
+            Action::With { plan, .. }
+            | Action::InScope { plan, .. }
+            | Action::Schedule { plan, .. } => simplify_event_calls(plan, unconditional),
+            _ => (),
+        }
+    }
+}
+
+pub(crate) fn event_references(plan: &[Action], references: &mut BTreeSet<String>) {
+    for action in plan {
+        match action {
+            Action::TryEvent { event } | Action::TriggerEvent { event } => {
+                references.insert(event.clone());
+            }
+            Action::EventCandidates { events } => references.extend(events.iter().cloned()),
+            Action::If {
+                then, otherwise, ..
+            }
+            | Action::RandomBranch { then, otherwise } => {
+                event_references(then, references);
+                event_references(otherwise, references);
+            }
+            Action::With { plan, .. }
+            | Action::InScope { plan, .. }
+            | Action::Schedule { plan, .. } => event_references(plan, references),
+            _ => (),
+        }
     }
 }

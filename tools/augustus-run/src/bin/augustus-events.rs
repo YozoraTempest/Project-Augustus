@@ -24,6 +24,9 @@ struct Cli {
     load: Option<PathBuf>,
     #[arg(long)]
     trigger: Option<String>,
+    /// Filter the complete candidate list, then dispatch in supplied order.
+    #[arg(long)]
+    candidate: Vec<String>,
     #[arg(long, default_value_t = 0)]
     entity: usize,
     /// Select pending-id:option-id, for example 0:1. Choices run after advancing.
@@ -66,6 +69,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(event) = cli.trigger {
         demo.trigger(&event, cli.entity)?;
     }
+    demo.candidates(&cli.candidate, cli.entity)?;
     demo.advance(cli.days)?;
     for choice in choices {
         demo.choose(&choice)?;

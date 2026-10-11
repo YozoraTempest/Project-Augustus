@@ -44,11 +44,28 @@ cargo run --locked -p augustus-run --bin augustus-events -- --input native --loa
 
 保存目标必须不存在。两种输入具有相同的有效内容，因此可以互相恢复；修改场景或执行计划后，旧存档会拒绝加载。`--content examples/events` 从目录加载演示，默认使用内嵌文件。选项在日期推进后执行。
 
+`examples/event-candidates` 演示整批筛选和延迟条件。下面的列表只触发 `candidate.1`：第二个事件虽然在第一个事件执行后满足条件，但本轮筛选已经结束。
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/event-candidates --candidate candidate.1 --candidate candidate.2 --candidate candidate.false
+```
+
+延迟调用在到期时检查条件。先安排两项任务并保存，再用原生输入继续：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/event-candidates --trigger delay.control --save delays_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/event-candidates --input native --load delays_waiting.json --days 2
+```
+
+日志依次为 `delay_start`、`direct_true`、`delay_end`，第二天追加 `was_false_now_true`。安排时满足条件、随后失去条件的另一项事件不会执行。原生条件保存在可选的 `conditions.json` 中；已有无条件场景无需增加这个文件。
+
 ## 运行规则
 
 事件先执行 `immediate`，成功后保存当前实体和触发日期。等待期间的数值及实体关系保持实时更新；选择时执行选项效果，再执行 `after`，成功后移除对应记录。多个同类事件各有独立编号。读档不重复即时效果，重复选择、未知选项和错误实体类型会在写入前被拒绝。效果运行错误保留已经发生的写入并停止模拟，不能继续推进或保存。
 
-效果中可以调用事件。省略 `days` 或写 `days = 0` 时，被调用事件的即时效果执行完，调用方才继续；正整数 `days` 使用现有任务队列，在指定天数后触发。当前实体身份随任务保存。嵌套调用共用执行预算和深度限制；待选编号按记录建立顺序分配。定义绑定、任务登记和恢复时会检查事件引用。
+效果中可以调用事件。省略 `days` 或写 `days = 0` 时，先检查被调用事件的触发条件；满足条件才执行即时效果，完成后调用方继续。正整数 `days` 使用任务队列，到期时检查条件。当前实体身份随任务保存。嵌套调用共用执行预算和深度限制；待选编号按记录建立顺序分配。定义绑定、任务登记和恢复时会检查事件引用。
+
+`EventCandidates` 先筛选完整列表，再按输入顺序执行入选事件，本批次不会因即时效果重新筛选。`TryEvent` 检查调用时的条件；`World::trigger_event`、`TriggerEvent` 和命令行 `--trigger` 是强制调用入口。触发条件属于不可变内容，恢复时重新绑定，内容校验也包含这些条件。
 
 职位作用域读取当前持有人，全局目标保存实体身份。`InScope` 使用 `ScopeSelector::Office` 或 `ScopeSelector::Global` 解析目标；`BindGlobalScope` 可以覆盖同名引用，`ClearGlobalScope` 清除引用。缺少目标时跳过效果体，已存在但类型错误时停止模拟。延迟任务在执行时解析全局引用，保存恢复会保留这些引用，读档不会重新登记。
 
@@ -60,8 +77,10 @@ cargo run --locked -p augustus-run --bin augustus-events -- --input native --loa
 
 三个效果阶段复用已有编译器：`log`、绑定字段的国库及变量操作、`owner`、`capital_scope`、条件分支和无参数脚本调用。EU4 选项按声明顺序获得字符串标识 `0`、`1` 等；原生定义可以使用自己的选项标识。
 
-事件调用支持匹配当前类型的 `country_event = { id = ... days = ... }` 和 `province_event = { id = ... days = ... }`。`days` 只接受非负整数；负值、小数、随机延迟及其他参数会被拒绝。原生计划使用 `TriggerEvent`，延迟执行使用 `Schedule`。
+事件调用支持匹配当前类型的 `country_event = { id = ... days = ... }` 和 `province_event = { id = ... days = ... }`。`days` 只接受非负整数；负值、小数、随机延迟及其他参数会被拒绝。原生条件调用使用 `TryEvent`，延迟执行使用 `Schedule`。已绑定的无条件调用可以编译成直接执行计划。
+
+事件 `trigger` 支持已有的常量、变量、国库和无参数脚本条件，以及国家作用域的 `is_emperor`、`is_emperor_of_china`；职位条件读取当前持有人。原版世界入口可以读取 `on_startup` 的 `events` 列表和普通国家事件调用，只绑定直接及间接引用的受支持事件，先处理候选列表，再运行启动效果。该入口中的事件脚本宏、其他事件字段及未注册状态字段仍会报告阻塞来源。启动处理未完成时，候选事件和其他启动写入一起撤销，避免留下部分初始化结果。
 
 命名作用域支持 `emperor = { ... }`、`save_global_event_target_as`、`clear_global_event_target`，以及已经声明类型的 `event_target:name = { ... }`。本入口仅处理全局目标；局部事件目标、动态目标名及完整原版目录中的类型推导尚未支持。原版启动入口也能使用皇帝作用域和全局国家目标，其他未支持效果仍会报告阻塞位置。
 
-自动候选、MTTH、AI 权重、一次性事件、过期处理、条件选项及完整 `ROOT`／`FROM`／`PREV` 上下文尚未支持。相关字段或不支持的效果会报告来源位置，整份输入编译失败。核心命令拒绝非法选择；原版某些异常选项编号会移除待选记录的行为不在本接口的支持范围内。此演示尚未接入原版战役的事件目录或 Godot 事件界面。
+周期自动候选、其他 `on_action` 调度、MTTH、AI 权重、一次性事件、过期处理、条件选项及完整 `ROOT`／`FROM`／`PREV` 上下文尚未支持。相关字段或不支持的效果会报告来源位置，整份输入编译失败。核心命令拒绝非法选择；原版某些异常选项编号会移除待选记录的行为不在本接口的支持范围内。完整原版战役事件和 Godot 事件界面仍未跑通。
