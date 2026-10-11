@@ -1,0 +1,31 @@
+[
+  {
+    "id": "augustus_council.2",
+    "scope": "Country",
+    "immediate": [{"Emit": "council_ready"}],
+    "options": [{"id": "0", "effects": [
+      {"Emit": "work_started"},
+      {"Schedule": {"delay": 2, "plan": [{"TriggerEvent": {"event": "augustus_council.3"}}]}},
+      {"With": {"target": "Capital", "plan": [{"TriggerEvent": {"event": "augustus_council.4"}}]}},
+      {"Emit": "work_planned"}
+    ]}],
+    "after": [{"Emit": "council_closed"}]
+  },
+  {
+    "id": "augustus_council.3",
+    "scope": "Country",
+    "immediate": [{"Add": {"target": "Current", "field": 0, "value": 250}}, {"Emit": "shipment_arrived"}],
+    "options": [{"id": "0", "effects": [{"Emit": "shipment_accepted"}]}],
+    "after": [{"Emit": "shipment_closed"}]
+  },
+  {
+    "id": "augustus_council.4",
+    "scope": "Province",
+    "immediate": [{"Set": {"target": "Current", "field": 1, "value": 4000}}, {"Emit": "harbor_ready"}],
+    "options": [{"id": "0", "effects": [
+      {"With": {"target": "Owner", "plan": [{"Add": {"target": "Current", "field": 0, "value": -1000}}]}},
+      {"Emit": "harbor_confirmed"}
+    ]}],
+    "after": [{"Emit": "harbor_closed"}]
+  }
+]

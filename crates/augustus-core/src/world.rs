@@ -469,7 +469,7 @@ impl World {
     pub fn schedule(&mut self, current: EntityId, delay: u64, plan: Plan) -> Result<(), Error> {
         self.require_running()?;
         self.entity(current)?;
-        validate_plan(&plan, &self.schema, self.rules.len())?;
+        validate_plan(&plan, &self.schema, self.rules.len(), &self.event_catalog)?;
         if delay == 0 {
             return Err(Error::Invalid(
                 "scheduled tasks require a positive delay".into(),
@@ -646,7 +646,7 @@ impl World {
             estates: snapshot.estates,
         };
         for rule in &world.rules {
-            validate_plan(rule, schema, world.rules.len())?;
+            validate_plan(rule, schema, world.rules.len(), &world.event_catalog)?;
         }
         world.event_catalog.validate(&world)?;
         world.event_queue.validate(&world)?;
@@ -705,7 +705,7 @@ impl World {
                 return Err(Error::Invalid("invalid saved task order".into()));
             }
             world.entity(task.current)?;
-            validate_plan(&task.plan, schema, world.rules.len())?;
+            validate_plan(&task.plan, schema, world.rules.len(), &world.event_catalog)?;
             world.tasks.insert((task.day, task.sequence), task);
         }
         for (day, entity, _) in &world.events {
@@ -726,15 +726,32 @@ impl World {
             Ok(())
         }
     }
+
+    pub(crate) fn validate_event_content(
+        &self,
+        catalog: &crate::EventCatalog,
+    ) -> Result<(), Error> {
+        for rule in &self.rules {
+            validate_plan(rule, &self.schema, self.rules.len(), catalog)?;
+        }
+        for task in self.tasks.values() {
+            validate_plan(&task.plan, &self.schema, self.rules.len(), catalog)?;
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn validate_plan(
     plan: &[Action],
     schema: &Schema,
     rule_count: usize,
+    events: &crate::EventCatalog,
 ) -> Result<(), Error> {
     for action in plan {
         match action {
+            Action::TriggerEvent { event } if !events.definitions().contains_key(event) => {
+                return Err(Error::Invalid(format!("unknown event in plan {event}")));
+            }
             Action::Add { field, .. } | Action::Set { field, .. }
                 if field.0 >= schema.fields.len() =>
             {
@@ -746,19 +763,19 @@ pub(crate) fn validate_plan(
                 otherwise,
             } => {
                 validate_condition(condition, schema)?;
-                validate_plan(then, schema, rule_count)?;
-                validate_plan(otherwise, schema, rule_count)?;
+                validate_plan(then, schema, rule_count, events)?;
+                validate_plan(otherwise, schema, rule_count, events)?;
             }
             Action::RandomBranch { then, otherwise } => {
-                validate_plan(then, schema, rule_count)?;
-                validate_plan(otherwise, schema, rule_count)?;
+                validate_plan(then, schema, rule_count, events)?;
+                validate_plan(otherwise, schema, rule_count, events)?;
             }
-            Action::With { plan, .. } => validate_plan(plan, schema, rule_count)?,
+            Action::With { plan, .. } => validate_plan(plan, schema, rule_count, events)?,
             Action::Schedule { delay, plan } => {
                 if *delay == 0 {
                     return Err(Error::Invalid("invalid saved task delay".into()));
                 }
-                validate_plan(plan, schema, rule_count)?;
+                validate_plan(plan, schema, rule_count, events)?;
             }
             Action::Accumulate { field, source, .. }
                 if field.0 >= schema.fields.len() || source.0 >= schema.fields.len() =>

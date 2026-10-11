@@ -340,6 +340,51 @@ impl<'a> ScriptCompiler<'a> {
             self.sources.push((field.path.clone(), field.location));
             match field.name.as_str() {
                 "log" => plan.push(Action::Emit(field.scalar()?.into())),
+                "country_event" | "province_event" => {
+                    let required = if field.name == "country_event" {
+                        EntityKind::Country
+                    } else {
+                        EntityKind::Province
+                    };
+                    if scope != required {
+                        return Err(field.error("event call requires a matching entity scope"));
+                    }
+                    let mut event = None;
+                    let mut delay = None;
+                    for parameter in field.block()? {
+                        self.sources
+                            .push((parameter.path.clone(), parameter.location));
+                        match parameter.name.as_str() {
+                            "id" if event.is_none() => {
+                                let id = parameter.scalar()?;
+                                if id.is_empty() {
+                                    return Err(parameter.error("empty event id"));
+                                }
+                                event = Some(id.to_owned());
+                            }
+                            "days" if delay.is_none() => {
+                                delay = Some(parameter.scalar()?.parse::<u64>().map_err(|_| {
+                                    parameter.error("event delay requires nonnegative whole days")
+                                })?);
+                            }
+                            _ => {
+                                return Err(parameter.error(format!(
+                                    "unsupported or duplicate event call field {}",
+                                    parameter.name
+                                )));
+                            }
+                        }
+                    }
+                    let event = event.ok_or_else(|| field.error("event call requires id"))?;
+                    let action = Action::TriggerEvent { event };
+                    plan.push(match delay.unwrap_or(0) {
+                        0 => action,
+                        delay => Action::Schedule {
+                            delay,
+                            plan: vec![action],
+                        },
+                    });
+                }
                 "add_treasury" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("add_treasury requires a country scope"));

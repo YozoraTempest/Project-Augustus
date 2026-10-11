@@ -27,6 +27,10 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    /// Dispatch an event in the current scope, within the caller's execution limits.
+    TriggerEvent {
+        event: String,
+    },
     ChangeEstateMetric {
         estate: String,
         metric: crate::EstateMetric,
@@ -126,7 +130,7 @@ impl World {
         result
     }
 
-    fn execute_inner(
+    pub(crate) fn execute_inner(
         &mut self,
         current: EntityId,
         plan: &[Action],
@@ -143,6 +147,9 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::TriggerEvent { event } => {
+                    self.trigger_event_inner(event, current, budget, depth + 1)?;
+                }
                 Action::ChangeEstateMetric {
                     estate,
                     metric,

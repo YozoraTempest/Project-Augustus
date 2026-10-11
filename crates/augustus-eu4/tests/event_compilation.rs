@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_core::{EntityId, EntityKind, EventCatalog, EventChoice, Schema, World};
+use augustus_core::{Action, EntityId, EntityKind, EventCatalog, EventChoice, Schema, World};
 use augustus_eu4::{ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding};
 
 fn document(text: &str) -> TextDocument {
@@ -10,6 +10,41 @@ fn document(text: &str) -> TextDocument {
         text.as_bytes().to_vec(),
         TextEncoding::Utf8,
     )
+}
+
+#[test]
+fn event_call_fields_compile_to_direct_calls_or_existing_scheduled_plans() {
+    let schema = Schema::new(["treasury"]).unwrap();
+    let library = ScriptLibrary::new();
+    let compiled=ScriptCompiler::new(&schema,&library,true).compile(&document("country_event={id=probe.1} country_event={days=0 id=probe.2} country_event={id=probe.3 days=2} capital_scope={province_event={id=probe.4}}"),EntityKind::Country).unwrap();
+    assert!(matches!(&compiled.plan[0],Action::TriggerEvent { event } if event=="probe.1"));
+    assert!(matches!(&compiled.plan[1],Action::TriggerEvent { event } if event=="probe.2"));
+    assert!(
+        matches!(&compiled.plan[2],Action::Schedule { delay:2,plan } if matches!(&plan[0],Action::TriggerEvent {event} if event=="probe.3"))
+    );
+}
+
+#[test]
+fn unsupported_event_call_parameters_and_wrong_scopes_have_source_locations() {
+    let schema = Schema::new(["treasury"]).unwrap();
+    let library = ScriptLibrary::new();
+    for text in [
+        "country_event={}",
+        "country_event={id=\"\"}",
+        "country_event={id=x id=y}",
+        "country_event={id=x days=-1}",
+        "country_event={id=x days=1.5}",
+        "country_event={id=x days=1 days=2}",
+        "country_event={id=x random=1}",
+        "country_event={id=x hours=1}",
+        "country_event=x",
+        "province_event={id=x}",
+    ] {
+        let error = ScriptCompiler::new(&schema, &library, true)
+            .compile(&document(text), EntityKind::Country)
+            .unwrap_err();
+        assert!(error.location().is_some(), "{text}");
+    }
 }
 
 #[test]
@@ -91,7 +126,7 @@ fn unsupported_event_semantics_are_diagnostics_even_in_unselected_options() {
         "option={name=other ai_chance={factor=1} log=unsupported}",
         "option={name=other trigger={always=yes} log=unsupported}",
         "option={name=other ROOT={log=unsupported}}",
-        "immediate={country_event={id=probe.2}}",
+        "immediate={country_event={id=probe.2 random=1}}",
         "desc={text=dynamic}",
         "id=duplicate",
     ] {

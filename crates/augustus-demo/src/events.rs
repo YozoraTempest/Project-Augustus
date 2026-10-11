@@ -51,6 +51,7 @@ pub struct PendingChoiceView {
 #[derive(Debug, Serialize)]
 pub struct EventView {
     pub day: u64,
+    pub pending_tasks: usize,
     pub entities: Vec<EventEntityView>,
     pub pending_events: Vec<PendingChoiceView>,
     pub log: Vec<(u64, EntityId, String)>,
@@ -239,6 +240,7 @@ impl EventDemo {
             .collect();
         Ok(EventView {
             day: self.world.day(),
+            pending_tasks: self.world.pending_tasks(),
             entities,
             pending_events,
             log: self.world.events().to_vec(),

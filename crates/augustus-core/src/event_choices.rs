@@ -67,7 +67,7 @@ impl EventCatalog {
                 .chain(definition.options.iter().map(|option| &option.effects))
                 .chain(std::iter::once(&definition.after))
             {
-                crate::world::validate_plan(plan, world.schema(), world.rules.len())?;
+                crate::world::validate_plan(plan, world.schema(), world.rules.len(), self)?;
             }
         }
         Ok(())
@@ -144,6 +144,7 @@ impl World {
             return Err(Error::Invalid("event content is already in use".into()));
         }
         catalog.validate(self)?;
+        self.validate_event_content(&catalog)?;
         self.event_catalog = catalog;
         Ok(())
     }
@@ -168,9 +169,37 @@ impl World {
         if self.entity(current)?.kind != definition.scope {
             return Err(Error::Invalid("event scope does not match entity".into()));
         }
+        self.event_queue
+            .next_id
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        let result = self.trigger_event_inner(event, current, &mut 100_000, 0);
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
+    }
+
+    pub(crate) fn trigger_event_inner(
+        &mut self,
+        event: &str,
+        current: EntityId,
+        budget: &mut usize,
+        depth: usize,
+    ) -> Result<PendingEventId, Error> {
+        self.event_queue
+            .next_id
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        let catalog = self.event_catalog.clone();
+        let definition = catalog.get(event)?;
+        if self.entity(current)?.kind != definition.scope {
+            return Err(Error::Invalid("event scope does not match entity".into()));
+        }
+        self.execute_inner(current, &definition.immediate, budget, depth)?;
+        // Nested immediate effects can append their own pending records first.
         let id = PendingEventId(self.event_queue.next_id);
         let next_id = id.0.checked_add(1).ok_or(Error::Overflow)?;
-        self.execute(current, &definition.immediate)?;
         self.event_queue.next_id = next_id;
         self.event_queue.pending.push(PendingEvent {
             id,

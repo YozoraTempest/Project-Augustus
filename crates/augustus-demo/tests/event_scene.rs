@@ -78,3 +78,66 @@ fn directory_scene_matches_embedded_scene_and_rejects_changed_content() {
     json["content"] = serde_json::json!("different rules");
     assert!(demo.restore(&json.to_string()).is_err());
 }
+
+#[test]
+fn event_chain_uses_one_core_for_scopes_delays_and_cross_input_restore() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/event-chain");
+    let mut continuous = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(continuous.save().unwrap(), native.save().unwrap());
+    let parent = continuous.trigger("augustus_council.2", 0).unwrap();
+    continuous
+        .choose(&EventChoice {
+            pending: parent,
+            option: "0".into(),
+        })
+        .unwrap();
+    assert_eq!(continuous.view().unwrap().pending_tasks, 1);
+    assert_eq!(
+        continuous.world().pending_events()[0].event,
+        "augustus_council.4"
+    );
+    continuous.advance(1).unwrap();
+    native.restore(&continuous.save().unwrap()).unwrap();
+    for demo in [&mut continuous, &mut native] {
+        demo.advance(1).unwrap();
+        assert_eq!(demo.world().pending_events().len(), 2);
+        assert_eq!(demo.world().pending_tasks(), 0);
+        demo.choose(&EventChoice {
+            pending: PendingEventId(1),
+            option: "0".into(),
+        })
+        .unwrap();
+        demo.choose(&EventChoice {
+            pending: PendingEventId(2),
+            option: "0".into(),
+        })
+        .unwrap();
+    }
+    assert_eq!(continuous.save().unwrap(), native.save().unwrap());
+    assert_eq!(native.view().unwrap().entities[0].values["treasury"], 9250);
+    assert_eq!(
+        native.view().unwrap().entities[1].values["variable/phase"],
+        4000
+    );
+    assert_eq!(
+        native
+            .world()
+            .events()
+            .iter()
+            .map(|entry| (entry.0, entry.2.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (0, "council_ready"),
+            (0, "work_started"),
+            (0, "harbor_ready"),
+            (0, "work_planned"),
+            (0, "council_closed"),
+            (2, "shipment_arrived"),
+            (2, "harbor_confirmed"),
+            (2, "harbor_closed"),
+            (2, "shipment_accepted"),
+            (2, "shipment_closed")
+        ]
+    );
+}
