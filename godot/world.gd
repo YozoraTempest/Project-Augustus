@@ -203,6 +203,13 @@ func select_country(index: int) -> void:
 		return
 	var country: Dictionary = packet.value.state
 	country_details.text = "%s · %s\n领土 %d 个省份 · 首都 %s\n文化 %s · 宗教 %s\n政体 %s" % [country.id, country.name, packet.value.owned_provinces.size(), shown(packet.value.bound_capital), shown(country.primary_culture), shown(country.religion), shown(country.government)]
+	var tech: Variant = packet.value.technology
+	country_details.text += "\n行政 / 外交 / 军事科技：\n" + ("未载入" if tech == null else "%s / %s / %s" % [shown(tech.get("administrative")), shown(tech.get("diplomatic")), shown(tech.get("military"))])
+	var resources: Variant = packet.value.resources
+	if resources != null:
+		country_details.text += "\n国库 %s · 人力 %s\n重商主义 %s" % [scaled(resources.treasury_milli, 1000), scaled(resources.manpower_milli, 1000), scaled(resources.mercantilism_milli, 1000)]
+	if not packet.value.modifiers.is_empty():
+		country_details.text += "\n历史修正：" + ", ".join(packet.value.modifiers)
 	var people: Array[String] = []
 	for role in ["ruler", "heir", "consort"]:
 		var title: String = {"ruler": "君主", "heir": "继承人", "consort": "配偶"}[role]
@@ -233,6 +240,9 @@ func relation_text(relation: Dictionary, id: String) -> String:
 			return "%s %s（%s）" % ["属国" if first else "宗主国", other, type_name]
 	return relation.kind + " " + other
 
+func scaled(value: Variant, scale: int) -> String:
+	return "未载入" if value == null else "%.6f" % (float(value) / scale)
+
 
 func select_province(id: int) -> bool:
 	var packet: Dictionary = JSON.parse_string(session.query_province(id))
@@ -256,6 +266,11 @@ func select_province(id: int) -> bool:
 	province_details.text += "\n贸易节点：" + shown(province.trade_node)
 	if province.trade_node_outgoing != null:
 		province_details.text += "\n流向：" + ("无下游" if province.trade_node_outgoing.is_empty() else ", ".join(province.trade_node_outgoing))
+	if not province.modifiers.is_empty():
+		province_details.text += "\n历史修正：" + ", ".join(province.modifiers)
+		var labels := {"province_trade_power_value": "省份贸易力量", "local_development_cost": "本地发展成本修正", "local_tax_modifier": "本地税收修正"}
+		for key in province.declared_modifier_totals_micros:
+			province_details.text += "\n%s（声明值）：%s" % [labels.get(key, key), scaled(province.declared_modifier_totals_micros[key], 1000000)]
 	selection_revision += 1
 	reveal_province.call_deferred(selection_revision)
 	return true

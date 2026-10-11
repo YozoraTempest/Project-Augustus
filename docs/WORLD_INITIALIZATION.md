@@ -21,7 +21,7 @@ cargo build -p augustus-godot --locked
 godot --path godot
 ```
 
-选择安装目录和开局日期，点击“载入开局”。地图显示当前已载入的领土颜色；国家下拉框可查看领土、首都、文化、宗教、政体、统治者及外交关系，点击地图可查看省份、历史记载建筑、商品基础价格、贸易节点与下游连接。右侧面板可以滚动；点击省份后自动显示省份详情。也可以在启动时提供目录：
+选择安装目录和开局日期，点击“载入开局”。地图显示当前已载入的领土颜色；国家下拉框可查看领土、首都、文化、宗教、政体、统治者、外交关系、已载入的科技等级与重商主义，点击地图可查看省份、历史记载建筑、商品基础价格、贸易节点与下游连接，以及永久历史修正的数值声明。右侧面板可以滚动；点击省份后自动显示省份详情。也可以在启动时提供目录：
 
 ```sh
 godot --path godot -- --game-root "/path/to/Europa Universalis IV" --date 1444.11.11
@@ -69,9 +69,28 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 位图、脚本和生成报告均来自本地安装，不随项目分发。需要完整资源的 DLC 档案读取尚未接入；当前地图与所列开局字段从安装目录的普通文件读取。
 
+## 科技、国家资源与历史修正
+
+科技组和三条科技表从本地定义读取，科技等级按表内声明顺序从 0 编号。仅在 `1444.11.11`，使用国家科技组明确声明的 `start_level` 设置行政、外交和军事等级；没有科技组或选择其他日期时，等级保持未知，不根据年份猜测。科技表中的数值与布尔声明可以查询，升级费用、解锁、累积效果和研究过程尚未执行。
+
+国家历史中明确声明的重商主义按日期载入，使用千分位整数，`25000` 表示 `25`。国库和可用人力保留未知状态，尚未计算其开局值。国家查询新增 `technology`、`resources`、`modifiers` 和 `declared_modifier_totals_micros`，原有字段继续保留。
+
+事件修正目录保存可支持的数值与布尔声明。国家与省份历史中直接写出的添加和移除条目按日期处理；只有明确声明 `duration = -1` 的修正作为永久项载入。有限期限或缺少期限的条目记录在 `report.setup.pending_timed_modifiers`，不作为当前已确定的修正。嵌套条件、统治者修正、触发修正和静态修正尚未执行。
+
+省份查询新增 `modifiers` 与 `declared_modifier_totals_micros`。后者只对已载入历史修正中的同名数值声明求和，使用百万分位整数，`12500` 表示 `0.0125`；尚未处理作用范围、基础值、乘法、条件、布尔优先级或其他来源。界面将这些数值标为“声明值”，不能据此判断实际税收、人力、贸易力量等属性。
+
+同一修正或科技等级重复声明数值或布尔属性时，报告在 `report.setup.ambiguous_properties` 中保留全部位置，该属性暂不取值。未支持字段保留数量和来源；定义标识重复或引用无效时报错。科技、资源和修正状态进入同一核心及存档，原有建造演示存档仍可读取。
+
+使用 `--technology` 查询 `administrative`、`diplomatic` 或 `military` 的等级表，使用 `--modifier` 查询一个事件修正定义及来源：
+
+```sh
+cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --country VEN --technology administrative
+cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --province 224 --modifier guadiana_estuary_modifier
+```
+
 ## 验证
 
-仓库的 `examples/world` 是自制小世界，不需要 EU4 安装。可以将它作为 `--game-root` 使用。测试覆盖日期排序、未来条目、数值精度、国家关系、来源追踪、歧义文件和错误输入，并检查兼容输入与原生输入得到相同的核心状态。
+仓库的 `examples/world` 是自制小世界，不需要 EU4 安装。可以将它作为 `--game-root` 使用。测试覆盖日期排序、未来条目、数值精度、国家关系、科技表与等级、修正增删、未知资源、来源追踪、重复属性和错误输入，并检查兼容输入与原生输入得到相同的核心状态。
 
 ```sh
 cargo fmt --all -- --check

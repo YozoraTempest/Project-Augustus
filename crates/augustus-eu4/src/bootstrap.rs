@@ -16,6 +16,7 @@ use serde::Serialize;
 
 use crate::economy::{EconomyDraft, EconomyReport};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
+use crate::setup::{SetupDraft, SetupReport};
 use crate::{ContentRoot, Error, ParsedText, SourceLocation, TextEncoding};
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
@@ -58,6 +59,7 @@ pub struct BootstrapReport {
     pub unapplied_province_fields: BTreeMap<String, usize>,
     pub unapplied_examples: BTreeMap<String, LoadedSource>,
     pub economy: EconomyReport,
+    pub setup: SetupReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -68,6 +70,8 @@ pub struct ProvinceView<'a> {
     pub trade_node: Option<&'a str>,
     pub trade_node_outgoing: Option<Vec<&'a str>>,
     pub trade_good_definition: Option<&'a augustus_core::TradeGoodDefinition>,
+    pub modifiers: Vec<&'a str>,
+    pub declared_modifier_totals_micros: BTreeMap<String, i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -78,6 +82,10 @@ pub struct CountryView<'a> {
     pub politics: Option<&'a augustus_core::CountryPolitics>,
     pub diplomacy: Vec<RelationView<'a>>,
     pub political_offices: Vec<&'a str>,
+    pub technology: Option<&'a BTreeMap<String, u16>>,
+    pub resources: Option<&'a augustus_core::CountryResources>,
+    pub modifiers: Vec<&'a str>,
+    pub declared_modifier_totals_micros: BTreeMap<String, i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -186,6 +194,7 @@ impl VanillaWorld {
             unapplied_province_fields: BTreeMap::new(),
             unapplied_examples: BTreeMap::new(),
             economy: EconomyReport::default(),
+            setup: SetupReport::default(),
         };
         let mut provinces = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
@@ -363,6 +372,7 @@ impl VanillaWorld {
             return Err(Error::message(root.path(), "empty world definitions"));
         }
         let mut economy = EconomyDraft::load(&root, &files, &mut report.economy)?;
+        let mut setup = SetupDraft::load(&root, &files, &mut report.setup)?;
         let mut political_drafts = BTreeMap::new();
         let mut country_histories = BTreeSet::new();
         let mut province_histories = BTreeSet::new();
@@ -419,6 +429,7 @@ impl VanillaWorld {
                     political_drafts
                         .entry(id.clone())
                         .or_insert_with(CountryDraft::default),
+                    &mut setup,
                     &mut report,
                 )
             })?;
@@ -455,7 +466,14 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
-                apply_province(&parsed, reader, province, &mut economy, &mut report)
+                apply_province(
+                    &parsed,
+                    reader,
+                    province,
+                    &mut economy,
+                    &mut setup,
+                    &mut report,
+                )
             })?;
         }
         report.country_history_files = country_histories.len();
@@ -479,6 +497,7 @@ impl VanillaWorld {
         initial
             .set_economy(economy)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        setup.bind(&mut initial, date, &mut report.setup)?;
         report.countries = initial.countries().len();
         report.provinces = initial.provinces().len();
         for country in initial.countries() {
@@ -517,6 +536,13 @@ impl VanillaWorld {
             trade_good_definition: economic_state
                 .and_then(|s| s.trade_good.as_ref())
                 .and_then(|name| economy.trade_goods.get(name)),
+            modifiers: self.modifier_names(entity),
+            declared_modifier_totals_micros: self
+                .initial
+                .world()
+                .modifiers()
+                .declared_totals(entity)
+                .expect("validated modifier totals"),
         })
     }
 
@@ -553,7 +579,36 @@ impl VanillaWorld {
                         .then_some(name.as_str())
                 })
                 .collect(),
+            technology: self
+                .initial
+                .world()
+                .technology()
+                .countries
+                .get(&self.initial.country_entity(id).expect("registered country")),
+            resources: self
+                .initial
+                .world()
+                .country_resources()
+                .get(&self.initial.country_entity(id).expect("registered country")),
+            modifiers: self
+                .modifier_names(self.initial.country_entity(id).expect("registered country")),
+            declared_modifier_totals_micros: self
+                .initial
+                .world()
+                .modifiers()
+                .declared_totals(self.initial.country_entity(id).expect("registered country"))
+                .expect("validated modifier totals"),
         })
+    }
+
+    fn modifier_names(&self, entity: augustus_core::EntityId) -> Vec<&str> {
+        self.initial
+            .world()
+            .modifiers()
+            .active
+            .get(&entity)
+            .map(|active| active.keys().map(String::as_str).collect())
+            .unwrap_or_default()
     }
 
     pub fn diplomacy(&self) -> Vec<RelationView<'_>> {
@@ -780,11 +835,13 @@ fn apply_country(
     reader: ObjectReader<'_, '_, TextEncoding>,
     country: &mut CountryState,
     politics: &mut CountryDraft,
+    setup: &mut SetupDraft,
     report: &mut BootstrapReport,
 ) -> Result<(), Error> {
+    let handled = setup.country_history(parsed, reader.clone(), &country.id, &mut report.setup)?;
     for (key, op, value) in reader.fields() {
         let name = key.read_string();
-        if dated_name(&name) {
+        if dated_name(&name) || handled.contains(&name) {
             continue;
         }
         let location = parsed.field_location(&key);
@@ -832,11 +889,13 @@ fn apply_province(
     reader: ObjectReader<'_, '_, TextEncoding>,
     province: &mut ProvinceState,
     economy: &mut EconomyDraft,
+    setup: &mut SetupDraft,
     report: &mut BootstrapReport,
 ) -> Result<(), Error> {
+    let handled = setup.province_history(parsed, reader.clone(), province.id, &mut report.setup)?;
     for (key, op, value) in reader.fields() {
         let name = key.read_string();
-        if dated_name(&name) {
+        if dated_name(&name) || handled.contains(&name) {
             continue;
         }
         let location = parsed.field_location(&key);

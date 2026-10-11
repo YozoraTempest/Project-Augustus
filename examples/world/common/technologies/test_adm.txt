@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+monarch_power = ADM
+technology = { year = 1300 test_yield = 0.0125 }
+technology = { year = 1340 }
+technology = { year = 1390 }
+technology = { year = 1430 test_capability = yes }

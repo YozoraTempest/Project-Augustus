@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+test_river = { test_trade_value = 7.125 test_growth = -0.0025 picture = test_icon }
+test_harbor = { test_trade_value = 1.125 test_capability = yes }
+test_state = { test_tax_modifier = 0.0125 }
+test_empty = { }

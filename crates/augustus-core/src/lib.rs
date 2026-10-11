@@ -7,14 +7,20 @@
 
 mod economy;
 mod initial;
+mod modifiers;
 mod plan;
 mod politics;
+mod resources;
+mod technology;
 mod world;
 
 pub use economy::{BuildingDefinition, Economy, ProvinceEconomy, TradeGoodDefinition, TradeNode};
 pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
+pub use modifiers::{ModifierDefinition, ModifierInstance, Modifiers};
 pub use plan::{Action, Condition, Plan, Target};
 pub use politics::{CountryPolitics, DiplomaticKind, DiplomaticRelation, PersonState, Politics};
+pub use resources::CountryResources;
+pub use technology::{Technology, TechnologyLevel};
 pub use world::{Entity, EntityId, EntityKind, FieldId, RuleId, Schema, World};
 
 #[derive(Debug, thiserror::Error)]

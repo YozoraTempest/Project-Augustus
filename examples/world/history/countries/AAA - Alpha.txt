@@ -7,6 +7,9 @@ technology_group = test_group
 1440.1.1 = { capital = 2 }
 1430.1.1 = { capital = 1 }
 set_country_flag = not_implemented
+mercantilism = 12.125
+1440.1.1 = { mercantilism = 18.5 add_country_modifier = { name = test_state duration = -1 hidden = yes } }
+1450.1.1 = { remove_country_modifier = test_state }
 
 monarch = { name = "Dawn" adm = 0 dip = 0 mil = 0 }
 queen = { name = "Vale" country_of_origin = BBB female = yes birth_date = 1415.1.1 death_date = 1450.1.1 }

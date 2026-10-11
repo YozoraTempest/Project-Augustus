@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+groups = { test_group = { start_level = 3 } }
+tables = {
+    adm_tech = "technologies/test_adm.txt"
+    dip_tech = "technologies/test_dip.txt"
+    mil_tech = "technologies/test_mil.txt"
+}

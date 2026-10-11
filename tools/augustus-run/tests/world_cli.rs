@@ -9,7 +9,17 @@ fn world_cli_reports_state_sources_and_query_failures() {
     let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
         .arg("--game-root")
         .arg(&fixture)
-        .args(["--country", "AAA", "--province", "1", "--economy"])
+        .args([
+            "--country",
+            "AAA",
+            "--province",
+            "1",
+            "--economy",
+            "--technology",
+            "administrative",
+            "--modifier",
+            "test_river",
+        ])
         .output()
         .unwrap();
     assert!(
@@ -28,6 +38,16 @@ fn world_cli_reports_state_sources_and_query_failures() {
         serde_json::json!(["test_fort"])
     );
     assert_eq!(value["province"]["trade_node"], "river");
+    assert_eq!(value["country"]["technology"]["administrative"], 3);
+    assert_eq!(value["country"]["resources"]["mercantilism_milli"], 18500);
+    assert_eq!(
+        value["modifier"]["definition"]["values_micros"]["test_growth"],
+        -2500
+    );
+    assert_eq!(
+        value["technology"]["levels"][0]["values_micros"]["test_yield"],
+        12500
+    );
     assert_eq!(
         value["economy"]["buildings"]["test_market"]["cost_milli"],
         87125

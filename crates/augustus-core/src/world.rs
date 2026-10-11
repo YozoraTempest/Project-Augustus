@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
 
-use crate::{Action, Economy, Error, Plan, Politics, Target};
+use crate::{
+    Action, CountryResources, Economy, Error, Modifiers, Plan, Politics, Target, Technology,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EntityId(pub usize);
@@ -80,6 +82,9 @@ pub struct World {
     events: Vec<(u64, EntityId, String)>,
     pub(crate) politics: Politics,
     economy: Economy,
+    technology: Technology,
+    modifiers: Modifiers,
+    country_resources: BTreeMap<EntityId, CountryResources>,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
@@ -101,6 +106,12 @@ struct Snapshot {
     politics: Politics,
     #[serde(default, skip_serializing_if = "Economy::is_empty")]
     economy: Economy,
+    #[serde(default, skip_serializing_if = "Technology::is_empty")]
+    technology: Technology,
+    #[serde(default, skip_serializing_if = "Modifiers::is_empty")]
+    modifiers: Modifiers,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    country_resources: BTreeMap<EntityId, CountryResources>,
 }
 
 impl World {
@@ -123,6 +134,9 @@ impl World {
             events: Vec::new(),
             politics: Politics::default(),
             economy: Economy::default(),
+            technology: Technology::default(),
+            modifiers: Modifiers::default(),
+            country_resources: BTreeMap::new(),
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
@@ -135,6 +149,55 @@ impl World {
 
     pub fn economy(&self) -> &Economy {
         &self.economy
+    }
+
+    pub fn technology(&self) -> &Technology {
+        &self.technology
+    }
+    pub fn modifiers(&self) -> &Modifiers {
+        &self.modifiers
+    }
+    pub fn country_resources(&self) -> &BTreeMap<EntityId, CountryResources> {
+        &self.country_resources
+    }
+
+    pub fn set_technology(&mut self, technology: Technology) -> Result<(), Error> {
+        self.require_running()?;
+        technology.validate(self)?;
+        self.technology = technology;
+        Ok(())
+    }
+
+    pub fn set_modifiers(&mut self, modifiers: Modifiers) -> Result<(), Error> {
+        self.require_running()?;
+        modifiers.validate(self)?;
+        self.modifiers = modifiers;
+        Ok(())
+    }
+
+    pub fn set_country_resources(
+        &mut self,
+        resources: BTreeMap<EntityId, CountryResources>,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        self.validate_resources(&resources)?;
+        self.country_resources = resources;
+        Ok(())
+    }
+
+    fn validate_resources(
+        &self,
+        resources: &BTreeMap<EntityId, CountryResources>,
+    ) -> Result<(), Error> {
+        for (&id, state) in resources {
+            if self.entity(id)?.kind != EntityKind::Country
+                || state.manpower_milli.is_some_and(|v| v < 0)
+                || state.mercantilism_milli.is_some_and(|v| v < 0)
+            {
+                return Err(Error::Invalid("invalid country resource state".into()));
+            }
+        }
+        Ok(())
     }
 
     pub fn set_economy(&mut self, economy: Economy) -> Result<(), Error> {
@@ -288,6 +351,9 @@ impl World {
             random: self.random.clone(),
             politics: self.politics.clone(),
             economy: self.economy.clone(),
+            technology: self.technology.clone(),
+            modifiers: self.modifiers.clone(),
+            country_resources: self.country_resources.clone(),
         })?)
     }
 
@@ -319,6 +385,9 @@ impl World {
             random: snapshot.random,
             politics: snapshot.politics,
             economy: snapshot.economy,
+            technology: snapshot.technology,
+            modifiers: snapshot.modifiers,
+            country_resources: snapshot.country_resources,
         };
         for rule in &world.rules {
             validate_plan(rule, schema, world.rules.len())?;
@@ -342,6 +411,9 @@ impl World {
         }
         world.politics.validate(&world)?;
         world.economy.validate(&world)?;
+        world.technology.validate(&world)?;
+        world.modifiers.validate(&world)?;
+        world.validate_resources(&world.country_resources)?;
         let mut sequences = std::collections::BTreeSet::new();
         for task in snapshot.tasks {
             if task.day <= world.day

@@ -14,6 +14,7 @@ mod economy;
 mod load;
 mod politics;
 mod script;
+mod setup;
 mod text;
 
 pub use bootstrap::{
@@ -27,4 +28,5 @@ pub use economy::EconomyReport;
 pub use load::{ContentSet, ContentSource, FileCandidate, FileOrigin, FileTrace, Suppression};
 pub use politics::{RelationSource, RelationView};
 pub use script::{CompiledScript, ScriptCompiler, ScriptLibrary};
+pub use setup::SetupReport;
 pub use text::{FieldSummary, ParsedText, TextDocument, TextEncoding};

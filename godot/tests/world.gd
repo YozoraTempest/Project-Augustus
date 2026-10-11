@@ -21,11 +21,14 @@ func _initialize() -> void:
 	check(alpha.value.politics.ruler.name == "Iris", "ruler query reads authoritative state")
 	check(alpha.value.politics.heir.claim_milli == 87125, "heir claim preserves precision")
 	check(alpha.value.diplomacy.size() == 5, "diplomatic relationships reach the UI query")
+	check(alpha.value.technology.administrative == 3 and alpha.value.technology.military == 3, "baseline technology reaches the country query")
+	check(alpha.value.resources.mercantilism_milli == 18500 and alpha.value.resources.treasury_milli == null, "declared resources preserve precision and unknown stocks")
 	var north: Dictionary = JSON.parse_string(session.query_province(1))
 	check(north.value.owner == "BBB" and north.value.tax_milli == 2125, "dated history reaches the Rust core")
 	check(north.value.buildings == ["test_fort"], "existing buildings reach the province query")
 	check(north.value.trade_good_definition.base_price_milli == 2125, "base price preserves precision")
 	check(north.value.trade_node == "river" and north.value.trade_node_outgoing == ["harbor"], "province query follows the trade graph")
+	check(north.value.modifiers == ["test_harbor", "test_river"] and north.value.declared_modifier_totals_micros.test_growth == -2500, "permanent modifier bindings retain signed precision")
 	check(not JSON.parse_string(session.query_province(-1)).ok, "negative province query fails")
 	check(not JSON.parse_string(session.query_province(999)).ok, "unknown province query fails")
 	check(not JSON.parse_string(session.load_world(fixture, "1444.13.1")).ok, "invalid replacement fails")
@@ -60,11 +63,13 @@ func verify_ui(ui: Control) -> void:
 	var is_fixture: bool = ui.overview.report.map_width == 4 and ui.overview.report.map_height == 2
 	if is_fixture:
 		check(ui.politics_details.text.contains("Iris"), "country panel displays the loaded ruler")
+		check(ui.country_details.text.contains("3 / 3 / 3") and ui.country_details.text.contains("18.500000"), "country panel displays technology and declared resources")
 		check(ui.diplomacy_details.text.contains("贸易联盟成员 BBB"), "country panel preserves trade league meaning")
 		check(ui.province_details.text.contains("North · 1"), "map click follows BMP orientation and letterboxing")
 		check(ui.province_details.text.contains("BBB"), "clicked province displays current owner")
 		check(ui.province_details.text.contains("test_fort") and ui.province_details.text.contains("2.125"), "province panel displays buildings and declared prices")
 		check(ui.province_details.text.contains("river") and ui.province_details.text.contains("harbor"), "province panel displays trade routes")
+		check(ui.province_details.text.contains("test_growth") and ui.province_details.text.contains("-0.002500"), "province panel displays signed modifier declarations")
 		ui.select_country(0)
 		await process_frame
 		await process_frame

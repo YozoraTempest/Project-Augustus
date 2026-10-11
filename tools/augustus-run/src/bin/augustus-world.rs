@@ -23,11 +23,24 @@ struct Cli {
     diplomacy: bool,
     #[arg(long)]
     economy: bool,
+    #[arg(long)]
+    technology: Option<String>,
+    #[arg(long)]
+    modifier: Option<String>,
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let loaded = VanillaWorld::load(cli.game_root, &cli.date)?;
     let mut output = serde_json::json!({"report": loaded.report});
+    if let Some(branch) = cli.technology {
+        output["technology"] = serde_json::json!({"branch": branch, "levels": loaded.initial.world().technology().tables.get(&branch).ok_or("unknown technology branch")?});
+    }
+    if let Some(name) = cli.modifier {
+        output["modifier"] = serde_json::json!({"id": name, "definition": loaded.initial.world().modifiers().definitions.get(&name).ok_or("unknown modifier")?});
+        output["modifier_source"] = serde_json::to_value(
+            &loaded.report.setup.definition_sources[&format!("modifier:{name}")],
+        )?;
+    }
     if cli.economy {
         let economy = loaded.initial.world().economy();
         let province_id = |entity| -> Result<u32, Box<dyn std::error::Error>> {

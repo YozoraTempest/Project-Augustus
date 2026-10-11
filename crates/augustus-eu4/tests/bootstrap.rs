@@ -130,6 +130,65 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             .unwrap(),
         )
         .unwrap();
+    let mut technology = augustus_core::Technology::default();
+    for branch in ["administrative", "diplomatic", "military"] {
+        let mut levels: Vec<_> = [1300, 1340, 1390, 1430]
+            .into_iter()
+            .map(|year| augustus_core::TechnologyLevel {
+                year,
+                values_micros: Default::default(),
+                flags: Default::default(),
+            })
+            .collect();
+        match branch {
+            "administrative" => {
+                levels[0].values_micros.insert("test_yield".into(), 12500);
+                levels[3].flags.insert("test_capability".into(), true);
+            }
+            "diplomatic" => {
+                levels[3].values_micros.insert("test_range".into(), 7125000);
+            }
+            _ => {
+                levels[0]
+                    .values_micros
+                    .insert("test_strength".into(), 1250000);
+            }
+        }
+        technology.tables.insert(branch.into(), levels);
+    }
+    technology.countries.insert(
+        alpha,
+        ["administrative", "diplomatic", "military"]
+            .into_iter()
+            .map(|b| (b.into(), 3))
+            .collect(),
+    );
+    native.set_technology(technology).unwrap();
+    native
+        .set_country_resources(
+            [
+                (
+                    alpha,
+                    augustus_core::CountryResources {
+                        mercantilism_milli: Some(18500),
+                        ..Default::default()
+                    },
+                ),
+                (beta, augustus_core::CountryResources::default()),
+            ]
+            .into_iter()
+            .collect(),
+        )
+        .unwrap();
+    native.set_modifiers(serde_json::from_str(r#"{
+        "definitions": {
+            "test_river":{"values_micros":{"test_trade_value":7125000,"test_growth":-2500},"flags":{}},
+            "test_harbor":{"values_micros":{"test_trade_value":1125000},"flags":{"test_capability":true}},
+            "test_state":{"values_micros":{"test_tax_modifier":12500},"flags":{}},
+            "test_empty":{"values_micros":{},"flags":{}}
+        },
+        "active":{"0":{"test_state":{"hidden":true}},"2":{"test_harbor":{},"test_river":{}}}
+    }"#).unwrap()).unwrap();
     assert_eq!(loaded.initial.world(), &native);
     let earlier = VanillaWorld::load(fixture(), "1435.1.1").unwrap();
     assert_eq!(

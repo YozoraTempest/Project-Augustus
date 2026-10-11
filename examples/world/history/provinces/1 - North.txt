@@ -18,3 +18,7 @@ test_market = yes
 1450.1.1 = { test_fort = no trade_goods = cloth }
 1440.1.1 = { test_fort = yes }
 1435.1.1 = { test_market = no }
+add_permanent_province_modifier = { name = test_river duration = -1 }
+1440.1.1 = { add_province_modifier = { name = test_harbor duration = -1 } }
+1445.1.1 = { add_province_modifier = { name = test_harbor duration = 10 } }
+1446.1.1 = { add_province_modifier = { name = test_harbor duration = -1 } }
