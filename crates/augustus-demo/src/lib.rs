@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-//! A small playable scene, with one selected construction system per session.
+//! Self-authored construction and event scenes using the shared simulation core.
 //! Its JSON format and extension trait are experimental, not a released mod SDK.
 
 #![forbid(unsafe_code)]
 
 mod construction;
+mod events;
 
 use std::path::Path;
 
@@ -18,6 +19,7 @@ use augustus_eu4::{
 use serde::{Deserialize, Serialize};
 
 pub use construction::{CapacityConstruction, ConstructionSystem, FixedConstruction, Slots};
+pub use events::{EventDemo, EventEntityView, EventView, PendingChoiceView};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

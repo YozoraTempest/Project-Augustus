@@ -1,0 +1,149 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Project Augustus contributors
+
+use augustus_core::{EntityId, EntityKind, EventCatalog, EventChoice, Schema, World};
+use augustus_eu4::{ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding};
+
+fn document(text: &str) -> TextDocument {
+    TextDocument::from_bytes(
+        "self-authored-events.txt",
+        text.as_bytes().to_vec(),
+        TextEncoding::Utf8,
+    )
+}
+
+#[test]
+fn event_phases_share_script_calls_scopes_and_live_conditions() {
+    let schema = Schema::new(["treasury", "variable/phase"]).unwrap();
+    let mut library = ScriptLibrary::new();
+    library
+        .add_effects(&document(
+            "prepare={set_variable={which=phase value=1} log=immediate}",
+        ))
+        .unwrap();
+    let text = document(
+        "namespace=probe country_event={id=probe.1 is_triggered_only=yes immediate={prepare=yes} option={name=accept if={limit={check_variable={which=phase value=1}} set_variable={which=phase value=2}} log=option} after={capital_scope={set_variable={which=phase value=3}} log=after}} province_event={id=probe.2 is_triggered_only=yes option={name=accept owner={add_treasury=0.25}}}",
+    );
+    let compiled = ScriptCompiler::new(&schema, &library, true)
+        .compile_events(&text)
+        .unwrap();
+    assert!(compiled.sources.iter().any(|(_, source)| source.line == 1));
+    let mut world = World::new(schema.clone());
+    let country = world.add_entity("Union", EntityKind::Country);
+    let province = world.add_entity("Port", EntityKind::Province);
+    world.set_owner(province, country).unwrap();
+    world.set_capital(country, province).unwrap();
+    world
+        .set_event_catalog(EventCatalog::new(compiled.definitions).unwrap())
+        .unwrap();
+    let first = world.trigger_event("probe.1", country).unwrap();
+    assert_eq!(world.events().len(), 1);
+    world
+        .choose_event(&EventChoice {
+            pending: first,
+            option: "0".into(),
+        })
+        .unwrap();
+    assert_eq!(
+        world
+            .value(country, schema.field("variable/phase").unwrap())
+            .unwrap(),
+        2000
+    );
+    assert_eq!(
+        world
+            .value(province, schema.field("variable/phase").unwrap())
+            .unwrap(),
+        3000
+    );
+    assert_eq!(
+        world
+            .events()
+            .iter()
+            .map(|event| event.2.as_str())
+            .collect::<Vec<_>>(),
+        ["immediate", "option", "after"]
+    );
+    let second = world.trigger_event("probe.2", province).unwrap();
+    world
+        .choose_event(&EventChoice {
+            pending: second,
+            option: "0".into(),
+        })
+        .unwrap();
+    assert_eq!(
+        world
+            .value(EntityId(0), schema.field("treasury").unwrap())
+            .unwrap(),
+        250
+    );
+}
+
+#[test]
+fn unsupported_event_semantics_are_diagnostics_even_in_unselected_options() {
+    let schema = Schema::new(["treasury"]).unwrap();
+    let library = ScriptLibrary::new();
+    for fragment in [
+        "trigger={always=yes}",
+        "mean_time_to_happen={months=10}",
+        "fire_only_once=yes",
+        "hidden=yes",
+        "option={name=other ai_chance={factor=1} log=unsupported}",
+        "option={name=other trigger={always=yes} log=unsupported}",
+        "option={name=other ROOT={log=unsupported}}",
+        "immediate={country_event={id=probe.2}}",
+        "desc={text=dynamic}",
+        "id=duplicate",
+    ] {
+        let text = format!(
+            "\ncountry_event={{id=probe.1 is_triggered_only=yes option={{name=accept log=ok}} {fragment}}}"
+        );
+        let error = ScriptCompiler::new(&schema, &library, true)
+            .compile_events(&document(&text))
+            .unwrap_err();
+        assert!(error.location().is_some());
+        assert_eq!(error.path().to_string_lossy(), "self-authored-events.txt");
+    }
+    for text in [
+        "country_event={id=x option={name=a}}",
+        "country_event={id=x is_triggered_only=no option={name=a}}",
+        "country_event={id=x is_triggered_only=yes}",
+        "country_event={id=x is_triggered_only=yes option={log=x}}",
+    ] {
+        assert!(
+            ScriptCompiler::new(&schema, &library, true)
+                .compile_events(&document(text))
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn constant_folding_changes_the_plan_without_changing_event_behavior() {
+    let schema = Schema::new(["treasury"]).unwrap();
+    let library = ScriptLibrary::new();
+    let text = document(
+        "country_event={id=probe.1 is_triggered_only=yes option={name=a if={limit={always=yes} log=selected} else={log=incorrect}} after={log=after}}",
+    );
+    let mut results = Vec::new();
+    for optimise in [false, true] {
+        let compiled = ScriptCompiler::new(&schema, &library, optimise)
+            .compile_events(&text)
+            .unwrap();
+        assert_eq!(compiled.folded_branches, usize::from(optimise));
+        let mut world = World::new(schema.clone());
+        let country = world.add_entity("Union", EntityKind::Country);
+        world
+            .set_event_catalog(EventCatalog::new(compiled.definitions).unwrap())
+            .unwrap();
+        let pending = world.trigger_event("probe.1", country).unwrap();
+        world
+            .choose_event(&EventChoice {
+                pending,
+                option: "0".into(),
+            })
+            .unwrap();
+        results.push(world.events().to_vec());
+    }
+    assert_eq!(results[0], results[1]);
+}

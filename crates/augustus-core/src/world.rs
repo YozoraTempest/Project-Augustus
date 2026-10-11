@@ -82,6 +82,8 @@ pub struct World {
     next_sequence: u64,
     tasks: BTreeMap<(u64, u64), Task>,
     events: Vec<(u64, EntityId, String)>,
+    pub(crate) event_catalog: crate::EventCatalog,
+    pub(crate) event_queue: crate::event_choices::EventQueue,
     pub(crate) politics: Politics,
     economy: Economy,
     technology: Technology,
@@ -141,6 +143,11 @@ struct Snapshot {
     ideas: Ideas,
     #[serde(default, skip_serializing_if = "crate::Estates::is_empty")]
     estates: crate::Estates,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::event_choices::EventQueue::is_empty"
+    )]
+    event_queue: crate::event_choices::EventQueue,
 }
 
 impl World {
@@ -161,6 +168,8 @@ impl World {
             next_sequence: 0,
             tasks: BTreeMap::new(),
             events: Vec::new(),
+            event_catalog: crate::EventCatalog::default(),
+            event_queue: crate::event_choices::EventQueue::default(),
             politics: Politics::default(),
             economy: Economy::default(),
             technology: Technology::default(),
@@ -578,6 +587,7 @@ impl World {
             governments: self.governments.clone(),
             ideas: self.ideas.clone(),
             estates: self.estates.clone(),
+            event_queue: self.event_queue.clone(),
         })?)
     }
 
@@ -590,6 +600,17 @@ impl World {
         content: &str,
         schema: &Schema,
         rules: Vec<Plan>,
+    ) -> Result<Self, Error> {
+        Self::restore_with_events(json, content, schema, rules, crate::EventCatalog::default())
+    }
+
+    /// Reattach the same immutable event content when restoring pending choices.
+    pub fn restore_with_events(
+        json: &str,
+        content: &str,
+        schema: &Schema,
+        rules: Vec<Plan>,
+        catalog: crate::EventCatalog,
     ) -> Result<Self, Error> {
         let snapshot: Snapshot = serde_json::from_str(json)?;
         if snapshot.format != 1 || snapshot.content != content || &snapshot.schema != schema {
@@ -604,6 +625,8 @@ impl World {
             next_sequence: snapshot.next_sequence,
             tasks: BTreeMap::new(),
             events: snapshot.events,
+            event_catalog: catalog,
+            event_queue: snapshot.event_queue,
             failed: false,
             rules,
             random: snapshot.random,
@@ -625,6 +648,8 @@ impl World {
         for rule in &world.rules {
             validate_plan(rule, schema, world.rules.len())?;
         }
+        world.event_catalog.validate(&world)?;
+        world.event_queue.validate(&world)?;
         for (index, entity) in world.entities.iter().enumerate() {
             if entity.values.len() != world.schema.fields.len() {
                 return Err(Error::Invalid("invalid state field count".into()));
@@ -703,7 +728,11 @@ impl World {
     }
 }
 
-fn validate_plan(plan: &[Action], schema: &Schema, rule_count: usize) -> Result<(), Error> {
+pub(crate) fn validate_plan(
+    plan: &[Action],
+    schema: &Schema,
+    rule_count: usize,
+) -> Result<(), Error> {
     for action in plan {
         match action {
             Action::Add { field, .. } | Action::Set { field, .. }

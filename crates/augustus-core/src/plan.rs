@@ -107,8 +107,19 @@ impl World {
     /// Writes are visible to the next instruction, including condition evaluation.
     /// A runtime error preserves preceding writes and stops execution and saving.
     pub fn execute(&mut self, current: EntityId, plan: &[Action]) -> Result<(), Error> {
+        self.execute_phases(current, &[plan])
+    }
+
+    pub(crate) fn execute_phases(
+        &mut self,
+        current: EntityId,
+        phases: &[&[Action]],
+    ) -> Result<(), Error> {
         self.require_running()?;
-        let result = self.execute_inner(current, plan, &mut 100_000, 0);
+        let mut budget = 100_000;
+        let result = phases
+            .iter()
+            .try_for_each(|plan| self.execute_inner(current, plan, &mut budget, 0));
         if result.is_err() {
             self.failed = true;
         }

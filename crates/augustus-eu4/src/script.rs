@@ -3,7 +3,9 @@
 
 use std::{collections::BTreeMap, path::PathBuf};
 
-use augustus_core::{Action, Condition, EntityKind, FieldId, Plan, Schema, Target};
+use augustus_core::{
+    Action, Condition, EntityKind, EventDefinition, EventOption, FieldId, Plan, Schema, Target,
+};
 use jomini::{
     TextToken,
     text::{ObjectReader, Operator},
@@ -186,6 +188,13 @@ pub struct CompiledScript {
     pub folded_branches: usize,
 }
 
+#[derive(Debug)]
+pub struct CompiledEvents {
+    pub definitions: Vec<EventDefinition>,
+    pub sources: Vec<(PathBuf, SourceLocation)>,
+    pub folded_branches: usize,
+}
+
 pub struct ScriptCompiler<'a> {
     schema: &'a Schema,
     library: &'a ScriptLibrary,
@@ -217,6 +226,93 @@ impl<'a> ScriptCompiler<'a> {
         let plan = self.effects(&fields, scope)?;
         Ok(CompiledScript {
             plan,
+            sources: self.sources,
+            folded_branches: self.folded,
+        })
+    }
+
+    /// Compile explicitly dispatched events with literal IDs and unconditional options.
+    /// Semantic fields outside this subset are errors, including automatic selection.
+    pub fn compile_events(mut self, document: &TextDocument) -> Result<CompiledEvents, Error> {
+        let parsed = document.parse()?;
+        let fields = read_fields(&parsed, parsed.reader(), 0)?;
+        let mut definitions = Vec::new();
+        for field in &fields {
+            self.sources.push((field.path.clone(), field.location));
+            let scope = match field.name.as_str() {
+                "namespace" => {
+                    if field.scalar()?.is_empty() {
+                        return Err(field.error("empty event namespace"));
+                    }
+                    continue;
+                }
+                "country_event" => EntityKind::Country,
+                "province_event" => EntityKind::Province,
+                _ => {
+                    return Err(
+                        field.error(format!("unsupported event declaration {}", field.name))
+                    );
+                }
+            };
+            let mut definition = EventDefinition {
+                id: String::new(),
+                scope,
+                immediate: Vec::new(),
+                options: Vec::new(),
+                after: Vec::new(),
+            };
+            let mut seen = std::collections::BTreeSet::new();
+            let mut explicit = false;
+            for part in field.block()? {
+                self.sources.push((part.path.clone(), part.location));
+                if part.name != "option" && !seen.insert(&part.name) {
+                    return Err(part.error(format!("duplicate event field {}", part.name)));
+                }
+                match part.name.as_str() {
+                    "id" => definition.id = part.scalar()?.into(),
+                    "is_triggered_only" => {
+                        explicit = boolean(part)?;
+                        if !explicit {
+                            return Err(part.error("automatic event dispatch is not supported"));
+                        }
+                    }
+                    "title" | "desc" | "picture" => {
+                        part.scalar()?;
+                    }
+                    "immediate" => definition.immediate = self.effects(part.block()?, scope)?,
+                    "after" => definition.after = self.effects(part.block()?, scope)?,
+                    "option" => {
+                        let mut effects = Vec::new();
+                        let mut name = false;
+                        for item in part.block()? {
+                            if item.name == "name" {
+                                if name || item.scalar()?.is_empty() {
+                                    return Err(item.error("invalid option name"));
+                                }
+                                self.sources.push((item.path.clone(), item.location));
+                                name = true;
+                            } else {
+                                effects.push(item.clone());
+                            }
+                        }
+                        if !name {
+                            return Err(part.error("option requires a scalar name"));
+                        }
+                        definition.options.push(EventOption {
+                            id: definition.options.len().to_string(),
+                            effects: self.effects(&effects, scope)?,
+                        });
+                    }
+                    _ => return Err(part.error(format!("unsupported event field {}", part.name))),
+                }
+            }
+            if !explicit || definition.id.is_empty() || definition.options.is_empty() {
+                return Err(field.error("event requires id, is_triggered_only=yes and options"));
+            }
+            definitions.push(definition);
+        }
+        Ok(CompiledEvents {
+            definitions,
             sources: self.sources,
             folded_branches: self.folded,
         })

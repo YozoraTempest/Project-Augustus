@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+namespace = augustus_council
+
+country_event = {
+    id = augustus_council.1
+    title = council_title
+    desc = council_description
+    is_triggered_only = yes
+    immediate = { prepare_council = yes }
+    option = {
+        name = fund_harbor
+        if = {
+            limit = { check_variable = { which = phase value = 1 } }
+            add_treasury = -2.5
+            set_variable = { which = phase value = 2 }
+            log = harbor_funded
+        }
+    }
+    option = {
+        name = postpone
+        log = council_postponed
+    }
+    after = {
+        if = {
+            limit = { check_variable = { which = phase value = 2 } }
+            capital_scope = { set_variable = { which = phase value = 3 } }
+        }
+        log = council_closed
+    }
+}

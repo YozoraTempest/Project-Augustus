@@ -13,6 +13,7 @@ mod economy;
 mod estate_actions;
 mod estate_initialization;
 mod estates;
+mod event_choices;
 mod governments;
 mod ideas;
 mod initial;
@@ -42,6 +43,9 @@ pub use estate_initialization::EstateLandRules;
 pub use estates::{
     EstateContribution, EstateDefinition, EstateEffect, EstateEvaluation, EstateInfluenceBand,
     EstatePrivilege, EstateRules, EstateState, Estates,
+};
+pub use event_choices::{
+    EventCatalog, EventChoice, EventDefinition, EventOption, PendingEvent, PendingEventId,
 };
 pub use governments::{
     GovernmentContribution, GovernmentEvaluation, GovernmentMetric, GovernmentReform,

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "augustus_council.1",
+    "scope": "Country",
+    "immediate": [
+      {"Set": {"target": "Current", "field": 1, "value": 1000}},
+      {"Emit": "council_ready"}
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {"If": {
+            "condition": {"All": [{"AtLeast": {"target": "Current", "field": 1, "value": 1000}}]},
+            "then": [
+              {"Add": {"target": "Current", "field": 0, "value": -2500}},
+              {"Set": {"target": "Current", "field": 1, "value": 2000}},
+              {"Emit": "harbor_funded"}
+            ],
+            "otherwise": []
+          }}
+        ]
+      },
+      {"id": "1", "effects": [{"Emit": "council_postponed"}]}
+    ],
+    "after": [
+      {"If": {
+        "condition": {"All": [{"AtLeast": {"target": "Current", "field": 1, "value": 2000}}]},
+        "then": [{"With": {"target": "Capital", "plan": [
+          {"Set": {"target": "Current", "field": 1, "value": 3000}}
+        ]}}],
+        "otherwise": []
+      }},
+      {"Emit": "council_closed"}
+    ]
+  }
+]

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "fields": ["treasury", "variable/phase"],
+  "entities": [
+    {
+      "name": "River Union",
+      "kind": "Country",
+      "owner": null,
+      "capital": 1,
+      "values": {"treasury": 10000}
+    },
+    {
+      "name": "Willow Harbor",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    }
+  ]
+}
