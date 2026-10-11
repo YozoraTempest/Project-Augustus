@@ -75,7 +75,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 国家历史中明确声明的重商主义按日期载入，使用千分位整数，`25000` 表示 `25`。国库和可用人力保留未知状态，尚未计算其开局值。国家查询新增 `technology`、`resources`、`modifiers` 和 `declared_modifier_totals_micros`，原有字段继续保留。
 
-事件修正目录保存可支持的数值与布尔声明。国家与省份历史中直接写出的添加和移除条目按日期处理；只有明确声明 `duration = -1` 的修正作为永久项载入。有限期限或缺少期限的条目记录在 `report.setup.pending_timed_modifiers`，不作为当前已确定的修正。嵌套条件、统治者修正、触发修正，以及静态修正的全部适用条件尚未执行；当前静态来源仅处理下述城市和明确占领状态。
+事件修正目录保存可支持的数值与布尔声明。国家与省份历史中直接写出的添加和移除条目按日期处理；只有明确声明 `duration = -1` 的修正作为永久项载入。有限期限或缺少期限的条目记录在 `report.setup.pending_timed_modifiers`，不作为当前已确定的修正。嵌套条件、统治者修正、触发修正，以及静态修正的全部适用条件尚未执行；受支持的适用条件见下述属性计算。
 
 省份查询包含 `modifiers` 与 `declared_modifier_totals_micros`。后者只对已载入历史修正中的同名数值声明求和，使用百万分位整数，`12500` 表示 `0.0125`，不在这个字段中处理作用范围、基础值、乘法、条件、布尔优先级或其他来源。界面将这些数值标为“声明值”；下述属性计算另行组合受支持的来源，不能将声明值直接视为最终游戏属性。
 
@@ -92,11 +92,13 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 省份查询的 `attributes` 包含 `tax_basis` 和 `manpower_contribution`；Godot 显示“已接入部分，自治前”，并列出参与计算的来源和缺项。税收基数从基础税收开始，人力贡献按本地 `NMilitary.BASE_MP_TO_MANPOWER` 的明确声明换算为人数。尚未将税收基数结算为月收入，也未建立完整国家人力上限或可用人力。
 
-当前组合城市状态、明确的占领状态、历史记载建筑、商品的 `province` 块、永久省份历史修正，以及所有者永久历史修正。税收接入固定增量 `tax_income`、省份 `local_tax_modifier` 与所有者 `global_tax_modifier`；人力接入省份 `local_manpower_modifier` 与所有者 `global_manpower_modifier`。其他静态修正仍只是目录声明，未根据其名称自动生效。建筑保留条件尚未执行，参与计算的建筑仍是历史载入结果。
+当前组合城市状态、明确的占领状态、历史记载建筑、商品的 `province` 块、永久省份与所有者历史修正，以及文化待遇和宗教定义的直接效果。税收接入固定增量 `tax_income`、省份 `local_tax_modifier` 与所有者 `global_tax_modifier`；人力接入省份 `local_manpower_modifier` 与所有者 `global_manpower_modifier`。其他静态修正仍只是目录声明，未根据其名称自动生效。建筑保留条件尚未执行，参与计算的建筑仍是历史载入结果。
+
+文化组从本地定义读取，接受文化的增删按所选历史日期处理，文化联盟按已接入的国家等级规则初始化。主文化、接受文化及联盟接受的文化不应用基础文化惩罚；同组和异组的未接受文化分别选择 `same_culture_group`、`non_accepted_culture` 中的数值。宗教只自动应用当前国教的 `country` 块和省份宗教的 `province` 块中已支持的属性；兼容入口不将次要宗教、转换回调或宽容度声明直接当成税收效果。`report.attributes.religion_definitions` 给出已确定的宗教定义数量；定义和属性重复时保留来源与缺项。
 
 每条计算返回基础值、各阶段的固定增量、比例之和、输出与贡献来源。数值均使用百万分位整数；`known_subtotal_micros` 是已接入部分的结果，`unresolved` 列出缺项。只要存在缺项，`value_micros` 就是 `null`。基础值未知时，已知部分结果也为 `null`。国家查询的 `province_attribute_totals` 按当前所有权汇总省份贡献，同时保留缺项；它不包含国家固定人力等尚未接入的来源。
 
-完整自治与州规则、文化、宗教、政体、理念、阶层、科技效果及其他来源还需实现和核对。当前结果不能作为完整原版税收、人力上限或收入。原有 `resources.manpower_milli` 表示可用人力，继续保持未知，不用省份贡献代替。
+完整自治与州规则、政体对文化待遇的影响、宽容度与宗教机制、理念、阶层、科技效果及其他来源还需实现和核对。当前结果不能作为完整原版税收、人力上限或收入。原有 `resources.manpower_milli` 表示可用人力，继续保持未知，不用省份贡献代替。
 
 ## 地区与自治
 
@@ -121,6 +123,8 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 报告的 `attributes` 部分给出定义数量、来源、未映射属性，以及重复定义或属性的全部位置。静态修正同名定义暂不选择，其中的数值不会进入已确定来源；涉及重复项的计算保留缺项。本入口只读取基础 `defines.lua` 中选定字段的直接数值声明，表达式或附加 Lua 文件中对该字段的赋值会报错，尚未执行完整 Lua 定义加载。
 
 核心的 `Attributes` 可以整项替换，原生输入也使用同一个计算器。每阶段计算 `(输入 + 固定增量之和) × (1 + 比例修正之和)`；连续阶段分别相乘，最终才应用声明的上下限。每阶段按百万分位向零截断，运算溢出时报错。当前基础字段、所有权、建筑、商品和附加历史修正均在查询时读取，不保存派生值缓存；城市与占领来源的选择来自本次开局历史，尚未接入运行中的状态变化。自制 [原生属性样本](../examples/world/native_attributes.json) 与原版写法样本得到相同核心状态；这份样本用于贡献者测试，尚不是稳定的 Mod SDK。
+
+共享核心的 `Affiliations` 保存实体的文化与宗教归属、分组和接受政策，可整项替换；`Attributes` 根据当前所有者及归属选择来源，修改这些状态后无需重建公式。原生内容通过同一接口提供状态和效果，样本见 [native_affiliations.json](../examples/world/native_affiliations.json)。接受政策与归属随核心存档保存，未知输入继续保持未知；这尚不包含战役中的文化转换、宗教转换或国家等级变化系统。
 
 ## 验证
 

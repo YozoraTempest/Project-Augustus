@@ -9,3 +9,5 @@ non_core = {}
 colonial_core = { min_local_autonomy = 35 }
 territory_core = { min_local_autonomy = 80 }
 territory_non_core = { min_local_autonomy = 80 }
+same_culture_group = { local_tax_modifier = -0.15 local_manpower_modifier = -0.15 }
+non_accepted_culture = { local_tax_modifier = -0.33 local_manpower_modifier = -0.33 }

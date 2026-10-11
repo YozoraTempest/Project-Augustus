@@ -34,13 +34,17 @@ fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
     let north = loaded.province(1).unwrap();
     let tax = &north.attributes["tax_basis"];
     assert_eq!(tax.base_micros, Some(2_125_000));
-    assert_eq!(tax.known_subtotal_micros, Some(2_656_250));
+    assert_eq!(tax.known_subtotal_micros, Some(2_337_500));
     assert_eq!(tax.value_micros, None);
-    assert_eq!(tax.steps[0].contributions[0].source, "static:city");
-    assert_eq!(tax.steps[0].contributions[0].micros, 250_000);
+    assert_eq!(
+        tax.steps[0].contributions[0].source,
+        "static:same_culture_group"
+    );
+    assert_eq!(tax.steps[0].contributions[0].micros, -150_000);
+    assert_eq!(tax.steps[0].contributions[1].source, "static:city");
     assert_eq!(
         north.attributes["manpower_contribution"].known_subtotal_micros,
-        Some(962_500_000)
+        Some(831_250_000)
     );
     assert_eq!(
         loaded.country("AAA").unwrap().province_attribute_totals["tax_basis"].known_subtotal_micros,
@@ -68,7 +72,7 @@ fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
     let occupied = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     assert_eq!(
         occupied.province(1).unwrap().attributes["tax_basis"].known_subtotal_micros,
-        Some(1_593_750)
+        Some(1_275_000)
     );
 }
 
@@ -96,7 +100,7 @@ fn duplicate_static_definitions_and_properties_preserve_ambiguity_without_guessi
             .contains_key("city")
     );
     let tax = &loaded.province(1).unwrap().attributes["tax_basis"];
-    assert_eq!(tax.known_subtotal_micros, Some(2_125_000));
+    assert_eq!(tax.known_subtotal_micros, Some(1_806_250));
     assert!(tax.unresolved.contains("ambiguous_static:city"));
     let temp = copy_fixture();
     let path = temp.path().join("common/buildings/test_buildings.txt");
@@ -172,4 +176,183 @@ fn expressions_overrides_and_invalid_attribute_shapes_are_rejected() {
         "{error}"
     );
     assert!(error.location().is_some());
+}
+
+#[test]
+fn accepted_cultures_unions_and_current_owners_select_cultural_sources() {
+    use augustus_core::{AffiliationRelation, EntityId};
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let mut world = loaded.initial.world().clone();
+    let north = loaded.initial.province_entity(1).unwrap();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    let beta = loaded.initial.country_entity("BBB").unwrap();
+    assert_eq!(
+        world.affiliations().relation("culture", north, beta),
+        Some(AffiliationRelation::SameGroup)
+    );
+    assert_eq!(
+        world.affiliations().relation("culture", beta, alpha),
+        Some(AffiliationRelation::Accepted)
+    );
+    world.set_owner(north, alpha).unwrap();
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(&world, north, "tax_basis")
+            .unwrap()
+            .known_subtotal_micros,
+        Some(2_656_250)
+    );
+    let temp = copy_fixture();
+    let path = temp.path().join("history/countries/BBB - Beta.txt");
+    fs::write(&path, fs::read_to_string(&path).unwrap() + "\n1440.1.1 = { add_accepted_culture = alpha }\n1450.1.1 = { remove_accepted_culture = alpha }\n").unwrap();
+    let accepted = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        accepted.province(1).unwrap().attributes["tax_basis"].known_subtotal_micros,
+        Some(2_656_250)
+    );
+    let future = VanillaWorld::load(temp.path(), "1450.1.1").unwrap();
+    assert!(
+        future.initial.world().affiliations().0["culture"].acceptance[&EntityId(1)]
+            .members
+            .as_ref()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        future
+            .initial
+            .world()
+            .affiliations()
+            .relation("culture", EntityId(2), EntityId(1)),
+        Some(AffiliationRelation::Accepted)
+    );
+    fs::write(
+        temp.path().join("common/cultures/test.txt"),
+        "first = { alpha = {} } second = { beta = {} }",
+    )
+    .unwrap();
+    fs::write(
+        &path,
+        fs::read_to_string(&path).unwrap() + "\n1444.11.11 = { remove_accepted_culture = alpha }\n",
+    )
+    .unwrap();
+    let foreign = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        foreign.province(1).unwrap().attributes["tax_basis"].known_subtotal_micros,
+        Some(1_955_000)
+    );
+}
+
+#[test]
+fn religion_scopes_apply_direct_effects_without_secondary_or_tolerance_shortcuts() {
+    let temp = copy_fixture();
+    fs::write(temp.path().join("common/religions/test.txt"), r#"
+        group = {
+            test_faith = {
+                country = { global_tax_modifier = 0.10 tolerance_heathen = 2 }
+                province = { local_tax_modifier = 0.05 local_manpower_modifier = 0.20 tax_income = 1 }
+                country_as_secondary = { global_tax_modifier = 0.90 }
+            }
+            other = { country = { global_tax_modifier = 0.30 } }
+        }
+    "#).unwrap();
+    let country = temp.path().join("history/countries/BBB - Beta.txt");
+    fs::write(
+        &country,
+        fs::read_to_string(&country).unwrap() + "\nreligion = other\n",
+    )
+    .unwrap();
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let north = loaded.province(1).unwrap();
+    // (2.125 + 1) * (1 + .25 - .15 + .05 + .30)
+    assert_eq!(
+        north.attributes["tax_basis"].known_subtotal_micros,
+        Some(4_531_250)
+    );
+    assert_eq!(
+        north.attributes["manpower_contribution"].known_subtotal_micros,
+        Some(1_006_250_000)
+    );
+    assert!(
+        north.attributes["tax_basis"]
+            .unresolved
+            .contains("tolerance_and_religious_mechanics")
+    );
+    assert_eq!(loaded.report.attributes.religion_definitions, 2);
+    assert!(
+        loaded
+            .report
+            .attributes
+            .definition_sources
+            .contains_key("religions:test_faith:province")
+    );
+    assert_eq!(
+        loaded.report.attributes.unmapped_properties["religions.country:tolerance_heathen"],
+        1
+    );
+    let mut world = loaded.initial.world().clone();
+    let beta = loaded.initial.country_entity("BBB").unwrap();
+    let province = loaded.initial.province_entity(1).unwrap();
+    let mut affiliations = world.affiliations().clone();
+    affiliations
+        .0
+        .get_mut("religion")
+        .unwrap()
+        .members
+        .insert(beta, Some("test_faith".into()));
+    world.set_affiliations(affiliations).unwrap();
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(&world, province, "tax_basis")
+            .unwrap()
+            .known_subtotal_micros,
+        Some(3_906_250)
+    );
+}
+
+#[test]
+fn ambiguous_religion_effects_and_unknown_culture_members_remain_unresolved() {
+    let temp = copy_fixture();
+    fs::write(temp.path().join("common/religions/test.txt"), "group = { test_faith = { country = { global_tax_modifier = 0.1 global_tax_modifier = 0.2 } } }").unwrap();
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let tax = &loaded.province(1).unwrap().attributes["tax_basis"];
+    assert_eq!(tax.known_subtotal_micros, Some(2_337_500));
+    assert!(
+        tax.unresolved
+            .contains("affiliation:religion:country:test_faith:ambiguous:global_tax_modifier")
+    );
+    fs::write(
+        temp.path().join("common/religions/duplicate.txt"),
+        "group = { test_faith = { country = { global_tax_modifier = 0.5 } } }",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("common/cultures/duplicate.txt"),
+        "other = { alpha = {} }",
+    )
+    .unwrap();
+    let duplicate = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let tax = &duplicate.province(1).unwrap().attributes["tax_basis"];
+    assert_eq!(tax.known_subtotal_micros, Some(2_656_250));
+    assert!(
+        tax.unresolved
+            .contains("affiliation:culture:unknown_relation")
+    );
+    assert!(
+        tax.unresolved
+            .contains("affiliation:religion:country:test_faith:missing_definition")
+    );
+    assert_eq!(
+        duplicate.report.attributes.ambiguous_definitions["religions:test_faith"].len(),
+        2
+    );
+    assert!(
+        !duplicate
+            .report
+            .attributes
+            .definition_sources
+            .contains_key("religions:test_faith:country")
+    );
 }

@@ -104,6 +104,14 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
     }"#).unwrap();
     native.set_politics(politics).unwrap();
     native
+        .set_affiliations(
+            serde_json::from_str(include_str!(
+                "../../../examples/world/native_affiliations.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    native
         .set_economy(
             serde_json::from_str(
                 r#"{

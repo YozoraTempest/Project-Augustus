@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod administration;
+mod affiliations;
 mod attributes;
 mod economy;
 mod initial;
@@ -20,8 +21,11 @@ pub use administration::{
     Administration, AdministrationEvaluation, AdministrationRules, AreaStatus, CoreType,
     ProvinceAdministration,
 };
+pub use affiliations::{
+    AffiliationAcceptance, AffiliationDimension, AffiliationRelation, Affiliations,
+};
 pub use attributes::{
-    AttributeAggregate, AttributeBase, AttributeChannel, AttributeContribution,
+    AffiliationEffect, AttributeAggregate, AttributeBase, AttributeChannel, AttributeContribution,
     AttributeEvaluation, AttributeFormula, AttributeStep, AttributeTerm, Attributes,
 };
 pub use economy::{BuildingDefinition, Economy, ProvinceEconomy, TradeGoodDefinition, TradeNode};

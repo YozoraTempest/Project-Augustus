@@ -4,8 +4,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use augustus_core::{
-    AttributeBase, AttributeChannel, AttributeFormula, AttributeTerm, Attributes, InitialWorld,
-    ProvinceClass, Target,
+    AffiliationEffect, AffiliationRelation, AttributeBase, AttributeChannel, AttributeFormula,
+    AttributeTerm, Attributes, InitialWorld, ProvinceClass, Target,
 };
 use serde::Serialize;
 
@@ -29,6 +29,7 @@ pub struct AttributeReport {
     pub static_definitions: usize,
     pub building_definitions: usize,
     pub trade_good_definitions: usize,
+    pub religion_definitions: usize,
     pub province_calculations: usize,
     pub manpower_per_base_micros: i64,
     pub definition_sources: BTreeMap<String, LoadedSource>,
@@ -190,6 +191,7 @@ impl AttributeDraft {
         report.static_definitions = attributes.static_modifiers.len();
         report.building_definitions = attributes.building_modifiers.len();
         report.trade_good_definitions = attributes.trade_good_modifiers.len();
+        Self::religions(root, files, &mut attributes, report)?;
         let manpower_per_base = manpower_define(root, files, report)?;
         Ok(Self {
             attributes,
@@ -232,7 +234,8 @@ impl AttributeDraft {
             ] {
                 let mut unresolved: BTreeSet<String> = [
                     "autonomy_and_state_rules",
-                    "culture_and_religion",
+                    "culture_government_effects",
+                    "tolerance_and_religious_mechanics",
                     "government_ideas_estates_and_other_effects",
                     "building_retention_conditions",
                     "original_runtime_comparison",
@@ -274,6 +277,39 @@ impl AttributeDraft {
                         },
                     ],
                 };
+                channel.rates.push(AttributeTerm::AffiliationRelation {
+                    dimension: "culture".into(),
+                    target: Target::Owner,
+                    definitions: [
+                        (AffiliationRelation::SameGroup, "same_culture_group".into()),
+                        (
+                            AffiliationRelation::OtherGroup,
+                            "non_accepted_culture".into(),
+                        ),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    property: local_rate.into(),
+                });
+                for (target, scope, property) in [
+                    (Target::Current, "province", local_rate),
+                    (Target::Owner, "country", global_rate),
+                ] {
+                    channel.rates.push(AttributeTerm::AffiliationModifiers {
+                        dimension: "religion".into(),
+                        target,
+                        scope: scope.into(),
+                        property: property.into(),
+                    });
+                }
+                if name == "tax_basis" {
+                    channel.flat.push(AttributeTerm::AffiliationModifiers {
+                        dimension: "religion".into(),
+                        target: Target::Current,
+                        scope: "province".into(),
+                        property: "tax_income".into(),
+                    });
+                }
                 match province.is_city {
                     Some(true) => {
                         self.static_term(&mut channel, "city", local_rate, report, &mut unresolved)?
@@ -374,6 +410,111 @@ impl AttributeDraft {
         Ok(())
     }
 
+    fn religions(
+        root: &ContentRoot,
+        files: &[FileEntry],
+        attributes: &mut Attributes,
+        report: &mut AttributeReport,
+    ) -> Result<(), Error> {
+        let mut scopes = BTreeMap::<String, BTreeMap<String, AffiliationEffect>>::new();
+        for file in files
+            .iter()
+            .filter(|f| direct_txt(&f.relative_path, "common/religions"))
+        {
+            let doc = root.read_text(&file.relative_path, ENCODING)?;
+            let parsed = doc.parse()?;
+            for (group, op, value) in parsed.reader().fields() {
+                let fail = |m: &str| {
+                    Error::message(parsed.source(), m).with_location(parsed.field_location(&group))
+                };
+                equal(op, &fail)?;
+                for (key, op, value) in block(&value, &fail)?.fields() {
+                    if !matches!(
+                        value.token(),
+                        jomini::TextToken::Object { mixed: false, .. }
+                    ) && !value.read_array().is_ok_and(|a| a.is_empty())
+                    {
+                        continue;
+                    }
+                    let name = key.read_string();
+                    let at = parsed.field_location(&key);
+                    let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
+                    equal(op, &fail)?;
+                    let identifier = format!("religions:{name}");
+                    if let Some(origins) = report.ambiguous_definitions.get_mut(&identifier) {
+                        origins.push(source(&parsed, at));
+                        continue;
+                    }
+                    if let Some(first) = report.definition_sources.remove(&identifier) {
+                        for members in scopes.values_mut() {
+                            members.remove(&name);
+                        }
+                        for scope in ["country", "province"] {
+                            report
+                                .definition_sources
+                                .remove(&format!("{identifier}:{scope}"));
+                        }
+                        report
+                            .ambiguous_definitions
+                            .insert(identifier, vec![first, source(&parsed, at)]);
+                        continue;
+                    }
+                    let body = block(&value, &fail)?;
+                    for scope in ["country", "province"] {
+                        let selected: Vec<_> = body
+                            .fields()
+                            .filter(|(k, _, _)| k.read_string() == scope)
+                            .collect();
+                        if selected.len() > 1 {
+                            return Err(fail("duplicate religion effect block"));
+                        }
+                        let kind = format!("religions.{scope}");
+                        let mut effect = AffiliationEffect::default();
+                        if let Some((key, op, value)) = selected.first() {
+                            equal(*op, &fail)?;
+                            effect.modifier =
+                                properties(&parsed, block(value, &fail)?, &kind, &name, report)?;
+                            report.definition_sources.insert(
+                                format!("{identifier}:{scope}"),
+                                source(&parsed, parsed.field_location(key)),
+                            );
+                        }
+                        let prefix = format!("{kind}:{name}:");
+                        effect.unresolved_properties = report
+                            .ambiguous_properties
+                            .keys()
+                            .filter_map(|p| p.strip_prefix(&prefix).map(String::from))
+                            .collect();
+                        for property in effect
+                            .modifier
+                            .values_micros
+                            .keys()
+                            .chain(effect.modifier.flags.keys())
+                            .filter(|p| !used_property(p))
+                        {
+                            *report
+                                .unmapped_properties
+                                .entry(format!("{kind}:{property}"))
+                                .or_default() += 1;
+                        }
+                        scopes
+                            .entry(scope.into())
+                            .or_default()
+                            .insert(name.clone(), effect);
+                    }
+                    report
+                        .definition_sources
+                        .insert(identifier, source(&parsed, at));
+                }
+            }
+        }
+        report.religion_definitions = scopes.get("country").map_or(0, BTreeMap::len);
+        attributes
+            .affiliation_modifiers
+            .insert("religion".into(), scopes);
+        Ok(())
+    }
+
     fn ambiguities(
         initial: &InitialWorld,
         entity: augustus_core::EntityId,
@@ -390,6 +531,17 @@ impl AttributeDraft {
                     definition,
                     property,
                 } => candidates.push(format!("static_modifiers:{definition}:{property}")),
+                AttributeTerm::AffiliationRelation {
+                    definitions,
+                    property,
+                    ..
+                } => {
+                    candidates.extend(
+                        definitions
+                            .values()
+                            .map(|d| format!("static_modifiers:{d}:{property}")),
+                    );
+                }
                 AttributeTerm::Buildings { property } => {
                     if let Some(state) = economy {
                         candidates.extend(

@@ -5,7 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntityKind, Error, FieldId, ModifierDefinition, Target, World};
+use crate::{
+    AffiliationRelation, EntityId, EntityKind, Error, FieldId, ModifierDefinition, Target, World,
+};
 
 const ONE: i128 = 1_000_000;
 
@@ -31,6 +33,18 @@ pub enum AttributeBase {
 pub enum AttributeTerm {
     /// A separate multiplicative channel applies one minus effective autonomy.
     Autonomy,
+    AffiliationRelation {
+        dimension: String,
+        target: Target,
+        definitions: BTreeMap<AffiliationRelation, String>,
+        property: String,
+    },
+    AffiliationModifiers {
+        dimension: String,
+        target: Target,
+        scope: String,
+        property: String,
+    },
     Constant {
         source: String,
         micros: i64,
@@ -104,6 +118,13 @@ pub struct AttributeAggregate {
     pub unresolved: BTreeSet<String>,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AffiliationEffect {
+    pub modifier: ModifierDefinition,
+    pub unresolved_properties: BTreeSet<String>,
+}
+
 /// Immutable calculation content. Inputs and attached effects are read from the
 /// current world on every query; derived results are not persisted as a cache.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +133,10 @@ pub struct Attributes {
     pub static_modifiers: BTreeMap<String, ModifierDefinition>,
     pub building_modifiers: BTreeMap<String, ModifierDefinition>,
     pub trade_good_modifiers: BTreeMap<String, ModifierDefinition>,
+    /// Dimension, effect scope, then member. Missing entries remain unknown.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub affiliation_modifiers:
+        BTreeMap<String, BTreeMap<String, BTreeMap<String, AffiliationEffect>>>,
     pub formulas: BTreeMap<EntityId, BTreeMap<String, AttributeFormula>>,
 }
 
@@ -124,6 +149,7 @@ impl Attributes {
         self.static_modifiers.is_empty()
             && self.building_modifiers.is_empty()
             && self.trade_good_modifiers.is_empty()
+            && self.affiliation_modifiers.is_empty()
             && self.formulas.is_empty()
     }
 
@@ -292,6 +318,55 @@ impl Attributes {
             Ok(())
         };
         match term {
+            AttributeTerm::AffiliationRelation {
+                dimension,
+                target,
+                definitions,
+                property,
+            } => {
+                let relation = attribute_target(world, entity, *target)?
+                    .and_then(|other| world.affiliations().relation(dimension, entity, other));
+                if let Some(relation) = relation {
+                    if let Some(name) = definitions.get(&relation) {
+                        if let Some(data) = self.static_modifiers.get(name) {
+                            append(format!("static:{name}"), property, data)?;
+                        } else {
+                            unresolved.insert(format!(
+                                "affiliation:{dimension}:missing_definition:{name}"
+                            ));
+                        }
+                    }
+                } else {
+                    unresolved.insert(format!("affiliation:{dimension}:unknown_relation"));
+                }
+            }
+            AttributeTerm::AffiliationModifiers {
+                dimension,
+                target,
+                scope,
+                property,
+            } => {
+                let member = attribute_target(world, entity, *target)?
+                    .and_then(|other| world.affiliations().member(dimension, other));
+                if let Some(member) = member {
+                    let prefix = format!("affiliation:{dimension}:{scope}:{member}");
+                    if let Some(data) = self
+                        .affiliation_modifiers
+                        .get(dimension)
+                        .and_then(|scopes| scopes.get(scope))
+                        .and_then(|members| members.get(member))
+                    {
+                        append(prefix.clone(), property, &data.modifier)?;
+                        if data.unresolved_properties.contains(property) {
+                            unresolved.insert(format!("{prefix}:ambiguous:{property}"));
+                        }
+                    } else {
+                        unresolved.insert(format!("{prefix}:missing_definition"));
+                    }
+                } else {
+                    unresolved.insert(format!("affiliation:{dimension}:{scope}:unknown_member"));
+                }
+            }
             AttributeTerm::Autonomy => {
                 if world.administration().provinces.contains_key(&entity) {
                     let state = world.administration().evaluate(world, entity)?;
@@ -358,11 +433,7 @@ impl Attributes {
                 }
             }
             AttributeTerm::Modifiers { target, property } => {
-                let target_entity = match target {
-                    Target::Current => Some(entity),
-                    Target::Owner => world.entity(entity)?.owner,
-                    Target::Capital => world.entity(entity)?.capital,
-                };
+                let target_entity = attribute_target(world, entity, *target)?;
                 if let Some(target_entity) = target_entity {
                     if let Some(active) = world.modifiers().active.get(&target_entity) {
                         for name in active.keys() {
@@ -386,25 +457,27 @@ impl Attributes {
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
+        for (dimension, scopes) in &self.affiliation_modifiers {
+            if dimension.is_empty() || scopes.keys().any(String::is_empty) {
+                return Err(Error::Invalid("invalid affiliation effect scope".into()));
+            }
+            for members in scopes.values() {
+                for (name, effect) in members {
+                    if name.is_empty() || effect.unresolved_properties.iter().any(String::is_empty)
+                    {
+                        return Err(Error::Invalid("invalid affiliation effect".into()));
+                    }
+                    validate_definition(name, &effect.modifier)?;
+                }
+            }
+        }
         for catalog in [
             &self.static_modifiers,
             &self.building_modifiers,
             &self.trade_good_modifiers,
         ] {
             for (name, definition) in catalog {
-                if name.is_empty()
-                    || definition
-                        .values_micros
-                        .keys()
-                        .chain(definition.flags.keys())
-                        .any(|k| k.is_empty())
-                    || definition
-                        .values_micros
-                        .keys()
-                        .any(|k| definition.flags.contains_key(k))
-                {
-                    return Err(Error::Invalid("invalid attribute source definition".into()));
-                }
+                validate_definition(name, definition)?;
             }
         }
         for (&entity, formulas) in &self.formulas {
@@ -423,6 +496,22 @@ impl Attributes {
                     .flat_map(|c| c.flat.iter().chain(&c.rates))
                 {
                     let valid = match term {
+                        AttributeTerm::AffiliationRelation {
+                            dimension,
+                            definitions,
+                            property,
+                            ..
+                        } => {
+                            !dimension.is_empty()
+                                && !property.is_empty()
+                                && definitions.values().all(|s| !s.is_empty())
+                        }
+                        AttributeTerm::AffiliationModifiers {
+                            dimension,
+                            scope,
+                            property,
+                            ..
+                        } => !dimension.is_empty() && !scope.is_empty() && !property.is_empty(),
                         AttributeTerm::Autonomy => {
                             world.entity(entity)?.kind == EntityKind::Province
                                 && formula.channels.iter().all(|c| {
@@ -470,4 +559,34 @@ impl Attributes {
         }
         Ok(())
     }
+}
+
+fn attribute_target(
+    world: &World,
+    entity: EntityId,
+    target: Target,
+) -> Result<Option<EntityId>, Error> {
+    let entity_data = world.entity(entity)?;
+    Ok(match target {
+        Target::Current => Some(entity),
+        Target::Owner => entity_data.owner,
+        Target::Capital => entity_data.capital,
+    })
+}
+
+fn validate_definition(name: &str, definition: &ModifierDefinition) -> Result<(), Error> {
+    if name.is_empty()
+        || definition
+            .values_micros
+            .keys()
+            .chain(definition.flags.keys())
+            .any(|k| k.is_empty())
+        || definition
+            .values_micros
+            .keys()
+            .any(|k| definition.flags.contains_key(k))
+    {
+        return Err(Error::Invalid("invalid attribute source definition".into()));
+    }
+    Ok(())
 }

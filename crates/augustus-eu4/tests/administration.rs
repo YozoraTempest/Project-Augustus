@@ -389,11 +389,11 @@ fn initialized_noncapital_autonomy_reduces_shared_attribute_subtotals() {
     assert_eq!(administration.effective_autonomy_micros, Some(300_000));
     assert_eq!(
         north.attributes["tax_after_autonomy"].known_subtotal_micros,
-        Some(1_859_375)
+        Some(1_636_250)
     );
     assert_eq!(
         north.attributes["manpower_after_autonomy"].known_subtotal_micros,
-        Some(673_750_000)
+        Some(581_875_000)
     );
     assert_eq!(north.attributes["tax_after_autonomy"].value_micros, None);
     assert!(

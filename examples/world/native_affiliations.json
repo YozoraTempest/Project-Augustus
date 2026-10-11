@@ -1,0 +1,15 @@
+{
+  "culture": {
+    "groups": {"alpha": "test_cultures", "beta": "test_cultures"},
+    "members": {"0": "alpha", "1": "beta", "2": "alpha", "3": "alpha", "4": null, "5": null, "6": null, "7": null},
+    "acceptance": {
+      "0": {"members": [], "groups": ["test_cultures"]},
+      "1": {"members": [], "groups": []}
+    }
+  },
+  "religion": {
+    "groups": {"test_faith": "test_religions"},
+    "members": {"0": "test_faith", "1": "test_faith", "2": "test_faith", "3": "test_faith", "4": null, "5": null, "6": null, "7": null},
+    "acceptance": {}
+  }
+}

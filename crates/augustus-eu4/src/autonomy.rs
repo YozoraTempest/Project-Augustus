@@ -3,7 +3,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use augustus_core::{DiplomaticKind, InitialWorld, ProvinceState};
+use augustus_core::{
+    AffiliationAcceptance, AffiliationDimension, Affiliations, DiplomaticKind, InitialWorld,
+    ProvinceState,
+};
 use jomini::{TextToken, text::ObjectReader};
 
 use crate::administration::AdministrationReport;
@@ -104,6 +107,65 @@ fn groups(
 }
 
 impl AutonomyDraft {
+    pub(super) fn affiliations(&self, initial: &InitialWorld) -> Affiliations {
+        let mut culture = AffiliationDimension {
+            groups: self.cultures.clone(),
+            ..Default::default()
+        };
+        let mut religion = AffiliationDimension {
+            groups: self.religions.clone(),
+            ..Default::default()
+        };
+        for country in initial.countries() {
+            let entity = initial
+                .country_entity(&country.id)
+                .expect("registered country");
+            let seed = self.countries.get(&country.id).filter(|s| !s.uncertain);
+            culture
+                .members
+                .insert(entity, seed.and(country.primary_culture.clone()));
+            religion
+                .members
+                .insert(entity, seed.and(country.religion.clone()));
+            let groups = self.rank(initial, &country.id).and_then(|rank| {
+                if self.union_rank == 0 {
+                    (rank < 3).then(BTreeSet::new)
+                } else if rank < self.union_rank {
+                    Some(BTreeSet::new())
+                } else {
+                    self.cultures
+                        .get(country.primary_culture.as_ref()?)?
+                        .as_ref()
+                        .map(|group| [group.clone()].into_iter().collect())
+                }
+            });
+            culture.acceptance.insert(
+                entity,
+                AffiliationAcceptance {
+                    members: seed.map(|s| s.accepted.clone()),
+                    groups,
+                },
+            );
+        }
+        for province in initial.provinces() {
+            let entity = initial
+                .province_entity(province.id)
+                .expect("registered province");
+            let known = !self.uncertain_provinces.contains(&province.id);
+            culture
+                .members
+                .insert(entity, known.then(|| province.culture.clone()).flatten());
+            religion
+                .members
+                .insert(entity, known.then(|| province.religion.clone()).flatten());
+        }
+        Affiliations(
+            [("culture".into(), culture), ("religion".into(), religion)]
+                .into_iter()
+                .collect(),
+        )
+    }
+
     pub(super) fn load(
         root: &ContentRoot,
         files: &[FileEntry],

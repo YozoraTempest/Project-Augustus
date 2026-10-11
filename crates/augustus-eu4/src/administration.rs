@@ -56,6 +56,10 @@ pub(super) struct AdministrationDraft {
 }
 
 impl AdministrationDraft {
+    pub(super) fn affiliations(&self, initial: &InitialWorld) -> augustus_core::Affiliations {
+        self.autonomy.affiliations(initial)
+    }
+
     pub(super) fn load(
         root: &ContentRoot,
         files: &[FileEntry],

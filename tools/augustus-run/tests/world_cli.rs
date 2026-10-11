@@ -42,7 +42,7 @@ fn world_cli_reports_state_sources_and_query_failures() {
     assert_eq!(value["country"]["resources"]["mercantilism_milli"], 18500);
     assert_eq!(
         value["province"]["attributes"]["tax_basis"]["known_subtotal_micros"],
-        2656250
+        2337500
     );
     assert!(value["province"]["attributes"]["tax_basis"]["value_micros"].is_null());
     assert_eq!(value["province"]["administration"]["area"], "north_area");

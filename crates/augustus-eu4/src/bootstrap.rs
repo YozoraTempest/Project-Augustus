@@ -523,6 +523,9 @@ impl VanillaWorld {
             .set_economy(economy)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         setup.bind(&mut initial, date, &mut report.setup)?;
+        initial
+            .set_affiliations(administration.affiliations(&initial))
+            .map_err(|e| Error::caused_by(root.path(), e))?;
         let attributes = attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
         let administration = administration.bind(
             &initial,

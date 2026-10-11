@@ -7,8 +7,8 @@ use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Action, Administration, Attributes, CountryResources, Economy, Error, Modifiers, Plan,
-    Politics, Target, Technology,
+    Action, Administration, Affiliations, Attributes, CountryResources, Economy, Error, Modifiers,
+    Plan, Politics, Target, Technology,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -88,6 +88,7 @@ pub struct World {
     country_resources: BTreeMap<EntityId, CountryResources>,
     attributes: Attributes,
     administration: Administration,
+    affiliations: Affiliations,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
@@ -119,6 +120,8 @@ struct Snapshot {
     attributes: Attributes,
     #[serde(default, skip_serializing_if = "Administration::is_empty")]
     administration: Administration,
+    #[serde(default, skip_serializing_if = "Affiliations::is_empty")]
+    affiliations: Affiliations,
 }
 
 impl World {
@@ -146,6 +149,7 @@ impl World {
             country_resources: BTreeMap::new(),
             attributes: Attributes::default(),
             administration: Administration::default(),
+            affiliations: Affiliations::default(),
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
@@ -162,6 +166,17 @@ impl World {
 
     pub fn attributes(&self) -> &Attributes {
         &self.attributes
+    }
+
+    pub fn affiliations(&self) -> &Affiliations {
+        &self.affiliations
+    }
+
+    pub fn set_affiliations(&mut self, affiliations: Affiliations) -> Result<(), Error> {
+        self.require_running()?;
+        affiliations.validate(self)?;
+        self.affiliations = affiliations;
+        Ok(())
     }
 
     pub fn administration(&self) -> &Administration {
@@ -387,6 +402,7 @@ impl World {
             country_resources: self.country_resources.clone(),
             attributes: self.attributes.clone(),
             administration: self.administration.clone(),
+            affiliations: self.affiliations.clone(),
         })?)
     }
 
@@ -423,6 +439,7 @@ impl World {
             country_resources: snapshot.country_resources,
             attributes: snapshot.attributes,
             administration: snapshot.administration,
+            affiliations: snapshot.affiliations,
         };
         for rule in &world.rules {
             validate_plan(rule, schema, world.rules.len())?;
@@ -450,6 +467,7 @@ impl World {
         world.modifiers.validate(&world)?;
         world.validate_resources(&world.country_resources)?;
         world.administration.validate(&world)?;
+        world.affiliations.validate(&world)?;
         world.attributes.validate(&world)?;
         let mut sequences = std::collections::BTreeSet::new();
         for task in snapshot.tasks {

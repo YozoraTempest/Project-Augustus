@@ -301,6 +301,14 @@ func attribute_text(attributes: Dictionary) -> String:
 					source_name = "城市"
 				elif source_name == "static:occupied":
 					source_name = "被占领"
+				elif source_name == "static:same_culture_group":
+					source_name = "同组未接受文化"
+				elif source_name == "static:non_accepted_culture":
+					source_name = "异组未接受文化"
+				elif source_name.begins_with("affiliation:religion:province:"):
+					source_name = "省份宗教 " + source_name.trim_prefix("affiliation:religion:province:")
+				elif source_name.begins_with("affiliation:religion:country:"):
+					source_name = "国教 " + source_name.trim_prefix("affiliation:religion:country:")
 				elif source_name.begins_with("building:"):
 					source_name = "建筑 " + source_name.trim_prefix("building:")
 				elif source_name.begins_with("trade_good:"):
@@ -313,7 +321,7 @@ func attribute_text(attributes: Dictionary) -> String:
 				text += "\n  %s：%s" % [source_name, amount]
 		for reason in value.unresolved:
 			missing[reason] = true
-	var reasons := {"autonomy_and_state_rules": "完整自治与州规则", "state_and_core_effects": "州与核心的其他效果", "culture_and_religion": "文化与宗教", "government_ideas_estates_and_other_effects": "政体、理念、阶层等效果", "building_retention_conditions": "建筑保留条件", "original_runtime_comparison": "原版运行核对", "city_status": "城市状态", "administration:area_status": "开局州与领地划分", "administration:core_type": "核心类型", "administration:initial_autonomy": "初始自治度", "administration:minimum_autonomy": "最低自治", "administration:other_minimum_autonomy_effects": "其他最低自治修正", "administration:scoped_country_history": "国家历史中的自治操作"}
+	var reasons := {"autonomy_and_state_rules": "完整自治与州规则", "state_and_core_effects": "州与核心的其他效果", "culture_and_religion": "文化与宗教", "culture_government_effects": "政体对文化待遇的影响", "tolerance_and_religious_mechanics": "宽容度与宗教机制", "affiliation:culture:unknown_relation": "文化待遇未知", "government_ideas_estates_and_other_effects": "政体、理念、阶层等效果", "building_retention_conditions": "建筑保留条件", "original_runtime_comparison": "原版运行核对", "city_status": "城市状态", "administration:area_status": "开局州与领地划分", "administration:core_type": "核心类型", "administration:initial_autonomy": "初始自治度", "administration:minimum_autonomy": "最低自治", "administration:other_minimum_autonomy_effects": "其他最低自治修正", "administration:scoped_country_history": "国家历史中的自治操作"}
 	var descriptions: Array[String] = []
 	for reason in missing:
 		descriptions.append(reasons.get(reason, reason))
