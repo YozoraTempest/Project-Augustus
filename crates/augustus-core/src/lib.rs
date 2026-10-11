@@ -19,6 +19,7 @@ mod governments;
 mod ideas;
 mod initial;
 mod modifiers;
+mod named_values;
 mod plan;
 mod politics;
 mod resources;
@@ -59,6 +60,7 @@ pub use ideas::{
 };
 pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
 pub use modifiers::{ModifierDefinition, ModifierInstance, Modifiers};
+pub use named_values::{NamedValues, NumericComparison, NumericOperation, NumericSlot};
 pub use plan::{Action, Condition, Plan, Target};
 pub use politics::{CountryPolitics, DiplomaticKind, DiplomaticRelation, PersonState, Politics};
 pub use resources::CountryResources;

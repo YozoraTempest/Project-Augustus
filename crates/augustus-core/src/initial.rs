@@ -230,6 +230,10 @@ impl InitialWorld {
         self.world.set_completions(completions)
     }
 
+    pub fn set_named_values(&mut self, values: crate::NamedValues) -> Result<(), Error> {
+        self.world.set_named_values(values)
+    }
+
     pub fn choose_event(&mut self, choice: &crate::EventChoice) -> Result<(), Error> {
         self.world.choose_event(choice)
     }

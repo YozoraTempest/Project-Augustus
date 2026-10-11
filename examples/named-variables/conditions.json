@@ -1,0 +1,16 @@
+{
+  "numeric.gated": {
+    "All": [
+      {
+        "NumericCompare": {
+          "target": "Current",
+          "slot": {
+            "Named": "count"
+          },
+          "comparison": "AtLeast",
+          "value": 1000
+        }
+      }
+    ]
+  }
+}

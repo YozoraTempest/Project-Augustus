@@ -785,6 +785,14 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             [alpha, beta].into_iter().collect(),
         ))
         .unwrap();
+    native
+        .set_named_values(
+            serde_json::from_str(
+                r#"{"entities":{"0":{},"1":{},"2":{},"3":{},"4":{},"5":{},"6":{},"7":{}}}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
     assert_eq!(loaded.initial.world(), &native);
     let earlier = VanillaWorld::load(fixture(), "1435.1.1").unwrap();
     assert_eq!(

@@ -1,0 +1,201 @@
+[
+  {
+    "id": "numeric.first",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "before"
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Named": "count"
+          },
+          "operation": "Add",
+          "value": 2125
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Named": "count"
+          },
+          "operation": "Subtract",
+          "value": 3375
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Named": "count"
+          },
+          "operation": {
+            "Multiply": {
+              "scale": 1000
+            }
+          },
+          "value": -2000
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Named": "count"
+          },
+          "operation": {
+            "Divide": {
+              "scale": 1000
+            }
+          },
+          "value": 4000
+        }
+      },
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Named": "count"
+                },
+                "operation": "Set",
+                "value": 4500
+              }
+            },
+            {
+              "With": {
+                "target": "Owner",
+                "plan": [
+                  {
+                    "If": {
+                      "condition": {
+                        "All": [
+                          {
+                            "NumericCompare": {
+                              "target": "Current",
+                              "slot": {
+                                "Named": "count"
+                              },
+                              "comparison": "Equal",
+                              "value": 625
+                            }
+                          }
+                        ]
+                      },
+                      "then": [
+                        {
+                          "Emit": "owner"
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "UpdateNumeric": {
+              "target": "Current",
+              "slot": {
+                "Named": "count"
+              },
+              "operation": "Add",
+              "value": 375
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Named": "count"
+                  },
+                  "comparison": "Equal",
+                  "value": 1000
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "after"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "numeric.gated",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "delayed"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "numeric.control",
+    "scope": "Country",
+    "immediate": [
+      {
+        "TryEvent": {
+          "event": "numeric.gated"
+        }
+      },
+      {
+        "TriggerEvent": {
+          "event": "numeric.first"
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TryEvent": {
+                "event": "numeric.gated"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

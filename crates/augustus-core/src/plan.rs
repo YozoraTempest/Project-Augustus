@@ -15,6 +15,12 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    NumericCompare {
+        target: Target,
+        slot: crate::NumericSlot,
+        comparison: crate::NumericComparison,
+        value: i64,
+    },
     CompletionRecorded {
         target: Target,
         id: String,
@@ -41,6 +47,12 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    UpdateNumeric {
+        target: Target,
+        slot: crate::NumericSlot,
+        operation: crate::NumericOperation,
+        value: i64,
+    },
     RecordCompletion {
         id: String,
     },
@@ -125,6 +137,18 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::NumericCompare {
+                target,
+                slot,
+                comparison,
+                value,
+            } => {
+                let actual = world.numeric_value(world.target(current, *target)?, slot)?;
+                Ok(match comparison {
+                    crate::NumericComparison::AtLeast => actual >= *value,
+                    crate::NumericComparison::Equal => actual == *value,
+                })
+            }
             Self::CompletionRecorded { target, id } => {
                 world.completion_recorded(world.target(current, *target)?, id)
             }
@@ -216,6 +240,15 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::UpdateNumeric {
+                    target,
+                    slot,
+                    operation,
+                    value,
+                } => {
+                    let entity = self.target(current, *target)?;
+                    self.update_numeric(entity, slot, *operation, *value)?;
+                }
                 Action::RecordCompletion { id } => {
                     self.record_completion(current, id)?;
                 }

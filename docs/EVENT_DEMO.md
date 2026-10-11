@@ -88,6 +88,15 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 日志依次为 `before`、`after`、`gated`。查询中的 `completions` 给出已注册标识和各实体的完成记录；`AAA` 已完成 `sample_first`，`BBB` 仍为空。重复登记不会重复生成记录，读档也不会重放登记动作。
 
+`examples/named-variables` 演示按实体保存的命名变量。国家和首都省份各自保存 `count`，选项修改国家值后，次日事件才满足条件：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/named-variables --trigger numeric.control --choose 0:0 --choose 1:0 --save numeric_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/named-variables --input native --load numeric_waiting.json --days 1 --choose 2:0
+```
+
+日志依次为 `before`、`owner`、`after`、`delayed`。查询的 `named_values` 中，国家 `AAA` 的 `count` 为 1000，首都省份为 4500；演示中的整数表示千分位数值。
+
 ## 运行规则
 
 事件先执行 `immediate`，成功后保存当前实体和触发日期。等待期间的数值及实体关系保持实时更新；选择时执行选项效果，再执行 `after`，成功后移除对应记录。多个同类事件各有独立编号。读档不重复即时效果，重复选择、未知选项和错误实体类型会在写入前被拒绝。效果运行错误保留已经发生的写入并停止模拟，不能继续推进或保存。
@@ -106,7 +115,11 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 脚本输入支持显式触发的 `country_event`、`province_event`，要求 `id`、`is_triggered_only = yes` 和至少一个具备标量 `name` 的选项。`fire_only_once` 接受 `yes`、`no`，省略时允许重复触发。标量 `title`、`desc`、`picture` 可读取，但演示不展示本地化文字。事件标识按输入字符串保留；命名空间的数字登记和原版选项命令格式未实现。
 
-三个效果阶段复用已有编译器：`log`、绑定字段的国库及变量操作、`owner`、`capital_scope`、条件分支和无参数脚本调用。EU4 选项按声明顺序获得字符串标识 `0`、`1` 等；原生定义可以使用自己的选项标识。
+三个效果阶段复用已有编译器：`log`、绑定字段的国库操作、命名变量操作、`owner`、`capital_scope`、条件分支和无参数脚本调用。EU4 选项按声明顺序获得字符串标识 `0`、`1` 等；原生定义可以使用自己的选项标识。
+
+变量支持 `set_variable`、`change_variable`、`subtract_variable`、`multiply_variable`、`divide_variable`，以及 `check_variable` 的大于等于判断和 `is_variable_equal` 的相等判断。当前接受恰好一个 `which` 和一个字面 `value`，最多三位小数；动态名称、变量作为操作数和其他参数形式尚未支持。未显式绑定到状态字段的名称编译为命名状态；已有 `variable/名称` 字段绑定保持原执行计划与存档内容标识。除零、整数溢出和非法缩放会报错。
+
+原生数值操作使用 `UpdateNumeric`、`NumericCompare` 和 `NumericSlot::Named`，可通过 `NumericSlot::Field` 操作已有字段。乘除指令显式提供正整数 `scale`，结果向零截断。`NamedValues.entities` 的空对象声明该实体的变量空间已知为空，未赋值的名称读为零；缺少实体条目表示未知。`unknown_entities` 可保留其他名称未知，同时保存个别已确定值。`Set` 能写入一个已知值，其他运算需要先取得已知旧值。场景通过可选的 `named_values` 提供初始状态，保存恢复不会重复初始化。
 
 事件调用支持匹配当前类型的 `country_event = { id = ... days = ... }` 和 `province_event = { id = ... days = ... }`。`days` 只接受非负整数；负值、小数、随机延迟及其他参数会被拒绝。原生条件调用使用 `TryEvent`，延迟执行使用 `Schedule`。已绑定的无条件调用可以编译成直接执行计划。
 

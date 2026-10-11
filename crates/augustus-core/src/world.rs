@@ -100,6 +100,7 @@ pub struct World {
     ideas: Ideas,
     pub(crate) estates: crate::Estates,
     pub(crate) completions: crate::Completions,
+    pub(crate) named_values: crate::NamedValues,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
@@ -149,6 +150,8 @@ struct Snapshot {
     estates: crate::Estates,
     #[serde(default, skip_serializing_if = "crate::Completions::is_empty")]
     completions: crate::Completions,
+    #[serde(default, skip_serializing_if = "crate::NamedValues::is_empty")]
+    named_values: crate::NamedValues,
     #[serde(
         default,
         skip_serializing_if = "crate::event_choices::EventQueue::is_empty"
@@ -192,6 +195,7 @@ impl World {
             ideas: Ideas::default(),
             estates: crate::Estates::default(),
             completions: crate::Completions::default(),
+            named_values: crate::NamedValues::default(),
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
@@ -603,6 +607,7 @@ impl World {
             ideas: self.ideas.clone(),
             estates: self.estates.clone(),
             completions: self.completions.clone(),
+            named_values: self.named_values.clone(),
             event_queue: self.event_queue.clone(),
         })?)
     }
@@ -662,6 +667,7 @@ impl World {
             ideas: snapshot.ideas,
             estates: snapshot.estates,
             completions: snapshot.completions,
+            named_values: snapshot.named_values,
         };
         for rule in &world.rules {
             validate_plan(
@@ -706,6 +712,7 @@ impl World {
         world.ideas.validate(&world)?;
         world.estates.validate(&world)?;
         world.completions.validate(&world)?;
+        world.named_values.validate(&world)?;
         world.attributes.validate(&world)?;
         if let Some(calendar) = &world.calendar {
             calendar.date(world.day)?;
@@ -797,6 +804,12 @@ pub(crate) fn validate_plan(
 ) -> Result<(), Error> {
     for action in plan {
         match action {
+            Action::UpdateNumeric {
+                slot, operation, ..
+            } => {
+                slot.validate(schema)?;
+                operation.validate()?;
+            }
             Action::RecordCompletion { id } => completions.identifier(id)?,
             Action::InScope {
                 selector,
@@ -873,6 +886,7 @@ pub(crate) fn validate_condition(
     completions: &crate::Completions,
 ) -> Result<(), Error> {
     match condition {
+        crate::Condition::NumericCompare { slot, .. } => slot.validate(schema),
         crate::Condition::CompletionRecorded { id, .. } => completions.identifier(id),
         crate::Condition::EntityNamed { name, .. } if name.is_empty() => {
             Err(Error::Invalid("empty entity condition name".into()))

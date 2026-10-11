@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace=numeric
+country_event={id=numeric.first is_triggered_only=yes
+ immediate={log=before change_variable={which=count value=2.125} subtract_variable={which=count value=3.375} multiply_variable={which=count value=-2} divide_variable={which=count value=4}
+  capital_scope={set_variable={which=count value=4.5} owner={if={limit={is_variable_equal={which=count value=0.625}} log=owner}}}}
+ option={name=accept change_variable={which=count value=0.375}}
+ after={if={limit={is_variable_equal={which=count value=1}} log=after}}
+}
+country_event={id=numeric.gated is_triggered_only=yes trigger={check_variable={which=count value=1}} immediate={log=delayed} option={name=accept}}
+country_event={id=numeric.control is_triggered_only=yes
+ immediate={country_event={id=numeric.gated} country_event={id=numeric.first} country_event={id=numeric.gated days=1}}
+ option={name=accept}
+}

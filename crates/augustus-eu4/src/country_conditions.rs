@@ -20,6 +20,7 @@ pub(super) enum Condition {
     Status(String, bool),
     Office(String, bool),
     Completion(String),
+    Numeric(augustus_core::Condition),
     Feature(String),
     Estate(String),
     EstatePrivilege(String),
@@ -103,6 +104,29 @@ impl Condition {
                             return Err(fail("empty mission identifier"));
                         }
                         Self::Completion(id)
+                    }
+                    "check_variable" | "is_variable_equal" => {
+                        let schema =
+                            augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
+                        let library = crate::ScriptLibrary::new();
+                        match crate::ScriptCompiler::new(&schema, &library, true)
+                            .compile_numeric_condition_reader(
+                                parsed,
+                                &name,
+                                block(&value, &fail)?,
+                                at,
+                                if country {
+                                    augustus_core::EntityKind::Country
+                                } else {
+                                    augustus_core::EntityKind::Province
+                                },
+                            ) {
+                            Ok(condition) => Self::Numeric(condition),
+                            Err(error) => {
+                                report.unsupported(parsed, "trigger", &name, at);
+                                Self::Unknown(error.to_string())
+                            }
+                        }
                     }
                     "has_estate" if country => {
                         let id = value
@@ -287,6 +311,17 @@ impl Condition {
         estates: EstateLookup<'_>,
     ) -> Option<bool> {
         match self {
+            Self::Numeric(condition) => {
+                let entity = province
+                    .unwrap_or_else(|| initial.country_entity(tag).expect("registered country"));
+                match condition.evaluate(initial.world(), entity) {
+                    Ok(value) => Some(value),
+                    Err(error) => {
+                        reasons.insert(format!("unknown_variable_state:{error}"));
+                        None
+                    }
+                }
+            }
             Self::Completion(id) => {
                 let entity = initial.country_entity(tag).expect("registered country");
                 let result = initial.world().completion_recorded(entity, id).ok();
@@ -528,6 +563,11 @@ impl Condition {
                 body.substitute(parameters);
                 true
             }
+            Self::Numeric(augustus_core::Condition::NumericCompare {
+                slot: augustus_core::NumericSlot::Named(name),
+                ..
+            }) => replace(name),
+            Self::Numeric(_) => true,
             Self::Match(name, value) => replace(name) && replace(value),
             Self::Feature(id)
             | Self::Completion(id)

@@ -109,7 +109,7 @@ fn unsupported_semantics_recursion_and_scope_errors_report_source_positions() {
         "\nadd_prestige=1",
         "owner={add_treasury=1}",
         "add_treasury=1.0001",
-        "set_variable={which=missing value=1}",
+        "set_variable={which=missing@ROOT value=1}",
         "if={limit={always=yes} add_prestige=1}",
         "set_variable={which=x value=1 value=2}",
         "else={log=orphan}",

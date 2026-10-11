@@ -232,6 +232,46 @@ impl<'a> ScriptCompiler<'a> {
         self
     }
 
+    fn variable_slot(
+        &self,
+        field: &Field,
+        name: &str,
+    ) -> Result<augustus_core::NumericSlot, Error> {
+        if name.is_empty() {
+            return Err(field.error("empty variable name"));
+        }
+        Ok(match self.schema.field(&format!("variable/{name}")) {
+            Some(field) => augustus_core::NumericSlot::Field(field),
+            None if name.chars().any(|c| matches!(c, '$' | '@' | ':' | '.')) => {
+                return Err(field.error("unsupported dynamic variable name"));
+            }
+            None => augustus_core::NumericSlot::Named(name.into()),
+        })
+    }
+
+    pub(crate) fn compile_numeric_condition_reader(
+        mut self,
+        parsed: &ParsedText<'_>,
+        name: &str,
+        reader: ObjectReader<'_, '_, TextEncoding>,
+        location: SourceLocation,
+        scope: EntityKind,
+    ) -> Result<Condition, Error> {
+        let Condition::All(mut conditions) = self.conditions(
+            &[Field {
+                name: name.into(),
+                value: Value::Block(read_fields(parsed, reader, 1)?),
+                path: parsed.source().into(),
+                location,
+            }],
+            scope,
+        )?
+        else {
+            unreachable!()
+        };
+        Ok(conditions.pop().expect("one numeric condition"))
+    }
+
     pub fn with_mission_ids(mut self, ids: BTreeSet<String>) -> Self {
         self.mission_ids = ids;
         self
@@ -578,21 +618,46 @@ impl<'a> ScriptCompiler<'a> {
                         value: decimal(field)?,
                     });
                 }
-                "set_variable" | "change_variable" => {
+                "set_variable" | "change_variable" | "subtract_variable" | "multiply_variable"
+                | "divide_variable" => {
                     let (name, value) = variable(field)?;
-                    let slot = self.bind(field, &format!("variable/{name}"))?;
-                    plan.push(if field.name == "set_variable" {
-                        Action::Set {
-                            target: Target::Current,
-                            field: slot,
-                            value,
+                    let slot = self.variable_slot(field, name)?;
+                    let operation = match field.name.as_str() {
+                        "set_variable" => augustus_core::NumericOperation::Set,
+                        "change_variable" => augustus_core::NumericOperation::Add,
+                        "subtract_variable" => augustus_core::NumericOperation::Subtract,
+                        "multiply_variable" => {
+                            augustus_core::NumericOperation::Multiply { scale: 1000 }
                         }
-                    } else {
-                        Action::Add {
-                            target: Target::Current,
-                            field: slot,
-                            value,
+                        "divide_variable" => {
+                            augustus_core::NumericOperation::Divide { scale: 1000 }
                         }
+                        _ => unreachable!(),
+                    };
+                    // Preserve already-published explicit field bindings and their content IDs.
+                    plan.push(match (&slot, operation) {
+                        (
+                            augustus_core::NumericSlot::Field(field),
+                            augustus_core::NumericOperation::Set,
+                        ) => Action::Set {
+                            target: Target::Current,
+                            field: *field,
+                            value,
+                        },
+                        (
+                            augustus_core::NumericSlot::Field(field),
+                            augustus_core::NumericOperation::Add,
+                        ) => Action::Add {
+                            target: Target::Current,
+                            field: *field,
+                            value,
+                        },
+                        _ => Action::UpdateNumeric {
+                            target: Target::Current,
+                            slot,
+                            operation,
+                            value,
+                        },
                     });
                 }
                 "capital_scope" | "owner" => {
@@ -740,12 +805,27 @@ impl<'a> ScriptCompiler<'a> {
                         Condition::Not(Box::new(Condition::Any(children)))
                     }
                 }
-                "check_variable" => {
+                "check_variable" | "is_variable_equal" => {
                     let (name, value) = variable(field)?;
-                    Condition::AtLeast {
-                        target: Target::Current,
-                        field: self.bind(field, &format!("variable/{name}"))?,
-                        value,
+                    let slot = self.variable_slot(field, name)?;
+                    match (&slot, field.name.as_str()) {
+                        (augustus_core::NumericSlot::Field(field), "check_variable") => {
+                            Condition::AtLeast {
+                                target: Target::Current,
+                                field: *field,
+                                value,
+                            }
+                        }
+                        _ => Condition::NumericCompare {
+                            target: Target::Current,
+                            slot,
+                            comparison: if field.name == "check_variable" {
+                                augustus_core::NumericComparison::AtLeast
+                            } else {
+                                augustus_core::NumericComparison::Equal
+                            },
+                            value,
+                        },
                     }
                 }
                 "treasury" => {

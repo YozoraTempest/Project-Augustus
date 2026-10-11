@@ -88,7 +88,8 @@ impl Compiler {
                     ),
                     location,
                 )),
-                "country_event" => {
+                "country_event" | "set_variable" | "change_variable" | "subtract_variable"
+                | "multiply_variable" | "divide_variable" => {
                     let library = crate::ScriptLibrary::new();
                     let plan = crate::ScriptCompiler::new(&self.schema, &library, true)
                         .compile_effect_reader(
@@ -500,10 +501,30 @@ impl EstateStartup {
         flags: &BTreeMap<String, Option<BTreeSet<String>>>,
         report: &mut EstateReport,
     ) -> Result<(), Error> {
+        let mut candidate = initial.clone();
+        if initial
+            .world()
+            .date()
+            .map_err(|e| Error::caused_by("variables", e))?
+            == Some(augustus_core::WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            })
+        {
+            candidate
+                .set_named_values(augustus_core::NamedValues {
+                    entities: (0..initial.world().entities().len())
+                        .map(|id| (augustus_core::EntityId(id), BTreeMap::new()))
+                        .collect(),
+                    ..Default::default()
+                })
+                .map_err(|e| Error::caused_by("variables", e))?;
+        }
         if self.steps.is_empty() {
+            *initial = candidate;
             return Ok(());
         }
-        let mut candidate = initial.clone();
         if !self.mission_ids.is_empty() {
             let entities = if initial
                 .world()

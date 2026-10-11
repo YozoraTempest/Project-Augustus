@@ -62,6 +62,108 @@ fn loyalty(amount: i64) -> Action {
 }
 
 #[test]
+fn startup_named_values_share_candidates_choices_delays_and_rollback() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        r#"on_startup={events={numeric.before} if={limit={tag=AAA} if={limit={is_variable_equal={which=count value=2.125}} log=startup} set_variable={which=other value=-0.001} multiply_variable={which=other value=0.5} if={limit={is_variable_equal={which=other value=0}} log=truncated} country_event={id=numeric.later days=1}}}"#,
+    );
+    write(
+        temp.path(),
+        "events/test.txt",
+        r#"
+      country_event={id=numeric.before is_triggered_only=yes trigger={tag=AAA check_variable={which=count value=0}}
+        immediate={change_variable={which=count value=2.125} log=before}
+        option={name=accept change_variable={which=count value=0.375}}
+        after={if={limit={is_variable_equal={which=count value=2.5}} log=after}}}
+      country_event={id=numeric.later is_triggered_only=yes trigger={check_variable={which=count value=2.5}} immediate={log=later} option={name=accept}}
+    "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.pending_startup_effects.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let other = loaded.initial.country_entity("BBB").unwrap();
+    let slot = augustus_core::NumericSlot::Named("count".into());
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .numeric_value(country, &slot)
+            .unwrap(),
+        2125
+    );
+    assert_eq!(
+        loaded.initial.world().numeric_value(other, &slot).unwrap(),
+        0
+    );
+    let waiting = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&waiting).unwrap();
+    for world in [&mut loaded, &mut restored] {
+        world
+            .initial
+            .choose_event(&augustus_core::EventChoice {
+                pending: augustus_core::PendingEventId(0),
+                option: "0".into(),
+            })
+            .unwrap();
+        world.advance(1).unwrap();
+    }
+    assert_eq!(loaded.save().unwrap(), restored.save().unwrap());
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|e| (e.0, e.2.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (0, "before"),
+            (0, "startup"),
+            (0, "truncated"),
+            (0, "after"),
+            (1, "later")
+        ]
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA} set_variable={which=count value=1} log=prefix unsupported=yes}}",
+    );
+    let failed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(!failed.report.estates.pending_startup_effects.is_empty());
+    assert!(failed.initial.world().named_values().is_empty());
+    assert!(
+        failed
+            .initial
+            .world()
+            .numeric_value(country, &slot)
+            .is_err()
+    );
+    assert!(failed.initial.world().events().is_empty());
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA} if={limit={check_variable={which=count value=0}} log=incorrect}}}",
+    );
+    let other_date = VanillaWorld::load(temp.path(), "1450.1.1").unwrap();
+    assert!(!other_date.report.estates.pending_startup_effects.is_empty());
+    assert!(
+        other_date
+            .initial
+            .world()
+            .numeric_value(country, &slot)
+            .is_err()
+    );
+}
+
+#[test]
 fn startup_mission_records_are_live_per_country_and_survive_pending_choices() {
     let temp = startup_fixture();
     write(

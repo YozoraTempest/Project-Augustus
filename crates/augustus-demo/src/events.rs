@@ -28,6 +28,8 @@ struct Scene {
     calendar: Option<augustus_core::Calendar>,
     #[serde(default, skip_serializing_if = "augustus_core::Completions::is_empty")]
     completions: augustus_core::Completions,
+    #[serde(default, skip_serializing_if = "augustus_core::NamedValues::is_empty")]
+    named_values: augustus_core::NamedValues,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -65,6 +67,8 @@ pub struct EventView {
     pub log: Vec<(u64, EntityId, String)>,
     #[serde(skip_serializing_if = "augustus_core::Completions::is_empty")]
     pub completions: augustus_core::Completions,
+    #[serde(skip_serializing_if = "augustus_core::NamedValues::is_empty")]
+    pub named_values: augustus_core::NamedValues,
 }
 
 /// Self-authored scenario exercising the same core from two content formats.
@@ -218,6 +222,7 @@ impl EventDemo {
             })?;
         }
         world.set_completions(scene.completions)?;
+        world.set_named_values(scene.named_values)?;
         world.set_event_catalog(catalog)?;
         Ok(Self { world, content })
     }
@@ -332,6 +337,7 @@ impl EventDemo {
             pending_events,
             log: self.world.events().to_vec(),
             completions: self.world.completions().clone(),
+            named_values: self.world.named_values().clone(),
         })
     }
 }
