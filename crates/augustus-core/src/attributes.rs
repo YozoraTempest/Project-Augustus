@@ -6,7 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AffiliationRelation, EntityId, EntityKind, Error, FieldId, ModifierDefinition, Target, World,
+    AdministrativeCategory, AffiliationRelation, EntityId, EntityKind, Error, FieldId,
+    ModifierDefinition, Target, World,
 };
 
 const ONE: i128 = 1_000_000;
@@ -31,6 +32,12 @@ pub enum AttributeBase {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AttributeTerm {
+    /// Content chooses a static source for each category. Omitted categories
+    /// intentionally add no effect; missing selected definitions remain unknown.
+    Administration {
+        mapping: String,
+        property: String,
+    },
     Government {
         target: Target,
         property: String,
@@ -134,7 +141,11 @@ pub struct AffiliationEffect {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Attributes {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub administration_mappings: BTreeMap<String, BTreeMap<AdministrativeCategory, String>>,
     pub static_modifiers: BTreeMap<String, ModifierDefinition>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub static_unresolved_properties: BTreeMap<String, BTreeSet<String>>,
     pub building_modifiers: BTreeMap<String, ModifierDefinition>,
     pub trade_good_modifiers: BTreeMap<String, ModifierDefinition>,
     /// Dimension, effect scope, then member. Missing entries remain unknown.
@@ -151,6 +162,7 @@ fn narrow(value: i128) -> Result<i64, Error> {
 impl Attributes {
     pub fn is_empty(&self) -> bool {
         self.static_modifiers.is_empty()
+            && self.administration_mappings.is_empty()
             && self.building_modifiers.is_empty()
             && self.trade_good_modifiers.is_empty()
             && self.affiliation_modifiers.is_empty()
@@ -322,6 +334,37 @@ impl Attributes {
             Ok(())
         };
         match term {
+            AttributeTerm::Administration { mapping, property } => {
+                let definitions = self.administration_mappings.get(mapping).ok_or_else(|| {
+                    Error::Invalid("unknown administrative attribute mapping".into())
+                })?;
+                if world.administration().provinces.contains_key(&entity) {
+                    let state = world.administration().evaluate(world, entity)?;
+                    if let Some(category) = state.category() {
+                        if let Some(name) = definitions.get(&category) {
+                            if let Some(data) = self.static_modifiers.get(name) {
+                                append(format!("static:{name}"), property, data)?;
+                                if self
+                                    .static_unresolved_properties
+                                    .get(name)
+                                    .is_some_and(|properties| properties.contains(property))
+                                {
+                                    unresolved.insert(format!(
+                                        "administration:unresolved_property:{name}:{property}"
+                                    ));
+                                }
+                            } else {
+                                unresolved
+                                    .insert(format!("administration:missing_definition:{name}"));
+                            }
+                        }
+                    } else {
+                        unresolved.insert("administration:unknown_category".into());
+                    }
+                } else {
+                    unresolved.insert("administration:missing_province".into());
+                }
+            }
             AttributeTerm::Government { target, property } => {
                 if let Some(target) = attribute_target(world, entity, *target)? {
                     let result = world.governments().property_effects(target, property)?;
@@ -475,6 +518,25 @@ impl Attributes {
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
+        for (name, definitions) in &self.administration_mappings {
+            if name.is_empty() || definitions.values().any(String::is_empty) {
+                return Err(Error::Invalid(
+                    "invalid administrative attribute mapping".into(),
+                ));
+            }
+        }
+        for (name, properties) in &self.static_unresolved_properties {
+            let definition = self.static_modifiers.get(name).ok_or_else(|| {
+                Error::Invalid("unresolved properties reference an unknown static modifier".into())
+            })?;
+            if properties.iter().any(|property| {
+                property.is_empty()
+                    || definition.values_micros.contains_key(property)
+                    || definition.flags.contains_key(property)
+            }) {
+                return Err(Error::Invalid("invalid unresolved static property".into()));
+            }
+        }
         for (dimension, scopes) in &self.affiliation_modifiers {
             if dimension.is_empty() || scopes.keys().any(String::is_empty) {
                 return Err(Error::Invalid("invalid affiliation effect scope".into()));
@@ -514,6 +576,11 @@ impl Attributes {
                     .flat_map(|c| c.flat.iter().chain(&c.rates))
                 {
                     let valid = match term {
+                        AttributeTerm::Administration { mapping, property } => {
+                            world.entity(entity)?.kind == EntityKind::Province
+                                && !property.is_empty()
+                                && self.administration_mappings.contains_key(mapping)
+                        }
                         AttributeTerm::AffiliationRelation {
                             dimension,
                             definitions,

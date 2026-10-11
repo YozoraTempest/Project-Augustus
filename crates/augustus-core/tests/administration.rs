@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Administration, AreaStatus, AttributeBase, AttributeChannel, AttributeFormula, AttributeTerm,
-    Attributes, CoreType, EntityId, EntityKind, ProvinceAdministration, Schema, World,
+    Administration, AdministrativeCategory, AreaStatus, AttributeBase, AttributeChannel,
+    AttributeFormula, AttributeTerm, Attributes, Calendar, CoreType, CountryResources, EntityId,
+    EntityKind, ProvinceAdministration, Schema, Taxation, World, WorldDate,
 };
 
 fn world() -> World {
@@ -75,6 +76,309 @@ fn query(world: &World, entity: usize) -> augustus_core::AdministrationEvaluatio
         .administration()
         .evaluate(world, EntityId(entity))
         .unwrap()
+}
+
+fn administrative_attributes() -> Attributes {
+    let sources = [
+        (AdministrativeCategory::StateFullCore, "full", 200_000),
+        (
+            AdministrativeCategory::StateTerritorialCore,
+            "partial",
+            -250_000,
+        ),
+        (AdministrativeCategory::StateNonCore, "unclaimed", -100_000),
+        (AdministrativeCategory::TerritoryCore, "territory", -500_000),
+        (
+            AdministrativeCategory::TerritoryNonCore,
+            "frontier",
+            -750_000,
+        ),
+    ];
+    let term = AttributeTerm::Administration {
+        mapping: "claims".into(),
+        property: "yield_rate".into(),
+    };
+    let formula = AttributeFormula {
+        base: AttributeBase::Constant { micros: 4_000_000 },
+        channels: vec![AttributeChannel {
+            flat: Vec::new(),
+            rates: vec![term],
+        }],
+        minimum_micros: None,
+        maximum_micros: None,
+        unresolved: Default::default(),
+    };
+    Attributes {
+        administration_mappings: [(
+            "claims".into(),
+            sources
+                .iter()
+                .map(|&(category, name, _)| (category, name.into()))
+                .collect(),
+        )]
+        .into_iter()
+        .collect(),
+        static_modifiers: sources
+            .iter()
+            .map(|&(_, name, rate)| {
+                (
+                    name.into(),
+                    augustus_core::ModifierDefinition {
+                        values_micros: [("yield_rate".into(), rate)].into_iter().collect(),
+                        flags: Default::default(),
+                    },
+                )
+            })
+            .collect(),
+        formulas: [EntityId(2), EntityId(3)]
+            .into_iter()
+            .map(|entity| {
+                (
+                    entity,
+                    [("yield".into(), formula.clone())].into_iter().collect(),
+                )
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+fn yield_result(world: &World) -> augustus_core::AttributeEvaluation {
+    world
+        .attributes()
+        .evaluate(world, EntityId(3), "yield")
+        .unwrap()
+}
+
+#[test]
+fn administrative_effects_follow_claims_status_and_ownership_before_autonomy() {
+    let mut world = world();
+    let mut attributes = administrative_attributes();
+    attributes
+        .formulas
+        .get_mut(&EntityId(3))
+        .unwrap()
+        .get_mut("yield")
+        .unwrap()
+        .channels
+        .push(AttributeChannel {
+            flat: Vec::new(),
+            rates: vec![AttributeTerm::Autonomy],
+        });
+    world.set_attributes(attributes).unwrap();
+    assert_eq!(
+        query(&world, 3).category(),
+        Some(AdministrativeCategory::StateTerritorialCore)
+    );
+    let initial = yield_result(&world);
+    assert_eq!(initial.steps[0].output_micros, Some(3_000_000));
+    assert_eq!(initial.steps[0].contributions[0].source, "static:partial");
+    assert_eq!(initial.value_micros, Some(1_950_000));
+    world.set_owner(EntityId(3), EntityId(1)).unwrap();
+    assert_eq!(
+        query(&world, 3).category(),
+        Some(AdministrativeCategory::TerritoryCore)
+    );
+    assert_eq!(yield_result(&world).value_micros, Some(400_000));
+    let mut administration = world.administration().clone();
+    administration
+        .provinces
+        .get_mut(&EntityId(3))
+        .unwrap()
+        .cores
+        .remove(&EntityId(1));
+    world.set_administration(administration.clone()).unwrap();
+    assert_eq!(
+        query(&world, 3).category(),
+        Some(AdministrativeCategory::TerritoryNonCore)
+    );
+    assert_eq!(yield_result(&world).value_micros, Some(200_000));
+    administration
+        .country_areas
+        .get_mut(&EntityId(1))
+        .unwrap()
+        .insert("shared".into(), AreaStatus::State);
+    world.set_administration(administration.clone()).unwrap();
+    assert_eq!(
+        query(&world, 3).category(),
+        Some(AdministrativeCategory::StateNonCore)
+    );
+    assert_eq!(yield_result(&world).value_micros, Some(3_240_000));
+    administration
+        .provinces
+        .get_mut(&EntityId(3))
+        .unwrap()
+        .cores
+        .insert(EntityId(1), CoreType::Full);
+    world.set_administration(administration).unwrap();
+    assert_eq!(
+        query(&world, 3).category(),
+        Some(AdministrativeCategory::StateFullCore)
+    );
+    assert_eq!(yield_result(&world).value_micros, Some(4_320_000));
+}
+
+#[test]
+fn administrative_category_does_not_require_known_autonomy_but_requires_known_claims() {
+    let mut world = world();
+    world.set_attributes(administrative_attributes()).unwrap();
+    let mut administration = world.administration().clone();
+    administration
+        .provinces
+        .get_mut(&EntityId(3))
+        .unwrap()
+        .raw_autonomy_micros = None;
+    world.set_administration(administration.clone()).unwrap();
+    assert_eq!(yield_result(&world).value_micros, Some(3_000_000));
+    administration
+        .provinces
+        .get_mut(&EntityId(3))
+        .unwrap()
+        .cores
+        .insert(EntityId(0), CoreType::Unspecified);
+    world.set_administration(administration.clone()).unwrap();
+    let unknown = yield_result(&world);
+    assert_eq!(unknown.value_micros, None);
+    assert!(
+        unknown
+            .unresolved
+            .contains("administration:unknown_category")
+    );
+    administration
+        .country_areas
+        .get_mut(&EntityId(0))
+        .unwrap()
+        .insert("shared".into(), AreaStatus::Territory);
+    world.set_administration(administration.clone()).unwrap();
+    assert_eq!(yield_result(&world).value_micros, Some(2_000_000));
+    let province = administration.provinces.get_mut(&EntityId(3)).unwrap();
+    province.cores.clear();
+    province.cores_known = false;
+    world.set_administration(administration.clone()).unwrap();
+    assert_eq!(yield_result(&world).value_micros, None);
+    administration
+        .provinces
+        .get_mut(&EntityId(3))
+        .unwrap()
+        .cores_known = true;
+    administration.country_areas.clear();
+    world.set_administration(administration).unwrap();
+    assert_eq!(yield_result(&world).value_micros, None);
+}
+
+#[test]
+fn only_selected_administrative_sources_can_introduce_missing_properties() {
+    let mut world = world();
+    let mut attributes = administrative_attributes();
+    attributes
+        .static_modifiers
+        .get_mut("territory")
+        .unwrap()
+        .values_micros
+        .clear();
+    attributes.static_unresolved_properties.insert(
+        "territory".into(),
+        ["yield_rate".into()].into_iter().collect(),
+    );
+    world.set_attributes(attributes).unwrap();
+    assert_eq!(yield_result(&world).value_micros, Some(3_000_000));
+    world.set_owner(EntityId(3), EntityId(1)).unwrap();
+    assert!(
+        yield_result(&world)
+            .unresolved
+            .contains("administration:unresolved_property:territory:yield_rate")
+    );
+    let mut attributes = world.attributes().clone();
+    attributes.static_modifiers.remove("territory");
+    attributes.static_unresolved_properties.clear();
+    world.set_attributes(attributes).unwrap();
+    assert!(
+        yield_result(&world)
+            .unresolved
+            .contains("administration:missing_definition:territory")
+    );
+    let before = world.clone();
+    let mut invalid = world.attributes().clone();
+    invalid.administration_mappings.clear();
+    assert!(world.set_attributes(invalid).is_err());
+    assert_eq!(world, before);
+    let mut invalid = world.attributes().clone();
+    invalid.static_unresolved_properties.insert(
+        "missing".into(),
+        ["yield_rate".into()].into_iter().collect(),
+    );
+    assert!(world.set_attributes(invalid).is_err());
+    assert_eq!(world, before);
+    let mut invalid = world.attributes().clone();
+    invalid
+        .static_unresolved_properties
+        .insert("full".into(), ["yield_rate".into()].into_iter().collect());
+    assert!(world.set_attributes(invalid).is_err());
+    assert_eq!(world, before);
+}
+
+#[test]
+fn administrative_effects_reach_monthly_credits_and_resume_identically() {
+    let mut world = world();
+    world.set_attributes(administrative_attributes()).unwrap();
+    world
+        .set_calendar(Calendar {
+            start: WorldDate {
+                year: 1000,
+                month: 11,
+                day: 11,
+            },
+            month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+        })
+        .unwrap();
+    world
+        .set_country_resources(
+            [
+                (
+                    EntityId(0),
+                    CountryResources {
+                        treasury_milli: Some(50_000),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    EntityId(1),
+                    CountryResources {
+                        treasury_milli: Some(0),
+                        ..Default::default()
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        )
+        .unwrap();
+    world
+        .set_taxation(Taxation::new("yield", [EntityId(0), EntityId(1)].into()))
+        .unwrap();
+    world.advance_to(20).unwrap();
+    assert_eq!(
+        world.country_resources()[&EntityId(0)].treasury_milli,
+        Some(50_650)
+    );
+    world.set_owner(EntityId(3), EntityId(1)).unwrap();
+    let saved = world.save("administrative-yield").unwrap();
+    let mut resumed = World::restore(&saved, "administrative-yield", world.schema()).unwrap();
+    world.advance_to(51).unwrap();
+    resumed.advance_to(51).unwrap();
+    assert_eq!(
+        world.country_resources()[&EntityId(0)].treasury_milli,
+        Some(51_050)
+    );
+    assert_eq!(
+        world.country_resources()[&EntityId(1)].treasury_milli,
+        Some(166)
+    );
+    assert_eq!(world, resumed);
+    assert_eq!(
+        world.save("administrative-yield").unwrap(),
+        resumed.save("administrative-yield").unwrap()
+    );
 }
 
 #[test]

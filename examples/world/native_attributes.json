@@ -1,4 +1,5 @@
 {
+  "administration_mappings": {"province_status": {"state_full_core": "core", "state_territorial_core": "colonial_core", "state_non_core": "non_core", "territory_core": "territory_core", "territory_non_core": "territory_non_core"}},
   "static_modifiers": {
     "city": {"values_micros": {"local_tax_modifier": 250000}, "flags": {}},
     "occupied": {"values_micros": {"local_tax_modifier": -500000, "local_manpower_modifier": -500000}, "flags": {}},
@@ -27,6 +28,7 @@
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "tax_income"}
             ],
             "rates": [
+              {"kind": "administration", "mapping": "province_status", "property": "local_tax_modifier"},
               {"kind": "buildings", "property": "local_tax_modifier"},
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
@@ -49,6 +51,7 @@
           {
             "flat": [],
             "rates": [
+              {"kind": "administration", "mapping": "province_status", "property": "local_manpower_modifier"},
               {"kind": "buildings", "property": "local_manpower_modifier"},
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
@@ -76,6 +79,7 @@
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "tax_income"}
             ],
             "rates": [
+              {"kind": "administration", "mapping": "province_status", "property": "local_tax_modifier"},
               {"kind": "buildings", "property": "local_tax_modifier"},
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
@@ -91,7 +95,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "state_and_core_effects", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "culture_government_effects", "tolerance_and_religious_mechanics"]
       },
       "manpower_after_autonomy": {
         "base": {"kind": "field", "field": 2, "micros_per_unit": 250000},
@@ -99,6 +103,7 @@
           {
             "flat": [],
             "rates": [
+              {"kind": "administration", "mapping": "province_status", "property": "local_manpower_modifier"},
               {"kind": "buildings", "property": "local_manpower_modifier"},
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
@@ -114,7 +119,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "state_and_core_effects", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "culture_government_effects", "tolerance_and_religious_mechanics"]
       }
     },
     "3": {
@@ -129,6 +134,7 @@
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "tax_income"}
             ],
             "rates": [
+              {"kind": "administration", "mapping": "province_status", "property": "local_tax_modifier"},
               {"kind": "buildings", "property": "local_tax_modifier"},
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
@@ -150,6 +156,7 @@
           {
             "flat": [],
             "rates": [
+              {"kind": "administration", "mapping": "province_status", "property": "local_manpower_modifier"},
               {"kind": "buildings", "property": "local_manpower_modifier"},
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
@@ -176,6 +183,7 @@
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "tax_income"}
             ],
             "rates": [
+              {"kind": "administration", "mapping": "province_status", "property": "local_tax_modifier"},
               {"kind": "buildings", "property": "local_tax_modifier"},
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
@@ -190,7 +198,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "state_and_core_effects", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "culture_government_effects", "tolerance_and_religious_mechanics"]
       },
       "manpower_after_autonomy": {
         "base": {"kind": "field", "field": 2, "micros_per_unit": 250000},
@@ -198,6 +206,7 @@
           {
             "flat": [],
             "rates": [
+              {"kind": "administration", "mapping": "province_status", "property": "local_manpower_modifier"},
               {"kind": "buildings", "property": "local_manpower_modifier"},
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
@@ -212,7 +221,7 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
-        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "state_and_core_effects", "culture_government_effects", "tolerance_and_religious_mechanics"]
+        "unresolved": ["government_ideas_estates_and_other_effects", "building_retention_conditions", "original_runtime_comparison", "city_status", "culture_government_effects", "tolerance_and_religious_mechanics"]
       }
     }
   },

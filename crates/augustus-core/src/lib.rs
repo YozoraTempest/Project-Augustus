@@ -21,8 +21,8 @@ mod technology;
 mod world;
 
 pub use administration::{
-    Administration, AdministrationEvaluation, AdministrationRules, AreaStatus, CoreType,
-    ProvinceAdministration,
+    Administration, AdministrationEvaluation, AdministrationRules, AdministrativeCategory,
+    AreaStatus, CoreType, ProvinceAdministration,
 };
 pub use affiliations::{
     AffiliationAcceptance, AffiliationDimension, AffiliationRelation, Affiliations,

@@ -139,7 +139,9 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 报告的 `initialized_autonomy`、`unknown_initial_autonomy` 给出已生成与未知的省份，`applied_country_autonomy` 保留已执行操作的来源，`pending_country_autonomy` 和 `pending_province_initialization` 列出待处理输入。已生成时，`history_autonomy_delta_micros` 为零，追加量已进入原始自治度；生成未知或选择其他日期时，该字段继续保留直接历史追加量，不能作为最终值。首都的原始值也可非零，生效值另受首都上限约束。
 
-规则最低自治从已载入的静态定义读取，首都上限从基础文件中的 `NEconomy.CAPITAL_MAX_AUTONOMY` 直接数值读取。完整核心所在州可以查询规则最低自治，原始自治度未知时仍不能确定非首都省份的有效自治。附加 Lua 对选定字段的赋值与表达式会报错；当前入口不执行 Lua。其他最低自治修正、贸易公司、州与核心的数值效果仍有缺项。Godot 将这些字段标为已接入规则的结果。
+规则最低自治从已载入的静态定义读取，首都上限从基础文件中的 `NEconomy.CAPITAL_MAX_AUTONOMY` 直接数值读取。完整核心所在州可以查询规则最低自治，原始自治度未知时仍不能确定非首都省份的有效自治。附加 Lua 对选定字段的赋值与表达式会报错；当前入口不执行 Lua。其他最低自治修正和贸易公司规则仍有缺项。Godot 将这些字段标为已接入规则的结果。
+
+税收与人力计算按当前所有者的行政状态选择 `core`、`colonial_core`、`non_core`、`territory_core` 或 `territory_non_core` 的直接比例修正，与其他比例修正相加，再单独应用自治折减。所有权、核心或州与领地关系改变后，查询和月结都会重新选择来源。分类未知、所选定义缺失或属性有歧义时保留缺项；不适用的分类不会影响当前结果。这部分尚未完成原版运行数值核对，完整税收继续标为未知。原生内容通过 `AttributeTerm::Administration` 提供自己的分类与静态定义映射，使用同一计算和存档接口；示例见 `crates/augustus-core/tests/administration.rs`。
 
 新增 `tax_after_autonomy` 与 `manpower_after_autonomy`，在原有部分计算之后单独乘以 `1 − 有效自治`。原有自治前字段继续保留。自治输入未知时，折减后的 `known_subtotal_micros` 为 `null`；前一阶段的数值仍可在 `steps` 中查看。首都上限明确为零时，可以确定这一阶段的折减比例为零，其他缺项仍使最终 `value_micros` 保持 `null`。
 

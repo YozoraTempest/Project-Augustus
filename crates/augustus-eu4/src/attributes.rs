@@ -4,8 +4,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use augustus_core::{
-    AffiliationEffect, AffiliationRelation, AttributeBase, AttributeChannel, AttributeFormula,
-    AttributeTerm, Attributes, InitialWorld, ProvinceClass, Target,
+    AdministrativeCategory, AffiliationEffect, AffiliationRelation, AttributeBase,
+    AttributeChannel, AttributeFormula, AttributeTerm, Attributes, InitialWorld, ProvinceClass,
+    Target,
 };
 use serde::Serialize;
 
@@ -111,7 +112,7 @@ impl AttributeDraft {
         report: &mut AttributeReport,
     ) -> Result<Self, Error> {
         let mut attributes = Attributes::default();
-        let mut static_unresolved = BTreeMap::new();
+        let mut static_unresolved: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for kind in ["static_modifiers", "buildings", "tradegoods"] {
             for file in files
                 .iter()
@@ -215,6 +216,13 @@ impl AttributeDraft {
         report.building_definitions = attributes.building_modifiers.len();
         report.trade_good_definitions = attributes.trade_good_modifiers.len();
         Self::religions(root, files, &mut attributes, report)?;
+        attributes.static_unresolved_properties = static_unresolved
+            .iter()
+            .filter(|(name, properties)| {
+                attributes.static_modifiers.contains_key(*name) && !properties.is_empty()
+            })
+            .map(|(name, properties)| (name.clone(), properties.clone()))
+            .collect();
         let manpower_per_base = manpower_define(root, files, report)?;
         Ok(Self {
             attributes,
@@ -229,6 +237,27 @@ impl AttributeDraft {
         report: &mut AttributeReport,
         setup: &SetupReport,
     ) -> Result<Attributes, Error> {
+        self.attributes.administration_mappings.insert(
+            "province_status".into(),
+            [
+                (AdministrativeCategory::StateFullCore, "core".into()),
+                (
+                    AdministrativeCategory::StateTerritorialCore,
+                    "colonial_core".into(),
+                ),
+                (AdministrativeCategory::StateNonCore, "non_core".into()),
+                (
+                    AdministrativeCategory::TerritoryCore,
+                    "territory_core".into(),
+                ),
+                (
+                    AdministrativeCategory::TerritoryNonCore,
+                    "territory_non_core".into(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
         for province in initial
             .provinces()
             .iter()
@@ -338,6 +367,13 @@ impl AttributeDraft {
                         property: "tax_income".into(),
                     });
                 }
+                channel.rates.insert(
+                    0,
+                    AttributeTerm::Administration {
+                        mapping: "province_status".into(),
+                        property: local_rate.into(),
+                    },
+                );
                 match province.is_city {
                     Some(true) => {
                         self.static_term(&mut channel, "city", local_rate, report, &mut unresolved)?
@@ -394,9 +430,6 @@ impl AttributeDraft {
                     rates: vec![AttributeTerm::Autonomy],
                 });
                 after_autonomy.unresolved.remove("autonomy_and_state_rules");
-                after_autonomy
-                    .unresolved
-                    .insert("state_and_core_effects".into());
                 let derived = if name == "tax_basis" {
                     "tax_after_autonomy"
                 } else {

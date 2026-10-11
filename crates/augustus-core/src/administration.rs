@@ -24,6 +24,16 @@ pub enum CoreType {
     Unspecified,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdministrativeCategory {
+    StateFullCore,
+    StateTerritorialCore,
+    StateNonCore,
+    TerritoryCore,
+    TerritoryNonCore,
+}
+
 /// Ratios use millionths: 500_000 means 50 percent. Rules are supplied by content.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -62,6 +72,27 @@ pub struct AdministrationEvaluation {
     pub minimum_autonomy_micros: Option<i64>,
     pub effective_autonomy_micros: Option<i64>,
     pub unresolved: BTreeSet<String>,
+}
+
+impl AdministrationEvaluation {
+    /// Classifies the current owner's claim and area status independently of autonomy.
+    pub fn category(&self) -> Option<AdministrativeCategory> {
+        if !self.cores_known {
+            return None;
+        }
+        match (self.area_status, self.owner_core) {
+            (Some(AreaStatus::State), Some(CoreType::Full)) => {
+                Some(AdministrativeCategory::StateFullCore)
+            }
+            (Some(AreaStatus::State), Some(CoreType::Territorial)) => {
+                Some(AdministrativeCategory::StateTerritorialCore)
+            }
+            (Some(AreaStatus::State), None) => Some(AdministrativeCategory::StateNonCore),
+            (Some(AreaStatus::Territory), Some(_)) => Some(AdministrativeCategory::TerritoryCore),
+            (Some(AreaStatus::Territory), None) => Some(AdministrativeCategory::TerritoryNonCore),
+            _ => None,
+        }
+    }
 }
 
 /// Geographic membership is independent of each country's administrative status.

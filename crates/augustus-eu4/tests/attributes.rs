@@ -77,6 +77,129 @@ fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
 }
 
 #[test]
+fn translated_core_effects_join_existing_rates_before_the_autonomy_channel() {
+    let temp = copy_fixture();
+    let path = temp.path().join("common/static_modifiers/test_static.txt");
+    let text = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        text.replace(
+            "core = {}",
+            "core = { local_tax_modifier = 0.2 local_manpower_modifier = 0.3 }",
+        ),
+    )
+    .unwrap();
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let north = loaded.province(1).unwrap();
+    let tax = &north.attributes["tax_after_autonomy"];
+    assert_eq!(tax.steps[0].output_micros, Some(2_762_500));
+    assert_eq!(tax.steps[1].output_micros, Some(2_762_500));
+    assert!(
+        tax.steps[0]
+            .contributions
+            .iter()
+            .any(|source| source.source == "static:core" && source.micros == 200_000)
+    );
+    assert!(!tax.unresolved.contains("state_and_core_effects"));
+    assert_eq!(
+        north.attributes["manpower_contribution"].known_subtotal_micros,
+        Some(1_093_750_000)
+    );
+    assert!(tax.value_micros.is_none());
+    let mut world = loaded.initial.world().clone();
+    let province = loaded.initial.province_entity(1).unwrap();
+    let owner = world.entity(province).unwrap().owner.unwrap();
+    let mut administration = world.administration().clone();
+    administration
+        .country_areas
+        .get_mut(&owner)
+        .unwrap()
+        .insert("north_area".into(), augustus_core::AreaStatus::Territory);
+    world.set_administration(administration).unwrap();
+    let changed = world
+        .attributes()
+        .evaluate(&world, province, "tax_basis")
+        .unwrap();
+    assert!(
+        !changed.steps[0]
+            .contributions
+            .iter()
+            .any(|source| source.source == "static:core")
+    );
+    assert_eq!(changed.known_subtotal_micros, Some(2_337_500));
+}
+
+#[test]
+fn ambiguous_administrative_properties_only_taint_the_selected_category() {
+    let temp = copy_fixture();
+    let path = temp.path().join("common/static_modifiers/test_static.txt");
+    let text = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        text.replace(
+            "territory_core = {",
+            "territory_core = { local_tax_modifier = 0.2 local_tax_modifier = 0.6 ",
+        ),
+    )
+    .unwrap();
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let mut world = loaded.initial.world().clone();
+    let province = loaded.initial.province_entity(1).unwrap();
+    let owner = world.entity(province).unwrap().owner.unwrap();
+    let query = |world: &augustus_core::World| {
+        world
+            .attributes()
+            .evaluate(world, province, "tax_basis")
+            .unwrap()
+    };
+    assert!(
+        !query(&world)
+            .unresolved
+            .iter()
+            .any(|reason| reason.contains("territory_core:local_tax_modifier"))
+    );
+    let mut administration = world.administration().clone();
+    administration
+        .country_areas
+        .get_mut(&owner)
+        .unwrap()
+        .insert("north_area".into(), augustus_core::AreaStatus::Territory);
+    world.set_administration(administration).unwrap();
+    assert!(
+        query(&world)
+            .unresolved
+            .contains("administration:unresolved_property:territory_core:local_tax_modifier")
+    );
+    assert_eq!(query(&world).known_subtotal_micros, Some(2_337_500));
+    assert_eq!(loaded.report.attributes.ambiguous_properties["static_modifiers:territory_core:local_tax_modifier"].len(), 2);
+    let saved = world.save("administrative-effects").unwrap();
+    let restored =
+        augustus_core::World::restore(&saved, "administrative-effects", world.schema()).unwrap();
+    assert_eq!(query(&world), query(&restored));
+}
+
+#[test]
+fn unclassified_or_missing_administrative_effects_remain_unknown() {
+    let later = VanillaWorld::load(fixture(), "1445.11.11").unwrap();
+    assert!(
+        later.province(1).unwrap().attributes["tax_basis"]
+            .unresolved
+            .contains("administration:unknown_category")
+    );
+    let temp = copy_fixture();
+    let path = temp.path().join("common/static_modifiers/test_static.txt");
+    let text = fs::read_to_string(&path).unwrap();
+    fs::write(path, text + "\ncore = { local_tax_modifier = 0.2 }\n").unwrap();
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let tax = &loaded.province(1).unwrap().attributes["tax_basis"];
+    assert!(
+        tax.unresolved
+            .contains("administration:missing_definition:core")
+    );
+    assert_eq!(tax.known_subtotal_micros, Some(2_337_500));
+}
+
+#[test]
 fn duplicate_static_definitions_and_properties_preserve_ambiguity_without_guessing() {
     let temp = copy_fixture();
     let path = temp.path().join("common/static_modifiers/test_static.txt");
