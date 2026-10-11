@@ -27,18 +27,22 @@ fn copy_fixture() -> tempfile::TempDir {
 }
 
 #[test]
-fn areas_history_deltas_and_capital_rules_reach_queries_without_guessing_baselines() {
+fn baseline_cores_states_and_history_deltas_reach_queries() {
     let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
     let north = loaded.province(1).unwrap().administration.unwrap();
     assert_eq!(north.area.as_deref(), Some("north_area"));
     assert_eq!(north.area_status, Some(augustus_core::AreaStatus::State));
-    assert_eq!(north.owner_core, Some(augustus_core::CoreType::Unspecified));
+    assert_eq!(north.owner_core, Some(augustus_core::CoreType::Full));
+    assert_eq!(north.minimum_autonomy_micros, Some(0));
     assert_eq!(north.raw_autonomy_micros, None);
     assert_eq!(north.history_autonomy_delta_micros, 250_000);
     assert_eq!(north.effective_autonomy_micros, Some(0));
     assert!(north.is_capital && north.is_capital_area);
     assert_eq!(loaded.report.administration.direct_autonomy_operations, 2);
     assert_eq!(loaded.report.administration.capital_states, 2);
+    assert_eq!(loaded.report.administration.initial_states, 2);
+    assert_eq!(loaded.report.administration.full_core_types, 2);
+    assert_eq!(loaded.report.administration.unspecified_core_types, 0);
     assert_eq!(
         loaded.report.administration.unknown_country_area_statuses,
         0
@@ -72,12 +76,43 @@ fn areas_history_deltas_and_capital_rules_reach_queries_without_guessing_baselin
     let earlier = VanillaWorld::load(temp.path(), "1435.1.1").unwrap();
     let north = earlier.province(1).unwrap().administration.unwrap();
     assert!(!north.is_capital);
+    assert_eq!(north.owner_core, Some(augustus_core::CoreType::Unspecified));
     assert_eq!(north.history_autonomy_delta_micros, 301_250);
     assert_eq!(north.area_status, None);
     assert_eq!(north.effective_autonomy_micros, None);
     let after = &earlier.province(1).unwrap().attributes["tax_after_autonomy"];
     assert_eq!(after.known_subtotal_micros, None);
     assert!(after.unresolved.contains("administration:initial_autonomy"));
+}
+
+#[test]
+fn baseline_states_follow_ownership_without_using_core_claims_or_replacing_capitals() {
+    let temp = copy_fixture();
+    let path = temp.path().join("history/countries/AAA - Alpha.txt");
+    let text = fs::read_to_string(&path).unwrap();
+    fs::write(path, text + "\n1444.11.11 = { capital = 1 }\n").unwrap();
+    let path = temp.path().join("history/provinces/1 - North.txt");
+    let text = fs::read_to_string(&path).unwrap();
+    fs::write(path, text + "\n1444.11.11 = { add_core = AAA }\n").unwrap();
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(loaded.initial.bound_capital("AAA"), None);
+    let areas = loaded.country("AAA").unwrap().administrative_areas.unwrap();
+    assert_eq!(areas.len(), 1);
+    assert_eq!(areas["east_area"], augustus_core::AreaStatus::State);
+    assert!(!areas.contains_key("north_area"));
+    let east = loaded.province(2).unwrap().administration.unwrap();
+    assert!(!east.is_capital);
+    assert_eq!(east.area_status, Some(augustus_core::AreaStatus::State));
+    assert_eq!(east.effective_autonomy_micros, None);
+    assert_eq!(loaded.report.administration.initial_states, 2);
+    assert_eq!(loaded.report.administration.capital_states, 1);
+    assert_eq!(loaded.report.administration.full_core_types, 3);
+    let core = loaded.initial.world().administration();
+    let north = &core.provinces[&loaded.initial.province_entity(1).unwrap()];
+    assert_eq!(
+        north.cores[&loaded.initial.country_entity("AAA").unwrap()],
+        augustus_core::CoreType::Full
+    );
 }
 
 #[test]

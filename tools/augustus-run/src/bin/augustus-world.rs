@@ -23,6 +23,9 @@ struct Cli {
     diplomacy: bool,
     #[arg(long)]
     economy: bool,
+    /// Compare administrative inputs with an uncompressed, unadvanced vanilla baseline save.
+    #[arg(long)]
+    compare_administration_save: Option<PathBuf>,
     #[arg(long)]
     technology: Option<String>,
     #[arg(long)]
@@ -32,6 +35,10 @@ struct Cli {
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let loaded = VanillaWorld::load(cli.game_root, &cli.date)?;
     let mut output = serde_json::json!({"report": loaded.report});
+    if let Some(path) = cli.compare_administration_save {
+        output["administration_comparison"] =
+            serde_json::to_value(augustus_eu4::compare_administration_save(&loaded, path)?)?;
+    }
     if let Some(branch) = cli.technology {
         output["technology"] = serde_json::json!({"branch": branch, "levels": loaded.initial.world().technology().tables.get(&branch).ok_or("unknown technology branch")?});
     }

@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod administration;
+mod administration_validation;
 mod attributes;
 mod bootstrap;
 mod content;
@@ -21,6 +22,10 @@ mod setup;
 mod text;
 
 pub use administration::AdministrationReport;
+pub use administration_validation::{
+    AdministrationCheckCount, AdministrationComparison, AdministrationDifference,
+    compare_administration_save,
+};
 pub use attributes::AttributeReport;
 pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView, VanillaWorld,

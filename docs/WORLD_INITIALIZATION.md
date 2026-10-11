@@ -104,9 +104,11 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 地区来自 `default.map` 指定的 `area` 文件。支持省份列表，以及在列表前声明的三分量 `color`。同一地区重复列出省份时合并归属，在 `report.administration.repeated_province_memberships` 中记录重复次数；跨地区重复归属时报错。空地区标识保留并列入 `empty_areas`。地图没有声明地区文件时，原有入口仍能载入，陆地省份的缺失归属列入 `missing_land_areas`。
 
-当前兼容入口确定已绑定首都所在的地区为州。其他开局州与领地划分保留未知；`add_core` 表示存在核心，尚未确定其完整核心或领地核心类型，查询为 `unspecified`。直接省份历史中的 `add_local_autonomy` 按日期记录为 `history_autonomy_delta_micros`，不把这个追加量作为最终自治度，也没有用零补齐初始基值。国家历史里嵌套的自治操作保留来源于 `pending_country_autonomy`，其条件、作用域和执行顺序尚未接入。
+在固定的 `1444.11.11` 开局，兼容入口为各国实际拥有省份的每个地区建立州，历史 `add_core` 载入为完整核心。地区关系按国家分别保存；其他国家的核心宣称不会替该国建立州。首都引用无效时仍按所有权建立州，不另选首都。报告的 `initial_states` 和 `full_core_types` 给出这两项数量。选择其他日期时，这两项生成规则暂不应用：只确定已绑定首都所在的地区为州，核心类型保留为 `unspecified`。
 
-规则最低自治从已载入的静态定义读取，首都上限从基础文件中的 `NEconomy.CAPITAL_MAX_AUTONOMY` 直接数值读取。附加 Lua 对该值的赋值与表达式会报错；当前入口不执行 Lua。其他最低自治修正、贸易公司、州与核心的数值效果及完整开局生成仍有缺项。Godot 将这些字段标为已接入规则的结果。
+直接省份历史中的 `add_local_autonomy` 按日期记录为 `history_autonomy_delta_micros`，不把这个追加量作为最终自治度，也没有用零补齐初始基值。国家历史里嵌套的自治操作保留来源于 `pending_country_autonomy`，其条件、作用域和执行顺序尚未接入。原始自治度的开局生成仍待实现。
+
+规则最低自治从已载入的静态定义读取，首都上限从基础文件中的 `NEconomy.CAPITAL_MAX_AUTONOMY` 直接数值读取。完整核心所在州可以查询规则最低自治，原始自治度未知时仍不能确定非首都省份的有效自治。附加 Lua 对该值的赋值与表达式会报错；当前入口不执行 Lua。其他最低自治修正、贸易公司、州与核心的数值效果及完整开局生成仍有缺项。Godot 将这些字段标为已接入规则的结果。
 
 新增 `tax_after_autonomy` 与 `manpower_after_autonomy`，在原有部分计算之后单独乘以 `1 − 有效自治`。原有自治前字段继续保留。自治输入未知时，折减后的 `known_subtotal_micros` 为 `null`；前一阶段的数值仍可在 `steps` 中查看。首都上限明确为零时，可以确定这一阶段的折减比例为零，其他缺项仍使最终 `value_micros` 保持 `null`。
 
@@ -117,6 +119,16 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 核心的 `Attributes` 可以整项替换，原生输入也使用同一个计算器。每阶段计算 `(输入 + 固定增量之和) × (1 + 比例修正之和)`；连续阶段分别相乘，最终才应用声明的上下限。每阶段按百万分位向零截断，运算溢出时报错。当前基础字段、所有权、建筑、商品和附加历史修正均在查询时读取，不保存派生值缓存；城市与占领来源的选择来自本次开局历史，尚未接入运行中的状态变化。自制 [原生属性样本](../examples/world/native_attributes.json) 与原版写法样本得到相同核心状态；这份样本用于贡献者测试，尚不是稳定的 Mod SDK。
 
 ## 验证
+
+可以使用本地原版开局存档核对行政状态。在 EU4 1.37.5 中启用全部玩法 DLC、禁用所有 Mod，新建非铁人 `1444.11.11` 游戏，保持暂停，保存时取消“压缩”。然后运行：
+
+```sh
+cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --compare-administration-save "/path/to/baseline.eu4"
+```
+
+`administration_comparison` 分别统计所有者、核心及类型、州与领地关系、原始自治度的 `matched`、`different` 和 `unknown`，并列出已知值的差异。`unknown` 不计为通过；没有差异也不代表尚未实现的自治度或其他游戏机制已经一致。工具要求存档记录版本为 1.37.5.0、启用 22 个玩法 DLC、无模组，开局日期和当前日期均为 1444.11.11，`campaign_length = 0`。条件不符、相关字段重复或引用结构无效时会报错。存档中的省份自治缺省按其格式表示零，这不改变 Augustus 中尚未确定的初值。
+
+该入口只读取未压缩的 `EU4txt` 存档用于对照，不导入状态或修改文件；压缩和二进制存档不受支持。它检查存档记录的条件，不能代替对实验程序和安装内容来源的确认。
 
 仓库的 `examples/world` 是自制小世界，不需要 EU4 安装。可以将它作为 `--game-root` 使用。测试覆盖日期排序、未来条目、数值精度、国家关系、科技表与等级、修正增删、未知资源、来源追踪、重复定义与属性、分阶段计算、当前状态查询、国家汇总和错误输入，并检查兼容输入与原生输入得到相同的核心状态。
 

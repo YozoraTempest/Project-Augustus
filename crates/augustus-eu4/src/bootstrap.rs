@@ -530,6 +530,7 @@ impl VanillaWorld {
             &mut report.administration,
             &attributes,
             &report.attributes,
+            date,
         )?;
         initial
             .set_administration(administration)

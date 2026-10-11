@@ -7,6 +7,7 @@ use augustus_core::{
     Administration, AdministrationRules, AreaStatus, CoreType, InitialWorld,
     ProvinceAdministration, ProvinceClass,
 };
+use jomini::common::Date;
 use jomini::{TextToken, text::ObjectReader};
 use serde::Serialize;
 
@@ -22,6 +23,8 @@ pub struct AdministrationReport {
     pub mapped_provinces: usize,
     pub province_records: usize,
     pub capital_states: usize,
+    pub initial_states: usize,
+    pub full_core_types: usize,
     pub direct_autonomy_operations: usize,
     pub missing_land_areas: Vec<u32>,
     pub unknown_country_area_statuses: usize,
@@ -224,7 +227,9 @@ impl AdministrationDraft {
         report: &mut AdministrationReport,
         attributes: &augustus_core::Attributes,
         definitions: &crate::AttributeReport,
+        date: Date,
     ) -> Result<Administration, Error> {
+        let baseline = date == Date::parse("1444.11.11").expect("valid baseline date");
         for &id in self.memberships.keys() {
             if initial.province(id).is_none() {
                 return Err(Error::message(
@@ -312,11 +317,19 @@ impl AdministrationDraft {
                 .map(|c| {
                     (
                         initial.country_entity(c).expect("validated core country"),
-                        CoreType::Unspecified,
+                        if baseline {
+                            CoreType::Full
+                        } else {
+                            CoreType::Unspecified
+                        },
                     )
                 })
                 .collect::<BTreeMap<_, _>>();
-            report.unspecified_core_types += cores.len();
+            if baseline {
+                report.full_core_types += cores.len();
+            } else {
+                report.unspecified_core_types += cores.len();
+            }
             administration.provinces.insert(
                 entity,
                 ProvinceAdministration {
@@ -334,6 +347,18 @@ impl AdministrationDraft {
                     area,
                 ));
             }
+        }
+        // The fixed initial bookmark creates a state in every owned area.
+        // Later bookmarks need their own initialization evidence.
+        if baseline {
+            for (country, area) in &country_areas {
+                administration
+                    .country_areas
+                    .entry(*country)
+                    .or_default()
+                    .insert(area.clone(), AreaStatus::State);
+            }
+            report.initial_states = country_areas.len();
         }
         for c in initial.countries() {
             if let Some(capital) = initial.bound_capital(&c.id)
