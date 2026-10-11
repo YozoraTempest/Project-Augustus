@@ -46,7 +46,7 @@ struct Change {
 pub(super) struct AutonomyDraft {
     cultures: BTreeMap<String, Option<String>>,
     religions: BTreeMap<String, Option<String>>,
-    regions: BTreeMap<String, BTreeSet<String>>,
+    pub(super) geography: crate::geography::GeographicGroups,
     reform_ranks: BTreeMap<String, Option<u8>>,
     subject_ranks: BTreeMap<String, Option<u8>>,
     countries: BTreeMap<String, CountrySeed>,
@@ -175,7 +175,7 @@ impl AutonomyDraft {
         let mut result = Self {
             cultures: groups(root, files, "common/cultures", report)?,
             religions: groups(root, files, "common/religions", report)?,
-            regions: BTreeMap::new(),
+            geography: crate::geography::GeographicGroups::load(root, map, report)?,
             reform_ranks: BTreeMap::new(),
             subject_ranks: BTreeMap::new(),
             countries: BTreeMap::new(),
@@ -296,71 +296,6 @@ impl AutonomyDraft {
                 name.clone(),
                 subject(name, &subject_definitions, &mut BTreeSet::new()),
             );
-        }
-        let paths: Vec<_> = map
-            .reader()
-            .fields()
-            .filter(|(k, _, _)| k.read_string() == "region")
-            .collect();
-        if paths.len() > 1 {
-            return Err(Error::message(map.source(), "duplicate map region path"));
-        }
-        if let Some((key, op, value)) = paths.first() {
-            let fail =
-                |m: &str| Error::message(map.source(), m).with_location(map.field_location(key));
-            equal(*op, &fail)?;
-            let path = value
-                .read_string()
-                .map_err(|_| fail("expected region path"))?;
-            let doc = root.read_text(std::path::Path::new("map").join(path), ENCODING)?;
-            let parsed = doc.parse()?;
-            for (key, op, value) in parsed.reader().fields() {
-                let fail = |m: &str| {
-                    Error::message(parsed.source(), m).with_location(parsed.field_location(&key))
-                };
-                equal(op, &fail)?;
-                let reader = block(&value, &fail)?;
-                let lists: Vec<_> = reader
-                    .fields()
-                    .filter(|(k, _, _)| k.read_string() == "areas")
-                    .collect();
-                if lists.is_empty() && reader.fields().next().is_none() {
-                    if result
-                        .regions
-                        .insert(key.read_string(), BTreeSet::new())
-                        .is_some()
-                    {
-                        return Err(fail("duplicate region"));
-                    }
-                    report.rule_sources.insert(
-                        format!("map/region:{}", key.read_string()),
-                        source(&parsed, parsed.field_location(&key)),
-                    );
-                    continue;
-                }
-                if lists.len() != 1 {
-                    return Err(fail("region requires one area list"));
-                }
-                let (_, op, value) = &lists[0];
-                equal(*op, &fail)?;
-                let array = value
-                    .read_array()
-                    .map_err(|_| fail("expected region area list"))?;
-                let areas = array
-                    .values()
-                    .map(|v| {
-                        v.read_string()
-                            .map_err(|_| fail("expected area identifier"))
-                    })
-                    .collect::<Result<BTreeSet<_>, _>>()?;
-                if result.regions.insert(key.read_string(), areas).is_some() {
-                    return Err(Error::message(parsed.source(), "duplicate region"));
-                }
-                report.rule_sources.insert(
-                    format!("map/region:{}", key.read_string()),
-                    source(&parsed, parsed.field_location(&key)),
-                );
-            }
         }
         Ok(result)
     }
@@ -660,7 +595,7 @@ impl AutonomyDraft {
         match predicate {
             Predicate::Constant(v) => Some(*v),
             Predicate::Area(v) => area.map(|a| a == v),
-            Predicate::Region(v) => Some(self.regions.get(v)?.contains(area?)),
+            Predicate::Region(v) => Some(self.geography.regions.get(v)?.contains(area?)),
             Predicate::Owner(v) => Some(owner == Some(v)),
             Predicate::Not(v) => self.test(v, area, owner).map(|v| !v),
             Predicate::And(v) | Predicate::Or(v) => {

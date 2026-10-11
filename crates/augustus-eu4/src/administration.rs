@@ -23,6 +23,9 @@ const ENCODING: TextEncoding = TextEncoding::Windows1252;
 #[derive(Debug, Default, Serialize)]
 pub struct AdministrationReport {
     pub areas: usize,
+    pub regions: usize,
+    pub superregions: usize,
+    pub unapplied_geography_fields: BTreeMap<String, LoadedSource>,
     pub mapped_provinces: usize,
     pub province_records: usize,
     pub capital_states: usize,
@@ -285,6 +288,8 @@ impl AdministrationDraft {
         };
         let mut administration = Administration {
             areas: self.areas,
+            regions: self.autonomy.geography.regions.clone(),
+            superregions: self.autonomy.geography.superregions.clone(),
             rules,
             ..Default::default()
         };

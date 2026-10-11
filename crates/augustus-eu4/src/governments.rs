@@ -75,6 +75,7 @@ struct Seed {
 #[derive(Default)]
 struct Reform {
     effect: GovernmentReform,
+    feature_sources: BTreeMap<String, LoadedSource>,
     flags: BTreeMap<String, bool>,
     uncertain_flags: BTreeSet<String>,
 }
@@ -237,6 +238,13 @@ impl GovernmentDraft {
                     reform.uncertain_flags.insert(field.clone());
                 }
                 reform.flags.insert(field, flag);
+            } else if field == "revolutionary" {
+                Self::feature(parsed, &key, op, &value, name, reform, report)?;
+            } else if field == "custom_attributes" {
+                equal(op, &fail)?;
+                for (key, op, value) in block(&value, &fail)?.fields() {
+                    Self::feature(parsed, &key, op, &value, name, reform, report)?;
+                }
             } else if field == "modifiers" {
                 equal(op, &fail)?;
                 let body = block(&value, &fail)?;
@@ -296,6 +304,41 @@ impl GovernmentDraft {
         Ok(())
     }
 
+    fn feature(
+        parsed: &ParsedText<'_>,
+        key: &jomini::text::ScalarReader<'_, TextEncoding>,
+        op: Option<jomini::text::Operator>,
+        value: &jomini::text::ValueReader<'_, '_, TextEncoding>,
+        id: &str,
+        reform: &mut Reform,
+        report: &mut GovernmentReport,
+    ) -> Result<(), Error> {
+        let at = parsed.field_location(key);
+        let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
+        equal(op, &fail)?;
+        let name = key.read_string();
+        let flag = crate::setup::flag(
+            &value
+                .read_string()
+                .map_err(|_| fail("expected government feature flag"))?,
+        )
+        .ok_or_else(|| fail("expected yes or no"))?;
+        if let Some(first) = reform.feature_sources.get(&name) {
+            reform.effect.features.insert(name.clone(), None);
+            report.ambiguous(
+                format!("reform_feature:{id}:{name}"),
+                first.clone(),
+                source(parsed, at),
+            );
+        } else {
+            reform
+                .feature_sources
+                .insert(name.clone(), source(parsed, at));
+            reform.effect.features.entry(name).or_insert(Some(flag));
+        }
+        Ok(())
+    }
+
     fn pending_definition(
         parsed: &ParsedText<'_>,
         reader: Reader<'_, '_>,
@@ -316,6 +359,15 @@ impl GovernmentDraft {
             }
             if FLAGS.contains(&name.as_str()) {
                 reform.uncertain_flags.insert(name);
+            } else if name == "revolutionary" {
+                reform.effect.features.insert(name, None);
+            } else if name == "custom_attributes" {
+                let fail = |m: &str| {
+                    Error::message(parsed.source(), m).with_location(parsed.field_location(&key))
+                };
+                for (key, _, _) in block(&value, &fail)?.fields() {
+                    reform.effect.features.insert(key.read_string(), None);
+                }
             } else if name == "modifiers" {
                 let fail = |m: &str| {
                     Error::message(parsed.source(), m).with_location(parsed.field_location(&key))

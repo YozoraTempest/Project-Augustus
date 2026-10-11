@@ -38,6 +38,74 @@ fn yield_value(world: &World) -> augustus_core::AttributeEvaluation {
 }
 
 #[test]
+fn institutional_features_follow_selected_reforms_and_preserve_local_uncertainty() {
+    let mut world = world();
+    let mut governments = world.governments().clone();
+    governments.reforms.get_mut("first").unwrap().features = [
+        ("charter".into(), Some(true)),
+        ("elections".into(), Some(false)),
+        ("disputed".into(), None),
+    ]
+    .into_iter()
+    .collect();
+    governments
+        .reforms
+        .get_mut("second")
+        .unwrap()
+        .features
+        .insert("charter".into(), Some(false));
+    world.set_governments(governments.clone()).unwrap();
+    assert_eq!(
+        world.governments().feature(EntityId(0), "charter"),
+        Some(true)
+    );
+    assert_eq!(
+        world.governments().feature(EntityId(0), "elections"),
+        Some(false)
+    );
+    assert_eq!(
+        world.governments().feature(EntityId(0), "absent"),
+        Some(false)
+    );
+    assert_eq!(world.governments().feature(EntityId(0), "disputed"), None);
+    assert_eq!(world.governments().feature(EntityId(2), "charter"), None);
+    assert_eq!(
+        world,
+        World::restore(&world.save("features").unwrap(), "features", world.schema()).unwrap()
+    );
+    governments
+        .countries
+        .get_mut(&EntityId(0))
+        .unwrap()
+        .reforms
+        .as_mut()
+        .unwrap()
+        .insert("second".into());
+    world.set_governments(governments.clone()).unwrap();
+    assert_eq!(world.governments().feature(EntityId(0), "charter"), None);
+    governments.countries.get_mut(&EntityId(0)).unwrap().reforms =
+        Some(["second".into()].into_iter().collect());
+    world.set_governments(governments.clone()).unwrap();
+    assert_eq!(
+        world.governments().feature(EntityId(0), "charter"),
+        Some(false)
+    );
+    governments.countries.get_mut(&EntityId(0)).unwrap().reforms =
+        Some(["missing".into()].into_iter().collect());
+    world.set_governments(governments.clone()).unwrap();
+    assert_eq!(world.governments().feature(EntityId(0), "absent"), None);
+    let before = world.clone();
+    governments
+        .reforms
+        .get_mut("first")
+        .unwrap()
+        .features
+        .insert(String::new(), None);
+    assert!(world.set_governments(governments).is_err());
+    assert_eq!(world, before);
+}
+
+#[test]
 fn reform_metric_and_owner_changes_recalculate_with_signed_fixed_point_values() {
     let mut world = world();
     assert_eq!(yield_value(&world).value_micros, Some(1_526_000));

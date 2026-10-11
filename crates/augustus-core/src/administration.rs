@@ -100,6 +100,10 @@ impl AdministrationEvaluation {
 #[serde(deny_unknown_fields)]
 pub struct Administration {
     pub areas: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub regions: BTreeMap<String, BTreeSet<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub superregions: BTreeMap<String, BTreeSet<String>>,
     pub country_areas: BTreeMap<EntityId, BTreeMap<String, AreaStatus>>,
     pub provinces: BTreeMap<EntityId, ProvinceAdministration>,
     pub rules: AdministrationRules,
@@ -108,9 +112,26 @@ pub struct Administration {
 impl Administration {
     pub fn is_empty(&self) -> bool {
         self.areas.is_empty()
+            && self.regions.is_empty()
+            && self.superregions.is_empty()
             && self.country_areas.is_empty()
             && self.provinces.is_empty()
             && self.rules == AdministrationRules::default()
+    }
+
+    pub fn in_region(&self, province: EntityId, name: &str) -> Option<bool> {
+        let area = self.provinces.get(&province)?.area.as_ref()?;
+        Some(self.regions.get(name)?.contains(area))
+    }
+
+    pub fn in_superregion(&self, province: EntityId, name: &str) -> Option<bool> {
+        let area = self.provinces.get(&province)?.area.as_ref()?;
+        let regions = self.superregions.get(name)?;
+        let mut inside = false;
+        for region in regions {
+            inside |= self.regions.get(region)?.contains(area);
+        }
+        Some(inside)
     }
 
     pub fn evaluate(
@@ -219,6 +240,26 @@ impl Administration {
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
+        fn hierarchy(
+            groups: &BTreeMap<String, BTreeSet<String>>,
+            members: &BTreeSet<String>,
+        ) -> Result<(), Error> {
+            let mut seen = BTreeSet::new();
+            for (name, entries) in groups {
+                if name.is_empty()
+                    || entries
+                        .iter()
+                        .any(|id| !members.contains(id) || !seen.insert(id))
+                {
+                    return Err(Error::Invalid(
+                        "invalid or overlapping geographic group".into(),
+                    ));
+                }
+            }
+            Ok(())
+        }
+        hierarchy(&self.regions, &self.areas)?;
+        hierarchy(&self.superregions, &self.regions.keys().cloned().collect())?;
         if self.areas.iter().any(String::is_empty) {
             return Err(Error::Invalid("empty administrative area".into()));
         }

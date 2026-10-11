@@ -10,6 +10,9 @@ use crate::{AttributeTerm, EntityId, EntityKind, Error, ModifierDefinition, Targ
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GovernmentReform {
+    /// Institutional features; None preserves an uncertain declaration.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub features: BTreeMap<String, Option<bool>>,
     pub modifier: ModifierDefinition,
     pub unresolved_properties: BTreeSet<String>,
 }
@@ -62,6 +65,21 @@ pub struct Governments {
 }
 
 impl Governments {
+    pub fn feature(&self, entity: EntityId, name: &str) -> Option<bool> {
+        let selected = self.countries.get(&entity)?.reforms.as_ref()?;
+        let mut explicit = None;
+        for id in selected {
+            let reform = self.reforms.get(id)?;
+            if let Some(value) = reform.features.get(name) {
+                let value = (*value)?;
+                if explicit.is_some_and(|old| old != value) {
+                    return None;
+                }
+                explicit = Some(value);
+            }
+        }
+        Some(explicit.unwrap_or(false))
+    }
     pub fn is_empty(&self) -> bool {
         self.reforms.is_empty() && self.metrics.is_empty() && self.countries.is_empty()
     }
@@ -205,6 +223,9 @@ impl Governments {
         }
         for (name, reform) in &self.reforms {
             definition(name, &reform.modifier)?;
+            if reform.features.keys().any(String::is_empty) {
+                return Err(Error::Invalid("empty government feature".into()));
+            }
             if reform.unresolved_properties.iter().any(String::is_empty) {
                 return Err(Error::Invalid("invalid unresolved reform property".into()));
             }

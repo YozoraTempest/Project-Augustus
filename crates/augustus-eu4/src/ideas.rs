@@ -20,6 +20,8 @@ const ENCODING: TextEncoding = TextEncoding::Windows1252;
 #[derive(Debug, Default, Serialize)]
 pub struct IdeaReport {
     pub free_groups: usize,
+    pub status_sources: BTreeMap<String, LoadedSource>,
+    pub unknown_statuses: BTreeMap<String, BTreeSet<String>>,
     pub skipped_paid_groups: usize,
     pub selected_countries: usize,
     pub definition_sources: BTreeMap<String, LoadedSource>,
@@ -51,6 +53,10 @@ enum Condition {
     None(Vec<Self>),
     Literal(bool),
     Match(String, String),
+    Status(String, bool),
+    Feature(String),
+    Capital(Vec<Self>),
+    Region(String, bool),
     Unknown(String),
 }
 
@@ -60,6 +66,7 @@ impl Condition {
         reader: ObjectReader<'_, '_, TextEncoding>,
         report: &mut IdeaReport,
         depth: usize,
+        country: bool,
     ) -> Result<Vec<Self>, Error> {
         if depth > 64 {
             return Err(Error::message(
@@ -76,13 +83,63 @@ impl Condition {
                 equal(op, &fail)?;
                 Ok(match name.as_str() {
                     "AND" | "OR" | "NOT" => {
-                        let children =
-                            Self::compile(parsed, block(&value, &fail)?, report, depth + 1)?;
+                        let children = Self::compile(
+                            parsed,
+                            block(&value, &fail)?,
+                            report,
+                            depth + 1,
+                            country,
+                        )?;
                         match name.as_str() {
                             "AND" => Self::All(children),
                             "OR" => Self::Any(children),
                             _ => Self::None(children),
                         }
+                    }
+                    "capital_scope" if country => Self::Capital(Self::compile(
+                        parsed,
+                        block(&value, &fail)?,
+                        report,
+                        depth + 1,
+                        false,
+                    )?),
+                    "region" | "superregion" if !country => {
+                        let id = value
+                            .read_string()
+                            .map_err(|_| fail("expected geographic identifier"))?;
+                        if id.is_empty() {
+                            return Err(fail("empty geographic identifier"));
+                        }
+                        Self::Region(id, name == "superregion")
+                    }
+                    "is_client_nation"
+                    | "is_colonial_nation"
+                    | "is_federation_nation"
+                    | "is_revolution_target"
+                    | "is_revolutionary"
+                        if country =>
+                    {
+                        let expected = flag(
+                            &value
+                                .read_string()
+                                .map_err(|_| fail("expected country status flag"))?,
+                        )
+                        .ok_or_else(|| fail("expected yes or no"))?;
+                        let status = if name == "is_revolution_target" {
+                            "revolution_target"
+                        } else {
+                            name.trim_start_matches("is_")
+                        };
+                        Self::Status(status.into(), expected)
+                    }
+                    "has_government_attribute" if country => {
+                        let id = value
+                            .read_string()
+                            .map_err(|_| fail("expected government feature identifier"))?;
+                        if id.is_empty() {
+                            return Err(fail("empty government feature identifier"));
+                        }
+                        Self::Feature(id)
                     }
                     "always" => Self::Literal(
                         flag(
@@ -94,7 +151,9 @@ impl Condition {
                     ),
                     "tag" | "TAG" | "primary_culture" | "culture_group" | "religion"
                     | "religion_group" | "government" | "technology_group" | "dynasty"
-                    | "has_reform" | "has_country_flag" => {
+                    | "has_reform" | "has_country_flag"
+                        if country =>
+                    {
                         let text = value
                             .read_string()
                             .map_err(|_| fail("expected scalar idea trigger"))?;
@@ -118,6 +177,7 @@ impl Condition {
         tag: &str,
         history: &History,
         reasons: &mut BTreeSet<String>,
+        province: Option<augustus_core::EntityId>,
     ) -> Option<bool> {
         match self {
             Self::Literal(value) => Some(*value),
@@ -130,7 +190,7 @@ impl Condition {
                 let mut unknown = false;
                 let mut pending = BTreeSet::new();
                 for child in children {
-                    match child.evaluate(initial, tag, history, &mut pending) {
+                    match child.evaluate(initial, tag, history, &mut pending, province) {
                         Some(value) if value != all => {
                             return Some(if matches!(self, Self::None(_)) {
                                 false
@@ -148,6 +208,62 @@ impl Condition {
                 } else {
                     Some(all || matches!(self, Self::None(_)))
                 }
+            }
+            Self::Capital(children) => {
+                let entity = initial.country_entity(tag).expect("registered country");
+                let capital = initial.world().entity(entity).ok()?.capital;
+                if capital.is_none() {
+                    reasons.insert("unknown_capital".into());
+                    return None;
+                }
+                let mut pending = BTreeSet::new();
+                let mut unknown = false;
+                for child in children {
+                    match child.evaluate(initial, tag, history, &mut pending, capital) {
+                        Some(false) => return Some(false),
+                        None => unknown = true,
+                        _ => (),
+                    }
+                }
+                if unknown {
+                    reasons.extend(pending);
+                    None
+                } else {
+                    Some(true)
+                }
+            }
+            Self::Region(name, superregion) => {
+                let result = province.and_then(|p| {
+                    if *superregion {
+                        initial.world().administration().in_superregion(p, name)
+                    } else {
+                        initial.world().administration().in_region(p, name)
+                    }
+                });
+                if result.is_none() {
+                    reasons.insert(format!("unknown_geography:{name}"));
+                }
+                result
+            }
+            Self::Status(name, expected) => {
+                let entity = initial.country_entity(tag).expect("registered country");
+                let result = if name == "revolutionary" {
+                    initial.world().governments().feature(entity, name)
+                } else {
+                    initial.world().politics().status(entity, name)
+                };
+                if result.is_none() {
+                    reasons.insert(format!("unknown_status:{name}"));
+                }
+                result.map(|v| v == *expected)
+            }
+            Self::Feature(name) => {
+                let entity = initial.country_entity(tag).expect("registered country");
+                let result = initial.world().governments().feature(entity, name);
+                if result.is_none() {
+                    reasons.insert(format!("unknown_government_feature:{name}"));
+                }
+                result
             }
             Self::Match(name, expected) => {
                 let country = initial.country(tag).expect("registered country");
@@ -320,6 +436,7 @@ impl IdeaDraft {
                                 block(&value, &fail)?,
                                 report,
                                 0,
+                                true,
                             )?)
                         }
                         "start" => {
@@ -427,7 +544,8 @@ impl IdeaDraft {
                 } else {
                     for (id, condition) in &self.candidates {
                         let mut pending = BTreeSet::new();
-                        match condition.evaluate(initial, &country.id, history, &mut pending) {
+                        match condition.evaluate(initial, &country.id, history, &mut pending, None)
+                        {
                             Some(false) => (),
                             Some(true) => {
                                 let progress = (date

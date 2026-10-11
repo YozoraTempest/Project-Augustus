@@ -29,6 +29,286 @@ fn copy_fixture() -> tempfile::TempDir {
     temp
 }
 
+fn append_fixture(root: &Path, path: &str, text: &str) {
+    let path = root.join(path);
+    let previous = fs::read_to_string(&path).unwrap();
+    fs::write(path, format!("{previous}\n{text}")).unwrap();
+}
+
+fn selected_idea(loaded: &VanillaWorld, tag: &str) -> Option<String> {
+    loaded
+        .country(tag)
+        .unwrap()
+        .ideas
+        .unwrap()
+        .groups
+        .as_ref()
+        .and_then(|groups| groups.keys().next().cloned())
+}
+
+#[test]
+fn historical_federation_membership_is_not_a_generated_nation_and_later_origin_is_unknown() {
+    let fixture = copy_fixture();
+    append_fixture(
+        fixture.path(),
+        "history/countries/AAA - Alpha.txt",
+        "federation = { name = test_union members = { AAA BBB } }",
+    );
+    fs::write(fixture.path().join("common/ideas/00_conditions.txt"),
+        "historical = { free = yes trigger = { is_client_nation = no is_federation_nation = no } one = {} }").unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert_eq!(selected_idea(&loaded, "AAA").as_deref(), Some("historical"));
+    let later = VanillaWorld::load(fixture.path(), "1450.1.1").unwrap();
+    assert_eq!(selected_idea(&later, "AAA"), None);
+    assert!(later.report.ideas.unknown_statuses["AAA"].contains("federation_nation"));
+    append_fixture(
+        fixture.path(),
+        "history/countries/AAA - Alpha.txt",
+        "if = { limit = { always = yes } create_client_state = {} }",
+    );
+    let pending = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert_eq!(selected_idea(&pending, "BBB"), None);
+    assert!(pending.report.ideas.unknown_statuses["BBB"].contains("client_nation"));
+}
+
+#[test]
+fn colonial_identity_uses_the_current_subject_definition_and_ordered_inheritance() {
+    let fixture = copy_fixture();
+    fs::write(
+        fixture.path().join("common/ideas/00_conditions.txt"),
+        "colonial = { free = yes trigger = { is_colonial_nation = yes } one = {} }",
+    )
+    .unwrap();
+    append_fixture(
+        fixture.path(),
+        "history/countries/AAA - Alpha.txt",
+        "colonial_parent = BBB",
+    );
+    let subjects = fixture.path().join("common/subject_types/test.txt");
+    fs::write(&subjects, "default = { has_colonial_parent = no } colony = {} colony = { copy_from = default has_colonial_parent = yes } test_vassal = { copy_from = colony }").unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert_eq!(selected_idea(&loaded, "BBB").as_deref(), Some("colonial"));
+    assert_eq!(selected_idea(&loaded, "AAA").as_deref(), Some("test_alpha"));
+    fs::write(&subjects, "default = { has_colonial_parent = no } colony = { copy_from = default has_colonial_parent = yes } test_vassal = { has_colonial_parent = no copy_from = colony }").unwrap();
+    let inherited = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        selected_idea(&inherited, "BBB").as_deref(),
+        Some("colonial")
+    );
+    fs::write(&subjects, "default = { has_colonial_parent = no } colony = { copy_from = default has_colonial_parent = yes } test_vassal = { copy_from = colony has_colonial_parent = no }").unwrap();
+    let overridden = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        selected_idea(&overridden, "BBB").as_deref(),
+        Some("test_common")
+    );
+    let released = VanillaWorld::load(fixture.path(), "1450.1.1").unwrap();
+    let beta = released.initial.country_entity("BBB").unwrap();
+    assert_eq!(
+        released
+            .initial
+            .world()
+            .politics()
+            .status(beta, "colonial_nation"),
+        Some(false)
+    );
+}
+
+#[test]
+fn cyclic_or_duplicate_subject_definitions_keep_colonial_selection_unknown() {
+    let fixture = copy_fixture();
+    fs::write(
+        fixture.path().join("common/ideas/00_conditions.txt"),
+        "colonial = { free = yes trigger = { is_colonial_nation = yes } one = {} }",
+    )
+    .unwrap();
+    for definitions in [
+        "default = { has_colonial_parent = no } test_vassal = { copy_from = other } other = { copy_from = test_vassal }",
+        "default = { has_colonial_parent = no } test_vassal = { has_colonial_parent = yes } test_vassal = { has_colonial_parent = no }",
+    ] {
+        fs::write(
+            fixture.path().join("common/subject_types/test.txt"),
+            definitions,
+        )
+        .unwrap();
+        let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+        assert_eq!(selected_idea(&loaded, "BBB"), None);
+        assert!(loaded.report.ideas.unknown_statuses["BBB"].contains("colonial_nation"));
+    }
+}
+
+#[test]
+fn revolutionary_reforms_and_revolution_target_history_are_distinct_conditions() {
+    let fixture = copy_fixture();
+    append_fixture(
+        fixture.path(),
+        "common/government_reforms/test_governments.txt",
+        "test_revolution = { revolutionary = yes custom_attributes = { test_charter = yes } }",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/countries/AAA - Alpha.txt",
+        "1443.1.1 = { revolution_target = yes add_government_reform = test_revolution }\n1445.1.1 = { revolution_target = no }",
+    );
+    fs::write(fixture.path().join("common/ideas/00_conditions.txt"),
+        "revolution = { free = yes trigger = { is_revolution_target = yes is_revolutionary = yes has_government_attribute = test_charter } one = {} }").unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert_eq!(selected_idea(&loaded, "AAA").as_deref(), Some("revolution"));
+    let later = VanillaWorld::load(fixture.path(), "1450.1.1").unwrap();
+    assert_eq!(selected_idea(&later, "AAA").as_deref(), Some("test_alpha"));
+    append_fixture(
+        fixture.path(),
+        "history/countries/BBB - Beta.txt",
+        "revolution_target = yes",
+    );
+    let error = VanillaWorld::load(fixture.path(), "1444.11.11")
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("multiple revolution targets"));
+}
+
+#[test]
+fn uncertain_reform_features_and_scoped_target_changes_do_not_become_false() {
+    let fixture = copy_fixture();
+    let reforms = fixture
+        .path()
+        .join("common/government_reforms/test_governments.txt");
+    let original = fs::read_to_string(&reforms).unwrap();
+    append_fixture(
+        fixture.path(),
+        "history/countries/AAA - Alpha.txt",
+        "add_government_reform = conditional_charter",
+    );
+    fs::write(
+        fixture.path().join("common/ideas/00_conditions.txt"),
+        "charter = { free = yes trigger = { has_government_attribute = test_charter } one = {} }",
+    )
+    .unwrap();
+    for body in [
+        "custom_attributes = { test_charter = yes test_charter = no }",
+        "custom_attributes = { test_charter = yes } conditional = { allow = { unsupported = yes } custom_attributes = { test_charter = no } }",
+    ] {
+        fs::write(
+            &reforms,
+            format!("{original}\nconditional_charter = {{ {body} }}"),
+        )
+        .unwrap();
+        let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+        assert_eq!(selected_idea(&loaded, "AAA"), None);
+        assert_eq!(
+            selected_idea(&loaded, "BBB").as_deref(),
+            Some("test_common")
+        );
+    }
+    fs::write(&reforms, format!("{original}\nconditional_charter = {{ conditional = {{ allow = {{ always = yes }} custom_attributes = {{ test_charter = yes }} }} }}")).unwrap();
+    let known = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert_eq!(selected_idea(&known, "AAA").as_deref(), Some("charter"));
+    append_fixture(
+        fixture.path(),
+        "history/countries/AAA - Alpha.txt",
+        "BBB = { revolution_target = yes }",
+    );
+    fs::write(
+        fixture.path().join("common/ideas/00_conditions.txt"),
+        "target = { free = yes trigger = { is_revolution_target = no } one = {} }",
+    )
+    .unwrap();
+    let unknown = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert_eq!(selected_idea(&unknown, "BBB"), None);
+}
+
+#[test]
+fn capital_geography_uses_shared_groups_and_the_bound_capital_with_scope_checks() {
+    let fixture = copy_fixture();
+    append_fixture(
+        fixture.path(),
+        "map/default.map",
+        "region = \"region.txt\"\nsuperregion = \"superregion.txt\"",
+    );
+    fs::write(fixture.path().join("map/region.txt"),
+        "home = { areas = { east_area } monsoon = { start = 6 end = 9 } monsoon = { start = 7 end = 8 } } away = { areas = { north_area sea_area } } empty = { }").unwrap();
+    fs::write(
+        fixture.path().join("map/superregion.txt"),
+        "continent = { restrict_charter home } other = { away } vacant = {}",
+    )
+    .unwrap();
+    let conditions = fixture.path().join("common/ideas/00_conditions.txt");
+    fs::write(&conditions, "geographic = { free = yes trigger = { capital_scope = { region = home superregion = continent } } one = {} }").unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert_eq!(selected_idea(&loaded, "AAA").as_deref(), Some("geographic"));
+    assert_eq!(
+        selected_idea(&loaded, "BBB").as_deref(),
+        Some("test_common")
+    );
+    assert_eq!(loaded.report.administration.regions, 3);
+    assert_eq!(loaded.report.administration.superregions, 3);
+    assert_eq!(
+        loaded
+            .report
+            .administration
+            .unapplied_geography_fields
+            .len(),
+        3
+    );
+    let later = VanillaWorld::load(fixture.path(), "1450.1.1").unwrap();
+    assert_eq!(selected_idea(&later, "AAA").as_deref(), Some("test_alpha"));
+    for trigger in [
+        "region = home",
+        "capital_scope = { tag = AAA }",
+        "capital_scope = { superregion = missing }",
+    ] {
+        fs::write(
+            &conditions,
+            format!("geographic = {{ free = yes trigger = {{ {trigger} }} one = {{}} }}"),
+        )
+        .unwrap();
+        let unknown = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+        assert_eq!(selected_idea(&unknown, "AAA"), None);
+    }
+    fs::write(
+        &conditions,
+        "geographic = { free = yes trigger = { capital_scope = { region = home } } one = {} }",
+    )
+    .unwrap();
+    append_fixture(
+        fixture.path(),
+        "history/countries/AAA - Alpha.txt",
+        "1444.11.11 = { capital = 1 }",
+    );
+    let invalid_capital = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert_eq!(selected_idea(&invalid_capital, "AAA"), None);
+    assert!(
+        invalid_capital.report.ideas.unresolved_countries["AAA"]
+            .contains("candidate:geographic:unknown_capital")
+    );
+}
+
+#[test]
+fn ambiguous_or_dangling_geographic_memberships_fail_with_source() {
+    let fixture = copy_fixture();
+    append_fixture(fixture.path(), "map/default.map", "region = \"region.txt\"");
+    let path = fixture.path().join("map/region.txt");
+    for groups in [
+        "home = { areas = { east_area } areas = { north_area } }",
+        "home = { areas = { east_area } } home = { areas = { north_area } }",
+        "home = { areas = { missing } }",
+        "home = { areas = { east_area } } away = { areas = { east_area } }",
+    ] {
+        fs::write(&path, groups).unwrap();
+        assert!(VanillaWorld::load(fixture.path(), "1444.11.11").is_err());
+    }
+    fs::write(
+        &path,
+        "home = { areas = { east_area } areas = { north_area } }",
+    )
+    .unwrap();
+    let error = VanillaWorld::load(fixture.path(), "1444.11.11")
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("region.txt") && error.contains("one area list"));
+}
+
 #[test]
 fn national_traditions_select_from_flags_and_ruler_and_progress_stays_explicit() {
     let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
@@ -350,10 +630,10 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
     }
     let politics = serde_json::from_str(r#"{
         "countries": {
-            "0": {"ruler":{"name":"Iris","dynasty":"Sun","birth_date":{"year":1410,"month":1,"day":1},"administration":2,"diplomacy":3,"military":4},
+            "0": {"statuses":{"client_nation":false,"colonial_nation":false,"federation_nation":false,"revolution_target":false},"ruler":{"name":"Iris","dynasty":"Sun","birth_date":{"year":1410,"month":1,"day":1},"administration":2,"diplomacy":3,"military":4},
                 "heir":{"name":"Rowan","regnal_name":"Rowan I","dynasty":"Sun","birth_date":{"year":1440,"month":1,"day":1},"historical_death_date":{"year":1444,"month":11,"day":12},"administration":1,"diplomacy":2,"military":3,"claim_milli":87125,"block_disinherit":true},
                 "consort":{"name":"Vale","country_of_origin":1,"female":true,"birth_date":{"year":1415,"month":1,"day":1},"historical_death_date":{"year":1450,"month":1,"day":1}}},
-            "1": {"ruler":{"name":"Council","regent":true,"administration":0,"diplomacy":0,"military":0}}
+            "1": {"statuses":{"client_nation":false,"colonial_nation":false,"federation_nation":false,"revolution_target":false},"ruler":{"name":"Council","regent":true,"administration":0,"diplomacy":0,"military":0}}
         },
         "relations": [
             {"kind":"alliance","first":0,"second":1},

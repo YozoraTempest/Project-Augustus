@@ -28,6 +28,9 @@ pub struct PersonState {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CountryPolitics {
+    /// Explicit political facts. Missing entries and None both mean unknown.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub statuses: BTreeMap<String, Option<bool>>,
     pub ruler: Option<PersonState>,
     pub heir: Option<PersonState>,
     pub consort: Option<PersonState>,
@@ -75,6 +78,14 @@ pub struct Politics {
 }
 
 impl Politics {
+    pub fn status(&self, entity: EntityId, name: &str) -> Option<bool> {
+        self.countries
+            .get(&entity)?
+            .statuses
+            .get(name)
+            .copied()
+            .flatten()
+    }
     pub fn is_empty(&self) -> bool {
         self.countries.is_empty() && self.relations.is_empty() && self.offices.is_empty()
     }
@@ -88,6 +99,9 @@ impl Politics {
         };
         for (&id, state) in &self.countries {
             country(id)?;
+            if state.statuses.keys().any(String::is_empty) {
+                return Err(Error::Invalid("empty political status".into()));
+            }
             for person in [&state.ruler, &state.heir, &state.consort]
                 .into_iter()
                 .flatten()

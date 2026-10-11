@@ -19,6 +19,7 @@ use sha2::{Digest, Sha256};
 
 use crate::administration::{AdministrationDraft, AdministrationReport};
 use crate::attributes::{ATTRIBUTE_NAMES, AttributeDraft, AttributeReport};
+use crate::country_status::CountryStatusDraft;
 use crate::economy::{EconomyDraft, EconomyReport};
 use crate::governments::{GovernmentDraft, GovernmentReport};
 use crate::ideas::{IdeaDraft, IdeaReport};
@@ -398,6 +399,7 @@ impl VanillaWorld {
         }
         let mut economy = EconomyDraft::load(&root, &files, &mut report.economy)?;
         let mut governments = GovernmentDraft::load(&root, &files, &mut report.governments)?;
+        let mut status_draft = CountryStatusDraft::load(&root, &files, &mut report.ideas)?;
         let mut ideas = IdeaDraft::load(&root, &files, &mut report.ideas)?;
         let mut setup = SetupDraft::load(&root, &files, &mut report.setup)?;
         let attribute_draft = AttributeDraft::load(&root, &files, &mut report.attributes)?;
@@ -452,6 +454,7 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
+                status_draft.country_history(&parsed, reader.clone(), &id, &mut report.ideas)?;
                 ideas.country_history(&parsed, reader.clone(), &id, &mut report.ideas)?;
                 governments.country_history(
                     &parsed,
@@ -559,10 +562,6 @@ impl VanillaWorld {
         initial
             .set_affiliations(administration.affiliations(&initial))
             .map_err(|e| Error::caused_by(root.path(), e))?;
-        let ideas = ideas.bind(&initial, report.start_date, &mut report.ideas);
-        initial
-            .set_ideas(ideas)
-            .map_err(|e| Error::caused_by(root.path(), e))?;
         let attributes = attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
         let administration = administration.bind(
             &initial,
@@ -574,6 +573,14 @@ impl VanillaWorld {
         )?;
         initial
             .set_administration(administration)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        let politics = status_draft.bind(&initial, report.start_date, &mut report.ideas)?;
+        initial
+            .set_politics(politics)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        let ideas = ideas.bind(&initial, report.start_date, &mut report.ideas);
+        initial
+            .set_ideas(ideas)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         initial
             .set_attributes(attributes)
@@ -1073,7 +1080,10 @@ fn apply_country(
         let location = parsed.field_location(&key);
         let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
         match name.as_str() {
-            "legitimacy" | "add_government_reform" | "remove_government_reform" => (),
+            "legitimacy"
+            | "add_government_reform"
+            | "remove_government_reform"
+            | "revolution_target" => (),
             "monarch" | "heir" | "queen" | "monarch_consort" => {
                 equal(op, &fail)?;
                 let person = politics::person(parsed, value, &name, location, report)?;

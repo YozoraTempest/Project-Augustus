@@ -18,6 +18,8 @@ fn world() -> World {
     world.set_capital(a, capital).unwrap();
     let administration = Administration {
         areas: ["shared".into()].into_iter().collect(),
+        regions: Default::default(),
+        superregions: Default::default(),
         country_areas: [
             (
                 a,
@@ -76,6 +78,87 @@ fn query(world: &World, entity: usize) -> augustus_core::AdministrationEvaluatio
         .administration()
         .evaluate(world, EntityId(entity))
         .unwrap()
+}
+
+#[test]
+fn geographic_membership_is_shared_live_and_validated_on_replace_and_restore() {
+    let mut world = world();
+    let mut administration = world.administration().clone();
+    administration.areas.insert("remote".into());
+    administration.regions = [
+        ("home".into(), ["shared".into()].into_iter().collect()),
+        ("away".into(), ["remote".into()].into_iter().collect()),
+    ]
+    .into_iter()
+    .collect();
+    administration.superregions = [("continent".into(), ["home".into()].into_iter().collect())]
+        .into_iter()
+        .collect();
+    world.set_administration(administration.clone()).unwrap();
+    assert_eq!(
+        world.administration().in_region(EntityId(3), "home"),
+        Some(true)
+    );
+    assert_eq!(
+        world.administration().in_region(EntityId(3), "away"),
+        Some(false)
+    );
+    assert_eq!(
+        world
+            .administration()
+            .in_superregion(EntityId(3), "continent"),
+        Some(true)
+    );
+    assert_eq!(
+        world.administration().in_region(EntityId(3), "missing"),
+        None
+    );
+    assert_eq!(world.administration().in_region(EntityId(0), "home"), None);
+    let save = world.save("geography").unwrap();
+    assert_eq!(
+        world,
+        World::restore(&save, "geography", world.schema()).unwrap()
+    );
+    administration.provinces.get_mut(&EntityId(3)).unwrap().area = Some("remote".into());
+    world.set_administration(administration.clone()).unwrap();
+    assert_eq!(
+        world
+            .administration()
+            .in_superregion(EntityId(3), "continent"),
+        Some(false)
+    );
+    let before = world.clone();
+    for invalid in 0..3 {
+        let mut invalid_groups = administration.clone();
+        match invalid {
+            0 => {
+                invalid_groups
+                    .regions
+                    .get_mut("away")
+                    .unwrap()
+                    .insert("shared".into());
+            }
+            1 => {
+                invalid_groups
+                    .regions
+                    .get_mut("home")
+                    .unwrap()
+                    .insert("missing".into());
+            }
+            _ => {
+                invalid_groups
+                    .superregions
+                    .get_mut("continent")
+                    .unwrap()
+                    .insert("missing".into());
+            }
+        }
+        assert!(world.set_administration(invalid_groups).is_err());
+        assert_eq!(world, before);
+    }
+    let mut corrupt: serde_json::Value = serde_json::from_str(&save).unwrap();
+    corrupt["administration"]["superregions"]["continent"] = serde_json::json!(["missing"]);
+    assert!(World::restore(&corrupt.to_string(), "geography", world.schema()).is_err());
 }
 
 fn administrative_attributes() -> Attributes {
