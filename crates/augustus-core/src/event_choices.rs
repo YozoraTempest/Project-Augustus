@@ -34,6 +34,7 @@ pub struct EventCatalog {
     conditions: Arc<BTreeMap<String, crate::Condition>>,
     option_conditions: Arc<BTreeMap<String, BTreeMap<String, crate::Condition>>>,
     once_events: Arc<BTreeSet<String>>,
+    pictures: Arc<BTreeMap<String, crate::EventPictures>>,
 }
 
 impl EventCatalog {
@@ -60,6 +61,7 @@ impl EventCatalog {
             conditions: Arc::default(),
             option_conditions: Arc::default(),
             once_events: Arc::default(),
+            pictures: Arc::default(),
         })
     }
 
@@ -119,12 +121,35 @@ impl EventCatalog {
         &self.once_events
     }
 
+    pub fn with_pictures(
+        mut self,
+        pictures: BTreeMap<String, crate::EventPictures>,
+    ) -> Result<Self, Error> {
+        for (event, definition) in &pictures {
+            self.get(event)?;
+            definition.validate_keys()?;
+        }
+        self.pictures = Arc::new(pictures);
+        Ok(self)
+    }
+
+    pub fn pictures(&self) -> &BTreeMap<String, crate::EventPictures> {
+        &self.pictures
+    }
+
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
-        for condition in self.conditions.values().chain(
-            self.option_conditions
+        for condition in
+            self.conditions
                 .values()
-                .flat_map(|options| options.values()),
-        ) {
+                .chain(
+                    self.option_conditions
+                        .values()
+                        .flat_map(|options| options.values()),
+                )
+                .chain(self.pictures.values().flat_map(|pictures| {
+                    pictures.variants.iter().map(|variant| &variant.condition)
+                }))
+        {
             crate::world::validate_condition(
                 condition,
                 world.schema(),
@@ -188,14 +213,28 @@ pub(crate) struct EventQueue {
     pending: Vec<PendingEvent>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     fired: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pictures: BTreeMap<PendingEventId, Option<String>>,
 }
 
 impl EventQueue {
     pub(crate) fn is_empty(&self) -> bool {
-        self.next_id == 0 && self.pending.is_empty() && self.fired.is_empty()
+        self.next_id == 0
+            && self.pending.is_empty()
+            && self.fired.is_empty()
+            && self.pictures.is_empty()
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
+        if self
+            .pictures
+            .keys()
+            .any(|id| !self.pending.iter().any(|pending| pending.id == *id))
+        {
+            return Err(Error::Invalid(
+                "picture refers to an unknown pending event".into(),
+            ));
+        }
         if self.next_id > 0 && world.event_catalog.definitions.is_empty() {
             return Err(Error::Invalid(
                 "event content is required to restore this session".into(),
@@ -219,6 +258,18 @@ impl EventQueue {
             }
             previous = Some(pending.id);
             let definition = world.event_catalog.get(&pending.event)?;
+            match (
+                world.event_catalog.pictures.get(&pending.event),
+                self.pictures.get(&pending.id),
+            ) {
+                (None, None) => (),
+                (Some(pictures), Some(key)) if pictures.contains(key.as_deref()) => (),
+                _ => {
+                    return Err(Error::Invalid(
+                        "invalid saved event picture selection".into(),
+                    ));
+                }
+            }
             if world.entity(pending.current)?.kind != definition.scope {
                 return Err(Error::Invalid("invalid saved event scope".into()));
             }
@@ -306,6 +357,24 @@ impl World {
         &self.event_queue.pending
     }
 
+    /// The picture selected at dispatch, retained even if display conditions
+    /// subsequently change. This returns a resource key, not a rendered asset.
+    pub fn pending_event_picture(&self, id: PendingEventId) -> Result<Option<&str>, Error> {
+        if !self
+            .event_queue
+            .pending
+            .iter()
+            .any(|pending| pending.id == id)
+        {
+            return Err(Error::Invalid(format!("unknown pending event {}", id.0)));
+        }
+        Ok(self
+            .event_queue
+            .pictures
+            .get(&id)
+            .and_then(|key| key.as_deref()))
+    }
+
     /// Read current availability without executing effects or consuming randomness.
     pub fn available_event_options(&self, id: PendingEventId) -> Result<Vec<&EventOption>, Error> {
         self.require_running()?;
@@ -386,6 +455,15 @@ impl World {
             .checked_add(1)
             .ok_or(Error::Overflow)?;
         self.execute_inner(current, &definition.immediate, budget, depth)?;
+        let picture = catalog
+            .pictures
+            .get(event)
+            .map(|pictures| {
+                pictures
+                    .select(self, current)
+                    .map(|key| key.map(str::to_owned))
+            })
+            .transpose()?;
         // Nested immediate effects can append their own pending records first.
         let id = PendingEventId(self.event_queue.next_id);
         let next_id = id.0.checked_add(1).ok_or(Error::Overflow)?;
@@ -396,6 +474,9 @@ impl World {
             current,
             day: self.day(),
         });
+        if let Some(picture) = picture {
+            self.event_queue.pictures.insert(id, picture);
+        }
         // Registration follows immediate execution, including any nested dispatches.
         if catalog.once_events.contains(event) {
             self.event_queue.fired.insert(event.into());
@@ -424,6 +505,7 @@ impl World {
             .ok_or_else(|| Error::Invalid(format!("unknown event option {}", choice.option)))?;
         self.execute_phases(current, &[&option.effects, &definition.after])?;
         self.event_queue.pending.remove(index);
+        self.event_queue.pictures.remove(&choice.pending);
         Ok(())
     }
 }

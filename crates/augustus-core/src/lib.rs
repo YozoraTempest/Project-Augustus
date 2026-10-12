@@ -16,6 +16,7 @@ mod estate_actions;
 mod estate_initialization;
 mod estates;
 mod event_choices;
+mod event_pictures;
 mod governments;
 mod ideas;
 mod initial;
@@ -56,6 +57,7 @@ pub use estates::{
 pub use event_choices::{
     EventCatalog, EventChoice, EventDefinition, EventOption, PendingEvent, PendingEventId,
 };
+pub use event_pictures::{EventPictures, PictureVariant};
 pub use governments::{
     GovernmentContribution, GovernmentEvaluation, GovernmentMetric, GovernmentReform,
     GovernmentState, Governments,

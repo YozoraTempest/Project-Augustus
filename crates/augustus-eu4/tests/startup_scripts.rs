@@ -42,6 +42,96 @@ fn fixture() -> tempfile::TempDir {
 }
 
 #[test]
+fn startup_event_pictures_are_attached_to_the_shared_catalog_and_saved_after_immediate() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={events={picture.start}}",
+    );
+    write(
+        temp.path(),
+        "events/pictures.txt",
+        "country_event={id=picture.start is_triggered_only=yes picture={trigger={has_country_flag=ready} picture=ready} picture=waiting immediate={set_country_flag=ready country_event={id=picture.clear days=1}} option={name=ok}} country_event={id=picture.clear is_triggered_only=yes immediate={clr_country_flag=ready} option={name=ok}}",
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.pending_startup_effects.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    let id = loaded
+        .initial
+        .world()
+        .pending_events()
+        .iter()
+        .find(|pending| pending.current == EntityId(0))
+        .unwrap()
+        .id;
+    assert_eq!(
+        loaded.initial.world().pending_event_picture(id).unwrap(),
+        Some("ready")
+    );
+    loaded.advance(1).unwrap();
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .has_marker(EntityId(0), "ready")
+            .unwrap()
+    );
+    assert_eq!(
+        loaded.initial.world().pending_event_picture(id).unwrap(),
+        Some("ready")
+    );
+    let save = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&save).unwrap();
+    assert_eq!(restored.save().unwrap(), save);
+    assert_eq!(
+        restored.initial.world().pending_event_picture(id).unwrap(),
+        Some("ready")
+    );
+}
+
+#[test]
+fn a_changed_unselected_picture_is_still_different_effective_startup_content() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={events={picture.start}}",
+    );
+    let text = "country_event={id=picture.start is_triggered_only=yes picture=first picture={trigger={always=no} picture=unselected} option={name=ok}}";
+    write(temp.path(), "events/pictures.txt", text);
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let save = loaded.save().unwrap();
+    write(
+        temp.path(),
+        "events/pictures.txt",
+        &text.replace("picture=unselected", "picture=changed"),
+    );
+    let mut changed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.initial.world().pending_events(),
+        changed.initial.world().pending_events()
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .pending_event_picture(PendingEventId(0))
+            .unwrap(),
+        changed
+            .initial
+            .world()
+            .pending_event_picture(PendingEventId(0))
+            .unwrap()
+    );
+    assert!(changed.restore(&save).is_err());
+}
+
+#[test]
 fn startup_macros_bind_first_declarations_and_discover_delayed_event_dependencies() {
     let temp = fixture();
     // Nested definitions are outside the loader's direct-file view.

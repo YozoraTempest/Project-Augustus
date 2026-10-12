@@ -81,6 +81,8 @@ pub struct PendingChoiceView {
     pub event: String,
     pub current: EntityId,
     pub day: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
     pub options: Vec<String>,
     /// Declared duration labels in available options; effect conditions are not evaluated.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -129,11 +131,12 @@ impl EventDemo {
     pub fn embedded(input: Input) -> Result<Self, Error> {
         let scene: Scene =
             serde_json::from_str(include_str!("../../../examples/events/scene.json"))?;
-        let (definitions, conditions, once_events, option_conditions) = match input {
+        let (definitions, conditions, once_events, option_conditions, pictures) = match input {
             Input::Native => (
                 serde_json::from_str(include_str!("../../../examples/events/events.json"))?,
                 BTreeMap::new(),
                 Default::default(),
+                BTreeMap::new(),
                 BTreeMap::new(),
             ),
             Input::Eu4 => {
@@ -165,6 +168,7 @@ impl EventDemo {
                     compiled.conditions,
                     compiled.once_events,
                     compiled.option_conditions,
+                    compiled.pictures,
                 )
             }
         };
@@ -174,6 +178,7 @@ impl EventDemo {
             conditions,
             once_events,
             option_conditions,
+            pictures,
         )
     }
 
@@ -185,7 +190,7 @@ impl EventDemo {
                 .map_err(|error| Error::Invalid(error.to_string()))
         };
         let scene: Scene = serde_json::from_str(&read_json("scene.json")?)?;
-        let (definitions, conditions, once_events, option_conditions) = match input {
+        let (definitions, conditions, once_events, option_conditions, pictures) = match input {
             Input::Native => {
                 let conditions = if root.path().join("conditions.json").exists() {
                     serde_json::from_str(&read_json("conditions.json")?)?
@@ -202,11 +207,17 @@ impl EventDemo {
                 } else {
                     BTreeMap::new()
                 };
+                let pictures = if root.path().join("pictures.json").exists() {
+                    serde_json::from_str(&read_json("pictures.json")?)?
+                } else {
+                    BTreeMap::new()
+                };
                 (
                     serde_json::from_str(&read_json("events.json")?)?,
                     conditions,
                     once_events,
                     option_conditions,
+                    pictures,
                 )
             }
             Input::Eu4 => {
@@ -246,6 +257,7 @@ impl EventDemo {
                     compiled.conditions,
                     compiled.once_events,
                     compiled.option_conditions,
+                    compiled.pictures,
                 )
             }
         };
@@ -255,6 +267,7 @@ impl EventDemo {
             conditions,
             once_events,
             option_conditions,
+            pictures,
         )
     }
 
@@ -264,6 +277,7 @@ impl EventDemo {
         conditions: BTreeMap<String, augustus_core::Condition>,
         once_events: std::collections::BTreeSet<String>,
         option_conditions: BTreeMap<String, BTreeMap<String, augustus_core::Condition>>,
+        pictures: BTreeMap<String, augustus_core::EventPictures>,
     ) -> Result<Self, Error> {
         if scene.version != 1 || scene.entities.is_empty() {
             return Err(Error::Invalid(
@@ -273,9 +287,20 @@ impl EventDemo {
         let catalog = EventCatalog::new(definitions)?
             .with_conditions(conditions)?
             .with_option_conditions(option_conditions)?
+            .with_pictures(pictures)?
             .with_once_events(once_events)?;
         // Canonical effective content, including initial state and compiled plans.
-        let content = if !catalog.option_conditions().is_empty() {
+        let content = if !catalog.pictures().is_empty() {
+            serde_json::to_string(&(
+                "augustus-events:1",
+                &scene,
+                catalog.definitions(),
+                catalog.conditions(),
+                catalog.once_events(),
+                catalog.option_conditions(),
+                catalog.pictures(),
+            ))?
+        } else if !catalog.option_conditions().is_empty() {
             serde_json::to_string(&(
                 "augustus-events:1",
                 &scene,
@@ -485,6 +510,10 @@ impl EventDemo {
                     event: pending.event.clone(),
                     current: pending.current,
                     day: pending.day,
+                    picture: self
+                        .world
+                        .pending_event_picture(pending.id)?
+                        .map(str::to_owned),
                     options: options.iter().map(|option| option.id.clone()).collect(),
                     modifier_duration_labels,
                     description_keys,

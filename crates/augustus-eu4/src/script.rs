@@ -7,8 +7,8 @@ use std::{
 };
 
 use augustus_core::{
-    Action, Condition, EntityKind, EventDefinition, EventOption, FieldId, Plan, Schema,
-    ScopeSelector, Target,
+    Action, Condition, EntityKind, EventDefinition, EventOption, EventPictures, FieldId,
+    PictureVariant, Plan, Schema, ScopeSelector, Target,
 };
 use jomini::{
     TextToken,
@@ -244,6 +244,7 @@ pub struct CompiledEvents {
     pub definitions: Vec<EventDefinition>,
     pub conditions: BTreeMap<String, Condition>,
     pub option_conditions: BTreeMap<String, BTreeMap<String, Condition>>,
+    pub pictures: BTreeMap<String, EventPictures>,
     pub once_events: BTreeSet<String>,
     pub sources: Vec<(PathBuf, SourceLocation)>,
     pub folded_branches: usize,
@@ -680,6 +681,7 @@ impl<'a> ScriptCompiler<'a> {
         let mut definitions = Vec::new();
         let mut conditions = BTreeMap::new();
         let mut option_conditions = BTreeMap::new();
+        let mut pictures = BTreeMap::new();
         let mut once_events = BTreeSet::new();
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
@@ -710,9 +712,10 @@ impl<'a> ScriptCompiler<'a> {
             let mut condition = None;
             let mut once = false;
             let mut guarded_options = BTreeMap::new();
+            let mut picture_variants = Vec::new();
             for part in field.block()? {
                 self.sources.push((part.path.clone(), part.location));
-                if part.name != "option" && !seen.insert(&part.name) {
+                if !matches!(part.name.as_str(), "option" | "picture") && !seen.insert(&part.name) {
                     return Err(part.error(format!("duplicate event field {}", part.name)));
                 }
                 match part.name.as_str() {
@@ -724,9 +727,10 @@ impl<'a> ScriptCompiler<'a> {
                         }
                     }
                     "fire_only_once" => once = boolean(part)?,
-                    "title" | "desc" | "picture" => {
+                    "title" | "desc" => {
                         part.scalar()?;
                     }
+                    "picture" => picture_variants.push(self.event_picture(part, scope)?),
                     "immediate" => definition.immediate = self.effects(part.block()?, scope)?,
                     "trigger" => condition = Some(self.conditions(part.block()?, scope)?),
                     "after" => definition.after = self.effects(part.block()?, scope)?,
@@ -768,6 +772,21 @@ impl<'a> ScriptCompiler<'a> {
             }
             if !explicit || definition.id.is_empty() || definition.options.is_empty() {
                 return Err(field.error("event requires id, is_triggered_only=yes and options"));
+            }
+            if !picture_variants.is_empty() {
+                let fallback = Some(picture_variants[0].key.clone());
+                if pictures
+                    .insert(
+                        definition.id.clone(),
+                        EventPictures {
+                            variants: picture_variants,
+                            fallback,
+                        },
+                    )
+                    .is_some()
+                {
+                    return Err(field.error("duplicate event picture identifier"));
+                }
             }
             if let Some(condition) = condition
                 && conditions
@@ -812,10 +831,48 @@ impl<'a> ScriptCompiler<'a> {
             definitions,
             conditions,
             option_conditions,
+            pictures,
             once_events,
             sources: std::mem::take(&mut self.sources),
             folded_branches: self.folded,
         })
+    }
+
+    fn event_picture(&mut self, field: &Field, scope: EntityKind) -> Result<PictureVariant, Error> {
+        let (key, condition) = match &field.value {
+            Value::Scalar(key) => (key.clone(), Condition::All(Vec::new())),
+            _ => {
+                let mut key = None;
+                let mut condition = None;
+                for part in field.block()? {
+                    self.sources.push((part.path.clone(), part.location));
+                    match part.name.as_str() {
+                        "picture" if key.is_none() => key = Some(part.scalar()?.to_owned()),
+                        "trigger" if condition.is_none() => {
+                            condition = Some(self.conditions(part.block()?, scope)?);
+                        }
+                        "picture" | "trigger" => {
+                            return Err(
+                                part.error(format!("duplicate picture field {}", part.name))
+                            );
+                        }
+                        _ => {
+                            return Err(
+                                part.error(format!("unsupported picture field {}", part.name))
+                            );
+                        }
+                    }
+                }
+                (
+                    key.ok_or_else(|| field.error("conditional picture requires picture"))?,
+                    condition.ok_or_else(|| field.error("conditional picture requires trigger"))?,
+                )
+            }
+        };
+        if key.trim().is_empty() {
+            return Err(field.error("empty event picture key"));
+        }
+        Ok(PictureVariant { key, condition })
     }
 
     fn bind(&self, field: &Field, name: &str) -> Result<FieldId, Error> {

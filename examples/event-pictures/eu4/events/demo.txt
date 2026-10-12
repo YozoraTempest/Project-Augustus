@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+namespace = pictures
+country_event = {
+    id = pictures.start
+    is_triggered_only = yes
+    picture = { trigger = { has_country_flag = ready } picture = council_ready }
+    picture = { trigger = { NOT = { has_country_flag = ready } } picture = council_waiting }
+    immediate = { set_country_flag = ready country_event = { id = pictures.clear days = 1 } }
+    option = { name = accept }
+}
+country_event = {
+    id = pictures.clear
+    is_triggered_only = yes
+    immediate = { clr_country_flag = ready }
+    option = { name = accept }
+}
+country_event = {
+    id = pictures.later
+    is_triggered_only = yes
+    picture = { trigger = { has_country_flag = ready } picture = council_ready }
+    picture = { trigger = { NOT = { has_country_flag = ready } } picture = council_waiting }
+    option = { name = accept }
+}
+country_event = {
+    id = pictures.fallback
+    is_triggered_only = yes
+    picture = { trigger = { always = no } picture = first_declared }
+    picture = { trigger = { always = no } picture = second_declared }
+    option = { name = accept }
+}
+country_event = {
+    id = pictures.mixed
+    is_triggered_only = yes
+    picture = unconditional
+    picture = { trigger = { always = yes } picture = conditional }
+    option = { name = accept }
+}

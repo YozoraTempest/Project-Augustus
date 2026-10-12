@@ -1,0 +1,122 @@
+{
+  "pictures.start": {
+    "variants": [
+      {
+        "key": "council_ready",
+        "condition": {
+          "All": [
+            {
+              "HasMarker": {
+                "target": "Current",
+                "name": "ready"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "key": "council_waiting",
+        "condition": {
+          "All": [
+            {
+              "Not": {
+                "All": [
+                  {
+                    "HasMarker": {
+                      "target": "Current",
+                      "name": "ready"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "fallback": "council_ready"
+  },
+  "pictures.later": {
+    "variants": [
+      {
+        "key": "council_ready",
+        "condition": {
+          "All": [
+            {
+              "HasMarker": {
+                "target": "Current",
+                "name": "ready"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "key": "council_waiting",
+        "condition": {
+          "All": [
+            {
+              "Not": {
+                "All": [
+                  {
+                    "HasMarker": {
+                      "target": "Current",
+                      "name": "ready"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "fallback": "council_ready"
+  },
+  "pictures.fallback": {
+    "variants": [
+      {
+        "key": "first_declared",
+        "condition": {
+          "All": [
+            {
+              "Always": false
+            }
+          ]
+        }
+      },
+      {
+        "key": "second_declared",
+        "condition": {
+          "All": [
+            {
+              "Always": false
+            }
+          ]
+        }
+      }
+    ],
+    "fallback": "first_declared"
+  },
+  "pictures.mixed": {
+    "variants": [
+      {
+        "key": "unconditional",
+        "condition": {
+          "All": []
+        }
+      },
+      {
+        "key": "conditional",
+        "condition": {
+          "All": [
+            {
+              "Always": true
+            }
+          ]
+        }
+      }
+    ],
+    "fallback": "unconditional"
+  }
+}

@@ -1,0 +1,90 @@
+[
+  {
+    "id": "pictures.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "SetMarker": {
+          "target": "Current",
+          "name": "ready",
+          "present": true
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "pictures.clear"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "pictures.clear",
+    "scope": "Country",
+    "immediate": [
+      {
+        "SetMarker": {
+          "target": "Current",
+          "name": "ready",
+          "present": false
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "pictures.later",
+    "scope": "Country",
+    "immediate": [],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "pictures.fallback",
+    "scope": "Country",
+    "immediate": [],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "pictures.mixed",
+    "scope": "Country",
+    "immediate": [],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]
