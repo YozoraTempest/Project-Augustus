@@ -443,8 +443,14 @@ impl Attributes {
                 scope,
                 property,
             } => {
-                let member = attribute_target(world, entity, *target)?
-                    .and_then(|other| world.affiliations().member(dimension, other));
+                let selected = attribute_target(world, entity, *target)?;
+                if selected.is_some_and(|other| {
+                    world.affiliations().present(dimension, other) == Some(false)
+                }) {
+                    return Ok((values, true));
+                }
+                let member =
+                    selected.and_then(|other| world.affiliations().member(dimension, other));
                 if let Some(member) = member {
                     let prefix = format!("affiliation:{dimension}:{scope}:{member}");
                     if let Some(data) = self

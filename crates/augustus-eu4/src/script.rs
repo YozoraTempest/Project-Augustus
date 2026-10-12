@@ -260,6 +260,7 @@ pub struct ScriptCompiler<'a> {
     mission_ids: BTreeSet<String>,
     modifier_ids: BTreeSet<String>,
     government_metric_ids: BTreeSet<String>,
+    religious_school_groups: BTreeMap<String, Option<String>>,
     hidden_descriptions: bool,
 }
 
@@ -276,6 +277,7 @@ impl<'a> ScriptCompiler<'a> {
             mission_ids: BTreeSet::new(),
             modifier_ids: BTreeSet::new(),
             government_metric_ids: BTreeSet::new(),
+            religious_school_groups: BTreeMap::new(),
             hidden_descriptions: false,
         }
     }
@@ -344,6 +346,94 @@ impl<'a> ScriptCompiler<'a> {
     pub fn with_government_metric_ids(mut self, ids: BTreeSet<String>) -> Self {
         self.government_metric_ids = ids;
         self
+    }
+
+    pub fn with_religious_school_groups(
+        mut self,
+        groups: BTreeMap<String, Option<String>>,
+    ) -> Self {
+        self.religious_school_groups = groups;
+        self
+    }
+
+    fn school_operands<'b>(&self, field: &'b Field) -> Result<(&'b str, &'b str), Error> {
+        let body = field.block()?;
+        if body.len() != 2
+            || body.iter().filter(|part| part.name == "group").count() != 1
+            || body.iter().filter(|part| part.name == "school").count() != 1
+        {
+            return Err(field.error("religious school requires exactly one group and one school"));
+        }
+        let group = body.iter().find(|part| part.name == "group").unwrap();
+        let school = body.iter().find(|part| part.name == "school").unwrap();
+        for operand in [group, school] {
+            let name = operand.scalar()?;
+            if name.trim().is_empty()
+                || name
+                    .chars()
+                    .any(|c| matches!(c, '$' | '@' | ':' | '.' | '[' | ']'))
+                || matches!(name, "ROOT" | "FROM" | "PREV" | "THIS")
+            {
+                return Err(operand.error("religious school requires literal identifiers"));
+            }
+        }
+        Ok((group.scalar()?, school.scalar()?))
+    }
+
+    fn branch_chain(
+        &mut self,
+        fields: &[Field],
+        index: &mut usize,
+        scope: EntityKind,
+    ) -> Result<Plan, Error> {
+        let mut branches = Vec::new();
+        loop {
+            let field = &fields[*index];
+            if field.name == "else_if" {
+                self.sources.push((field.path.clone(), field.location));
+            }
+            let body = field.block()?;
+            let limit = body
+                .first()
+                .filter(|part| part.name == "limit")
+                .ok_or_else(|| field.error("if requires a leading limit block"))?;
+            branches.push((
+                self.conditions(limit.block()?, scope)?,
+                self.effects(&body[1..], scope)?,
+            ));
+            if fields
+                .get(*index + 1)
+                .is_some_and(|next| next.name == "else_if")
+            {
+                *index += 1;
+            } else {
+                break;
+            }
+        }
+        let mut otherwise = if fields
+            .get(*index + 1)
+            .is_some_and(|next| next.name == "else")
+        {
+            *index += 1;
+            self.effects(fields[*index].block()?, scope)?
+        } else {
+            Vec::new()
+        };
+        for (condition, then) in branches.into_iter().rev() {
+            if self.optimise
+                && let Some(value) = constant(&condition)
+            {
+                self.folded += 1;
+                otherwise = if value { then } else { otherwise };
+            } else {
+                otherwise = vec![Action::If {
+                    condition,
+                    then,
+                    otherwise,
+                }];
+            }
+        }
+        Ok(otherwise)
     }
 
     fn government_metric(&self, field: &Field, scope: EntityKind, name: &str) -> Result<(), Error> {
@@ -760,6 +850,37 @@ impl<'a> ScriptCompiler<'a> {
                         name: name.into(),
                     });
                 }
+                "set_religious_school" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("religious school effects require country scope"));
+                    }
+                    let (group, school) = self.school_operands(field)?;
+                    match self.religious_school_groups.get(school) {
+                        Some(Some(registered)) if registered == group => (),
+                        Some(Some(_)) => {
+                            return Err(
+                                field.error("religious school group does not match its definition")
+                            );
+                        }
+                        Some(None) => {
+                            return Err(field.error("ambiguous religious school definition"));
+                        }
+                        None => return Err(field.error("unregistered religious school definition")),
+                    }
+                    plan.push(Action::If {
+                        condition: Condition::AffiliationGroup {
+                            target: Target::Current,
+                            dimension: "religion".into(),
+                            group: group.into(),
+                        },
+                        then: vec![Action::SetAffiliation {
+                            target: Target::Current,
+                            dimension: "religious_school".into(),
+                            member: Some(school.into()),
+                        }],
+                        otherwise: Vec::new(),
+                    });
+                }
                 "complete_mission" => plan.push(Action::RecordCompletion {
                     id: self.mission_id(field, scope)?,
                 }),
@@ -925,34 +1046,7 @@ impl<'a> ScriptCompiler<'a> {
                     });
                 }
                 "if" => {
-                    let body = field.block()?;
-                    let limit = body
-                        .first()
-                        .filter(|limit| limit.name == "limit")
-                        .ok_or_else(|| field.error("if requires a leading limit block"))?;
-                    let condition = self.conditions(limit.block()?, scope)?;
-                    let then = self.effects(&body[1..], scope)?;
-                    let otherwise = if fields
-                        .get(index + 1)
-                        .is_some_and(|next| next.name == "else")
-                    {
-                        index += 1;
-                        self.effects(fields[index].block()?, scope)?
-                    } else {
-                        Vec::new()
-                    };
-                    if self.optimise
-                        && let Some(value) = constant(&condition)
-                    {
-                        self.folded += 1;
-                        plan.extend(if value { then } else { otherwise });
-                    } else {
-                        plan.push(Action::If {
-                            condition,
-                            then,
-                            otherwise,
-                        });
-                    }
+                    plan.extend(self.branch_chain(fields, &mut index, scope)?);
                 }
                 name if self.library.effects.contains_key(name) => {
                     if field.scalar()? != "yes" {
@@ -1031,21 +1125,10 @@ impl<'a> ScriptCompiler<'a> {
                     if scope != EntityKind::Country {
                         return Err(field.error("religious school conditions require country scope"));
                     }
-                    let body = field.block()?;
-                    if body.len() != 2 || body.iter().filter(|v| v.name == "group").count() != 1 || body.iter().filter(|v| v.name == "school").count() != 1 {
-                        return Err(field.error("religious school requires exactly one group and one school"));
-                    }
-                    let group = body.iter().find(|v| v.name == "group").unwrap();
-                    let school = body.iter().find(|v| v.name == "school").unwrap();
-                    for operand in [group, school] {
-                        let name = operand.scalar()?;
-                        if name.trim().is_empty() || name.chars().any(|c| matches!(c, '$' | '@' | ':' | '.' | '[' | ']')) || matches!(name, "ROOT" | "FROM" | "PREV" | "THIS") {
-                            return Err(operand.error("religious school requires literal identifiers"));
-                        }
-                    }
+                    let (group, school) = self.school_operands(field)?;
                     Condition::All(vec![
-                        Condition::AffiliationMember { target: Target::Current, dimension: "religious_school".into(), member: school.scalar()?.into() },
-                        Condition::AffiliationGroup { target: Target::Current, dimension: "religious_school".into(), group: group.scalar()?.into() },
+                        Condition::AffiliationMember { target: Target::Current, dimension: "religious_school".into(), member: school.into() },
+                        Condition::AffiliationGroup { target: Target::Current, dimension: "religious_school".into(), group: group.into() },
                     ])
                 }
                 "religion" | "religion_group" => {

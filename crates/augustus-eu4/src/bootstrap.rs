@@ -648,6 +648,9 @@ impl VanillaWorld {
                 .keys()
                 .cloned()
                 .collect(),
+            initial.world().affiliations().0["religious_school"]
+                .groups
+                .clone(),
             &mut report.estates,
         )?;
         let estates = estates.bind(&initial, &mut report.estates)?;

@@ -39,6 +39,7 @@
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_tax_modifier"},
+              {"kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_tax_modifier"},
               {"kind": "static", "definition": "city", "property": "local_tax_modifier"}
             ]
           }
@@ -64,6 +65,7 @@
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"},
+              {"kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"},
               {"kind": "static", "definition": "city", "property": "local_manpower_modifier"}
             ]
           }
@@ -94,6 +96,7 @@
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_tax_modifier"},
+              {"kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_tax_modifier"},
               {"kind": "static", "definition": "city", "property": "local_tax_modifier"}
             ]
           },
@@ -120,6 +123,7 @@
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"},
+              {"kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"},
               {"kind": "static", "definition": "city", "property": "local_manpower_modifier"}
             ]
           },
@@ -152,7 +156,8 @@
               {"kind": "government", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
-              {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_tax_modifier"}
+              {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_tax_modifier"},
+              {"kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_tax_modifier"}
             ]
           }
         ],
@@ -176,7 +181,8 @@
               {"kind": "government", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
-              {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"}
+              {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"},
+              {"kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"}
             ]
           }
         ],
@@ -205,7 +211,8 @@
               {"kind": "government", "target": "Owner", "property": "global_tax_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_tax_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_tax_modifier"},
-              {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_tax_modifier"}
+              {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_tax_modifier"},
+              {"kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_tax_modifier"}
             ]
           },
           {"flat": [], "rates": [{"kind": "autonomy"}]}
@@ -230,7 +237,8 @@
               {"kind": "government", "target": "Owner", "property": "global_manpower_modifier"},
               {"kind": "affiliation_relation", "dimension": "culture", "target": "Owner", "definitions": {"same_group": "same_culture_group", "other_group": "non_accepted_culture"}, "property": "local_manpower_modifier"},
               {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_manpower_modifier"},
-              {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"}
+              {"kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"},
+              {"kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_manpower_modifier"}
             ]
           },
           {"flat": [], "rates": [{"kind": "autonomy"}]}
@@ -241,5 +249,5 @@
       }
     }
   },
-  "affiliation_modifiers": {"religion": {"country": {"test_faith": {"modifier": {"values_micros": {}, "flags": {}}, "unresolved_properties": []}}, "province": {"test_faith": {"modifier": {"values_micros": {}, "flags": {}}, "unresolved_properties": []}}}}
+  "affiliation_modifiers": {"religious_school": {"country": {}}, "religion": {"country": {"test_faith": {"modifier": {"values_micros": {}, "flags": {}}, "unresolved_properties": []}}, "province": {"test_faith": {"modifier": {"values_micros": {}, "flags": {}}, "unresolved_properties": []}}}}
 }

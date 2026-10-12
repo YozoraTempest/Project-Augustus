@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "affiliations": {
+    "religion": {
+      "groups": {
+        "first_faith": "family",
+        "other_faith": "other"
+      },
+      "members": {
+        "0": "first_faith",
+        "1": "other_faith"
+      },
+      "absent_members": [],
+      "acceptance": {}
+    },
+    "religious_school": {
+      "groups": {
+        "first": "family",
+        "second": "family"
+      },
+      "members": {},
+      "absent_members": [
+        0,
+        1
+      ],
+      "acceptance": {}
+    }
+  },
+  "attributes": {
+    "static_modifiers": {},
+    "building_modifiers": {},
+    "trade_good_modifiers": {},
+    "affiliation_modifiers": {
+      "religious_school": {
+        "country": {
+          "first": {
+            "modifier": {
+              "values_micros": {
+                "global_tax_modifier": 250000
+              },
+              "flags": {}
+            },
+            "unresolved_properties": []
+          },
+          "second": {
+            "modifier": {
+              "values_micros": {
+                "global_tax_modifier": -500000
+              },
+              "flags": {}
+            },
+            "unresolved_properties": []
+          }
+        }
+      }
+    },
+    "formulas": {
+      "0": {
+        "yield": {
+          "base": {
+            "kind": "constant",
+            "micros": 1000000
+          },
+          "channels": [
+            {
+              "flat": [],
+              "rates": [
+                {
+                  "kind": "affiliation_modifiers",
+                  "dimension": "religious_school",
+                  "target": "Current",
+                  "scope": "country",
+                  "property": "global_tax_modifier"
+                }
+              ]
+            }
+          ],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        }
+      },
+      "1": {
+        "yield": {
+          "base": {
+            "kind": "constant",
+            "micros": 1000000
+          },
+          "channels": [
+            {
+              "flat": [],
+              "rates": [
+                {
+                  "kind": "affiliation_modifiers",
+                  "dimension": "religious_school",
+                  "target": "Current",
+                  "scope": "country",
+                  "property": "global_tax_modifier"
+                }
+              ]
+            }
+          ],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        }
+      }
+    }
+  }
+}

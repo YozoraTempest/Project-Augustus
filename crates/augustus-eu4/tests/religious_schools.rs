@@ -46,6 +46,228 @@ fn presence() -> Condition {
 }
 
 #[test]
+fn startup_school_effects_use_first_matching_branch_and_live_attribute_definitions() {
+    let temp = fixture("religion=test_faith");
+    write(
+        temp.path(),
+        "common/religions/test.txt",
+        "test_religions={test_faith={} related_faith={} religious_schools={first={global_tax_modifier=0.25 picture=icon on_invite_scholar={log=unused}} second={global_tax_modifier=-0.5}}} remote_group={remote_faith={}}",
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        r#"on_startup={
+        if={limit={tag=AAA} set_religious_school={group=test_religions school=first} country_event={id=schools.change}}
+        else_if={limit={always=yes} set_religious_school={group=test_religions school=second}}
+    }"#,
+    );
+    write(
+        temp.path(),
+        "events/test.txt",
+        r#"
+        country_event={id=schools.change is_triggered_only=yes trigger={tag=AAA}
+            immediate={
+                if={limit={religious_school={group=test_religions school=first}} set_religious_school={group=test_religions school=second}}
+                else_if={limit={religious_school={group=test_religions school=second}} set_religious_school={group=test_religions school=first}}
+            } option={name=Continue country_event={id=schools.later days=1}}}
+        country_event={id=schools.later is_triggered_only=yes trigger={religious_school={group=test_religions school=second}}
+            immediate={set_religious_school={group=test_religions school=first}} option={name=Continue}}
+    "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.pending_startup_effects.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    assert_eq!(loaded.report.attributes.religious_school_definitions, 2);
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let province = loaded.initial.province_entity(2).unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .affiliations()
+            .member("religious_school", country),
+        Some("second")
+    );
+    let query = |world: &augustus_core::World| {
+        world
+            .attributes()
+            .evaluate(world, province, "tax_basis")
+            .unwrap()
+    };
+    let second = query(loaded.initial.world());
+    assert!(second.steps[0].contributions.iter().any(|c| c.source
+        == "affiliation:religious_school:country:second"
+        && c.micros == -500_000));
+    loaded
+        .initial
+        .choose_event(&augustus_core::EventChoice {
+            pending: augustus_core::PendingEventId(0),
+            option: "0".into(),
+        })
+        .unwrap();
+    let mut resumed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    resumed.restore(&loaded.save().unwrap()).unwrap();
+    for state in [&mut loaded, &mut resumed] {
+        state.advance(1).unwrap();
+        let first = query(state.initial.world());
+        assert_eq!(
+            state
+                .initial
+                .world()
+                .affiliations()
+                .member("religious_school", country),
+            Some("first")
+        );
+        assert!(first.steps[0].contributions.iter().any(|c| c.source
+            == "affiliation:religious_school:country:first"
+            && c.micros == 250_000));
+        assert!(
+            !first
+                .unresolved
+                .iter()
+                .any(|reason| reason.contains("on_invite_scholar"))
+        );
+        assert_eq!(
+            first.steps[0].rate_micros - second.steps[0].rate_micros,
+            750_000
+        );
+    }
+    assert_eq!(loaded.save().unwrap(), resumed.save().unwrap());
+}
+
+#[test]
+fn school_effects_validate_every_branch_and_reject_unknown_or_ambiguous_definitions() {
+    let schema = Schema::new(["value"]).unwrap();
+    let library = ScriptLibrary::new();
+    for effect in [
+        "set_religious_school=first",
+        "set_religious_school={group=family school=missing}",
+        "set_religious_school={group=other school=first}",
+        "set_religious_school={group=family school=ambiguous}",
+        "set_religious_school={group=family school=first extra=yes}",
+        "set_religious_school={group=family school=ROOT}",
+    ] {
+        let document = TextDocument::from_bytes(
+            "self-authored-effects.txt",
+            format!(
+                "if={{limit={{always=yes}} log=selected}} else_if={{limit={{always=no}} {effect}}}"
+            )
+            .into_bytes(),
+            TextEncoding::Utf8,
+        );
+        let error = ScriptCompiler::new(&schema, &library, true)
+            .with_religious_school_groups(
+                [
+                    ("first".into(), Some("family".into())),
+                    ("ambiguous".into(), None),
+                ]
+                .into(),
+            )
+            .compile(&document, EntityKind::Country)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("self-authored-effects.txt:1:"), "{error}");
+    }
+    let document = TextDocument::from_bytes(
+        "self-authored-effects.txt",
+        b"set_religious_school={group=family school=first}".to_vec(),
+        TextEncoding::Utf8,
+    );
+    assert!(
+        ScriptCompiler::new(&schema, &library, true)
+            .with_religious_school_groups([("first".into(), Some("family".into()))].into())
+            .compile(&document, EntityKind::Province)
+            .is_err()
+    );
+}
+
+#[test]
+fn school_attribute_ambiguities_taint_only_the_referenced_property() {
+    let temp = fixture("religion=test_faith religious_school=first");
+    write(
+        temp.path(),
+        "common/religions/test.txt",
+        "test_religions={test_faith={} related_faith={} religious_schools={first={global_tax_modifier=0.1 global_tax_modifier=0.2 global_manpower_modifier=0.3}}}",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let province = loaded.initial.province_entity(2).unwrap();
+    let query = |name| {
+        loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(loaded.initial.world(), province, name)
+            .unwrap()
+    };
+    assert!(
+        query("tax_basis")
+            .unresolved
+            .iter()
+            .any(|reason| reason.contains("global_tax_modifier"))
+    );
+    assert!(
+        !query("manpower_contribution")
+            .unresolved
+            .iter()
+            .any(|reason| reason.contains("global_tax_modifier"))
+    );
+    write(
+        temp.path(),
+        "common/religions/duplicate.txt",
+        "test_religions={religious_schools={first={global_tax_modifier=0.9}}}",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .report
+            .attributes
+            .ambiguous_definitions
+            .contains_key("religious_schools:first")
+    );
+    assert!(
+        !loaded.initial.world().attributes().affiliation_modifiers["religious_school"]["country"]
+            .contains_key("first")
+    );
+}
+
+#[test]
+fn unsupported_school_property_values_are_not_silently_treated_as_zero() {
+    let temp = fixture("religion=test_faith religious_school=first");
+    write(
+        temp.path(),
+        "common/religions/test.txt",
+        "test_religions={test_faith={} related_faith={} religious_schools={first={global_tax_modifier=unknown global_manpower_modifier=0.3}}}",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let province = loaded.initial.province_entity(2).unwrap();
+    let query = |name| {
+        loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(loaded.initial.world(), province, name)
+            .unwrap()
+    };
+    assert!(
+        query("tax_basis")
+            .unresolved
+            .iter()
+            .any(|reason| reason.contains("global_tax_modifier"))
+    );
+    assert!(
+        query("manpower_contribution").steps[0]
+            .contributions
+            .iter()
+            .any(
+                |c| c.source == "affiliation:religious_school:country:first" && c.micros == 300_000
+            )
+    );
+}
+
+#[test]
 fn history_order_dates_and_group_changes_match_live_school_state() {
     for (history, school) in [
         ("religious_school=first religion=test_faith", None),

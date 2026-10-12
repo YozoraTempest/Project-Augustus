@@ -31,6 +31,7 @@ pub struct AttributeReport {
     pub building_definitions: usize,
     pub trade_good_definitions: usize,
     pub religion_definitions: usize,
+    pub religious_school_definitions: usize,
     pub province_calculations: usize,
     pub manpower_per_base_micros: i64,
     pub definition_sources: BTreeMap<String, LoadedSource>,
@@ -57,6 +58,21 @@ impl PropertyDiagnostics for AttributeReport {
             .entry(key)
             .or_insert_with(|| vec![first])
             .push(next);
+    }
+}
+
+struct SchoolProperties<'a> {
+    report: &'a mut AttributeReport,
+    unresolved: BTreeSet<String>,
+}
+
+impl PropertyDiagnostics for SchoolProperties<'_> {
+    fn unsupported(&mut self, parsed: &ParsedText<'_>, kind: &str, name: &str, at: SourceLocation) {
+        self.unresolved.insert(name.into());
+        self.report.unsupported(parsed, kind, name, at);
+    }
+    fn ambiguous(&mut self, key: String, first: LoadedSource, next: LoadedSource) {
+        self.report.ambiguous(key, first, next);
     }
 }
 
@@ -216,6 +232,7 @@ impl AttributeDraft {
         report.building_definitions = attributes.building_modifiers.len();
         report.trade_good_definitions = attributes.trade_good_modifiers.len();
         Self::religions(root, files, &mut attributes, report)?;
+        Self::religious_schools(root, files, &mut attributes, report)?;
         attributes.static_unresolved_properties = static_unresolved
             .iter()
             .filter(|(name, properties)| {
@@ -367,6 +384,12 @@ impl AttributeDraft {
                         property: property.into(),
                     });
                 }
+                channel.rates.push(AttributeTerm::AffiliationModifiers {
+                    dimension: "religious_school".into(),
+                    target: Target::Owner,
+                    scope: "country".into(),
+                    property: global_rate.into(),
+                });
                 if name == "tax_basis" {
                     channel.flat.push(AttributeTerm::AffiliationModifiers {
                         dimension: "religion".into(),
@@ -573,6 +596,102 @@ impl AttributeDraft {
         attributes
             .affiliation_modifiers
             .insert("religion".into(), scopes);
+        Ok(())
+    }
+
+    fn religious_schools(
+        root: &ContentRoot,
+        files: &[FileEntry],
+        attributes: &mut Attributes,
+        report: &mut AttributeReport,
+    ) -> Result<(), Error> {
+        let mut members = BTreeMap::new();
+        for file in files
+            .iter()
+            .filter(|file| direct_txt(&file.relative_path, "common/religions"))
+        {
+            let document = root.read_text(&file.relative_path, ENCODING)?;
+            let parsed = document.parse()?;
+            for (group, operator, value) in parsed.reader().fields() {
+                let fail = |message: &str| {
+                    Error::message(parsed.source(), message)
+                        .with_location(parsed.field_location(&group))
+                };
+                equal(operator, &fail)?;
+                for (_, operator, value) in block(&value, &fail)?
+                    .fields()
+                    .filter(|(key, _, _)| key.read_string() == "religious_schools")
+                {
+                    equal(operator, &fail)?;
+                    for (school, operator, value) in block(&value, &fail)?.fields() {
+                        let at = parsed.field_location(&school);
+                        let fail = |message: &str| {
+                            Error::message(parsed.source(), message).with_location(at)
+                        };
+                        equal(operator, &fail)?;
+                        let name = school.read_string();
+                        let identifier = format!("religious_schools:{name}");
+                        if let Some(origins) = report.ambiguous_definitions.get_mut(&identifier) {
+                            origins.push(source(&parsed, at));
+                            continue;
+                        }
+                        if let Some(first) = report.definition_sources.remove(&identifier) {
+                            members.remove(&name);
+                            report
+                                .ambiguous_definitions
+                                .insert(identifier, vec![first, source(&parsed, at)]);
+                            continue;
+                        }
+                        let kind = "religious_schools.country";
+                        let mut diagnostics = SchoolProperties {
+                            report,
+                            unresolved: BTreeSet::new(),
+                        };
+                        let modifier = properties(
+                            &parsed,
+                            block(&value, &fail)?,
+                            kind,
+                            &name,
+                            &mut diagnostics,
+                        )?;
+                        let mut unresolved_properties = diagnostics.unresolved;
+                        let prefix = format!("{kind}:{name}:");
+                        unresolved_properties.extend(
+                            report
+                                .ambiguous_properties
+                                .keys()
+                                .filter_map(|key| key.strip_prefix(&prefix).map(String::from)),
+                        );
+                        for property in modifier
+                            .values_micros
+                            .keys()
+                            .chain(modifier.flags.keys())
+                            .filter(|property| !used_property(property))
+                        {
+                            *report
+                                .unmapped_properties
+                                .entry(format!("{kind}:{property}"))
+                                .or_default() += 1;
+                        }
+                        members.insert(
+                            name,
+                            AffiliationEffect {
+                                modifier,
+                                unresolved_properties,
+                            },
+                        );
+                        report
+                            .definition_sources
+                            .insert(identifier, source(&parsed, at));
+                    }
+                }
+            }
+        }
+        report.religious_school_definitions = members.len();
+        attributes.affiliation_modifiers.insert(
+            "religious_school".into(),
+            [("country".into(), members)].into(),
+        );
         Ok(())
     }
 

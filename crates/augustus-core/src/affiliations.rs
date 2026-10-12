@@ -151,3 +151,34 @@ pub(crate) fn validate_condition(dimension: &str, value: Option<&str>) -> Result
     }
     Ok(())
 }
+
+impl World {
+    /// Set a registered member, or explicitly clear membership. Other dimensions
+    /// and acceptance policies remain independent of this operation.
+    pub fn set_affiliation_member(
+        &mut self,
+        entity: EntityId,
+        dimension: &str,
+        member: Option<&str>,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        self.entity(entity)?;
+        validate_condition(dimension, member)?;
+        let data = self.affiliations.0.get_mut(dimension).ok_or_else(|| {
+            Error::Invalid(format!("unregistered affiliation dimension {dimension}"))
+        })?;
+        if let Some(member) = member {
+            if !data.groups.contains_key(member) {
+                return Err(Error::Invalid(format!(
+                    "unregistered affiliation member {member}"
+                )));
+            }
+            data.members.insert(entity, Some(member.into()));
+            data.absent_members.remove(&entity);
+        } else {
+            data.members.remove(&entity);
+            data.absent_members.insert(entity);
+        }
+        Ok(())
+    }
+}

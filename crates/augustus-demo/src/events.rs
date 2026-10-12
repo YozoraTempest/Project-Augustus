@@ -47,6 +47,8 @@ struct Scene {
     administration: augustus_core::Administration,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     known_absent_targets: BTreeMap<EntityId, std::collections::BTreeSet<augustus_core::Target>>,
+    #[serde(default, skip_serializing_if = "augustus_core::Attributes::is_empty")]
+    attributes: augustus_core::Attributes,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -64,6 +66,8 @@ pub struct EventEntityView {
     pub name: String,
     pub kind: EntityKind,
     pub values: BTreeMap<String, i64>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub attributes: BTreeMap<String, augustus_core::AttributeEvaluation>,
 }
 
 #[derive(Debug, Serialize)]
@@ -135,6 +139,14 @@ impl EventDemo {
                 let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
                     .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
+                    .with_religious_school_groups(
+                        scene
+                            .affiliations
+                            .0
+                            .get("religious_school")
+                            .map(|data| data.groups.clone())
+                            .unwrap_or_default(),
+                    )
                     .with_mission_ids(scene.completions.identifiers.clone())
                     .with_global_scope_types(scene.global_scope_types.clone())
                     .compile_events(&document(
@@ -199,6 +211,14 @@ impl EventDemo {
                 let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
                     .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
+                    .with_religious_school_groups(
+                        scene
+                            .affiliations
+                            .0
+                            .get("religious_school")
+                            .map(|data| data.groups.clone())
+                            .unwrap_or_default(),
+                    )
                     .with_mission_ids(scene.completions.identifiers.clone())
                     .with_global_scope_types(scene.global_scope_types.clone())
                     .compile_events(&content.read_text("events/demo.txt", TextEncoding::Utf8)?)?;
@@ -304,6 +324,7 @@ impl EventDemo {
             world.set_country_controller(country, controller)?;
         }
         world.set_administration(scene.administration)?;
+        world.set_attributes(scene.attributes)?;
         for (current, targets) in scene.known_absent_targets {
             if targets.is_empty() {
                 return Err(Error::Invalid(
@@ -402,6 +423,20 @@ impl EventDemo {
                     name: entity.name.clone(),
                     kind: entity.kind,
                     values,
+                    attributes: self
+                        .world
+                        .attributes()
+                        .formulas
+                        .get(&EntityId(index))
+                        .into_iter()
+                        .flat_map(|formulas| formulas.keys())
+                        .map(|name| {
+                            self.world
+                                .attributes()
+                                .evaluate(&self.world, EntityId(index), name)
+                                .map(|value| (name.clone(), value))
+                        })
+                        .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?,
                 })
             })
             .collect::<Result<Vec<_>, augustus_core::Error>>()?;

@@ -123,6 +123,11 @@ pub enum Action {
         target: Target,
         name: String,
     },
+    SetAffiliation {
+        target: Target,
+        dimension: String,
+        member: Option<String>,
+    },
     UpdateNumeric {
         target: Target,
         slot: crate::NumericSlot,
@@ -466,6 +471,14 @@ impl World {
                 Action::RemoveModifier { target, name } => {
                     let entity = self.target(current, *target)?;
                     self.remove_modifier(entity, name)?;
+                }
+                Action::SetAffiliation {
+                    target,
+                    dimension,
+                    member,
+                } => {
+                    let entity = self.target(current, *target)?;
+                    self.set_affiliation_member(entity, dimension, member.as_deref())?;
                 }
                 Action::UpdateNumeric {
                     target,

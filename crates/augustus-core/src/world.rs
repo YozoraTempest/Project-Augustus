@@ -98,7 +98,7 @@ pub struct World {
     monthly_system_id: Option<String>,
     attributes: Attributes,
     administration: Administration,
-    affiliations: Affiliations,
+    pub(crate) affiliations: Affiliations,
     pub(crate) governments: Governments,
     ideas: Ideas,
     pub(crate) estates: crate::Estates,
@@ -866,6 +866,11 @@ pub(crate) fn validate_plan(
 ) -> Result<(), Error> {
     for action in plan {
         match action {
+            Action::SetAffiliation {
+                dimension, member, ..
+            } => {
+                crate::affiliations::validate_condition(dimension, member.as_deref())?;
+            }
             Action::Description { key, .. } => crate::plan::validate_description_key(key)?,
             Action::SetMarker { name, .. } => crate::markers::validate_name(name)?,
             Action::AttachModifier {

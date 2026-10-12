@@ -1,0 +1,24 @@
+{
+  "choice.later": {
+    "All": [
+      {
+        "All": [
+          {
+            "AffiliationMember": {
+              "target": "Current",
+              "dimension": "religious_school",
+              "member": "second"
+            }
+          },
+          {
+            "AffiliationGroup": {
+              "target": "Current",
+              "dimension": "religious_school",
+              "group": "family"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -192,6 +192,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 三个效果阶段复用已有编译器：`log`、绑定字段的国库操作、命名变量操作、`owner`、`capital_scope`、条件分支和无参数脚本调用。EU4 选项按声明顺序获得字符串标识 `0`、`1` 等；原生定义可以使用自己的选项标识。
 
+连续的 `if`、`else_if`、`else` 只执行首个成立的分支。`if` 和 `else_if` 都须以 `limit` 开头，后续分支必须紧邻；空的成立分支也会结束这条分支链。所有分支均须通过语法与引用检查，恒假或不会执行的分支不能藏有未支持内容。
+
 变量支持 `set_variable`、`change_variable`、`subtract_variable`、`multiply_variable`、`divide_variable`，以及 `check_variable` 的大于等于判断和 `is_variable_equal` 的相等判断。当前接受恰好一个 `which` 和一个字面 `value`，最多三位小数；动态名称、变量作为操作数和其他参数形式尚未支持。未显式绑定到状态字段的名称编译为命名状态；已有 `variable/名称` 字段绑定保持原执行计划与存档内容标识。除零、整数溢出和非法缩放会报错。
 
 原生数值操作使用 `UpdateNumeric`、`NumericCompare` 和 `NumericSlot::Named`，可通过 `NumericSlot::Field` 操作已有字段。乘除指令显式提供正整数 `scale`，结果向零截断。`NamedValues.entities` 的空对象声明该实体的变量空间已知为空，未赋值的名称读为零；缺少实体条目表示未知。`unknown_entities` 可保留其他名称未知，同时保存个别已确定值。`Set` 能写入一个已知值，其他运算需要先取得已知旧值。场景通过可选的 `named_values` 提供初始状态，保存恢复不会重复初始化。
@@ -209,6 +211,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 `religion = 字面宗教标识`、`religion_group = 字面分组标识` 支持国家和省份作用域，分别编译为核心 `AffiliationMember`、`AffiliationGroup`。查询从当前 `affiliations` 读取成员及其分组，不使用接受政策，也不缓存开局值。未知归属或分组会报错，不能通过取反变成已确定的真值。国家标签、省份编号、作用域引用、次要宗教、dominant 等特殊值和动态表达式尚未支持。自制场景、原生写法和交叉读档命令见 [宗教归属条件演示](../examples/affiliation-conditions/README.md)。
 
 国家作用域的 `has_religious_school = yes/no` 查询当前学派是否存在，`religious_school = { group = 字面宗教组 school = 字面学派 }` 同时比较所选学派及其分组。明确无学派与未知数据分别表示，原生内容复用 `AffiliationPresent`、成员和分组查询。输入格式、演示和当前限制见 [宗教学派查询演示](../examples/religious-schools/README.md)。
+
+`set_religious_school = { group = 字面宗教组 school = 字面学派 }` 支持国家作用域。当前国教属于指定组时设置或替换学派，其他已知宗教组不执行修改；未知国教组报错。学派须已注册且分组相符，重复或未注册定义使用严格诊断。独立编译器通过 `with_religious_school_groups` 提供定义，事件演示从场景的归属数据提供。原生内容使用 `SetAffiliation`，可设置已注册成员或以 `null` 明确清除归属；EU4 的分组限制由兼容编译器翻译成条件。跨输入保存和实时属性查询见 [学派变更演示](../examples/school-effects/README.md)。运行时宗教转换、学者邀请及清除学派的兼容语法尚未接入。
 
 `AND`、`OR`、`NOT` 及其小写写法可以嵌套，条件按声明顺序短路求值。多项 `NOT` 要求内部每项都不成立；未知触发器即使出现在常量分支中，也会报告编译错误。原生组合使用 `All`、`Any` 和 `Not`。
 

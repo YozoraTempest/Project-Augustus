@@ -40,6 +40,7 @@ struct Compiler {
     mission_ids: BTreeSet<String>,
     modifier_ids: BTreeSet<String>,
     government_metric_ids: BTreeSet<String>,
+    religious_school_groups: BTreeMap<String, Option<String>>,
     hidden_descriptions: bool,
 }
 
@@ -148,6 +149,7 @@ impl Compiler {
                     location,
                 )),
                 "country_event"
+                | "set_religious_school"
                 | "tooltip"
                 | "add_country_modifier"
                 | "set_variable"
@@ -161,6 +163,7 @@ impl Compiler {
                         .with_government_metric_ids(self.government_metric_ids.clone())
                         .with_mission_ids(self.mission_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())
+                        .with_religious_school_groups(self.religious_school_groups.clone())
                         .compile_effect_reader(
                             parsed,
                             &name,
@@ -368,6 +371,7 @@ impl EstateStartup {
         schema: &Schema,
         modifier_ids: BTreeSet<String>,
         government_metric_ids: BTreeSet<String>,
+        religious_school_groups: BTreeMap<String, Option<String>>,
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
         let mut compiler = Compiler {
@@ -382,6 +386,7 @@ impl EstateStartup {
             mission_ids: crate::missions::identifiers(root, files)?,
             modifier_ids,
             government_metric_ids,
+            religious_school_groups,
         };
         for file in files
             .iter()
@@ -1004,6 +1009,7 @@ fn load_events(
                 .with_government_metric_ids(compiler.government_metric_ids.clone())
                 .with_mission_ids(compiler.mission_ids.clone())
                 .with_modifier_ids(compiler.modifier_ids.clone())
+                .with_religious_school_groups(compiler.religious_school_groups.clone())
                 .compile_selected_events(&document, &requested)?;
             for definition in compiled.definitions {
                 if !found.insert(definition.id.clone()) {

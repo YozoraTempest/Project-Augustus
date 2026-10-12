@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace = choice
+country_event = {
+ id = choice.start is_triggered_only = yes
+ immediate = {
+  if = { limit = { always = yes } set_religious_school = { group = family school = first } }
+  else_if = { limit = { always = yes } set_religious_school = { group = family school = second } }
+  else = { log = unreachable }
+  log = first
+ }
+ option = {
+  name = change set_religious_school = { group = family school = second }
+  log = second country_event = { id = choice.later days = 1 }
+ }
+}
+country_event = {
+ id = choice.later is_triggered_only = yes
+ trigger = { religious_school = { group = family school = second } }
+ immediate = {
+  if = { limit = { religious_school = { group = family school = second } } set_religious_school = { group = family school = first } }
+  else_if = { limit = { religious_school = { group = family school = first } } set_religious_school = { group = family school = second } }
+  log = later
+ }
+ option = { name = finish log = done }
+}
+country_event = {
+ id = choice.foreign is_triggered_only = yes
+ immediate = { set_religious_school = { group = family school = first } log = foreign }
+ option = { name = continue }
+}

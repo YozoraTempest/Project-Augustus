@@ -1,0 +1,234 @@
+[
+  {
+    "id": "choice.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "AffiliationGroup": {
+              "target": "Current",
+              "dimension": "religion",
+              "group": "family"
+            }
+          },
+          "then": [
+            {
+              "SetAffiliation": {
+                "target": "Current",
+                "dimension": "religious_school",
+                "member": "first"
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "Emit": "first"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "If": {
+              "condition": {
+                "AffiliationGroup": {
+                  "target": "Current",
+                  "dimension": "religion",
+                  "group": "family"
+                }
+              },
+              "then": [
+                {
+                  "SetAffiliation": {
+                    "target": "Current",
+                    "dimension": "religious_school",
+                    "member": "second"
+                  }
+                }
+              ],
+              "otherwise": []
+            }
+          },
+          {
+            "Emit": "second"
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TryEvent": {
+                    "event": "choice.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "choice.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "AffiliationMember": {
+                      "target": "Current",
+                      "dimension": "religious_school",
+                      "member": "second"
+                    }
+                  },
+                  {
+                    "AffiliationGroup": {
+                      "target": "Current",
+                      "dimension": "religious_school",
+                      "group": "family"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "then": [
+            {
+              "If": {
+                "condition": {
+                  "AffiliationGroup": {
+                    "target": "Current",
+                    "dimension": "religion",
+                    "group": "family"
+                  }
+                },
+                "then": [
+                  {
+                    "SetAffiliation": {
+                      "target": "Current",
+                      "dimension": "religious_school",
+                      "member": "first"
+                    }
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ],
+          "otherwise": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "All": [
+                        {
+                          "AffiliationMember": {
+                            "target": "Current",
+                            "dimension": "religious_school",
+                            "member": "first"
+                          }
+                        },
+                        {
+                          "AffiliationGroup": {
+                            "target": "Current",
+                            "dimension": "religious_school",
+                            "group": "family"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "If": {
+                      "condition": {
+                        "AffiliationGroup": {
+                          "target": "Current",
+                          "dimension": "religion",
+                          "group": "family"
+                        }
+                      },
+                      "then": [
+                        {
+                          "SetAffiliation": {
+                            "target": "Current",
+                            "dimension": "religious_school",
+                            "member": "second"
+                          }
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Emit": "later"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "done"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "choice.foreign",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "AffiliationGroup": {
+              "target": "Current",
+              "dimension": "religion",
+              "group": "family"
+            }
+          },
+          "then": [
+            {
+              "SetAffiliation": {
+                "target": "Current",
+                "dimension": "religious_school",
+                "member": "first"
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "Emit": "foreign"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

@@ -16,6 +16,54 @@ fn document(text: &str) -> TextDocument {
 }
 
 #[test]
+fn branch_chains_select_one_path_with_and_without_constant_folding() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    let text = document(
+        "if={limit={always=no} log=wrong} else_if={limit={always=yes} log=second} else_if={limit={always=yes} log=wrong} else={log=wrong} if={limit={always=yes}} else_if={limit={always=yes} log=wrong} if={limit={always=no}} else_if={limit={always=no}} else={log=fallback} log=after",
+    );
+    for optimise in [false, true] {
+        let plan = ScriptCompiler::new(&schema, &library, optimise)
+            .compile(&text, EntityKind::Country)
+            .unwrap()
+            .plan;
+        let mut world = World::new(schema.clone());
+        let country = world.add_entity("AAA", EntityKind::Country);
+        world.execute(country, &plan).unwrap();
+        assert_eq!(
+            world
+                .events()
+                .iter()
+                .map(|e| e.2.as_str())
+                .collect::<Vec<_>>(),
+            ["second", "fallback", "after"]
+        );
+    }
+}
+
+#[test]
+fn detached_or_malformed_branches_are_rejected_even_after_an_always_true_branch() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    for text in [
+        "else_if={limit={always=yes}}",
+        "else={log=wrong}",
+        "if={limit={always=yes}} else_if={log=wrong}",
+        "if={limit={always=yes}} else_if={limit={always=no unknown=yes}}",
+        "if={limit={always=yes}} else_if={limit={always=no} unknown=yes}",
+        "if={limit={always=yes}} log=between else_if={limit={always=yes}}",
+        "if={limit={always=yes}} else={} else_if={limit={always=yes}}",
+    ] {
+        assert!(
+            ScriptCompiler::new(&schema, &library, true)
+                .compile(&document(text), EntityKind::Country)
+                .is_err(),
+            "{text}"
+        );
+    }
+}
+
+#[test]
 fn option_metadata_compiles_guards_without_pruning_effects_or_renumbering() {
     let schema = Schema::new(["unused"]).unwrap();
     let mut library = ScriptLibrary::new();
