@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 2,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": 3,
+      "values": {}
+    },
+    {
+      "name": "3",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "1",
+      "kind": "Province",
+      "owner": 1,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "2",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "modifiers": {
+    "definitions": {
+      "local": {
+        "values_micros": {
+          "local_tax_modifier": 125000
+        },
+        "flags": {}
+      }
+    },
+    "active": {
+      "2": {
+        "local": {
+          "hidden": null
+        }
+      }
+    }
+  }
+}

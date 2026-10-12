@@ -1,0 +1,46 @@
+{
+  "owned.start": {
+    "All": [
+      {
+        "AnyOwnedProvince": {
+          "target": "Current",
+          "condition": {
+            "All": [
+              {
+                "HasModifier": {
+                  "target": "Current",
+                  "name": "local"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "owned.later": {
+    "All": [
+      {
+        "Not": {
+          "All": [
+            {
+              "AnyOwnedProvince": {
+                "target": "Current",
+                "condition": {
+                  "All": [
+                    {
+                      "HasModifier": {
+                        "target": "Current",
+                        "name": "local"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

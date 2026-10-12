@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{EntityId, EntityKind, Error, Target, World};
 
 /// Derived from owner edges and explicit absence declarations; never persisted.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct OwnershipIndex {
-    counts: BTreeMap<EntityId, usize>,
+    members: BTreeMap<EntityId, BTreeSet<EntityId>>,
     unknown: usize,
 }
 
@@ -21,17 +21,26 @@ impl OwnershipIndex {
         self.unknown -= 1;
     }
 
-    pub(crate) fn assign(&mut self, previous: Option<EntityId>, unknown: bool, country: EntityId) {
+    pub(crate) fn assign(
+        &mut self,
+        province: EntityId,
+        previous: Option<EntityId>,
+        unknown: bool,
+        country: EntityId,
+    ) {
+        if previous == Some(country) {
+            return;
+        }
         if let Some(previous) = previous {
-            let count = self.counts.get_mut(&previous).expect("indexed owner");
-            *count -= 1;
-            if *count == 0 {
-                self.counts.remove(&previous);
+            let members = self.members.get_mut(&previous).expect("indexed owner");
+            members.remove(&province);
+            if members.is_empty() {
+                self.members.remove(&previous);
             }
         } else if unknown {
             self.resolve_absence();
         }
-        *self.counts.entry(country).or_default() += 1;
+        self.members.entry(country).or_default().insert(province);
     }
 }
 
@@ -44,7 +53,7 @@ impl World {
                 "province ownership query requires a country".into(),
             ));
         }
-        if self.ownership.counts.contains_key(&country) {
+        if self.ownership.members.contains_key(&country) {
             Ok(true)
         } else if self.ownership.unknown == 0 {
             Ok(false)
@@ -55,6 +64,33 @@ impl World {
         }
     }
 
+    /// Search known members without scanning unrelated provinces. A positive
+    /// match is sufficient; a negative result requires complete owner edges.
+    pub fn any_owned_province(
+        &self,
+        country: EntityId,
+        condition: &crate::Condition,
+    ) -> Result<bool, Error> {
+        if self.entity(country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "province ownership query requires a country".into(),
+            ));
+        }
+        if let Some(members) = self.ownership.members.get(&country) {
+            for &province in members {
+                if condition.evaluate(self, province)? {
+                    return Ok(true);
+                }
+            }
+        }
+        if self.ownership.unknown != 0 {
+            return Err(Error::Invalid(
+                "unknown province ownership prevents an absence query".into(),
+            ));
+        }
+        Ok(false)
+    }
+
     pub(crate) fn rebuild_ownership(&mut self) {
         let mut index = OwnershipIndex::default();
         for (id, entity) in self.entities().iter().enumerate() {
@@ -62,7 +98,11 @@ impl World {
                 continue;
             }
             if let Some(country) = entity.owner {
-                *index.counts.entry(country).or_default() += 1;
+                index
+                    .members
+                    .entry(country)
+                    .or_default()
+                    .insert(EntityId(id));
             } else if !self
                 .known_absent_targets()
                 .get(&EntityId(id))

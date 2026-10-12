@@ -1509,6 +1509,15 @@ impl<'a> ScriptCompiler<'a> {
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "any_owned_province" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("owned province queries require country scope"));
+                    }
+                    Condition::AnyOwnedProvince {
+                        target: Target::Current,
+                        condition: Box::new(self.conditions(field.block()?, EntityKind::Province)?),
+                    }
+                }
                 "devastation" => {
                     self.devastation_scope(field, scope)?;
                     Condition::NumericCompare {

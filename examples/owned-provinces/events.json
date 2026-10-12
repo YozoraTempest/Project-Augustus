@@ -1,0 +1,241 @@
+[
+  {
+    "id": "owned.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "AnyOwnedProvince": {
+                  "target": "Current",
+                  "condition": {
+                    "All": [
+                      {
+                        "EntityNamed": {
+                          "target": "Current",
+                          "name": "3"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "found"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "AnyOwnedProvince": {
+                        "target": "Current",
+                        "condition": {
+                          "All": [
+                            {
+                              "EntityNamed": {
+                                "target": "Current",
+                                "name": "1"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "foreign"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "With": {
+                "target": "Owner",
+                "plan": [
+                  {
+                    "If": {
+                      "condition": {
+                        "All": [
+                          {
+                            "AnyOwnedProvince": {
+                              "target": "Current",
+                              "condition": {
+                                "All": [
+                                  {
+                                    "EntityNamed": {
+                                      "target": "Current",
+                                      "name": "3"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "then": [
+                        {
+                          "Emit": "owner"
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "InScope": {
+              "selector": {
+                "Named": {
+                  "kind": "Province",
+                  "name": "3"
+                }
+              },
+              "kind": "Province",
+              "plan": [
+                {
+                  "RemoveModifier": {
+                    "target": "Current",
+                    "name": "local"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "If": {
+              "condition": {
+                "All": [
+                  {
+                    "Not": {
+                      "All": [
+                        {
+                          "AnyOwnedProvince": {
+                            "target": "Current",
+                            "condition": {
+                              "All": [
+                                {
+                                  "HasModifier": {
+                                    "target": "Current",
+                                    "name": "local"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "Emit": "removed"
+                }
+              ],
+              "otherwise": []
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TryEvent": {
+                    "event": "owned.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "AnyOwnedProvince": {
+                        "target": "Current",
+                        "condition": {
+                          "All": [
+                            {
+                              "HasModifier": {
+                                "target": "Current",
+                                "name": "local"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "after"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "owned.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "later"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

@@ -481,7 +481,7 @@ impl World {
                 .get(&province)
                 .is_some_and(|targets| targets.contains(&Target::Owner));
         self.ownership
-            .assign(self.entities[province.0].owner, unknown, country);
+            .assign(province, self.entities[province.0].owner, unknown, country);
         self.entities[province.0].owner = Some(country);
         self.clear_absent_target(province, Target::Owner);
         Ok(())
@@ -1241,7 +1241,8 @@ pub(crate) fn validate_condition(
             "year condition requires a positive year".into(),
         )),
         crate::Condition::ScopeIsCurrent(selector) => selector.validate(),
-        crate::Condition::With { condition, .. } => validate_condition(
+        crate::Condition::With { condition, .. }
+        | crate::Condition::AnyOwnedProvince { condition, .. } => validate_condition(
             condition,
             schema,
             completions,

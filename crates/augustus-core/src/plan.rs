@@ -23,6 +23,10 @@ pub enum Condition {
     HasOwnedProvince {
         target: Target,
     },
+    AnyOwnedProvince {
+        target: Target,
+        condition: Box<Condition>,
+    },
     With {
         target: Target,
         kind: crate::EntityKind,
@@ -283,6 +287,9 @@ impl Condition {
             }
             Self::HasOwnedProvince { target } => {
                 world.has_owned_province(world.target(current, *target)?)
+            }
+            Self::AnyOwnedProvince { target, condition } => {
+                world.any_owned_province(world.target(current, *target)?, condition)
             }
             Self::With {
                 target,
