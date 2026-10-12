@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace=presence
+country_event={
+ id=presence.start is_triggered_only=yes
+ immediate={save_global_event_target_as=holder log=start}
+ option={name=active trigger={exists=yes exists=AAA NOT={exists=BBB}} log=active country_event={id=presence.later days=1}}
+ option={name=inactive trigger={exists=no} log=inactive}
+}
+country_event={id=presence.bind is_triggered_only=yes immediate={save_global_event_target_as=holder log=rebound} option={name=acknowledge}}
+country_event={id=presence.later is_triggered_only=yes trigger={event_target:holder={exists=no}} immediate={log=later} option={name=done trigger={event_target:holder={exists=no}} log=done}}
+province_event={id=presence.province is_triggered_only=yes immediate={if={limit={exists=no NOT={exists=yes} exists=AAA NOT={exists=BBB}} log=province}} option={name=acknowledge}}

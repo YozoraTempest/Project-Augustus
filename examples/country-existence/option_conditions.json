@@ -1,0 +1,87 @@
+{
+  "presence.start": {
+    "0": {
+      "All": [
+        {
+          "HasOwnedProvince": {
+            "target": "Current"
+          }
+        },
+        {
+          "InScope": {
+            "selector": {
+              "Named": {
+                "kind": "Country",
+                "name": "AAA"
+              }
+            },
+            "kind": "Country",
+            "condition": {
+              "HasOwnedProvince": {
+                "target": "Current"
+              }
+            }
+          }
+        },
+        {
+          "Not": {
+            "All": [
+              {
+                "InScope": {
+                  "selector": {
+                    "Named": {
+                      "kind": "Country",
+                      "name": "BBB"
+                    }
+                  },
+                  "kind": "Country",
+                  "condition": {
+                    "HasOwnedProvince": {
+                      "target": "Current"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "1": {
+      "All": [
+        {
+          "Not": {
+            "HasOwnedProvince": {
+              "target": "Current"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "presence.later": {
+    "0": {
+      "All": [
+        {
+          "InScope": {
+            "selector": {
+              "Global": "holder"
+            },
+            "kind": "Country",
+            "condition": {
+              "All": [
+                {
+                  "Not": {
+                    "HasOwnedProvince": {
+                      "target": "Current"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Home",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Sea",
+      "kind": "Province",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "known_absent_targets": {
+    "3": [
+      "Owner"
+    ]
+  },
+  "global_scope_types": {
+    "holder": "Country"
+  }
+}

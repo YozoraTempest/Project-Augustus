@@ -58,6 +58,31 @@ impl Condition {
                 let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
                 equal(op, &fail)?;
                 Ok(match name.as_str() {
+                    "exists" => {
+                        let schema =
+                            augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
+                        let library = crate::ScriptLibrary::new();
+                        match crate::ScriptCompiler::new(&schema, &library, true)
+                            .compile_scalar_condition_reader(
+                                parsed,
+                                &name,
+                                value
+                                    .read_string()
+                                    .map_err(|_| fail("expected existence operand"))?,
+                                at,
+                                if country {
+                                    augustus_core::EntityKind::Country
+                                } else {
+                                    augustus_core::EntityKind::Province
+                                },
+                            ) {
+                            Ok(condition) => Self::Scoped(condition),
+                            Err(error) => {
+                                report.unsupported(parsed, "trigger", &name, at);
+                                Self::Unknown(error.to_string())
+                            }
+                        }
+                    }
                     "ai" if country => {
                         let expected =
                             flag(&value.read_string().map_err(|_| fail("expected ai flag"))?)

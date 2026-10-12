@@ -1114,6 +1114,25 @@ impl<'a> ScriptCompiler<'a> {
                             else { augustus_core::CountryController::Human },
                     }
                 }
+                "exists" => {
+                    let value = field.scalar()?;
+                    let owned = Condition::HasOwnedProvince { target: Target::Current };
+                    match value {
+                        "yes" | "no" => {
+                            let condition = if scope == EntityKind::Country { owned }
+                                else { Condition::Always(false) };
+                            if value == "yes" { condition } else { Condition::Not(Box::new(condition)) }
+                        }
+                        tag if tag.len() == 3 && tag.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()) => {
+                            Condition::InScope {
+                                selector: ScopeSelector::Named { kind: EntityKind::Country, name: tag.into() },
+                                kind: EntityKind::Country,
+                                condition: Box::new(owned),
+                            }
+                        }
+                        _ => return Err(field.error("exists requires yes, no, or a literal three-character country identifier; dynamic operands are unsupported")),
+                    }
+                }
                 "has_religious_school" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("religious school conditions require country scope"));

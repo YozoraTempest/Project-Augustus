@@ -1,0 +1,167 @@
+[
+  {
+    "id": "presence.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "BindGlobalScope": {
+          "name": "holder"
+        }
+      },
+      {
+        "Emit": "start"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "active"
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TryEvent": {
+                    "event": "presence.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": [
+          {
+            "Emit": "inactive"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "presence.bind",
+    "scope": "Country",
+    "immediate": [
+      {
+        "BindGlobalScope": {
+          "name": "holder"
+        }
+      },
+      {
+        "Emit": "rebound"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "presence.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "later"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "done"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "presence.province",
+    "scope": "Province",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "Not": {
+                  "Always": false
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "Always": false
+                    }
+                  ]
+                }
+              },
+              {
+                "InScope": {
+                  "selector": {
+                    "Named": {
+                      "kind": "Country",
+                      "name": "AAA"
+                    }
+                  },
+                  "kind": "Country",
+                  "condition": {
+                    "HasOwnedProvince": {
+                      "target": "Current"
+                    }
+                  }
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "InScope": {
+                        "selector": {
+                          "Named": {
+                            "kind": "Country",
+                            "name": "BBB"
+                          }
+                        },
+                        "kind": "Country",
+                        "condition": {
+                          "HasOwnedProvince": {
+                            "target": "Current"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "province"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

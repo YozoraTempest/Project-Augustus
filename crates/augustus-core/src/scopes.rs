@@ -10,11 +10,15 @@ use crate::{EntityId, Error, World};
 pub enum ScopeSelector {
     Office(String),
     Global(String),
+    Named {
+        kind: crate::EntityKind,
+        name: String,
+    },
 }
 
 impl ScopeSelector {
     pub(crate) fn validate(&self) -> Result<(), Error> {
-        let (Self::Office(name) | Self::Global(name)) = self;
+        let (Self::Office(name) | Self::Global(name) | Self::Named { name, .. }) = self;
         validate_name(name)
     }
 }
@@ -41,6 +45,14 @@ impl World {
     ) -> Result<(), Error> {
         self.require_running()?;
         self.check_absent_target(current, target)?;
+        if target == crate::Target::Owner
+            && !self
+                .known_absent_targets
+                .get(&current)
+                .is_some_and(|targets| targets.contains(&target))
+        {
+            self.ownership.resolve_absence();
+        }
         self.known_absent_targets
             .entry(current)
             .or_default()
@@ -138,9 +150,26 @@ impl World {
     /// Absence is distinct from an invalid reference or a wrong entity type.
     pub fn resolve_scope(&self, selector: &ScopeSelector) -> Result<Option<EntityId>, Error> {
         selector.validate()?;
+        if let ScopeSelector::Named { kind, name } = selector {
+            let mut matches = self
+                .entity_names
+                .get(name)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|id| self.entities()[id.0].kind == *kind);
+            let Some(id) = matches.next() else {
+                return Err(Error::Invalid(format!("unregistered named entity {name}")));
+            };
+            if matches.next().is_some() {
+                return Err(Error::Invalid(format!("ambiguous named entity {name}")));
+            }
+            return Ok(Some(id));
+        }
         let selected = match selector {
             ScopeSelector::Office(name) => self.politics.offices.get(name),
             ScopeSelector::Global(name) => self.global_scopes.get(name),
+            ScopeSelector::Named { .. } => unreachable!("named scope resolved above"),
         };
         if let Some(&entity) = selected {
             self.entity(entity)?;

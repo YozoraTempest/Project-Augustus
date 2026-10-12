@@ -15,6 +15,9 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    HasOwnedProvince {
+        target: Target,
+    },
     With {
         target: Target,
         kind: crate::EntityKind,
@@ -218,6 +221,9 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::HasOwnedProvince { target } => {
+                world.has_owned_province(world.target(current, *target)?)
+            }
             Self::With {
                 target,
                 kind,

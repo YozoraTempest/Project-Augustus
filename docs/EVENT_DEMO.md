@@ -186,6 +186,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 ## 当前支持范围
 
+`exists` 支持字面国家标签和 `yes/no`，翻译为共享核心的领土查询。明确无领土、标签未登记与省份资料不完整分别处理；省份作用域的布尔写法不会隐式查询所有者。原生写法、命名目标块和跨输入保存恢复见 [国家领土条件演示](../examples/country-existence/README.md)。
+
 选项可声明独立的 `trigger`，原生内容在可选的 `option_conditions.json` 中提供相同条件。待选查询按当前状态筛选选项，保留原始标识；没有可用选项时返回空列表。选项命令执行有效的原始标识，不重新检查显示条件。国家作用域的 `ai = yes/no` 读取明确的控制身份，未指定时报告未知。自制场景、跨输入读档和查询／命令的职责见 [条件选项演示](../examples/conditional-options/README.md)。
 
 脚本输入支持显式触发的 `country_event`、`province_event`，要求 `id`、`is_triggered_only = yes` 和至少一个具备标量 `name` 的选项。`fire_only_once` 接受 `yes`、`no`，省略时允许重复触发。标量 `title`、`desc`、`picture` 可读取，但演示不展示本地化文字。事件标识按输入字符串保留；命名空间的数字登记和原版选项命令格式未实现。

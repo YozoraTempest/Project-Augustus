@@ -444,6 +444,7 @@ impl VanillaWorld {
         )?;
         let mut country_histories = BTreeSet::new();
         let mut province_histories = BTreeSet::new();
+        let mut unresolved_ownership = BTreeSet::new();
         let mut history_groups: BTreeMap<String, Vec<&Path>> = BTreeMap::new();
         for file in files
             .iter()
@@ -556,6 +557,9 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
+                if nested_owner(reader.clone(), 0) {
+                    unresolved_ownership.insert(id);
+                }
                 administration.province_history(
                     &parsed,
                     reader.clone(),
@@ -584,6 +588,26 @@ impl VanillaWorld {
             provinces.into_values().collect(),
         )
         .map_err(|e| Error::caused_by(root.path(), e))?;
+        let unowned = initial
+            .provinces()
+            .iter()
+            .filter(|province| {
+                province.owner.is_none()
+                    && !unresolved_ownership.contains(&province.id)
+                    && (province.class != ProvinceClass::Land
+                        || province_histories.contains(&province.id))
+            })
+            .map(|province| {
+                initial
+                    .province_entity(province.id)
+                    .expect("registered province")
+            })
+            .collect::<Vec<_>>();
+        for entity in unowned {
+            initial
+                .mark_target_absent(entity, augustus_core::Target::Owner)
+                .map_err(|e| Error::caused_by(root.path(), e))?;
+        }
         initial
             .set_markers(markers.bind(&initial))
             .map_err(|e| Error::caused_by(root.path(), e))?;
@@ -1285,6 +1309,24 @@ fn apply_country(
         }
     }
     Ok(())
+}
+
+// Dated blocks are visited separately. An unhandled conditional owner assignment
+// cannot establish that this province is unowned.
+fn nested_owner(reader: ObjectReader<'_, '_, TextEncoding>, depth: usize) -> bool {
+    if depth > 64 {
+        return true;
+    }
+    reader.fields().any(|(key, _, value)| {
+        let name = key.read_string();
+        !dated_name(&name)
+            && value.read_object().is_ok_and(|block| {
+                block
+                    .fields()
+                    .any(|(key, _, _)| key.read_string() == "owner")
+                    || nested_owner(block, depth + 1)
+            })
+    })
 }
 
 fn apply_province(

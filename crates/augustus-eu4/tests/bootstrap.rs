@@ -803,6 +803,11 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             ..Default::default()
         })
         .unwrap();
+    for index in 4..8 {
+        native
+            .mark_target_absent(augustus_core::EntityId(index), augustus_core::Target::Owner)
+            .unwrap();
+    }
     assert_eq!(loaded.initial.world(), &native);
     let earlier = VanillaWorld::load(fixture(), "1435.1.1").unwrap();
     assert_eq!(

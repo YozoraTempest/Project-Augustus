@@ -78,6 +78,8 @@ struct Task {
 pub struct World {
     schema: Schema,
     entities: Vec<Entity>,
+    pub(crate) ownership: crate::ownership::OwnershipIndex,
+    pub(crate) entity_names: BTreeMap<String, Vec<EntityId>>,
     day: u64,
     next_sequence: u64,
     tasks: BTreeMap<(u64, u64), Task>,
@@ -183,6 +185,8 @@ impl World {
         Self {
             schema,
             entities: Vec::new(),
+            ownership: crate::ownership::OwnershipIndex::default(),
+            entity_names: BTreeMap::new(),
             day: 0,
             next_sequence: 0,
             tasks: BTreeMap::new(),
@@ -436,8 +440,13 @@ impl World {
 
     pub fn add_entity(&mut self, name: impl Into<String>, kind: EntityKind) -> EntityId {
         let id = EntityId(self.entities.len());
+        let name = name.into();
+        self.entity_names.entry(name.clone()).or_default().push(id);
+        if kind == EntityKind::Province {
+            self.ownership.add_province();
+        }
         self.entities.push(Entity {
-            name: name.into(),
+            name,
             kind,
             owner: None,
             capital: None,
@@ -454,6 +463,13 @@ impl World {
                 "owner relation requires province and country".into(),
             ));
         }
+        let unknown = self.entities[province.0].owner.is_none()
+            && !self
+                .known_absent_targets
+                .get(&province)
+                .is_some_and(|targets| targets.contains(&Target::Owner));
+        self.ownership
+            .assign(self.entities[province.0].owner, unknown, country);
         self.entities[province.0].owner = Some(country);
         self.clear_absent_target(province, Target::Owner);
         Ok(())
@@ -685,6 +701,8 @@ impl World {
         let mut world = Self {
             schema: snapshot.schema,
             entities: snapshot.entities,
+            ownership: crate::ownership::OwnershipIndex::default(),
+            entity_names: BTreeMap::new(),
             day: snapshot.day,
             next_sequence: snapshot.next_sequence,
             tasks: BTreeMap::new(),
@@ -716,6 +734,14 @@ impl World {
             named_values: snapshot.named_values,
             markers: snapshot.markers,
         };
+        world.rebuild_ownership();
+        for (id, entity) in world.entities.iter().enumerate() {
+            world
+                .entity_names
+                .entry(entity.name.clone())
+                .or_default()
+                .push(EntityId(id));
+        }
         for rule in &world.rules {
             validate_plan(
                 rule,

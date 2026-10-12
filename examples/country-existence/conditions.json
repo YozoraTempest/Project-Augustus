@@ -1,0 +1,25 @@
+{
+  "presence.later": {
+    "All": [
+      {
+        "InScope": {
+          "selector": {
+            "Global": "holder"
+          },
+          "kind": "Country",
+          "condition": {
+            "All": [
+              {
+                "Not": {
+                  "HasOwnedProvince": {
+                    "target": "Current"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

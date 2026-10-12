@@ -186,6 +186,14 @@ impl InitialWorld {
         self.world.set_politics(politics)
     }
 
+    pub fn mark_target_absent(
+        &mut self,
+        current: EntityId,
+        target: crate::Target,
+    ) -> Result<(), Error> {
+        self.world.mark_target_absent(current, target)
+    }
+
     pub fn set_country_controller(
         &mut self,
         country: EntityId,
