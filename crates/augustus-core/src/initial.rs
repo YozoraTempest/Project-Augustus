@@ -294,6 +294,10 @@ impl InitialWorld {
             .advance_to(self.world.day().checked_add(days).ok_or(Error::Overflow)?)
     }
 
+    pub fn process_event_commands(&mut self) -> Result<(), Error> {
+        self.world.process_event_commands()
+    }
+
     pub fn restore(&mut self, snapshot: &str, content: &str) -> Result<(), Error> {
         let restored = World::restore_with_events(
             snapshot,

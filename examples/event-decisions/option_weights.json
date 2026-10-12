@@ -1,0 +1,58 @@
+{
+  "decisions.capture": {
+    "0": {
+      "base": 1000,
+      "unit": 1000,
+      "factor": 1000,
+      "modifiers": []
+    },
+    "1": {
+      "base": 1000,
+      "unit": 1000,
+      "factor": 1000,
+      "modifiers": []
+    }
+  },
+  "decisions.random": {
+    "0": {
+      "base": 1000,
+      "unit": 1000,
+      "factor": 1000,
+      "modifiers": [
+        {
+          "condition": {
+            "All": [
+              {
+                "HasMarker": {
+                  "target": "Current",
+                  "name": "gate"
+                }
+              }
+            ]
+          },
+          "factor": 2000
+        }
+      ]
+    },
+    "1": {
+      "base": 1000,
+      "unit": 1000,
+      "factor": 9000,
+      "modifiers": []
+    }
+  },
+  "decisions.zero": {
+    "0": {
+      "base": 1000,
+      "unit": 1000,
+      "factor": 0,
+      "modifiers": []
+    },
+    "1": {
+      "base": 1000,
+      "unit": 1000,
+      "factor": 0,
+      "modifiers": []
+    }
+  }
+}

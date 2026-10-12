@@ -71,6 +71,8 @@ struct Scene {
     attributes: augustus_core::Attributes,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     monthly_accruals: Option<augustus_core::MonthlyAccruals>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    event_decisions: Option<augustus_core::WeightedEventDecisions>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -111,6 +113,8 @@ pub struct PendingChoiceView {
 
 #[derive(Debug, Serialize)]
 pub struct EventView {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub queued_event_choices: Vec<EventChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub monthly_accruals: Option<augustus_core::MonthlyAccruals>,
     #[serde(skip_serializing_if = "augustus_core::Subjects::is_empty")]
@@ -158,51 +162,58 @@ impl EventDemo {
     pub fn embedded(input: Input) -> Result<Self, Error> {
         let scene: Scene =
             serde_json::from_str(include_str!("../../../examples/events/scene.json"))?;
-        let (definitions, conditions, once_events, option_conditions, pictures) = match input {
-            Input::Native => (
-                serde_json::from_str(include_str!("../../../examples/events/events.json"))?,
-                BTreeMap::new(),
-                Default::default(),
-                BTreeMap::new(),
-                BTreeMap::new(),
-            ),
-            Input::Eu4 => {
-                let schema = Schema::new(scene.fields.clone())?;
-                let mut library = ScriptLibrary::new();
-                library.add_effects(&document(
-                    "demo/effects.txt",
-                    include_str!("../../../examples/events/eu4/common/scripted_effects/demo.txt"),
-                ))?;
-                let compiled = ScriptCompiler::new(&schema, &library, true)
-                    .with_subject_type_ids(scene.subjects.types.clone())
-                    .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
-                    .with_government_form_ids(scene.governments.forms.keys().cloned().collect())
-                    .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
-                    .with_area_scopes(scene.area_scopes.clone())
-                    .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
-                    .with_religious_school_groups(
-                        scene
-                            .affiliations
-                            .0
-                            .get("religious_school")
-                            .map(|data| data.groups.clone())
-                            .unwrap_or_default(),
-                    )
-                    .with_mission_ids(scene.completions.identifiers.clone())
-                    .with_global_scope_types(scene.global_scope_types.clone())
-                    .compile_events(&document(
-                        "demo/events.txt",
-                        include_str!("../../../examples/events/eu4/events/demo.txt"),
+        let (definitions, conditions, once_events, option_conditions, pictures, option_weights) =
+            match input {
+                Input::Native => (
+                    serde_json::from_str(include_str!("../../../examples/events/events.json"))?,
+                    BTreeMap::new(),
+                    Default::default(),
+                    BTreeMap::new(),
+                    BTreeMap::new(),
+                    BTreeMap::new(),
+                ),
+                Input::Eu4 => {
+                    let schema = Schema::new(scene.fields.clone())?;
+                    let mut library = ScriptLibrary::new();
+                    library.add_effects(&document(
+                        "demo/effects.txt",
+                        include_str!(
+                            "../../../examples/events/eu4/common/scripted_effects/demo.txt"
+                        ),
                     ))?;
-                (
-                    compiled.definitions,
-                    compiled.conditions,
-                    compiled.once_events,
-                    compiled.option_conditions,
-                    compiled.pictures,
-                )
-            }
-        };
+                    let compiled = ScriptCompiler::new(&schema, &library, true)
+                        .with_subject_type_ids(scene.subjects.types.clone())
+                        .with_government_metric_ids(
+                            scene.governments.metrics.keys().cloned().collect(),
+                        )
+                        .with_government_form_ids(scene.governments.forms.keys().cloned().collect())
+                        .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
+                        .with_area_scopes(scene.area_scopes.clone())
+                        .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
+                        .with_religious_school_groups(
+                            scene
+                                .affiliations
+                                .0
+                                .get("religious_school")
+                                .map(|data| data.groups.clone())
+                                .unwrap_or_default(),
+                        )
+                        .with_mission_ids(scene.completions.identifiers.clone())
+                        .with_global_scope_types(scene.global_scope_types.clone())
+                        .compile_events(&document(
+                            "demo/events.txt",
+                            include_str!("../../../examples/events/eu4/events/demo.txt"),
+                        ))?;
+                    (
+                        compiled.definitions,
+                        compiled.conditions,
+                        compiled.once_events,
+                        compiled.option_conditions,
+                        compiled.pictures,
+                        compiled.option_weights,
+                    )
+                }
+            };
         Self::load(
             scene,
             definitions,
@@ -210,6 +221,7 @@ impl EventDemo {
             once_events,
             option_conditions,
             pictures,
+            option_weights,
         )
     }
 
@@ -221,81 +233,93 @@ impl EventDemo {
                 .map_err(|error| Error::Invalid(error.to_string()))
         };
         let scene: Scene = serde_json::from_str(&read_json("scene.json")?)?;
-        let (definitions, conditions, once_events, option_conditions, pictures) = match input {
-            Input::Native => {
-                let conditions = if root.path().join("conditions.json").exists() {
-                    serde_json::from_str(&read_json("conditions.json")?)?
-                } else {
-                    BTreeMap::new()
-                };
-                let once_events = if root.path().join("once_events.json").exists() {
-                    serde_json::from_str(&read_json("once_events.json")?)?
-                } else {
-                    Default::default()
-                };
-                let option_conditions = if root.path().join("option_conditions.json").exists() {
-                    serde_json::from_str(&read_json("option_conditions.json")?)?
-                } else {
-                    BTreeMap::new()
-                };
-                let pictures = if root.path().join("pictures.json").exists() {
-                    serde_json::from_str(&read_json("pictures.json")?)?
-                } else {
-                    BTreeMap::new()
-                };
-                (
-                    serde_json::from_str(&read_json("events.json")?)?,
-                    conditions,
-                    once_events,
-                    option_conditions,
-                    pictures,
-                )
-            }
-            Input::Eu4 => {
-                let content = ContentSet::resolve(vec![ContentSource::base(ContentRoot::open(
-                    root.path().join("eu4"),
-                )?)])?;
-                let library = ScriptLibrary::from_content(&content, TextEncoding::Utf8)?;
-                let schema = Schema::new(scene.fields.clone())?;
-                let casus_belli = augustus_eu4::CasusBelliTypes::from_content(
-                    &content,
-                    TextEncoding::Utf8,
-                    &schema,
-                    &library,
-                )?;
-                if casus_belli.definitions() != scene.justifications.definitions {
-                    return Err(Error::Invalid(
-                        "translated justification definitions do not match the scene".into(),
-                    ));
-                }
-                let compiled = ScriptCompiler::new(&schema, &library, true)
-                    .with_subject_type_ids(scene.subjects.types.clone())
-                    .with_casus_belli_types(casus_belli.types)
-                    .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
-                    .with_government_form_ids(scene.governments.forms.keys().cloned().collect())
-                    .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
-                    .with_area_scopes(scene.area_scopes.clone())
-                    .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
-                    .with_religious_school_groups(
-                        scene
-                            .affiliations
-                            .0
-                            .get("religious_school")
-                            .map(|data| data.groups.clone())
-                            .unwrap_or_default(),
+        let (definitions, conditions, once_events, option_conditions, pictures, option_weights) =
+            match input {
+                Input::Native => {
+                    let conditions = if root.path().join("conditions.json").exists() {
+                        serde_json::from_str(&read_json("conditions.json")?)?
+                    } else {
+                        BTreeMap::new()
+                    };
+                    let once_events = if root.path().join("once_events.json").exists() {
+                        serde_json::from_str(&read_json("once_events.json")?)?
+                    } else {
+                        Default::default()
+                    };
+                    let option_conditions = if root.path().join("option_conditions.json").exists() {
+                        serde_json::from_str(&read_json("option_conditions.json")?)?
+                    } else {
+                        BTreeMap::new()
+                    };
+                    let option_weights = if root.path().join("option_weights.json").exists() {
+                        serde_json::from_str(&read_json("option_weights.json")?)?
+                    } else {
+                        BTreeMap::new()
+                    };
+                    let pictures = if root.path().join("pictures.json").exists() {
+                        serde_json::from_str(&read_json("pictures.json")?)?
+                    } else {
+                        BTreeMap::new()
+                    };
+                    (
+                        serde_json::from_str(&read_json("events.json")?)?,
+                        conditions,
+                        once_events,
+                        option_conditions,
+                        pictures,
+                        option_weights,
                     )
-                    .with_mission_ids(scene.completions.identifiers.clone())
-                    .with_global_scope_types(scene.global_scope_types.clone())
-                    .compile_events(&content.read_text("events/demo.txt", TextEncoding::Utf8)?)?;
-                (
-                    compiled.definitions,
-                    compiled.conditions,
-                    compiled.once_events,
-                    compiled.option_conditions,
-                    compiled.pictures,
-                )
-            }
-        };
+                }
+                Input::Eu4 => {
+                    let content = ContentSet::resolve(vec![ContentSource::base(
+                        ContentRoot::open(root.path().join("eu4"))?,
+                    )])?;
+                    let library = ScriptLibrary::from_content(&content, TextEncoding::Utf8)?;
+                    let schema = Schema::new(scene.fields.clone())?;
+                    let casus_belli = augustus_eu4::CasusBelliTypes::from_content(
+                        &content,
+                        TextEncoding::Utf8,
+                        &schema,
+                        &library,
+                    )?;
+                    if casus_belli.definitions() != scene.justifications.definitions {
+                        return Err(Error::Invalid(
+                            "translated justification definitions do not match the scene".into(),
+                        ));
+                    }
+                    let compiled = ScriptCompiler::new(&schema, &library, true)
+                        .with_subject_type_ids(scene.subjects.types.clone())
+                        .with_casus_belli_types(casus_belli.types)
+                        .with_government_metric_ids(
+                            scene.governments.metrics.keys().cloned().collect(),
+                        )
+                        .with_government_form_ids(scene.governments.forms.keys().cloned().collect())
+                        .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
+                        .with_area_scopes(scene.area_scopes.clone())
+                        .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
+                        .with_religious_school_groups(
+                            scene
+                                .affiliations
+                                .0
+                                .get("religious_school")
+                                .map(|data| data.groups.clone())
+                                .unwrap_or_default(),
+                        )
+                        .with_mission_ids(scene.completions.identifiers.clone())
+                        .with_global_scope_types(scene.global_scope_types.clone())
+                        .compile_events(
+                            &content.read_text("events/demo.txt", TextEncoding::Utf8)?,
+                        )?;
+                    (
+                        compiled.definitions,
+                        compiled.conditions,
+                        compiled.once_events,
+                        compiled.option_conditions,
+                        compiled.pictures,
+                        compiled.option_weights,
+                    )
+                }
+            };
         Self::load(
             scene,
             definitions,
@@ -303,6 +327,7 @@ impl EventDemo {
             once_events,
             option_conditions,
             pictures,
+            option_weights,
         )
     }
 
@@ -313,55 +338,73 @@ impl EventDemo {
         once_events: std::collections::BTreeSet<String>,
         option_conditions: BTreeMap<String, BTreeMap<String, augustus_core::Condition>>,
         pictures: BTreeMap<String, augustus_core::EventPictures>,
+        option_weights: augustus_core::EventOptionWeights,
     ) -> Result<Self, Error> {
         if scene.version != 1 || scene.entities.is_empty() {
             return Err(Error::Invalid(
                 "expected event scene version 1 and entities".into(),
             ));
         }
-        let catalog = EventCatalog::new(definitions)?
+        let mut catalog = EventCatalog::new(definitions)?
             .with_conditions(conditions)?
             .with_option_conditions(option_conditions)?
             .with_pictures(pictures)?
+            .with_option_weights(option_weights)?
             .with_once_events(once_events)?;
+        if let Some(system) = &scene.event_decisions {
+            catalog = catalog.with_decision_system(std::sync::Arc::new(system.clone()))?;
+        }
         // Canonical effective content, including initial state and compiled plans.
-        let content = if !catalog.pictures().is_empty() {
-            serde_json::to_string(&(
-                "augustus-events:1",
-                &scene,
-                catalog.definitions(),
-                catalog.conditions(),
-                catalog.once_events(),
-                catalog.option_conditions(),
-                catalog.pictures(),
-            ))?
-        } else if !catalog.option_conditions().is_empty() {
-            serde_json::to_string(&(
-                "augustus-events:1",
-                &scene,
-                catalog.definitions(),
-                catalog.conditions(),
-                catalog.once_events(),
-                catalog.option_conditions(),
-            ))?
-        } else if !catalog.once_events().is_empty() {
-            serde_json::to_string(&(
-                "augustus-events:1",
-                &scene,
-                catalog.definitions(),
-                catalog.conditions(),
-                catalog.once_events(),
-            ))?
-        } else if catalog.conditions().is_empty() {
-            serde_json::to_string(&("augustus-events:1", &scene, catalog.definitions()))?
-        } else {
-            serde_json::to_string(&(
-                "augustus-events:1",
-                &scene,
-                catalog.definitions(),
-                catalog.conditions(),
-            ))?
-        };
+        let content =
+            if !catalog.option_weights().is_empty() || catalog.decision_system_key().is_some() {
+                serde_json::to_string(&(
+                    "augustus-events:1",
+                    &scene,
+                    catalog.definitions(),
+                    catalog.conditions(),
+                    catalog.once_events(),
+                    catalog.option_conditions(),
+                    catalog.pictures(),
+                    catalog.option_weights(),
+                    catalog.decision_system_key(),
+                ))?
+            } else if !catalog.pictures().is_empty() {
+                serde_json::to_string(&(
+                    "augustus-events:1",
+                    &scene,
+                    catalog.definitions(),
+                    catalog.conditions(),
+                    catalog.once_events(),
+                    catalog.option_conditions(),
+                    catalog.pictures(),
+                ))?
+            } else if !catalog.option_conditions().is_empty() {
+                serde_json::to_string(&(
+                    "augustus-events:1",
+                    &scene,
+                    catalog.definitions(),
+                    catalog.conditions(),
+                    catalog.once_events(),
+                    catalog.option_conditions(),
+                ))?
+            } else if !catalog.once_events().is_empty() {
+                serde_json::to_string(&(
+                    "augustus-events:1",
+                    &scene,
+                    catalog.definitions(),
+                    catalog.conditions(),
+                    catalog.once_events(),
+                ))?
+            } else if catalog.conditions().is_empty() {
+                serde_json::to_string(&("augustus-events:1", &scene, catalog.definitions()))?
+            } else {
+                serde_json::to_string(&(
+                    "augustus-events:1",
+                    &scene,
+                    catalog.definitions(),
+                    catalog.conditions(),
+                ))?
+            };
         let mut world = World::new(Schema::new(scene.fields.clone())?);
         if let Some(calendar) = scene.calendar {
             world.set_calendar(calendar)?;
@@ -567,6 +610,7 @@ impl EventDemo {
             })
             .collect::<Result<Vec<_>, augustus_core::Error>>()?;
         Ok(EventView {
+            queued_event_choices: self.world.queued_event_choices().to_vec(),
             monthly_accruals: self.world.monthly_accruals().cloned(),
             subjects: self.world.subjects().clone(),
             day: self.world.day(),

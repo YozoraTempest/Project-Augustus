@@ -1,0 +1,26 @@
+namespace=decisions
+country_event={
+    id=decisions.start is_triggered_only=yes
+    immediate={country_event={id=decisions.capture} clr_country_flag=gate log=queued}
+    option={name=continue log=parent}
+    after={country_event={id=decisions.random days=2}}
+}
+country_event={
+    id=decisions.capture is_triggered_only=yes
+    immediate={set_country_flag=gate}
+    option={name=first trigger={has_country_flag=gate} ai_chance={factor=1}
+        if={limit={has_country_flag=gate} log=gate_set} else={log=gate_clear} log=captured_0}
+    option={name=second trigger={NOT={has_country_flag=gate}} ai_chance={factor=1} log=captured_1}
+    after={log=child_after}
+}
+country_event={
+    id=decisions.random is_triggered_only=yes
+    option={name=first ai_chance={factor=1 modifier={factor=2 has_country_flag=gate}} log=random_0}
+    option={name=second ai_chance={factor=9} log=random_1}
+    after={log=random_after}
+}
+country_event={
+    id=decisions.zero is_triggered_only=yes
+    option={name=first trigger={always=no} ai_chance={factor=0} log=zero_0}
+    option={name=second trigger={always=no} ai_chance={factor=0} log=zero_1}
+}

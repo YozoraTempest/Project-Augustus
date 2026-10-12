@@ -1,0 +1,159 @@
+[
+  {
+    "id": "decisions.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "TriggerEvent": {
+          "event": "decisions.capture"
+        }
+      },
+      {
+        "SetMarker": {
+          "target": "Current",
+          "name": "gate",
+          "present": false
+        }
+      },
+      {
+        "Emit": "queued"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "parent"
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Schedule": {
+          "delay": 2,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "decisions.random"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "decisions.capture",
+    "scope": "Country",
+    "immediate": [
+      {
+        "SetMarker": {
+          "target": "Current",
+          "name": "gate",
+          "present": true
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "If": {
+              "condition": {
+                "All": [
+                  {
+                    "HasMarker": {
+                      "target": "Current",
+                      "name": "gate"
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "Emit": "gate_set"
+                }
+              ],
+              "otherwise": [
+                {
+                  "Emit": "gate_clear"
+                }
+              ]
+            }
+          },
+          {
+            "Emit": "captured_0"
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": [
+          {
+            "Emit": "captured_1"
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "child_after"
+      }
+    ]
+  },
+  {
+    "id": "decisions.random",
+    "scope": "Country",
+    "immediate": [],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "random_0"
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": [
+          {
+            "Emit": "random_1"
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "random_after"
+      }
+    ]
+  },
+  {
+    "id": "decisions.zero",
+    "scope": "Country",
+    "immediate": [],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "zero_0"
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": [
+          {
+            "Emit": "zero_1"
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

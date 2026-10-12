@@ -1004,6 +1004,17 @@ impl VanillaWorld {
                 .as_bytes(),
         );
         let catalog = initial.world().event_catalog();
+        if !catalog.option_weights().is_empty() {
+            digest.update(b"\0event-option-weights\0");
+            digest.update(
+                serde_json::to_vec(catalog.option_weights())
+                    .map_err(|e| Error::caused_by(root.path(), e))?,
+            );
+        }
+        if let Some(key) = catalog.decision_system_key() {
+            digest.update(b"\0event-decision-system\0");
+            digest.update(key.as_bytes());
+        }
         if !catalog.definitions().is_empty() {
             digest.update(b"\0events\0");
             let events = if catalog.once_events().is_empty() {

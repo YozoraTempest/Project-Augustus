@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "markers": {
+    "entities": {
+      "0": {},
+      "1": {}
+    }
+  },
+  "country_controllers": {
+    "0": "human",
+    "1": "ai"
+  },
+  "event_decisions": {
+    "empty": "first_declared"
+  }
+}

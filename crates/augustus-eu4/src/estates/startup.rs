@@ -672,8 +672,18 @@ impl EstateStartup {
             *initial = candidate;
             return Ok(());
         }
+        let events = if candidate.world().country_controllers().is_empty() {
+            self.events.clone()
+        } else {
+            self.events
+                .clone()
+                .with_decision_system(Arc::new(augustus_core::WeightedEventDecisions {
+                    empty: augustus_core::EmptyWeightChoice::FirstDeclared,
+                }))
+                .map_err(|e| Error::caused_by("events", e))?
+        };
         candidate
-            .set_event_catalog(self.events.clone())
+            .set_event_catalog(events)
             .map_err(|e| Error::caused_by("events", e))?;
         let mut trace = Vec::new();
         let countries: Vec<_> = candidate
@@ -683,9 +693,20 @@ impl EstateStartup {
             .map(|c| c.id.clone())
             .collect();
         let mut budget = 100_000;
-        let result = countries.iter().try_for_each(|tag| {
-            self.execute(&self.steps, &mut candidate, tag, &mut trace, &mut budget, 0)
-        });
+        let result = countries
+            .iter()
+            .try_for_each(|tag| {
+                self.execute(&self.steps, &mut candidate, tag, &mut trace, &mut budget, 0)
+            })
+            .and_then(|()| {
+                candidate.process_event_commands().map_err(|error| Pending {
+                    source: trace
+                        .last()
+                        .cloned()
+                        .expect("an accepted command follows a startup effect"),
+                    reasons: BTreeSet::from([format!("unexecuted_startup_event_command:{error}")]),
+                })
+            });
         match result {
             Ok(()) => {
                 *initial = candidate;
@@ -1084,6 +1105,7 @@ fn load_events(
     let mut definitions = BTreeMap::new();
     let mut conditions = BTreeMap::new();
     let mut option_conditions = BTreeMap::new();
+    let mut option_weights = BTreeMap::new();
     let mut pictures = BTreeMap::new();
     let mut once_events = BTreeSet::new();
     while !needed.is_empty() {
@@ -1122,6 +1144,7 @@ fn load_events(
             }
             conditions.extend(compiled.conditions);
             option_conditions.extend(compiled.option_conditions);
+            option_weights.extend(compiled.option_weights);
             pictures.extend(compiled.pictures);
             once_events.extend(compiled.once_events);
         }
@@ -1136,6 +1159,7 @@ fn load_events(
     EventCatalog::new(definitions.into_values())
         .and_then(|catalog| catalog.with_conditions(conditions))
         .and_then(|catalog| catalog.with_option_conditions(option_conditions))
+        .and_then(|catalog| catalog.with_option_weights(option_weights))
         .and_then(|catalog| catalog.with_pictures(pictures))
         .and_then(|catalog| catalog.with_once_events(once_events))
         .map_err(|e| Error::caused_by("events", e))

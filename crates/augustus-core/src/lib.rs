@@ -17,6 +17,7 @@ mod estate_actions;
 mod estate_initialization;
 mod estates;
 mod event_choices;
+mod event_decisions;
 mod event_pictures;
 mod governments;
 mod ideas;
@@ -63,6 +64,10 @@ pub use estates::{
 };
 pub use event_choices::{
     EventCatalog, EventChoice, EventDefinition, EventOption, PendingEvent, PendingEventId,
+};
+pub use event_decisions::{
+    EmptyWeightChoice, EventDecisionSystem, EventOptionWeights, EventWeight, WeightModifier,
+    WeightedEventDecisions,
 };
 pub use event_pictures::{EventPictures, PictureVariant};
 pub use governments::{

@@ -1,0 +1,46 @@
+{
+  "decisions.capture": {
+    "0": {
+      "All": [
+        {
+          "HasMarker": {
+            "target": "Current",
+            "name": "gate"
+          }
+        }
+      ]
+    },
+    "1": {
+      "All": [
+        {
+          "Not": {
+            "All": [
+              {
+                "HasMarker": {
+                  "target": "Current",
+                  "name": "gate"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "decisions.zero": {
+    "0": {
+      "All": [
+        {
+          "Always": false
+        }
+      ]
+    },
+    "1": {
+      "All": [
+        {
+          "Always": false
+        }
+      ]
+    }
+  }
+}

@@ -655,6 +655,7 @@ impl World {
         if let Some(calendar) = &self.calendar {
             calendar.date(day)?;
         }
+        self.process_event_commands()?;
         loop {
             let month = system
                 .map(|_| {
@@ -697,6 +698,7 @@ impl World {
                 let (_, task) = self.tasks.pop_first().expect("checked nonempty queue");
                 self.execute(task.current, &task.plan)?;
             }
+            self.process_event_commands()?;
             if !self.justifications.active.is_empty()
                 && self
                     .calendar
@@ -714,6 +716,7 @@ impl World {
                     return Err(error);
                 }
             }
+            self.process_event_commands()?;
         }
         self.day = day;
         Ok(())

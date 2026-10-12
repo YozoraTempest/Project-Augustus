@@ -275,6 +275,7 @@ pub struct CompiledEvents {
     pub definitions: Vec<EventDefinition>,
     pub conditions: BTreeMap<String, Condition>,
     pub option_conditions: BTreeMap<String, BTreeMap<String, Condition>>,
+    pub option_weights: augustus_core::EventOptionWeights,
     pub pictures: BTreeMap<String, EventPictures>,
     pub once_events: BTreeSet<String>,
     pub sources: Vec<(PathBuf, SourceLocation)>,
@@ -981,6 +982,7 @@ impl<'a> ScriptCompiler<'a> {
         let mut definitions = Vec::new();
         let mut conditions = BTreeMap::new();
         let mut option_conditions = BTreeMap::new();
+        let mut option_weights = BTreeMap::new();
         let mut pictures = BTreeMap::new();
         let mut once_events = BTreeSet::new();
         for field in fields {
@@ -1012,6 +1014,7 @@ impl<'a> ScriptCompiler<'a> {
             let mut condition = None;
             let mut once = false;
             let mut guarded_options = BTreeMap::new();
+            let mut weighted_options = BTreeMap::new();
             let mut picture_variants = Vec::new();
             for part in field.block()? {
                 self.sources.push((part.path.clone(), part.location));
@@ -1038,6 +1041,7 @@ impl<'a> ScriptCompiler<'a> {
                         let mut effects = Vec::new();
                         let mut name = false;
                         let mut option_condition = None;
+                        let mut weight = None;
                         for item in part.block()? {
                             if item.name == "name" {
                                 if name || item.scalar()?.is_empty() {
@@ -1051,6 +1055,11 @@ impl<'a> ScriptCompiler<'a> {
                                 }
                                 self.sources.push((item.path.clone(), item.location));
                                 option_condition = Some(self.conditions(item.block()?, scope)?);
+                            } else if item.name == "ai_chance" {
+                                if weight.is_some() {
+                                    return Err(item.error("duplicate option ai_chance"));
+                                }
+                                weight = Some(self.event_weight(item, scope)?);
                             } else {
                                 effects.push(item.clone());
                             }
@@ -1061,6 +1070,9 @@ impl<'a> ScriptCompiler<'a> {
                         let id = definition.options.len().to_string();
                         if let Some(condition) = option_condition {
                             guarded_options.insert(id.clone(), condition);
+                        }
+                        if let Some(weight) = weight {
+                            weighted_options.insert(id.clone(), weight);
                         }
                         definition.options.push(EventOption {
                             id,
@@ -1106,6 +1118,12 @@ impl<'a> ScriptCompiler<'a> {
                 return Err(field.error("duplicate event option trigger identifier"));
             }
             definitions.push(definition);
+            if !weighted_options.is_empty() {
+                let id = definitions.last().expect("just inserted").id.clone();
+                if option_weights.insert(id, weighted_options).is_some() {
+                    return Err(field.error("duplicate event option weight identifier"));
+                }
+            }
         }
         if self.optimise {
             let unconditional: BTreeSet<_> = definitions
@@ -1131,11 +1149,78 @@ impl<'a> ScriptCompiler<'a> {
             definitions,
             conditions,
             option_conditions,
+            option_weights,
             pictures,
             once_events,
             sources: std::mem::take(&mut self.sources),
             folded_branches: self.folded,
         })
+    }
+
+    fn event_weight(
+        &mut self,
+        field: &Field,
+        scope: EntityKind,
+    ) -> Result<augustus_core::EventWeight, Error> {
+        self.sources.push((field.path.clone(), field.location));
+        let mut weight = augustus_core::EventWeight::default();
+        let mut factor = false;
+        for item in field.block()? {
+            self.sources.push((item.path.clone(), item.location));
+            match item.name.as_str() {
+                "factor" => {
+                    if factor {
+                        return Err(item.error("duplicate ai_chance factor"));
+                    }
+                    weight.factor = weight_factor(item)?;
+                    factor = true;
+                }
+                "modifier" => {
+                    let mut factor = None;
+                    let mut conditions = Vec::new();
+                    for part in item.block()? {
+                        if part.name == "factor" {
+                            if factor.is_some() {
+                                return Err(part.error("duplicate weight modifier factor"));
+                            }
+                            self.sources.push((part.path.clone(), part.location));
+                            factor = Some(weight_factor(part)?);
+                        } else {
+                            conditions.push(part.clone());
+                        }
+                    }
+                    weight.modifiers.push(augustus_core::WeightModifier {
+                        factor: factor
+                            .ok_or_else(|| item.error("weight modifier requires factor"))?,
+                        condition: self.conditions(&conditions, scope)?,
+                    });
+                }
+                _ => return Err(item.error(format!("unsupported ai_chance field {}", item.name))),
+            }
+        }
+        // Keep all possible modifier branches inside the represented integer range.
+        let mut magnitude = i128::from(weight.base.unsigned_abs());
+        for modifier in &weight.modifiers {
+            let applied =
+                magnitude * i128::from(modifier.factor.unsigned_abs()) / i128::from(weight.unit);
+            magnitude = match constant(&modifier.condition) {
+                Some(false) => magnitude,
+                Some(true) => applied,
+                None => magnitude.max(applied),
+            };
+            if magnitude > 300_000 {
+                return Err(field
+                    .error("ai_chance modifier magnitude exceeds the supported integer subset"));
+            }
+        }
+        if magnitude * i128::from(weight.factor.unsigned_abs()) / i128::from(weight.unit)
+            > 1_000_000
+        {
+            return Err(
+                field.error("ai_chance weight magnitude exceeds the supported integer subset")
+            );
+        }
+        Ok(weight)
     }
 
     fn event_picture(&mut self, field: &Field, scope: EntityKind) -> Result<PictureVariant, Error> {
@@ -2153,6 +2238,17 @@ fn boolean(field: &Field) -> Result<bool, Error> {
         "no" => Ok(false),
         _ => Err(field.error("expected yes or no")),
     }
+}
+
+fn weight_factor(field: &Field) -> Result<i64, Error> {
+    let value = decimal(field)?;
+    if value % 1_000 != 0 {
+        return Err(field.error("fractional ai_chance factors are not supported"));
+    }
+    if value.unsigned_abs() > 10_000_000 {
+        return Err(field.error("ai_chance factors outside -10000..10000 are unsupported"));
+    }
+    Ok(value)
 }
 
 fn variable(field: &Field) -> Result<(&str, i64), Error> {
