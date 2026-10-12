@@ -76,6 +76,7 @@ pub struct BootstrapReport {
     pub estates: EstateReport,
     pub religious_schools: crate::ReligiousSchoolReport,
     pub casus_belli: crate::CasusBelliReport,
+    pub missions: crate::MissionReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -253,6 +254,7 @@ impl VanillaWorld {
             estates: EstateReport::default(),
             religious_schools: crate::ReligiousSchoolReport::default(),
             casus_belli: crate::CasusBelliReport::default(),
+            missions: crate::MissionReport::default(),
         };
         let mut provinces = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
@@ -700,6 +702,8 @@ impl VanillaWorld {
                 ..Default::default()
             })
             .map_err(|e| Error::caused_by("common/cb_types", e))?;
+        let missions =
+            crate::missions::MissionDraft::load(&root, &files, initial.world(), &area_scopes)?;
         let startup = crate::estates::EstateStartup::load(
             &root,
             &files,
@@ -789,7 +793,44 @@ impl VanillaWorld {
                     .map_err(|e| Error::caused_by(root.path(), e))?;
             }
         }
+        if initial
+            .world()
+            .date()
+            .map_err(|e| Error::caused_by("variables", e))?
+            == Some(augustus_core::WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            })
+        {
+            initial
+                .set_named_values(augustus_core::NamedValues {
+                    entities: (0..initial.world().entities().len())
+                        .map(|id| (augustus_core::EntityId(id), BTreeMap::new()))
+                        .collect(),
+                    ..Default::default()
+                })
+                .map_err(|e| Error::caused_by("variables", e))?;
+        }
+        report.missions = missions.bind(&mut initial)?;
         startup.run(&mut initial, &mut report.estates)?;
+        report.missions.known_countries = initial.world().objectives().entities.len();
+        report.missions.unresolved.retain(|tag, _| {
+            !initial
+                .world()
+                .objectives()
+                .entities
+                .contains_key(&initial.country_entity(tag).expect("registered country"))
+        });
+        if report.missions.series > 0 && !report.estates.startup_unresolved.is_empty() {
+            report.missions.known_countries = 0;
+            for country in initial.countries() {
+                report
+                    .missions
+                    .unresolved
+                    .insert(country.id.clone(), "startup effects are unresolved".into());
+            }
+        }
         report.countries = initial.countries().len();
         report.provinces = initial.provinces().len();
         for country in initial.countries() {

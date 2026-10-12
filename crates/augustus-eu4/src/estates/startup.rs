@@ -51,7 +51,6 @@ pub(crate) struct EstateStartup {
     steps: Vec<Step>,
     callbacks: BTreeMap<String, Callback>,
     events: EventCatalog,
-    mission_ids: BTreeSet<String>,
 }
 
 impl Compiler {
@@ -134,6 +133,13 @@ impl Compiler {
                         },
                         location,
                     ));
+                }
+                "swap_non_generic_missions" => {
+                    let value = value
+                        .read_string()
+                        .map_err(|_| fail("expected mission refresh flag"))?;
+                    crate::setup::flag(&value).ok_or_else(|| fail("expected yes or no"))?;
+                    result.push(Step::Metric(Action::RefreshObjectives, location));
                 }
                 "complete_mission" => {
                     let id = value
@@ -626,7 +632,6 @@ impl EstateStartup {
             steps,
             callbacks,
             events,
-            mission_ids: compiler.mission_ids,
         })
     }
 
@@ -636,60 +641,9 @@ impl EstateStartup {
         report: &mut EstateReport,
     ) -> Result<(), Error> {
         let mut candidate = initial.clone();
-        if initial
-            .world()
-            .date()
-            .map_err(|e| Error::caused_by("variables", e))?
-            == Some(augustus_core::WorldDate {
-                year: 1444,
-                month: 11,
-                day: 11,
-            })
-        {
-            candidate
-                .set_named_values(augustus_core::NamedValues {
-                    entities: (0..initial.world().entities().len())
-                        .map(|id| (augustus_core::EntityId(id), BTreeMap::new()))
-                        .collect(),
-                    ..Default::default()
-                })
-                .map_err(|e| Error::caused_by("variables", e))?;
-        }
         if self.steps.is_empty() {
             *initial = candidate;
             return Ok(());
-        }
-        if !self.mission_ids.is_empty() {
-            let entities = if initial
-                .world()
-                .date()
-                .map_err(|e| Error::caused_by("missions", e))?
-                == Some(augustus_core::WorldDate {
-                    year: 1444,
-                    month: 11,
-                    day: 11,
-                }) {
-                initial
-                    .countries()
-                    .iter()
-                    .map(|country| {
-                        (
-                            initial
-                                .country_entity(&country.id)
-                                .expect("registered country"),
-                            BTreeSet::new(),
-                        )
-                    })
-                    .collect()
-            } else {
-                BTreeMap::new()
-            };
-            candidate
-                .set_completions(augustus_core::Completions {
-                    identifiers: self.mission_ids.clone(),
-                    entities,
-                })
-                .map_err(|e| Error::caused_by("missions", e))?;
         }
         candidate
             .set_event_catalog(self.events.clone())
@@ -714,6 +668,19 @@ impl EstateStartup {
             Err(pending) => {
                 report.pending_startup_effects.push(pending.source);
                 report.startup_unresolved.extend(pending.reasons);
+                let mut objectives = initial.world().objectives().clone();
+                objectives.entities.clear();
+                initial
+                    .set_objectives(objectives)
+                    .map_err(|e| Error::caused_by("missions", e))?;
+                let mut completions = initial.world().completions().clone();
+                completions.entities.clear();
+                initial
+                    .set_completions(completions)
+                    .map_err(|e| Error::caused_by("missions", e))?;
+                initial
+                    .set_named_values(Default::default())
+                    .map_err(|e| Error::caused_by("variables", e))?;
                 let mut markers = initial.world().markers().clone();
                 for tag in &countries {
                     markers.mark_unknown(initial.country_entity(tag).expect("registered country"));

@@ -472,7 +472,18 @@ fn incomplete_startup_rolls_back_mission_records_and_other_dates_stay_unknown() 
             !loaded.report.estates.pending_startup_effects.is_empty(),
             "{date}"
         );
-        assert!(loaded.initial.world().completions().is_empty());
+        let completions = loaded.initial.world().completions();
+        assert!(completions.entities.is_empty());
+        assert!(completions.identifiers.contains("sample_first"));
+        assert!(loaded.initial.world().objectives().entities.is_empty());
+        let entity = loaded.initial.country_entity("AAA").unwrap();
+        assert!(
+            loaded
+                .initial
+                .world()
+                .completion_recorded(entity, "sample_first")
+                .is_err()
+        );
         assert!(loaded.initial.world().events().is_empty());
     }
 }

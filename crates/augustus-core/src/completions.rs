@@ -55,8 +55,9 @@ impl World {
         completions.validate(self)?;
         let previous = std::mem::replace(&mut self.completions, completions);
         let validation = self
-            .event_catalog
+            .objectives
             .validate(self)
+            .and_then(|()| self.event_catalog.validate(self))
             .and_then(|()| self.validate_event_content(&self.event_catalog));
         if let Err(error) = validation {
             self.completions = previous;

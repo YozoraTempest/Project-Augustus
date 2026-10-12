@@ -26,6 +26,7 @@ mod governments;
 mod ideas;
 mod load;
 mod missions;
+pub use missions::MissionReport;
 mod politics;
 mod province_metrics;
 mod religious_schools;

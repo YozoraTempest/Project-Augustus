@@ -245,6 +245,14 @@ impl InitialWorld {
         self.world.set_event_catalog(catalog)
     }
 
+    pub fn set_objectives(&mut self, objectives: crate::Objectives) -> Result<(), Error> {
+        self.world.set_objectives(objectives)
+    }
+
+    pub fn refresh_objectives(&mut self, entity: EntityId) -> Result<(), Error> {
+        self.world.refresh_objectives(entity)
+    }
+
     pub fn set_completions(&mut self, completions: crate::Completions) -> Result<(), Error> {
         self.world.set_completions(completions)
     }
@@ -284,6 +292,7 @@ impl InitialWorld {
         )?;
         if restored.entities().len() != self.world.entities().len()
             || restored.completions().identifiers != self.world.completions().identifiers
+            || restored.objectives().groups != self.world.objectives().groups
             || restored.justifications().definitions != self.world.justifications().definitions
             || restored.calendar() != self.world.calendar()
             || restored.monthly_system_id() != self.world.monthly_system_id()

@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "completions": {
+    "identifiers": [
+      "sample_general",
+      "sample_one",
+      "sample_two"
+    ],
+    "entities": {
+      "0": [],
+      "1": []
+    }
+  },
+  "markers": {
+    "entities": {
+      "0": {},
+      "1": {}
+    }
+  },
+  "objectives": {
+    "groups": [
+      {
+        "id": "common",
+        "condition": {
+          "Always": true
+        },
+        "objectives": [
+          "sample_general"
+        ],
+        "claims": [
+          "branch"
+        ],
+        "priority": 0
+      },
+      {
+        "id": "first",
+        "condition": {
+          "All": [
+            {
+              "EntityNamed": {
+                "target": "Current",
+                "name": "AAA"
+              }
+            },
+            {
+              "Not": {
+                "HasMarker": {
+                  "target": "Current",
+                  "name": "alternate"
+                }
+              }
+            }
+          ]
+        },
+        "objectives": [
+          "sample_one"
+        ],
+        "claims": [
+          "branch"
+        ],
+        "priority": 1
+      },
+      {
+        "id": "second",
+        "condition": {
+          "All": [
+            {
+              "EntityNamed": {
+                "target": "Current",
+                "name": "AAA"
+              }
+            },
+            {
+              "HasMarker": {
+                "target": "Current",
+                "name": "alternate"
+              }
+            }
+          ]
+        },
+        "objectives": [
+          "sample_two"
+        ],
+        "claims": [
+          "branch"
+        ],
+        "priority": 1
+      }
+    ],
+    "entities": {
+      "0": [
+        "sample_one"
+      ],
+      "1": [
+        "sample_general"
+      ]
+    }
+  }
+}

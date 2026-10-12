@@ -107,6 +107,7 @@ pub struct World {
     ideas: Ideas,
     pub(crate) estates: crate::Estates,
     pub(crate) completions: crate::Completions,
+    pub(crate) objectives: crate::Objectives,
     pub(crate) named_values: crate::NamedValues,
     pub(crate) markers: crate::Markers,
     pub(crate) failed: bool,
@@ -166,6 +167,8 @@ struct Snapshot {
     estates: crate::Estates,
     #[serde(default, skip_serializing_if = "crate::Completions::is_empty")]
     completions: crate::Completions,
+    #[serde(default, skip_serializing_if = "crate::Objectives::is_empty")]
+    objectives: crate::Objectives,
     #[serde(default, skip_serializing_if = "crate::NamedValues::is_empty")]
     named_values: crate::NamedValues,
     #[serde(default, skip_serializing_if = "crate::Markers::is_empty")]
@@ -220,6 +223,7 @@ impl World {
             ideas: Ideas::default(),
             estates: crate::Estates::default(),
             completions: crate::Completions::default(),
+            objectives: crate::Objectives::default(),
             named_values: crate::NamedValues::default(),
             markers: crate::Markers::default(),
             failed: false,
@@ -701,6 +705,7 @@ impl World {
             ideas: self.ideas.clone(),
             estates: self.estates.clone(),
             completions: self.completions.clone(),
+            objectives: self.objectives.clone(),
             named_values: self.named_values.clone(),
             markers: self.markers.clone(),
             event_queue: self.event_queue.clone(),
@@ -769,6 +774,7 @@ impl World {
             ideas: snapshot.ideas,
             estates: snapshot.estates,
             completions: snapshot.completions,
+            objectives: snapshot.objectives,
             named_values: snapshot.named_values,
             markers: snapshot.markers,
         };
@@ -833,6 +839,7 @@ impl World {
         world.ideas.validate(&world)?;
         world.estates.validate(&world)?;
         world.completions.validate(&world)?;
+        world.objectives.validate(&world)?;
         world.named_values.validate(&world)?;
         world.markers.validate(&world)?;
         world.attributes.validate(&world)?;
@@ -900,6 +907,7 @@ impl World {
         catalog: &crate::EventCatalog,
     ) -> Result<(), Error> {
         self.justifications.validate_definitions(self)?;
+        self.objectives.validate(self)?;
         for rule in &self.rules {
             validate_plan(
                 rule,
@@ -1021,6 +1029,7 @@ pub(crate) fn validate_plan(
                 operation.validate()?;
             }
             Action::RecordCompletion { id } => completions.identifier(id)?,
+            Action::RefreshObjectives => (),
             Action::InScope {
                 selector,
                 kind,
@@ -1205,7 +1214,15 @@ pub(crate) fn validate_condition(
         crate::Condition::NumericCompare { slot, .. } => {
             slot.validate(schema, governments, metrics)
         }
-        crate::Condition::CompletionRecorded { id, .. } => completions.identifier(id),
+        crate::Condition::CompletionRecorded { id, .. }
+        | crate::Condition::ObjectiveAvailable { id, .. } => completions.identifier(id),
+        crate::Condition::Unavailable(reason) => {
+            if reason.is_empty() {
+                Err(Error::Invalid("empty unavailable condition reason".into()))
+            } else {
+                Ok(())
+            }
+        }
         crate::Condition::EntityNamed { name, .. } if name.is_empty() => {
             Err(Error::Invalid("empty entity condition name".into()))
         }

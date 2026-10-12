@@ -1,0 +1,146 @@
+[
+  {
+    "id": "selection.first",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "before"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "RecordCompletion": {
+              "id": "sample_one"
+            }
+          },
+          {
+            "SetMarker": {
+              "target": "Current",
+              "name": "alternate",
+              "present": true
+            }
+          },
+          {
+            "If": {
+              "condition": {
+                "All": [
+                  {
+                    "ObjectiveAvailable": {
+                      "target": "Current",
+                      "id": "sample_one"
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "Emit": "cached"
+                }
+              ],
+              "otherwise": []
+            }
+          },
+          "RefreshObjectives",
+          {
+            "If": {
+              "condition": {
+                "All": [
+                  {
+                    "ObjectiveAvailable": {
+                      "target": "Current",
+                      "id": "sample_two"
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "Emit": "switched"
+                }
+              ],
+              "otherwise": []
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "selection.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "selection.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "ObjectiveAvailable": {
+                  "target": "Current",
+                  "id": "sample_two"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "later"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "SetMarker": {
+              "target": "Current",
+              "name": "alternate",
+              "present": false
+            }
+          },
+          "RefreshObjectives",
+          {
+            "If": {
+              "condition": {
+                "All": [
+                  {
+                    "CompletionRecorded": {
+                      "target": "Current",
+                      "id": "sample_one"
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "Emit": "record_retained"
+                }
+              ],
+              "otherwise": []
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

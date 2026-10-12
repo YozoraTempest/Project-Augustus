@@ -135,6 +135,18 @@ impl Condition {
                             Self::Unknown(name)
                         }
                     }
+                    "has_mission" if country => {
+                        let id = value
+                            .read_string()
+                            .map_err(|_| fail("expected mission identifier"))?;
+                        if id.is_empty() {
+                            return Err(fail("empty mission identifier"));
+                        }
+                        Self::Scoped(augustus_core::Condition::ObjectiveAvailable {
+                            target: augustus_core::Target::Current,
+                            id,
+                        })
+                    }
                     "mission_completed" if country => {
                         let id = value
                             .read_string()

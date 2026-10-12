@@ -76,6 +76,12 @@ pub enum Condition {
         comparison: crate::NumericComparison,
         value: i64,
     },
+    /// A predicate that content translation could not resolve.
+    Unavailable(String),
+    ObjectiveAvailable {
+        target: Target,
+        id: String,
+    },
     CompletionRecorded {
         target: Target,
         id: String,
@@ -161,6 +167,7 @@ pub enum Action {
         operation: crate::NumericOperation,
         value: i64,
     },
+    RefreshObjectives,
     RecordCompletion {
         id: String,
     },
@@ -398,6 +405,10 @@ impl Condition {
                     crate::NumericComparison::Equal => actual == *value,
                 })
             }
+            Self::Unavailable(reason) => Err(Error::Invalid(reason.clone())),
+            Self::ObjectiveAvailable { target, id } => {
+                world.objective_available(world.target(current, *target)?, id)
+            }
             Self::CompletionRecorded { target, id } => {
                 world.completion_recorded(world.target(current, *target)?, id)
             }
@@ -588,6 +599,7 @@ impl World {
                     let entity = self.target(current, *target)?;
                     self.update_numeric(entity, slot, *operation, *value)?;
                 }
+                Action::RefreshObjectives => self.refresh_objectives(current)?,
                 Action::RecordCompletion { id } => {
                     self.record_completion(current, id)?;
                 }

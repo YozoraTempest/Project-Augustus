@@ -42,6 +42,91 @@ fn fixture() -> tempfile::TempDir {
 }
 
 #[test]
+fn mission_selection_is_initialized_before_startup_and_invalidated_on_failure() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "missions/selection.txt",
+        "first={slot=1 potential={tag=AAA NOT={has_country_flag=alternate}} sample_first={}} second={slot=1 potential={tag=AAA has_country_flag=alternate} sample_second={}}",
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA has_mission=sample_first} complete_mission=sample_first set_country_flag=alternate swap_non_generic_missions=no}}",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let world = loaded.initial.world();
+    let first = loaded.initial.country_entity("AAA").unwrap();
+    let other = loaded.initial.country_entity("BBB").unwrap();
+    assert!(world.objective_available(first, "sample_second").unwrap());
+    assert!(!world.objective_available(first, "sample_first").unwrap());
+    assert!(world.completion_recorded(first, "sample_first").unwrap());
+    assert!(!world.objective_available(other, "sample_first").unwrap());
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    assert!(loaded.report.missions.known_countries > 0);
+
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA} set_country_flag=alternate swap_non_generic_missions=yes unsupported_effect=yes}}",
+    );
+    let failed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(!failed.report.estates.startup_unresolved.is_empty());
+    assert_eq!(failed.report.missions.known_countries, 0);
+    assert!(
+        failed
+            .initial
+            .world()
+            .objective_available(first, "sample_first")
+            .is_err()
+    );
+    assert!(
+        failed
+            .initial
+            .world()
+            .completion_recorded(first, "sample_first")
+            .is_err()
+    );
+    assert_eq!(failed.initial.world().objectives().groups.len(), 2);
+    assert!(
+        failed
+            .initial
+            .world()
+            .numeric_value(
+                first,
+                &augustus_core::NumericSlot::Named("unresolved".into())
+            )
+            .is_err()
+    );
+
+    let later = VanillaWorld::load(temp.path(), "1450.1.1").unwrap();
+    assert!(
+        later
+            .initial
+            .world()
+            .completion_recorded(first, "sample_first")
+            .is_err()
+    );
+}
+
+#[test]
+fn unresolved_selection_has_the_same_save_in_different_installation_paths() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "missions/partial.txt",
+        "partial={slot=1 potential={tag=AAA unknown_criterion=yes} sample={}}",
+    );
+    let other = tempfile::tempdir().unwrap();
+    copy(temp.path(), other.path());
+    let first = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let second = VanillaWorld::load(other.path(), "1444.11.11").unwrap();
+    assert_eq!(first.save().unwrap(), second.save().unwrap());
+    assert!(first.report.missions.unresolved["AAA"].contains("missions"));
+    assert!(!first.report.missions.unresolved["AAA"].contains(&temp.path().display().to_string()));
+}
+
+#[test]
 fn startup_event_pictures_are_attached_to_the_shared_catalog_and_saved_after_immediate() {
     let temp = fixture();
     write(

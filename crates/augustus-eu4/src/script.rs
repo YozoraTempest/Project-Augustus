@@ -358,6 +358,176 @@ impl<'a> ScriptCompiler<'a> {
         Ok(conditions.pop().expect("one condition"))
     }
 
+    /// Translate an ordered set of mission files to core selection conditions.
+    pub fn compile_missions(
+        mut self,
+        documents: &[TextDocument],
+    ) -> Result<augustus_core::Objectives, Error> {
+        let mut groups = Vec::new();
+        for document in documents {
+            for mut group in self.compile_mission_groups(document)? {
+                if group.priority != u32::MAX {
+                    group.priority = u32::try_from(groups.len() + 1).map_err(|_| {
+                        Error::message(document.source(), "too many mission series")
+                    })?;
+                }
+                groups.push(group);
+            }
+        }
+        let original = groups.clone();
+        for group in &mut groups {
+            if group.priority != u32::MAX {
+                let exclusions: Vec<_> = original
+                    .iter()
+                    .filter(|other| {
+                        other.priority > group.priority && !other.claims.is_disjoint(&group.claims)
+                    })
+                    .map(|other| other.condition.clone())
+                    .collect();
+                if !exclusions.is_empty() {
+                    group.condition = Condition::All(vec![
+                        group.condition.clone(),
+                        Condition::Not(Box::new(Condition::Any(exclusions))),
+                    ]);
+                }
+            }
+            group.priority = 0;
+            group.claims.clear();
+        }
+        Ok(augustus_core::Objectives {
+            groups,
+            ..Default::default()
+        })
+    }
+
+    /// Translate selection metadata only; objective rewards and prerequisites
+    /// are not executed by availability refresh.
+    fn compile_mission_groups(
+        &mut self,
+        document: &TextDocument,
+    ) -> Result<Vec<augustus_core::ObjectiveGroup>, Error> {
+        let parsed = document.parse()?;
+        let fields = read_fields(&parsed, parsed.reader(), 0, true)?;
+        let mut groups = Vec::new();
+        for series in fields.iter().filter(|f| !f.name.starts_with('@')) {
+            let fields = series.block()?;
+            let slot = fields
+                .iter()
+                .find(|f| f.name == "slot")
+                .ok_or_else(|| series.error("mission series requires slot"))?;
+            let slot = slot
+                .scalar()?
+                .parse::<u32>()
+                .ok()
+                .filter(|n| *n > 0)
+                .ok_or_else(|| slot.error("mission slot requires a positive literal integer"))?;
+            let generic = fields
+                .iter()
+                .find(|f| f.name == "generic")
+                .map(boolean)
+                .transpose()?
+                .unwrap_or(false);
+            let condition = match fields.iter().find(|f| f.name == "potential") {
+                Some(field) => self.mission_condition(field.block()?),
+                None => Condition::Always(true),
+            };
+            let mut objectives = BTreeSet::new();
+            let mut next = 1_u32;
+            let mut positions = Vec::new();
+            for mission in fields.iter().filter(|f| {
+                !f.name.starts_with('@')
+                    && !matches!(
+                        f.name.as_str(),
+                        "slot"
+                            | "generic"
+                            | "ai"
+                            | "has_country_shield"
+                            | "potential"
+                            | "potential_on_load"
+                    )
+            }) {
+                let body = mission.block()?;
+                let position = match body.iter().find(|f| f.name == "position") {
+                    Some(field) => field
+                        .scalar()?
+                        .parse::<u32>()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or_else(|| {
+                            field.error("mission position requires a positive literal integer")
+                        })?,
+                    None => next,
+                };
+                next = position
+                    .checked_add(1)
+                    .ok_or_else(|| mission.error("mission position overflow"))?;
+                positions.push(position);
+                objectives.insert(mission.name.clone());
+            }
+            let mut claims = BTreeSet::new();
+            if let (Some(start), Some(end)) = (positions.iter().min(), positions.iter().max()) {
+                if end - start > 4096 {
+                    return Err(series.error("mission row range exceeds 4096"));
+                }
+                claims.extend((*start..=*end).map(|row| format!("column/{slot}/row/{row}")));
+            }
+            groups.push(augustus_core::ObjectiveGroup {
+                id: series.name.clone(),
+                condition,
+                objectives,
+                claims,
+                // The complete content set rebases these fallback priorities.
+                priority: if generic {
+                    u32::try_from(groups.len() + 1)
+                        .map_err(|_| series.error("too many mission series"))?
+                } else {
+                    u32::MAX
+                },
+            });
+        }
+        Ok(groups)
+    }
+
+    fn mission_condition(&mut self, fields: &[Field]) -> Condition {
+        Condition::All(
+            fields
+                .iter()
+                .map(|field| {
+                    let children = |compiler: &mut Self| -> Result<Condition, Error> {
+                        let body = field.block()?;
+                        if body.is_empty()
+                            && matches!(field.name.as_str(), "OR" | "or" | "NOT" | "not")
+                        {
+                            return Err(
+                                field.error("OR and NOT require at least one enclosed trigger")
+                            );
+                        }
+                        Ok(compiler.mission_condition(body))
+                    };
+                    let stack = self.stack.clone();
+                    let result = match field.name.as_str() {
+                        "AND" | "and" => children(self),
+                        "OR" | "or" => children(self).map(|c| {
+                            let Condition::All(children) = c else {
+                                unreachable!()
+                            };
+                            Condition::Any(children)
+                        }),
+                        "NOT" | "not" => children(self).map(|c| {
+                            let Condition::All(children) = c else {
+                                unreachable!()
+                            };
+                            Condition::Not(Box::new(Condition::Any(children)))
+                        }),
+                        _ => self.conditions(std::slice::from_ref(field), EntityKind::Country),
+                    };
+                    self.stack = stack;
+                    result.unwrap_or_else(|error| Condition::Unavailable(error.to_string()))
+                })
+                .collect(),
+        )
+    }
+
     pub fn with_mission_ids(mut self, ids: BTreeSet<String>) -> Self {
         self.mission_ids = ids;
         self
@@ -1128,6 +1298,13 @@ impl<'a> ScriptCompiler<'a> {
                         otherwise: Vec::new(),
                     });
                 }
+                "swap_non_generic_missions" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("mission refresh requires country scope"));
+                    }
+                    boolean(field)?;
+                    plan.push(Action::RefreshObjectives);
+                }
                 "complete_mission" => plan.push(Action::RecordCompletion {
                     id: self.mission_id(field, scope)?,
                 }),
@@ -1498,6 +1675,10 @@ impl<'a> ScriptCompiler<'a> {
                     }
                     Condition::Always(true)
                 }
+                "has_mission" => Condition::ObjectiveAvailable {
+                    target: Target::Current,
+                    id: self.mission_id(field, scope)?,
+                },
                 "mission_completed" => Condition::CompletionRecorded {
                     target: Target::Current,
                     id: self.mission_id(field, scope)?,

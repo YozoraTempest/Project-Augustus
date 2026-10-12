@@ -28,6 +28,8 @@ struct Scene {
     calendar: Option<augustus_core::Calendar>,
     #[serde(default, skip_serializing_if = "augustus_core::Completions::is_empty")]
     completions: augustus_core::Completions,
+    #[serde(default, skip_serializing_if = "augustus_core::Objectives::is_empty")]
+    objectives: augustus_core::Objectives,
     #[serde(default, skip_serializing_if = "augustus_core::NamedValues::is_empty")]
     named_values: augustus_core::NamedValues,
     #[serde(default, skip_serializing_if = "augustus_core::Modifiers::is_empty")]
@@ -105,6 +107,8 @@ pub struct EventView {
     pub log: Vec<(u64, EntityId, String)>,
     #[serde(skip_serializing_if = "augustus_core::Completions::is_empty")]
     pub completions: augustus_core::Completions,
+    #[serde(skip_serializing_if = "augustus_core::Objectives::is_empty")]
+    pub objectives: augustus_core::Objectives,
     #[serde(skip_serializing_if = "augustus_core::NamedValues::is_empty")]
     pub named_values: augustus_core::NamedValues,
     #[serde(skip_serializing_if = "augustus_core::Modifiers::is_empty")]
@@ -375,6 +379,7 @@ impl EventDemo {
         world.set_governments(scene.governments)?;
         world.set_metrics(scene.metrics)?;
         world.set_justifications(scene.justifications)?;
+        world.set_objectives(scene.objectives)?;
         world.set_affiliations(scene.affiliations)?;
         for (country, controller) in scene.country_controllers {
             world.set_country_controller(country, controller)?;
@@ -442,6 +447,7 @@ impl EventDemo {
         )?;
         if restored.entities().len() != self.world.entities().len()
             || restored.completions().identifiers != self.world.completions().identifiers
+            || restored.objectives().groups != self.world.objectives().groups
             || restored.justifications().definitions != self.world.justifications().definitions
             || restored
                 .entities()
@@ -538,6 +544,7 @@ impl EventDemo {
             pending_events,
             log: self.world.events().to_vec(),
             completions: self.world.completions().clone(),
+            objectives: self.world.objectives().clone(),
             named_values: self.world.named_values().clone(),
             modifiers: self.world.modifiers().clone(),
             justifications: self.world.justifications().clone(),
