@@ -1,0 +1,23 @@
+namespace = choices
+country_event = {
+ id = choices.start
+ is_triggered_only = yes
+ immediate = { clr_country_flag = gate log = start }
+ option = { name = closed trigger = { has_country_flag = gate } log = closed }
+ option = {
+  name = human trigger = { ai = no }
+  set_country_flag = gate
+  country_event = { id = choices.later days = 1 }
+  log = human
+ }
+ option = { name = ai trigger = { ai = yes } log = ai }
+ option = { name = unavailable trigger = { always = no } log = unavailable }
+ after = { log = after }
+}
+country_event = {
+ id = choices.later
+ is_triggered_only = yes
+ option = { name = open trigger = { has_country_flag = gate } clr_country_flag = gate log = open }
+ option = { name = closed trigger = { NOT = { has_country_flag = gate } } log = closed }
+ option = { name = end log = end }
+}

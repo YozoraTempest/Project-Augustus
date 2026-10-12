@@ -15,6 +15,10 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    CountryControlled {
+        target: Target,
+        controller: crate::CountryController,
+    },
     AffiliationPresent {
         target: Target,
         dimension: String,
@@ -194,6 +198,16 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::CountryControlled { target, controller } => {
+                let country = world.target(current, *target)?;
+                let actual = world.country_controller(country)?.ok_or_else(|| {
+                    Error::Invalid(format!(
+                        "unknown country controller for entity {}",
+                        country.0
+                    ))
+                })?;
+                Ok(actual == *controller)
+            }
             Self::AffiliationPresent { target, dimension } => {
                 crate::affiliations::validate_condition(dimension, None)?;
                 let entity = world.target(current, *target)?;

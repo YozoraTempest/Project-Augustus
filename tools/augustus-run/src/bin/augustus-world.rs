@@ -30,6 +30,12 @@ struct Cli {
     save: Option<PathBuf>,
     #[arg(long)]
     country: Option<String>,
+    /// Human-controlled countries; all other loaded countries are AI-controlled.
+    #[arg(long, conflicts_with = "ai_only")]
+    player: Vec<String>,
+    /// Supply an explicit AI-only control roster.
+    #[arg(long)]
+    ai_only: bool,
     #[arg(long)]
     province: Option<u32>,
     #[arg(long)]
@@ -46,7 +52,15 @@ struct Cli {
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let mut loaded = VanillaWorld::load(cli.game_root, &cli.date)?;
+    let mut loaded = if cli.ai_only || !cli.player.is_empty() {
+        VanillaWorld::load_with_players(
+            cli.game_root,
+            &cli.date,
+            &cli.player.into_iter().collect(),
+        )?
+    } else {
+        VanillaWorld::load(cli.game_root, &cli.date)?
+    };
     if let Some(path) = cli.load {
         loaded.restore(&std::fs::read_to_string(path)?)?;
     }
@@ -64,6 +78,25 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         "simulation": {"day": loaded.initial.world().day(), "date": loaded.initial.world().date()?,
             "tax_settlements": loaded.initial.world().taxation().map(|t| t.settlement_count),
             "last_tax_day": loaded.initial.world().taxation().and_then(|t| t.last_settlement.as_ref().map(|s| s.day))}});
+    if !loaded.initial.world().country_controllers().is_empty() {
+        output["country_controllers"] = serde_json::json!(
+            loaded
+                .initial
+                .world()
+                .country_controllers()
+                .iter()
+                .map(|(id, control)| (
+                    &loaded
+                        .initial
+                        .world()
+                        .entity(*id)
+                        .expect("validated country")
+                        .name,
+                    control
+                ))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        );
+    }
     if let Some(path) = cli.compare_administration_save {
         output["administration_comparison"] =
             serde_json::to_value(augustus_eu4::compare_administration_save(&loaded, path)?)?;

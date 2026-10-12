@@ -139,6 +139,24 @@ impl VanillaWorld {
     /// Loads the supported initial-state fields and selects calendar/tax rules.
     /// Final-edition rules always target all expansion mechanics, independently of launcher switches.
     pub fn load(path: impl AsRef<Path>, date: &str) -> Result<Self, Error> {
+        Self::load_session(path, date, None)
+    }
+
+    /// A supplied roster defines human countries; the remaining countries use AI control.
+    /// An empty roster explicitly requests an AI-only session.
+    pub fn load_with_players(
+        path: impl AsRef<Path>,
+        date: &str,
+        players: &std::collections::BTreeSet<String>,
+    ) -> Result<Self, Error> {
+        Self::load_session(path, date, Some(players))
+    }
+
+    fn load_session(
+        path: impl AsRef<Path>,
+        date: &str,
+        players: Option<&std::collections::BTreeSet<String>>,
+    ) -> Result<Self, Error> {
         let root = ContentRoot::open(path)?;
         let date = Date::parse(date).map_err(|e| Error::caused_by(root.path(), e))?;
         let metadata_path = root.path().join("launcher-settings.json");
@@ -659,6 +677,35 @@ impl VanillaWorld {
                     .collect(),
             ))
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        if let Some(players) = players {
+            for player in players {
+                if initial.country_entity(player).is_none() {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("unknown player country {player}"),
+                    ));
+                }
+            }
+            let countries: Vec<_> = initial
+                .countries()
+                .iter()
+                .map(|country| country.id.clone())
+                .collect();
+            for country in countries {
+                initial
+                    .set_country_controller(
+                        initial
+                            .country_entity(&country)
+                            .expect("registered country"),
+                        if players.contains(&country) {
+                            augustus_core::CountryController::Human
+                        } else {
+                            augustus_core::CountryController::Ai
+                        },
+                    )
+                    .map_err(|e| Error::caused_by(root.path(), e))?;
+            }
+        }
         startup.run(&mut initial, &mut report.estates)?;
         report.countries = initial.countries().len();
         report.provinces = initial.provinces().len();
@@ -704,6 +751,13 @@ impl VanillaWorld {
                 ))
             };
             digest.update(events.map_err(|e| Error::caused_by(root.path(), e))?);
+            if !catalog.option_conditions().is_empty() {
+                digest.update(b"\0option-conditions\0");
+                digest.update(
+                    serde_json::to_vec(catalog.option_conditions())
+                        .map_err(|e| Error::caused_by(root.path(), e))?,
+                );
+            }
         }
         let fingerprint: String = digest
             .finalize()

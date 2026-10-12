@@ -1,0 +1,69 @@
+{
+  "choices.start": {
+    "0": {
+      "All": [
+        {
+          "HasMarker": {
+            "target": "Current",
+            "name": "gate"
+          }
+        }
+      ]
+    },
+    "1": {
+      "All": [
+        {
+          "CountryControlled": {
+            "target": "Current",
+            "controller": "human"
+          }
+        }
+      ]
+    },
+    "2": {
+      "All": [
+        {
+          "CountryControlled": {
+            "target": "Current",
+            "controller": "ai"
+          }
+        }
+      ]
+    },
+    "3": {
+      "All": [
+        {
+          "Always": false
+        }
+      ]
+    }
+  },
+  "choices.later": {
+    "0": {
+      "All": [
+        {
+          "HasMarker": {
+            "target": "Current",
+            "name": "gate"
+          }
+        }
+      ]
+    },
+    "1": {
+      "All": [
+        {
+          "Not": {
+            "All": [
+              {
+                "HasMarker": {
+                  "target": "Current",
+                  "name": "gate"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

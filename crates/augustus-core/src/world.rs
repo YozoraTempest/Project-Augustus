@@ -85,6 +85,7 @@ pub struct World {
     pub(crate) event_catalog: crate::EventCatalog,
     pub(crate) event_queue: crate::event_choices::EventQueue,
     pub(crate) politics: Politics,
+    pub(crate) country_controllers: BTreeMap<EntityId, crate::CountryController>,
     pub(crate) global_scopes: BTreeMap<String, EntityId>,
     economy: Economy,
     technology: Technology,
@@ -122,6 +123,8 @@ struct Snapshot {
     random: ChaCha8Rng,
     #[serde(default, skip_serializing_if = "Politics::is_empty")]
     politics: Politics,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    country_controllers: BTreeMap<EntityId, crate::CountryController>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     global_scopes: BTreeMap<String, EntityId>,
     #[serde(default, skip_serializing_if = "Economy::is_empty")]
@@ -184,6 +187,7 @@ impl World {
             event_catalog: crate::EventCatalog::default(),
             event_queue: crate::event_choices::EventQueue::default(),
             politics: Politics::default(),
+            country_controllers: BTreeMap::new(),
             global_scopes: BTreeMap::new(),
             economy: Economy::default(),
             technology: Technology::default(),
@@ -622,6 +626,7 @@ impl World {
             events: self.events.clone(),
             random: self.random.clone(),
             politics: self.politics.clone(),
+            country_controllers: self.country_controllers.clone(),
             global_scopes: self.global_scopes.clone(),
             economy: self.economy.clone(),
             technology: self.technology.clone(),
@@ -683,6 +688,7 @@ impl World {
             rules,
             random: snapshot.random,
             politics: snapshot.politics,
+            country_controllers: snapshot.country_controllers,
             global_scopes: snapshot.global_scopes,
             economy: snapshot.economy,
             technology: snapshot.technology,
@@ -715,6 +721,9 @@ impl World {
         }
         world.event_catalog.validate(&world)?;
         world.event_queue.validate(&world)?;
+        for &country in world.country_controllers.keys() {
+            world.country_controller(country)?;
+        }
         for (name, &entity) in &world.global_scopes {
             crate::scopes::validate_name(name)?;
             world.entity(entity)?;

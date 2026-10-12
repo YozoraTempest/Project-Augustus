@@ -48,6 +48,52 @@ use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 
 #[test]
+fn conditional_options_keep_declaration_ids_across_inputs_and_delayed_restore() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/conditional-options");
+    let mut compatible = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    for demo in [&mut compatible, &mut native] {
+        let pending = demo.trigger("choices.start", 0).unwrap();
+        let before = demo.save().unwrap();
+        assert_eq!(demo.view().unwrap().pending_events[0].options, ["1"]);
+        assert_eq!(demo.save().unwrap(), before);
+        demo.choose(&EventChoice {
+            pending,
+            option: "1".into(),
+        })
+        .unwrap();
+    }
+    native.restore(&compatible.save().unwrap()).unwrap();
+    compatible.restore(&native.save().unwrap()).unwrap();
+    for demo in [&mut compatible, &mut native] {
+        demo.advance(1).unwrap();
+        assert_eq!(demo.view().unwrap().pending_events[0].options, ["0", "2"]);
+        demo.choose(&EventChoice {
+            pending: PendingEventId(1),
+            option: "0".into(),
+        })
+        .unwrap();
+        assert!(demo.world().pending_events().is_empty());
+        assert_eq!(
+            demo.world()
+                .events()
+                .iter()
+                .map(|entry| entry.2.as_str())
+                .collect::<Vec<_>>(),
+            ["start", "human", "after", "open"]
+        );
+    }
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    for demo in [&mut compatible, &mut native] {
+        demo.trigger("choices.start", 1).unwrap();
+        assert_eq!(demo.view().unwrap().pending_events[0].options, ["2"]);
+    }
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+}
+
+#[test]
 fn expanded_scripts_share_effective_content_and_cross_input_resume() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/scripted-events");

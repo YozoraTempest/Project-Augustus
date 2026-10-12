@@ -168,7 +168,7 @@ fn unsupported_event_semantics_are_diagnostics_even_in_unselected_options() {
         "fire_only_once=yes fire_only_once=no",
         "hidden=yes",
         "option={name=other ai_chance={factor=1} log=unsupported}",
-        "option={name=other trigger={always=yes} log=unsupported}",
+        "option={name=other trigger={always=no unsupported_trigger=yes} log=unsupported}",
         "option={name=other ROOT={log=unsupported}}",
         "immediate={country_event={id=probe.2 random=1}}",
         "desc={text=dynamic}",

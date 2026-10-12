@@ -38,6 +38,8 @@ struct Scene {
     governments: augustus_core::Governments,
     #[serde(default, skip_serializing_if = "augustus_core::Affiliations::is_empty")]
     affiliations: augustus_core::Affiliations,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    country_controllers: BTreeMap<EntityId, augustus_core::CountryController>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -64,10 +66,10 @@ pub struct PendingChoiceView {
     pub current: EntityId,
     pub day: u64,
     pub options: Vec<String>,
-    /// Declared duration labels in each option; conditions are not evaluated here.
+    /// Declared duration labels in available options; effect conditions are not evaluated.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub modifier_duration_labels: BTreeMap<String, Vec<String>>,
-    /// Declared non-hidden description keys; conditions are not evaluated here.
+    /// Declared non-hidden keys in available options; effect conditions are not evaluated.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub description_keys: BTreeMap<String, Vec<String>>,
 }
@@ -91,6 +93,8 @@ pub struct EventView {
     pub governments: augustus_core::Governments,
     #[serde(skip_serializing_if = "augustus_core::Affiliations::is_empty")]
     pub affiliations: augustus_core::Affiliations,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub country_controllers: BTreeMap<EntityId, augustus_core::CountryController>,
 }
 
 /// Self-authored scenario exercising the same core from two content formats.
@@ -103,11 +107,12 @@ impl EventDemo {
     pub fn embedded(input: Input) -> Result<Self, Error> {
         let scene: Scene =
             serde_json::from_str(include_str!("../../../examples/events/scene.json"))?;
-        let (definitions, conditions, once_events) = match input {
+        let (definitions, conditions, once_events, option_conditions) = match input {
             Input::Native => (
                 serde_json::from_str(include_str!("../../../examples/events/events.json"))?,
                 BTreeMap::new(),
                 Default::default(),
+                BTreeMap::new(),
             ),
             Input::Eu4 => {
                 let schema = Schema::new(scene.fields.clone())?;
@@ -129,10 +134,17 @@ impl EventDemo {
                     compiled.definitions,
                     compiled.conditions,
                     compiled.once_events,
+                    compiled.option_conditions,
                 )
             }
         };
-        Self::load(scene, definitions, conditions, once_events)
+        Self::load(
+            scene,
+            definitions,
+            conditions,
+            once_events,
+            option_conditions,
+        )
     }
 
     pub fn from_directory(root: &Path, input: Input) -> Result<Self, Error> {
@@ -143,7 +155,7 @@ impl EventDemo {
                 .map_err(|error| Error::Invalid(error.to_string()))
         };
         let scene: Scene = serde_json::from_str(&read_json("scene.json")?)?;
-        let (definitions, conditions, once_events) = match input {
+        let (definitions, conditions, once_events, option_conditions) = match input {
             Input::Native => {
                 let conditions = if root.path().join("conditions.json").exists() {
                     serde_json::from_str(&read_json("conditions.json")?)?
@@ -155,10 +167,16 @@ impl EventDemo {
                 } else {
                     Default::default()
                 };
+                let option_conditions = if root.path().join("option_conditions.json").exists() {
+                    serde_json::from_str(&read_json("option_conditions.json")?)?
+                } else {
+                    BTreeMap::new()
+                };
                 (
                     serde_json::from_str(&read_json("events.json")?)?,
                     conditions,
                     once_events,
+                    option_conditions,
                 )
             }
             Input::Eu4 => {
@@ -177,10 +195,17 @@ impl EventDemo {
                     compiled.definitions,
                     compiled.conditions,
                     compiled.once_events,
+                    compiled.option_conditions,
                 )
             }
         };
-        Self::load(scene, definitions, conditions, once_events)
+        Self::load(
+            scene,
+            definitions,
+            conditions,
+            once_events,
+            option_conditions,
+        )
     }
 
     fn load(
@@ -188,6 +213,7 @@ impl EventDemo {
         definitions: Vec<EventDefinition>,
         conditions: BTreeMap<String, augustus_core::Condition>,
         once_events: std::collections::BTreeSet<String>,
+        option_conditions: BTreeMap<String, BTreeMap<String, augustus_core::Condition>>,
     ) -> Result<Self, Error> {
         if scene.version != 1 || scene.entities.is_empty() {
             return Err(Error::Invalid(
@@ -196,9 +222,19 @@ impl EventDemo {
         }
         let catalog = EventCatalog::new(definitions)?
             .with_conditions(conditions)?
+            .with_option_conditions(option_conditions)?
             .with_once_events(once_events)?;
         // Canonical effective content, including initial state and compiled plans.
-        let content = if !catalog.once_events().is_empty() {
+        let content = if !catalog.option_conditions().is_empty() {
+            serde_json::to_string(&(
+                "augustus-events:1",
+                &scene,
+                catalog.definitions(),
+                catalog.conditions(),
+                catalog.once_events(),
+                catalog.option_conditions(),
+            ))?
+        } else if !catalog.once_events().is_empty() {
             serde_json::to_string(&(
                 "augustus-events:1",
                 &scene,
@@ -253,6 +289,9 @@ impl EventDemo {
         world.set_modifiers(scene.modifiers)?;
         world.set_governments(scene.governments)?;
         world.set_affiliations(scene.affiliations)?;
+        for (country, controller) in scene.country_controllers {
+            world.set_country_controller(country, controller)?;
+        }
         world.set_event_catalog(catalog)?;
         Ok(Self { world, content })
     }
@@ -349,10 +388,10 @@ impl EventDemo {
             .pending_events()
             .iter()
             .map(|pending| {
-                let options = &self.world.event_catalog().definitions()[&pending.event].options;
+                let options = self.world.available_event_options(pending.id)?;
                 let mut modifier_duration_labels = BTreeMap::new();
                 let mut description_keys = BTreeMap::new();
-                for option in options {
+                for option in &options {
                     let mut durations = Vec::new();
                     let mut descriptions = Vec::new();
                     effect_labels(&option.effects, &mut durations, &mut descriptions);
@@ -363,7 +402,7 @@ impl EventDemo {
                         description_keys.insert(option.id.clone(), descriptions);
                     }
                 }
-                PendingChoiceView {
+                Ok(PendingChoiceView {
                     id: pending.id,
                     event: pending.event.clone(),
                     current: pending.current,
@@ -371,9 +410,9 @@ impl EventDemo {
                     options: options.iter().map(|option| option.id.clone()).collect(),
                     modifier_duration_labels,
                     description_keys,
-                }
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, augustus_core::Error>>()?;
         Ok(EventView {
             day: self.world.day(),
             pending_tasks: self.world.pending_tasks(),
@@ -386,6 +425,7 @@ impl EventDemo {
             markers: self.world.markers().clone(),
             governments: self.world.governments().clone(),
             affiliations: self.world.affiliations().clone(),
+            country_controllers: self.world.country_controllers().clone(),
         })
     }
 }

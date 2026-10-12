@@ -990,6 +990,7 @@ fn load_events(
     }
     let mut definitions = BTreeMap::new();
     let mut conditions = BTreeMap::new();
+    let mut option_conditions = BTreeMap::new();
     let mut once_events = BTreeSet::new();
     while !needed.is_empty() {
         let requested = std::mem::take(&mut needed);
@@ -1020,6 +1021,7 @@ fn load_events(
                 definitions.insert(definition.id.clone(), definition);
             }
             conditions.extend(compiled.conditions);
+            option_conditions.extend(compiled.option_conditions);
             once_events.extend(compiled.once_events);
         }
         if let Some(missing) = requested.difference(&found).next() {
@@ -1032,6 +1034,7 @@ fn load_events(
     }
     EventCatalog::new(definitions.into_values())
         .and_then(|catalog| catalog.with_conditions(conditions))
+        .and_then(|catalog| catalog.with_option_conditions(option_conditions))
         .and_then(|catalog| catalog.with_once_events(once_events))
         .map_err(|e| Error::caused_by("events", e))
 }

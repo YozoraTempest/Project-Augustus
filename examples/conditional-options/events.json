@@ -1,0 +1,115 @@
+[
+  {
+    "id": "choices.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "SetMarker": {
+          "target": "Current",
+          "name": "gate",
+          "present": false
+        }
+      },
+      {
+        "Emit": "start"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "closed"
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": [
+          {
+            "SetMarker": {
+              "target": "Current",
+              "name": "gate",
+              "present": true
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "choices.later"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "Emit": "human"
+          }
+        ]
+      },
+      {
+        "id": "2",
+        "effects": [
+          {
+            "Emit": "ai"
+          }
+        ]
+      },
+      {
+        "id": "3",
+        "effects": [
+          {
+            "Emit": "unavailable"
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "after"
+      }
+    ]
+  },
+  {
+    "id": "choices.later",
+    "scope": "Country",
+    "immediate": [],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "SetMarker": {
+              "target": "Current",
+              "name": "gate",
+              "present": false
+            }
+          },
+          {
+            "Emit": "open"
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": [
+          {
+            "Emit": "closed"
+          }
+        ]
+      },
+      {
+        "id": "2",
+        "effects": [
+          {
+            "Emit": "end"
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

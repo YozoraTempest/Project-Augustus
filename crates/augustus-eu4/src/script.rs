@@ -243,6 +243,7 @@ pub struct CompiledScript {
 pub struct CompiledEvents {
     pub definitions: Vec<EventDefinition>,
     pub conditions: BTreeMap<String, Condition>,
+    pub option_conditions: BTreeMap<String, BTreeMap<String, Condition>>,
     pub once_events: BTreeSet<String>,
     pub sources: Vec<(PathBuf, SourceLocation)>,
     pub folded_branches: usize,
@@ -507,6 +508,7 @@ impl<'a> ScriptCompiler<'a> {
     fn events(&mut self, fields: &[Field]) -> Result<CompiledEvents, Error> {
         let mut definitions = Vec::new();
         let mut conditions = BTreeMap::new();
+        let mut option_conditions = BTreeMap::new();
         let mut once_events = BTreeSet::new();
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
@@ -536,6 +538,7 @@ impl<'a> ScriptCompiler<'a> {
             let mut explicit = false;
             let mut condition = None;
             let mut once = false;
+            let mut guarded_options = BTreeMap::new();
             for part in field.block()? {
                 self.sources.push((part.path.clone(), part.location));
                 if part.name != "option" && !seen.insert(&part.name) {
@@ -559,6 +562,7 @@ impl<'a> ScriptCompiler<'a> {
                     "option" => {
                         let mut effects = Vec::new();
                         let mut name = false;
+                        let mut option_condition = None;
                         for item in part.block()? {
                             if item.name == "name" {
                                 if name || item.scalar()?.is_empty() {
@@ -566,6 +570,12 @@ impl<'a> ScriptCompiler<'a> {
                                 }
                                 self.sources.push((item.path.clone(), item.location));
                                 name = true;
+                            } else if item.name == "trigger" {
+                                if option_condition.is_some() {
+                                    return Err(item.error("duplicate option trigger"));
+                                }
+                                self.sources.push((item.path.clone(), item.location));
+                                option_condition = Some(self.conditions(item.block()?, scope)?);
                             } else {
                                 effects.push(item.clone());
                             }
@@ -573,8 +583,12 @@ impl<'a> ScriptCompiler<'a> {
                         if !name {
                             return Err(part.error("option requires a scalar name"));
                         }
+                        let id = definition.options.len().to_string();
+                        if let Some(condition) = option_condition {
+                            guarded_options.insert(id.clone(), condition);
+                        }
                         definition.options.push(EventOption {
-                            id: definition.options.len().to_string(),
+                            id,
                             effects: self.effects(&effects, scope)?,
                         });
                     }
@@ -593,6 +607,13 @@ impl<'a> ScriptCompiler<'a> {
             }
             if once {
                 once_events.insert(definition.id.clone());
+            }
+            if !guarded_options.is_empty()
+                && option_conditions
+                    .insert(definition.id.clone(), guarded_options)
+                    .is_some()
+            {
+                return Err(field.error("duplicate event option trigger identifier"));
             }
             definitions.push(definition);
         }
@@ -619,6 +640,7 @@ impl<'a> ScriptCompiler<'a> {
         Ok(CompiledEvents {
             definitions,
             conditions,
+            option_conditions,
             once_events,
             sources: std::mem::take(&mut self.sources),
             folded_branches: self.folded,
@@ -955,6 +977,16 @@ impl<'a> ScriptCompiler<'a> {
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "ai" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("ai conditions require country scope"));
+                    }
+                    Condition::CountryControlled {
+                        target: Target::Current,
+                        controller: if boolean(field)? { augustus_core::CountryController::Ai }
+                            else { augustus_core::CountryController::Human },
+                    }
+                }
                 "has_religious_school" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("religious school conditions require country scope"));

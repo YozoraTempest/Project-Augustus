@@ -10,6 +10,7 @@ mod affiliations;
 mod attributes;
 mod calendar;
 mod completions;
+mod control;
 mod economy;
 mod estate_actions;
 mod estate_initialization;
@@ -42,6 +43,7 @@ pub use attributes::{
 };
 pub use calendar::Calendar;
 pub use completions::Completions;
+pub use control::CountryController;
 pub use economy::{BuildingDefinition, Economy, ProvinceEconomy, TradeGoodDefinition, TradeNode};
 pub use estate_actions::EstateMetric;
 pub use estate_initialization::EstateLandRules;

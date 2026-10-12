@@ -16,6 +16,55 @@ fn document(text: &str) -> TextDocument {
 }
 
 #[test]
+fn option_metadata_compiles_guards_without_pruning_effects_or_renumbering() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let mut library = ScriptLibrary::new();
+    library.add_triggers(&document("human={ai=no}")).unwrap();
+    let event = document(
+        "country_event={id=test is_triggered_only=yes option={name=zero trigger={always=no} log=zero} option={name=one trigger={human=yes} log=one}}",
+    );
+    for optimise in [false, true] {
+        let compiled = ScriptCompiler::new(&schema, &library, optimise)
+            .compile_events(&event)
+            .unwrap();
+        assert_eq!(
+            compiled.definitions[0]
+                .options
+                .iter()
+                .map(|option| option.id.as_str())
+                .collect::<Vec<_>>(),
+            ["0", "1"]
+        );
+        assert_eq!(
+            compiled.definitions[0].options[0].effects,
+            [augustus_core::Action::Emit("zero".into())]
+        );
+        assert_eq!(compiled.option_conditions["test"].len(), 2);
+    }
+    for body in [
+        "option={name=zero trigger={always=no} trigger={always=yes}}",
+        "option={name=zero trigger={ai=maybe}}",
+        "option={name=zero trigger={always=no} unknown_effect=yes}",
+        "option={name=zero trigger={always=no unknown_trigger=yes}}",
+    ] {
+        let text = format!("country_event={{id=test is_triggered_only=yes {body}}}");
+        let error = ScriptCompiler::new(&schema, &library, true)
+            .compile_events(&document(&text))
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("self-authored.txt:1:"),
+            "{error}"
+        );
+    }
+    let error = ScriptCompiler::new(&schema, &library, true)
+        .compile_events(&document(
+            "province_event={id=test is_triggered_only=yes option={name=zero trigger={ai=yes}}}",
+        ))
+        .unwrap_err();
+    assert!(error.to_string().contains("country scope"));
+}
+
+#[test]
 fn script_view_uses_original_filename_order_and_direct_children() {
     let root = tempfile::tempdir().unwrap();
     let effects = root.path().join("common/scripted_effects");

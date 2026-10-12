@@ -186,6 +186,14 @@ impl InitialWorld {
         self.world.set_politics(politics)
     }
 
+    pub fn set_country_controller(
+        &mut self,
+        country: EntityId,
+        controller: crate::CountryController,
+    ) -> Result<(), Error> {
+        self.world.set_country_controller(country, controller)
+    }
+
     pub fn set_economy(&mut self, economy: Economy) -> Result<(), Error> {
         self.world.set_economy(economy)
     }

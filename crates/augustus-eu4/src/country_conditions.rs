@@ -23,6 +23,7 @@ pub(super) enum Condition {
     Modifier(String),
     Marker(String),
     Numeric(augustus_core::Condition),
+    Control(augustus_core::CountryController),
     Feature(String),
     Estate(String),
     EstatePrivilege(String),
@@ -56,6 +57,16 @@ impl Condition {
                 let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
                 equal(op, &fail)?;
                 Ok(match name.as_str() {
+                    "ai" if country => {
+                        let expected =
+                            flag(&value.read_string().map_err(|_| fail("expected ai flag"))?)
+                                .ok_or_else(|| fail("expected yes or no"))?;
+                        Self::Control(if expected {
+                            augustus_core::CountryController::Ai
+                        } else {
+                            augustus_core::CountryController::Human
+                        })
+                    }
                     "if" if country => {
                         let body = block(&value, &fail)?;
                         let limits: Vec<_> = body
@@ -353,6 +364,21 @@ impl Condition {
         estates: EstateLookup<'_>,
     ) -> Option<bool> {
         match self {
+            Self::Control(expected) => {
+                let entity = province
+                    .unwrap_or_else(|| initial.country_entity(tag).expect("registered country"));
+                match initial.world().country_controller(entity) {
+                    Ok(Some(actual)) => Some(actual == *expected),
+                    Ok(None) => {
+                        reasons.insert(format!("unknown_country_controller:{tag}"));
+                        None
+                    }
+                    Err(error) => {
+                        reasons.insert(format!("invalid_country_controller:{error}"));
+                        None
+                    }
+                }
+            }
             Self::Marker(name) => {
                 if !crate::country_markers::literal_name(name) {
                     reasons.insert("unsupported_country_flag_name".into());

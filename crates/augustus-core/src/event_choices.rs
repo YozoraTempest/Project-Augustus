@@ -32,6 +32,7 @@ pub struct EventOption {
 pub struct EventCatalog {
     definitions: Arc<BTreeMap<String, EventDefinition>>,
     conditions: Arc<BTreeMap<String, crate::Condition>>,
+    option_conditions: Arc<BTreeMap<String, BTreeMap<String, crate::Condition>>>,
     once_events: Arc<BTreeSet<String>>,
 }
 
@@ -57,6 +58,7 @@ impl EventCatalog {
         Ok(Self {
             definitions: Arc::new(result),
             conditions: Arc::default(),
+            option_conditions: Arc::default(),
             once_events: Arc::default(),
         })
     }
@@ -81,6 +83,29 @@ impl EventCatalog {
         &self.conditions
     }
 
+    /// Conditions describe available options; commands keep stable declaration identifiers.
+    pub fn with_option_conditions(
+        mut self,
+        conditions: BTreeMap<String, BTreeMap<String, crate::Condition>>,
+    ) -> Result<Self, Error> {
+        for (event, options) in &conditions {
+            let definition = self.get(event)?;
+            for option in options.keys() {
+                if !definition.options.iter().any(|item| &item.id == option) {
+                    return Err(Error::Invalid(format!(
+                        "unknown option {option} for event {event}"
+                    )));
+                }
+            }
+        }
+        self.option_conditions = Arc::new(conditions);
+        Ok(self)
+    }
+
+    pub fn option_conditions(&self) -> &BTreeMap<String, BTreeMap<String, crate::Condition>> {
+        &self.option_conditions
+    }
+
     /// Events that may complete dispatch only once across a saved session.
     pub fn with_once_events(mut self, events: BTreeSet<String>) -> Result<Self, Error> {
         for event in &events {
@@ -95,7 +120,11 @@ impl EventCatalog {
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
-        for condition in self.conditions.values() {
+        for condition in self.conditions.values().chain(
+            self.option_conditions
+                .values()
+                .flat_map(|options| options.values()),
+        ) {
             crate::world::validate_condition(
                 condition,
                 world.schema(),
@@ -273,6 +302,29 @@ impl World {
 
     pub fn pending_events(&self) -> &[PendingEvent] {
         &self.event_queue.pending
+    }
+
+    /// Read current availability without executing effects or consuming randomness.
+    pub fn available_event_options(&self, id: PendingEventId) -> Result<Vec<&EventOption>, Error> {
+        self.require_running()?;
+        let pending = self
+            .event_queue
+            .pending
+            .iter()
+            .find(|pending| pending.id == id)
+            .ok_or_else(|| Error::Invalid(format!("unknown pending event {}", id.0)))?;
+        let definition = self.event_catalog.get(&pending.event)?;
+        let conditions = self.event_catalog.option_conditions.get(&pending.event);
+        let mut available = Vec::new();
+        for option in &definition.options {
+            if let Some(condition) = conditions.and_then(|conditions| conditions.get(&option.id))
+                && !condition.evaluate(self, pending.current)?
+            {
+                continue;
+            }
+            available.push(option);
+        }
+        Ok(available)
     }
 
     /// Completed once-only dispatches, shared by every entity in this session.
