@@ -48,6 +48,69 @@ use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 
 #[test]
+fn effect_previews_share_content_and_restored_choices_without_simulation_side_effects() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/effect-previews");
+    let mut compatible = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    compatible.trigger("preview.control", 0).unwrap();
+    let before = compatible.save().unwrap();
+    for _ in 0..3 {
+        let view = compatible.view().unwrap();
+        assert_eq!(
+            view.pending_events[0].modifier_duration_labels["0"],
+            ["preview_duration"]
+        );
+        assert_eq!(view.entities[0].values["variable/phase"], 1000);
+        assert_eq!(view.pending_tasks, 0);
+    }
+    assert_eq!(compatible.save().unwrap(), before);
+    native.restore(&before).unwrap();
+    for demo in [&mut compatible, &mut native] {
+        demo.choose(&EventChoice {
+            pending: PendingEventId(0),
+            option: "0".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            demo.view().unwrap().entities[0].values["variable/phase"],
+            2000
+        );
+        assert!(demo.world().modifiers().active.is_empty());
+        assert_eq!(demo.world().pending_tasks(), 1);
+        assert!(demo.world().pending_events().is_empty());
+    }
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    compatible.restore(&native.save().unwrap()).unwrap();
+    for demo in [&mut compatible, &mut native] {
+        demo.advance(1).unwrap();
+        assert_eq!(demo.world().pending_events()[0].event, "preview.live");
+        assert_eq!(
+            demo.world().modifiers().active[&EntityId(0)]["boost"].expires_on,
+            Some(3)
+        );
+        demo.choose(&EventChoice {
+            pending: PendingEventId(1),
+            option: "0".into(),
+        })
+        .unwrap();
+        demo.advance(2).unwrap();
+        assert!(!demo.world().has_marker(EntityId(0), "shadow").unwrap());
+        assert!(!demo.world().has_marker(EntityId(0), "child").unwrap());
+        assert!(!demo.world().has_modifier(EntityId(0), "boost").unwrap());
+        assert_eq!(
+            demo.world().events(),
+            &[
+                (0, EntityId(0), "selected".into()),
+                (1, EntityId(0), "live".into())
+            ]
+        );
+    }
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+}
+
+#[test]
 fn modifier_renewal_expiry_and_waiting_choices_share_cross_input_saves() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/modifier-lifecycle");

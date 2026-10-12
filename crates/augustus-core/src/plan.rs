@@ -59,6 +59,10 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    /// Describe effects without executing the body, resolving scopes, or drawing randomness.
+    Preview {
+        plan: Plan,
+    },
     SetMarker {
         target: Target,
         name: String,
@@ -280,6 +284,7 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::Preview { .. } => (),
                 Action::SetMarker {
                     target,
                     name,

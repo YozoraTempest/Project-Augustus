@@ -155,6 +155,21 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/m
 
 核心通过 `EventCatalog` 接收不可变定义，使用 `World::trigger_event` 和 `World::choose_event` 执行，使用 `World::restore_with_events` 重新绑定内容并恢复待选状态。事件定义共享存储，执行时直接使用编译后的计划。`World::events` 保持原有日志接口；待选记录通过 `World::pending_events` 查询。
 
+## 效果预览
+
+`examples/effect-previews` 同时提供脚本与原生定义：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/effect-previews --trigger preview.control --save preview_pending.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/effect-previews --input native --load preview_pending.json --choose 0:0 --save preview_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/effect-previews --load preview_waiting.json --days 1 --choose 1:0 --save preview_live.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/effect-previews --load preview_live.json --days 2
+```
+
+`tooltip = { ... }` 编译为核心 `Preview`。内部计划保留在事件内容或延期任务中，供描述生成使用；执行到这个节点时跳过整个内部计划，不改变数值、修正或标记，不切换作用域、不求值条件、不消耗随机数，也不安排或调用事件。示例中的预览声明变量增加 9、添加修正和触发事件，选择后只有实际的变量增加 1 与延期调用生效。
+
+内部语法、作用域和内容引用仍需有效，未知效果不会因位于预览中而被忽略。启动加载会登记预览引用的事件，但不会因此触发它们。原生内容可以直接使用 `{"Preview": {"plan": [...]}}`，与兼容输入共用执行和存档逻辑。程序可从 `World::event_catalog()` 读取完整计划；演示的期限说明查询也包含预览里直接声明的键，读取查询不会执行预览。当前没有实现自动效果描述、本地化渲染或 Godot 事件界面；`custom_tooltip` 和事件调用中的标量 `tooltip` 参数仍未支持。
+
 ## 当前支持范围
 
 脚本输入支持显式触发的 `country_event`、`province_event`，要求 `id`、`is_triggered_only = yes` 和至少一个具备标量 `name` 的选项。`fire_only_once` 接受 `yes`、`no`，省略时允许重复触发。标量 `title`、`desc`、`picture` 可读取，但演示不展示本地化文字。事件标识按输入字符串保留；命名空间的数字登记和原版选项命令格式未实现。
@@ -165,7 +180,7 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/m
 
 原生数值操作使用 `UpdateNumeric`、`NumericCompare` 和 `NumericSlot::Named`，可通过 `NumericSlot::Field` 操作已有字段。乘除指令显式提供正整数 `scale`，结果向零截断。`NamedValues.entities` 的空对象声明该实体的变量空间已知为空，未赋值的名称读为零；缺少实体条目表示未知。`unknown_entities` 可保留其他名称未知，同时保存个别已确定值。`Set` 能写入一个已知值，其他运算需要先取得已知旧值。场景通过可选的 `named_values` 提供初始状态，保存恢复不会重复初始化。
 
-国家修正支持 `add_country_modifier`、`remove_country_modifier` 和 `has_country_modifier`。添加接受 `name`、字面整数 `duration` 和可选的 `hidden`，每个参数最多一次；`-1` 表示永久，正数为有效天数，零或省略期限在次日清理。重复添加保留较晚的有限到期日，有限期限与永久期限混用时采用有限期限。未知字面名称的兼容查询为假，添加与移除要求名称已注册；动态名称、说明和消息参数、其他数值形式以及省份效果尚未支持。独立使用编译器时通过 `with_modifier_ids` 提供名称集合，演示场景从 `modifiers.definitions` 提供。
+国家修正支持 `add_country_modifier`、`remove_country_modifier` 和 `has_country_modifier`。添加接受 `name`、字面整数 `duration`、可选的 `hidden` 和字面期限说明键 `desc`，每个参数最多一次；`-1` 表示永久，正数为有效天数，零或省略期限在次日清理。重复添加保留较晚的有限到期日，有限期限与永久期限混用时采用有限期限。未知字面名称的兼容查询为假，添加与移除要求名称已注册；动态名称、动态说明和消息参数、其他数值形式以及省份效果尚未支持。独立使用编译器时通过 `with_modifier_ids` 提供名称集合，演示场景从 `modifiers.definitions` 提供。
 
 原生指令为 `AttachModifier`、`RemoveModifier` 和 `HasModifier`，可以操作核心的不同实体。添加的 `duration` 为正整数或空值；`renewal: Replace` 采用新期限，`KeepLatestDated` 提供上述兼容续期行为。`expires_on` 是首次失效的模拟日；到期清理先于同日任务和月结，属性计算从当前附着记录取值。日期索引在读档时重建，已移除或续期的旧期限不会误删当前记录。
 

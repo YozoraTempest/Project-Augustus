@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+country_event={id=preview.control is_triggered_only=yes
+    immediate={
+        set_variable={which=phase value=1}
+        tooltip={
+            set_variable={which=phase value=99}
+            capital_scope={owner={change_variable={which=phase value=7}}}
+            country_event={id=preview.ghost days=1}
+        }
+    }
+    option={name=accept
+        tooltip={
+            add_country_modifier={name=boost duration=2 desc=preview_duration}
+            change_variable={which=phase value=9}
+            country_event={id=preview.ghost}
+            tooltip={set_country_flag=shadow}
+        }
+        hidden_effect={change_variable={which=phase value=1} country_event={id=preview.live days=1}}
+    }
+    after={log=selected}
+}
+country_event={id=preview.ghost is_triggered_only=yes
+    immediate={set_country_flag=child log=unexpected}
+    option={name=accept}
+}
+country_event={id=preview.live is_triggered_only=yes
+    immediate={add_country_modifier={name=boost duration=2} log=live}
+    option={name=accept}
+}

@@ -146,6 +146,7 @@ impl Compiler {
                     location,
                 )),
                 "country_event"
+                | "tooltip"
                 | "add_country_modifier"
                 | "set_variable"
                 | "change_variable"
@@ -155,6 +156,7 @@ impl Compiler {
                     let library = crate::ScriptLibrary::new();
                     let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
                         .with_government_metric_ids(self.government_metric_ids.clone())
+                        .with_mission_ids(self.mission_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())
                         .compile_effect_reader(
                             parsed,

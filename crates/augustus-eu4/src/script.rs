@@ -687,6 +687,9 @@ impl<'a> ScriptCompiler<'a> {
                     id: self.mission_id(field, scope)?,
                 }),
                 "hidden_effect" => plan.extend(self.effects(field.block()?, scope)?),
+                "tooltip" => plan.push(Action::Preview {
+                    plan: self.effects(field.block()?, scope)?,
+                }),
                 "save_global_event_target_as" | "clear_global_event_target" => {
                     let name = field.scalar()?;
                     if name.is_empty() {
@@ -1165,7 +1168,8 @@ fn simplify_event_calls(plan: &mut Plan, unconditional: &BTreeSet<String>) {
             }
             Action::With { plan, .. }
             | Action::InScope { plan, .. }
-            | Action::Schedule { plan, .. } => simplify_event_calls(plan, unconditional),
+            | Action::Schedule { plan, .. }
+            | Action::Preview { plan } => simplify_event_calls(plan, unconditional),
             _ => (),
         }
     }
@@ -1187,7 +1191,8 @@ pub(crate) fn event_references(plan: &[Action], references: &mut BTreeSet<String
             }
             Action::With { plan, .. }
             | Action::InScope { plan, .. }
-            | Action::Schedule { plan, .. } => event_references(plan, references),
+            | Action::Schedule { plan, .. }
+            | Action::Preview { plan } => event_references(plan, references),
             _ => (),
         }
     }

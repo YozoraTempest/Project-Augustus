@@ -1,0 +1,34 @@
+[
+  {
+    "id": "preview.control", "scope": "Country",
+    "immediate": [
+      {"Set": {"target": "Current", "field": 0, "value": 1000}},
+      {"Preview": {"plan": [
+        {"Set": {"target": "Current", "field": 0, "value": 99000}},
+        {"With": {"target": "Capital", "plan": [{"With": {"target": "Owner", "plan": [{"Add": {"target": "Current", "field": 0, "value": 7000}}]}}]}},
+        {"Schedule": {"delay": 1, "plan": [{"TriggerEvent": {"event": "preview.ghost"}}]}}
+      ]}}
+    ],
+    "options": [{"id": "0", "effects": [
+      {"Preview": {"plan": [
+        {"AttachModifier": {"target": "Current", "name": "boost", "duration": 2, "hidden": null, "renewal": "KeepLatestDated", "duration_label": "preview_duration"}},
+        {"Add": {"target": "Current", "field": 0, "value": 9000}},
+        {"TriggerEvent": {"event": "preview.ghost"}},
+        {"Preview": {"plan": [{"SetMarker": {"target": "Current", "name": "shadow", "present": true}}]}}
+      ]}},
+      {"Add": {"target": "Current", "field": 0, "value": 1000}},
+      {"Schedule": {"delay": 1, "plan": [{"TriggerEvent": {"event": "preview.live"}}]}}
+    ]}],
+    "after": [{"Emit": "selected"}]
+  },
+  {
+    "id": "preview.ghost", "scope": "Country",
+    "immediate": [{"SetMarker": {"target": "Current", "name": "child", "present": true}}, {"Emit": "unexpected"}],
+    "options": [{"id": "0", "effects": []}], "after": []
+  },
+  {
+    "id": "preview.live", "scope": "Country",
+    "immediate": [{"AttachModifier": {"target": "Current", "name": "boost", "duration": 2, "hidden": null, "renewal": "KeepLatestDated"}}, {"Emit": "live"}],
+    "options": [{"id": "0", "effects": []}], "after": []
+  }
+]

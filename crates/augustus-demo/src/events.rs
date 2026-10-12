@@ -393,7 +393,8 @@ fn duration_labels(plan: &[augustus_core::Action], labels: &mut Vec<String>) {
             }
             Action::With { plan, .. }
             | Action::InScope { plan, .. }
-            | Action::Schedule { plan, .. } => duration_labels(plan, labels),
+            | Action::Schedule { plan, .. }
+            | Action::Preview { plan } => duration_labels(plan, labels),
             _ => (),
         }
     }

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "fields": ["variable/phase"],
+  "entities": [{"name": "AAA", "kind": "Country", "owner": null, "capital": null, "values": {}}],
+  "modifiers": {"definitions": {"boost": {"values_micros": {"rate": 125000}, "flags": {}}}, "active": {}},
+  "markers": {"entities": {"0": {}}}
+}

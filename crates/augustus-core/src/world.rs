@@ -955,7 +955,7 @@ pub(crate) fn validate_plan(
                     governments,
                 )?;
             }
-            Action::With { plan, .. } => validate_plan(
+            Action::With { plan, .. } | Action::Preview { plan } => validate_plan(
                 plan,
                 schema,
                 rule_count,
