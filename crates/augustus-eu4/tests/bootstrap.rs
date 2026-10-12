@@ -754,6 +754,12 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
         "active":{"0":{"test_state":{"hidden":true}},"2":{"test_harbor":{},"test_river":{}}}
     }"#).unwrap()).unwrap();
     native
+        .set_metrics(
+            serde_json::from_str(include_str!("../../../examples/world/native_metrics.json"))
+                .unwrap(),
+        )
+        .unwrap();
+    native
         .set_attributes(
             serde_json::from_str(include_str!(
                 "../../../examples/world/native_attributes.json"

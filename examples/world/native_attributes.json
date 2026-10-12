@@ -1,6 +1,7 @@
 {
   "administration_mappings": {"province_status": {"state_full_core": "core", "state_territorial_core": "colonial_core", "state_non_core": "non_core", "territory_core": "territory_core", "territory_non_core": "territory_non_core"}},
   "static_modifiers": {
+    "devastation": {"values_micros": {"local_manpower_modifier": -1000000}, "flags": {}},
     "city": {"values_micros": {"local_tax_modifier": 250000}, "flags": {}},
     "occupied": {"values_micros": {"local_tax_modifier": -500000, "local_manpower_modifier": -500000}, "flags": {}},
     "base_values": {"values_micros": {"global_manpower": 8000000}, "flags": {}},
@@ -29,6 +30,7 @@
             ],
             "rates": [
               {"kind": "administration", "mapping": "province_status", "property": "local_tax_modifier"},
+              {"kind": "metrics", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "buildings", "property": "local_tax_modifier"},
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
@@ -55,6 +57,7 @@
             "flat": [],
             "rates": [
               {"kind": "administration", "mapping": "province_status", "property": "local_manpower_modifier"},
+              {"kind": "metrics", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "buildings", "property": "local_manpower_modifier"},
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
@@ -86,6 +89,7 @@
             ],
             "rates": [
               {"kind": "administration", "mapping": "province_status", "property": "local_tax_modifier"},
+              {"kind": "metrics", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "buildings", "property": "local_tax_modifier"},
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
@@ -113,6 +117,7 @@
             "flat": [],
             "rates": [
               {"kind": "administration", "mapping": "province_status", "property": "local_manpower_modifier"},
+              {"kind": "metrics", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "buildings", "property": "local_manpower_modifier"},
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
@@ -147,6 +152,7 @@
             ],
             "rates": [
               {"kind": "administration", "mapping": "province_status", "property": "local_tax_modifier"},
+              {"kind": "metrics", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "buildings", "property": "local_tax_modifier"},
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
@@ -172,6 +178,7 @@
             "flat": [],
             "rates": [
               {"kind": "administration", "mapping": "province_status", "property": "local_manpower_modifier"},
+              {"kind": "metrics", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "buildings", "property": "local_manpower_modifier"},
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},
@@ -202,6 +209,7 @@
             ],
             "rates": [
               {"kind": "administration", "mapping": "province_status", "property": "local_tax_modifier"},
+              {"kind": "metrics", "target": "Current", "property": "local_tax_modifier"},
               {"kind": "buildings", "property": "local_tax_modifier"},
               {"kind": "trade_good", "property": "local_tax_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_tax_modifier"},
@@ -228,6 +236,7 @@
             "flat": [],
             "rates": [
               {"kind": "administration", "mapping": "province_status", "property": "local_manpower_modifier"},
+              {"kind": "metrics", "target": "Current", "property": "local_manpower_modifier"},
               {"kind": "buildings", "property": "local_manpower_modifier"},
               {"kind": "trade_good", "property": "local_manpower_modifier"},
               {"kind": "modifiers", "target": "Current", "property": "local_manpower_modifier"},

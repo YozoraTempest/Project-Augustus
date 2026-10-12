@@ -102,6 +102,14 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    /// Capture an ordered selection, then check each member's live condition
+    /// immediately before its body. Every iteration shares the caller's budget.
+    ForEach {
+        selectors: Vec<crate::ScopeSelector>,
+        kind: crate::EntityKind,
+        condition: Condition,
+        plan: Plan,
+    },
     GrantJustification {
         issuer: crate::EntityRef,
         target: crate::EntityRef,
@@ -481,6 +489,37 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::ForEach {
+                    selectors,
+                    kind,
+                    condition,
+                    plan,
+                } => {
+                    let mut selected = Vec::with_capacity(selectors.len());
+                    for selector in selectors {
+                        let entity = self.resolve_scope(selector)?;
+                        if let Some(entity) = entity
+                            && self.entity(entity)?.kind != *kind
+                        {
+                            return Err(Error::Invalid(
+                                "iteration scope does not match entity".into(),
+                            ));
+                        }
+                        selected.push(entity);
+                    }
+                    for entity in selected {
+                        if *budget == 0 {
+                            return Err(Error::Invalid("instruction limit exceeded".into()));
+                        }
+                        *budget -= 1;
+                        let Some(entity) = entity else {
+                            continue;
+                        };
+                        if condition.evaluate(self, entity)? {
+                            self.execute_inner(entity, plan, budget, depth + 1)?;
+                        }
+                    }
+                }
                 Action::GrantJustification {
                     issuer,
                     target,

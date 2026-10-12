@@ -262,6 +262,8 @@ pub struct ScriptCompiler<'a> {
     modifier_ids: BTreeSet<String>,
     casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
     government_metric_ids: BTreeSet<String>,
+    metric_ids: BTreeSet<String>,
+    area_scopes: BTreeMap<String, Vec<u32>>,
     religious_school_groups: BTreeMap<String, Option<String>>,
     hidden_descriptions: bool,
 }
@@ -280,6 +282,8 @@ impl<'a> ScriptCompiler<'a> {
             modifier_ids: BTreeSet::new(),
             casus_belli_types: BTreeMap::new(),
             government_metric_ids: BTreeSet::new(),
+            metric_ids: BTreeSet::new(),
+            area_scopes: BTreeMap::new(),
             religious_school_groups: BTreeMap::new(),
             hidden_descriptions: false,
         }
@@ -294,6 +298,24 @@ impl<'a> ScriptCompiler<'a> {
     pub fn with_global_scope_types(mut self, types: BTreeMap<String, EntityKind>) -> Self {
         self.global_scope_types = types;
         self
+    }
+
+    pub fn with_metric_ids(mut self, ids: BTreeSet<String>) -> Self {
+        self.metric_ids = ids;
+        self
+    }
+
+    /// Members retain content declaration order, including repeated entries.
+    pub fn with_area_scopes(mut self, areas: BTreeMap<String, Vec<u32>>) -> Self {
+        self.area_scopes = areas;
+        self
+    }
+
+    fn devastation_scope(&self, field: &Field, scope: EntityKind) -> Result<(), Error> {
+        if scope != EntityKind::Province || !self.metric_ids.contains("devastation") {
+            return Err(field.error("devastation requires province scope and a registered metric"));
+        }
+        Ok(())
     }
 
     fn variable_slot(
@@ -900,6 +922,59 @@ impl<'a> ScriptCompiler<'a> {
                     key: localisation_key(field, "custom tooltip")?,
                     hidden: self.hidden_descriptions,
                 }),
+                "add_devastation" => {
+                    self.devastation_scope(field, scope)?;
+                    plan.push(Action::UpdateNumeric {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Metric("devastation".into()),
+                        operation: augustus_core::NumericOperation::Add,
+                        value: decimal(field)? / 1000 * 1000,
+                    });
+                }
+                name if self.area_scopes.contains_key(name) => {
+                    let members = self.area_scopes[name].clone();
+                    if members.contains(&0) {
+                        return Err(
+                            field.error("area scope requires positive province identifiers")
+                        );
+                    }
+                    let mut body = Vec::new();
+                    let mut limit = None;
+                    for part in field.block()? {
+                        if part.name == "limit" {
+                            if limit.is_some() {
+                                return Err(part.error("duplicate area limit"));
+                            }
+                            limit = Some(self.conditions(part.block()?, EntityKind::Province)?);
+                        } else {
+                            body.push(part.clone());
+                        }
+                    }
+                    plan.push(Action::ForEach {
+                        selectors: members
+                            .into_iter()
+                            .map(|id| ScopeSelector::Named {
+                                kind: EntityKind::Province,
+                                name: id.to_string(),
+                            })
+                            .collect(),
+                        kind: EntityKind::Province,
+                        condition: limit.unwrap_or(Condition::Always(true)),
+                        plan: self.effects(&body, EntityKind::Province)?,
+                    });
+                }
+                name if province_identifier(name).is_some() => {
+                    plan.push(Action::InScope {
+                        selector: ScopeSelector::Named {
+                            kind: EntityKind::Province,
+                            name: province_identifier(name)
+                                .expect("matched identifier")
+                                .to_string(),
+                        },
+                        kind: EntityKind::Province,
+                        plan: self.effects(field.block()?, EntityKind::Province)?,
+                    });
+                }
                 "add_legitimacy" => {
                     self.government_metric(field, scope, "legitimacy")?;
                     plan.push(Action::If {
@@ -1243,6 +1318,27 @@ impl<'a> ScriptCompiler<'a> {
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "devastation" => {
+                    self.devastation_scope(field, scope)?;
+                    Condition::NumericCompare {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Metric("devastation".into()),
+                        comparison: augustus_core::NumericComparison::AtLeast,
+                        value: decimal(field)?,
+                    }
+                }
+                "province_id" => {
+                    if scope != EntityKind::Province { return Err(field.error("province_id requires province scope")); }
+                    let id = province_identifier(field.scalar()?)
+                        .ok_or_else(|| field.error("province_id requires a positive literal identifier"))?;
+                    Condition::EntityNamed {target: Target::Current, name: id.to_string()}
+                }
+                name if province_identifier(name).is_some() => Condition::InScope {
+                    selector: ScopeSelector::Named {kind: EntityKind::Province,
+                        name: province_identifier(name).expect("matched identifier").to_string()},
+                    kind: EntityKind::Province,
+                    condition: Box::new(self.conditions(field.block()?, EntityKind::Province)?),
+                },
                 "capital_scope" | "owner" => {
                     let (target, required, nested) = if field.name == "capital_scope" {
                         (Target::Capital, EntityKind::Country, EntityKind::Province)
@@ -1599,6 +1695,13 @@ fn decimal(field: &Field) -> Result<i64, Error> {
     Ok(if negative { -value } else { value })
 }
 
+fn province_identifier(name: &str) -> Option<u32> {
+    if name.is_empty() || !name.bytes().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    name.parse().ok().filter(|id| *id > 0)
+}
+
 fn constant(condition: &Condition) -> Option<bool> {
     match condition {
         Condition::Always(value) => Some(*value),
@@ -1634,6 +1737,7 @@ fn simplify_event_calls(plan: &mut Plan, unconditional: &BTreeSet<String>) {
             }
             Action::With { plan, .. }
             | Action::InScope { plan, .. }
+            | Action::ForEach { plan, .. }
             | Action::Schedule { plan, .. }
             | Action::Preview { plan } => simplify_event_calls(plan, unconditional),
             _ => (),
@@ -1657,6 +1761,7 @@ pub(crate) fn event_references(plan: &[Action], references: &mut BTreeSet<String
             }
             Action::With { plan, .. }
             | Action::InScope { plan, .. }
+            | Action::ForEach { plan, .. }
             | Action::Schedule { plan, .. }
             | Action::Preview { plan } => event_references(plan, references),
             _ => (),

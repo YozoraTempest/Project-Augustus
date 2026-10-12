@@ -22,6 +22,7 @@ mod ideas;
 mod initial;
 mod justifications;
 mod markers;
+mod metrics;
 mod modifiers;
 mod named_values;
 mod ownership;
@@ -68,6 +69,7 @@ pub use ideas::{
 pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
 pub use justifications::{GrantTerm, Justification, JustificationDefinition, Justifications};
 pub use markers::Markers;
+pub use metrics::{MetricContribution, MetricDefinition, MetricEvaluation, Metrics};
 pub use modifiers::{ModifierDefinition, ModifierInstance, ModifierRenewal, Modifiers};
 pub use named_values::{NamedValues, NumericComparison, NumericOperation, NumericSlot};
 pub use plan::{Action, Condition, Plan, Target};

@@ -22,6 +22,7 @@ pub enum NumericSlot {
     Field(FieldId),
     Named(String),
     Government(String),
+    Metric(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,13 +66,19 @@ impl NamedValues {
 }
 
 impl NumericSlot {
-    pub(crate) fn validate(&self, schema: &Schema, governments: &Governments) -> Result<(), Error> {
+    pub(crate) fn validate(
+        &self,
+        schema: &Schema,
+        governments: &Governments,
+        metrics: &crate::Metrics,
+    ) -> Result<(), Error> {
         match self {
             Self::Field(field) if field.0 >= schema.fields().len() => {
                 Err(Error::Invalid(format!("unknown field {}", field.0)))
             }
             Self::Named(name) => validate_name(name),
             Self::Government(name) => governments.metric_definition(name).map(|_| ()),
+            Self::Metric(name) => metrics.definition(name).map(|_| ()),
             Self::Field(_) => Ok(()),
         }
     }
@@ -119,10 +126,11 @@ impl World {
 
     pub fn numeric_value(&self, entity: EntityId, slot: &NumericSlot) -> Result<i64, Error> {
         self.entity(entity)?;
-        slot.validate(self.schema(), self.governments())?;
+        slot.validate(self.schema(), self.governments(), self.metrics())?;
         match slot {
             NumericSlot::Field(field) => self.value(entity, *field),
             NumericSlot::Government(name) => self.government_metric_value(entity, name),
+            NumericSlot::Metric(name) => self.metrics().value(self, entity, name),
             NumericSlot::Named(name) => {
                 if let Some(value) = self
                     .named_values
@@ -155,7 +163,7 @@ impl World {
     ) -> Result<(), Error> {
         self.require_running()?;
         self.entity(entity)?;
-        slot.validate(self.schema(), self.governments())?;
+        slot.validate(self.schema(), self.governments(), self.metrics())?;
         if let NumericSlot::Government(name) = slot
             && !self.government_metric_active(entity, name)?
         {
@@ -173,6 +181,12 @@ impl World {
                 i128::from(definition.minimum_milli),
                 i128::from(definition.maximum_milli),
             )
+        } else if let NumericSlot::Metric(name) = slot {
+            let definition = self.metrics().definition(name)?;
+            value.clamp(
+                i128::from(definition.minimum),
+                i128::from(definition.maximum),
+            )
         } else {
             value
         };
@@ -180,6 +194,7 @@ impl World {
             i64::try_from(value).map_err(|_| Error::Invalid("numeric state overflow".into()))?;
         match slot {
             NumericSlot::Field(field) => self.set(entity, *field, value),
+            NumericSlot::Metric(name) => self.set_metric_value(entity, name, Some(value)),
             NumericSlot::Government(name) => {
                 let previous = self
                     .governments

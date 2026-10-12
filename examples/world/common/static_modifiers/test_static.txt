@@ -3,6 +3,7 @@
 
 city = { local_tax_modifier = 0.25 }
 occupied = { local_tax_modifier = -0.5 local_manpower_modifier = -0.5 }
+devastation = { local_manpower_modifier = -1 }
 base_values = { global_manpower = 8 }
 core = {}
 non_core = {}

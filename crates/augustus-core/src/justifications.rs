@@ -105,6 +105,7 @@ impl Justifications {
                     &world.completions,
                     &world.modifiers,
                     &world.governments,
+                    &world.metrics,
                     self,
                 )?;
             }

@@ -52,6 +52,7 @@ pub struct AdministrationReport {
 
 pub(super) struct AdministrationDraft {
     areas: BTreeSet<String>,
+    ordered_areas: BTreeMap<String, Vec<u32>>,
     memberships: BTreeMap<u32, String>,
     deltas: BTreeMap<u32, i64>,
     operations: BTreeMap<u32, Vec<i64>>,
@@ -60,6 +61,10 @@ pub(super) struct AdministrationDraft {
 }
 
 impl AdministrationDraft {
+    pub(super) fn ordered_areas(&self) -> BTreeMap<String, Vec<u32>> {
+        self.ordered_areas.clone()
+    }
+
     pub(super) fn affiliations(&self, initial: &InitialWorld) -> augustus_core::Affiliations {
         self.autonomy.affiliations(initial)
     }
@@ -72,6 +77,7 @@ impl AdministrationDraft {
     ) -> Result<Self, Error> {
         let mut result = Self {
             areas: BTreeSet::new(),
+            ordered_areas: BTreeMap::new(),
             memberships: BTreeMap::new(),
             deltas: BTreeMap::new(),
             operations: BTreeMap::new(),
@@ -151,6 +157,7 @@ impl AdministrationDraft {
             if list.is_empty() {
                 report.empty_areas.insert(name.clone());
             }
+            let mut ordered = Vec::new();
             for id in list.values() {
                 let id = id
                     .read_string()
@@ -158,6 +165,7 @@ impl AdministrationDraft {
                     .and_then(|s| s.parse::<u32>().ok())
                     .filter(|v| *v > 0)
                     .ok_or_else(|| fail("expected positive area province identifier"))?;
+                ordered.push(id);
                 if let Some(previous) = result.memberships.get(&id) {
                     if previous != &name {
                         return Err(fail("province belongs to more than one area"));
@@ -167,6 +175,7 @@ impl AdministrationDraft {
                     result.memberships.insert(id, name.clone());
                 }
             }
+            result.ordered_areas.insert(name.clone(), ordered);
             report.area_sources.insert(name, source(&parsed, at));
         }
         report.areas = result.areas.len();

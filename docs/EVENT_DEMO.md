@@ -4,6 +4,8 @@
 
 [条件图片场景](../examples/event-pictures/README.md) 演示即时效果后的选图、待选期间保持图片和跨入口读档；当前输出资源键，尚不渲染图片。
 
+[地区效果场景](../examples/area-effects/README.md) 演示有序遍历、每轮筛选、省份数值对属性的影响和跨入口续跑。
+
 触发议会事件并查看待选项：
 
 ```sh

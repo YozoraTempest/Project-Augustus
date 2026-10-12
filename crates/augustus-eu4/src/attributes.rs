@@ -331,6 +331,10 @@ impl AttributeDraft {
                         Vec::new()
                     },
                     rates: vec![
+                        AttributeTerm::Metrics {
+                            target: Target::Current,
+                            property: local_rate.into(),
+                        },
                         AttributeTerm::Buildings {
                             property: local_rate.into(),
                         },

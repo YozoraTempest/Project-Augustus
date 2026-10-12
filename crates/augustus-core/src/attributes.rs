@@ -32,6 +32,10 @@ pub enum AttributeBase {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AttributeTerm {
+    Metrics {
+        target: Target,
+        property: String,
+    },
     /// Content chooses a static source for each category. Omitted categories
     /// intentionally add no effect; missing selected definitions remain unknown.
     Administration {
@@ -470,6 +474,22 @@ impl Attributes {
                     unresolved.insert(format!("affiliation:{dimension}:{scope}:unknown_member"));
                 }
             }
+            AttributeTerm::Metrics { target, property } => {
+                if let Some(selected) = attribute_target(world, entity, *target)? {
+                    let result = world
+                        .metrics()
+                        .property_effects(world, selected, property)?;
+                    unresolved.extend(result.unresolved);
+                    values.extend(
+                        result
+                            .contributions
+                            .into_iter()
+                            .map(|value| (value.source, value.property, value.micros)),
+                    );
+                } else {
+                    unresolved.insert(format!("target:{target:?}:unknown"));
+                }
+            }
             AttributeTerm::Autonomy => {
                 if world.administration().provinces.contains_key(&entity) {
                     let state = world.administration().evaluate(world, entity)?;
@@ -681,6 +701,7 @@ impl Attributes {
                                 && !property.is_empty()
                         }
                         AttributeTerm::Modifiers { property, .. }
+                        | AttributeTerm::Metrics { property, .. }
                         | AttributeTerm::Government { property, .. }
                         | AttributeTerm::Estates { property, .. }
                         | AttributeTerm::Ideas { property, .. } => !property.is_empty(),

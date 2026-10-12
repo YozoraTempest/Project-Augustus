@@ -1,0 +1,278 @@
+[
+  {
+    "id": "area.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "SetMarker": {
+          "target": "Current",
+          "name": "gate",
+          "present": true
+        }
+      },
+      {
+        "ForEach": {
+          "selectors": [
+            {
+              "Named": {
+                "kind": "Province",
+                "name": "3"
+              }
+            },
+            {
+              "Named": {
+                "kind": "Province",
+                "name": "1"
+              }
+            },
+            {
+              "Named": {
+                "kind": "Province",
+                "name": "2"
+              }
+            }
+          ],
+          "kind": "Province",
+          "condition": {
+            "All": [
+              {
+                "With": {
+                  "target": "Owner",
+                  "kind": "Country",
+                  "condition": {
+                    "All": [
+                      {
+                        "HasMarker": {
+                          "target": "Current",
+                          "name": "gate"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "plan": [
+            {
+              "Emit": "first_only"
+            },
+            {
+              "With": {
+                "target": "Owner",
+                "plan": [
+                  {
+                    "SetMarker": {
+                      "target": "Current",
+                      "name": "gate",
+                      "present": false
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "ForEach": {
+          "selectors": [
+            {
+              "Named": {
+                "kind": "Province",
+                "name": "3"
+              }
+            },
+            {
+              "Named": {
+                "kind": "Province",
+                "name": "1"
+              }
+            },
+            {
+              "Named": {
+                "kind": "Province",
+                "name": "2"
+              }
+            }
+          ],
+          "kind": "Province",
+          "condition": {
+            "Always": true
+          },
+          "plan": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Metric": "devastation"
+                },
+                "operation": "Add",
+                "value": 500000
+              }
+            },
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Metric": "devastation"
+                },
+                "operation": "Add",
+                "value": -50000
+              }
+            },
+            {
+              "Emit": "member"
+            }
+          ]
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 2,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "area.after"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Emit": "return"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "ForEach": {
+              "selectors": [
+                {
+                  "Named": {
+                    "kind": "Province",
+                    "name": "3"
+                  }
+                },
+                {
+                  "Named": {
+                    "kind": "Province",
+                    "name": "1"
+                  }
+                },
+                {
+                  "Named": {
+                    "kind": "Province",
+                    "name": "2"
+                  }
+                }
+              ],
+              "kind": "Province",
+              "condition": {
+                "Always": true
+              },
+              "plan": [
+                {
+                  "UpdateNumeric": {
+                    "target": "Current",
+                    "slot": {
+                      "Metric": "devastation"
+                    },
+                    "operation": "Add",
+                    "value": -12000
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "area.after",
+    "scope": "Country",
+    "immediate": [
+      {
+        "ForEach": {
+          "selectors": [
+            {
+              "Named": {
+                "kind": "Province",
+                "name": "3"
+              }
+            },
+            {
+              "Named": {
+                "kind": "Province",
+                "name": "1"
+              }
+            },
+            {
+              "Named": {
+                "kind": "Province",
+                "name": "2"
+              }
+            }
+          ],
+          "kind": "Province",
+          "condition": {
+            "Always": true
+          },
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Metric": "devastation"
+                        },
+                        "comparison": "AtLeast",
+                        "value": 38000
+                      }
+                    },
+                    {
+                      "Not": {
+                        "All": [
+                          {
+                            "NumericCompare": {
+                              "target": "Current",
+                              "slot": {
+                                "Metric": "devastation"
+                              },
+                              "comparison": "AtLeast",
+                              "value": 38001
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "settled"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

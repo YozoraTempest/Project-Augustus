@@ -71,6 +71,9 @@ pub struct InitialWorld {
 }
 
 impl InitialWorld {
+    pub fn set_metrics(&mut self, metrics: crate::Metrics) -> Result<(), Error> {
+        self.world.set_metrics(metrics)
+    }
     pub fn new(
         mut countries: Vec<CountryState>,
         mut provinces: Vec<ProvinceState>,

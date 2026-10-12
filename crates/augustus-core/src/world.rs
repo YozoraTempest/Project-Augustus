@@ -103,6 +103,7 @@ pub struct World {
     administration: Administration,
     pub(crate) affiliations: Affiliations,
     pub(crate) governments: Governments,
+    pub(crate) metrics: crate::Metrics,
     ideas: Ideas,
     pub(crate) estates: crate::Estates,
     pub(crate) completions: crate::Completions,
@@ -157,6 +158,8 @@ struct Snapshot {
     affiliations: Affiliations,
     #[serde(default, skip_serializing_if = "Governments::is_empty")]
     governments: Governments,
+    #[serde(default, skip_serializing_if = "crate::Metrics::is_empty")]
+    metrics: crate::Metrics,
     #[serde(default, skip_serializing_if = "Ideas::is_empty")]
     ideas: Ideas,
     #[serde(default, skip_serializing_if = "crate::Estates::is_empty")]
@@ -213,6 +216,7 @@ impl World {
             administration: Administration::default(),
             affiliations: Affiliations::default(),
             governments: Governments::default(),
+            metrics: crate::Metrics::default(),
             ideas: Ideas::default(),
             estates: crate::Estates::default(),
             completions: crate::Completions::default(),
@@ -542,6 +546,7 @@ impl World {
             &self.completions,
             &self.modifiers,
             &self.governments,
+            &self.metrics,
             &self.justifications,
         )?;
         if delay == 0 {
@@ -692,6 +697,7 @@ impl World {
             administration: self.administration.clone(),
             affiliations: self.affiliations.clone(),
             governments: self.governments.clone(),
+            metrics: self.metrics.clone(),
             ideas: self.ideas.clone(),
             estates: self.estates.clone(),
             completions: self.completions.clone(),
@@ -759,6 +765,7 @@ impl World {
             administration: snapshot.administration,
             affiliations: snapshot.affiliations,
             governments: snapshot.governments,
+            metrics: snapshot.metrics,
             ideas: snapshot.ideas,
             estates: snapshot.estates,
             completions: snapshot.completions,
@@ -782,6 +789,7 @@ impl World {
                 &world.completions,
                 &world.modifiers,
                 &world.governments,
+                &world.metrics,
                 &world.justifications,
             )?;
         }
@@ -821,6 +829,7 @@ impl World {
         world.administration.validate(&world)?;
         world.affiliations.validate(&world)?;
         world.governments.validate(&world)?;
+        world.metrics.validate(&world)?;
         world.ideas.validate(&world)?;
         world.estates.validate(&world)?;
         world.completions.validate(&world)?;
@@ -862,6 +871,7 @@ impl World {
                 &world.completions,
                 &world.modifiers,
                 &world.governments,
+                &world.metrics,
                 &world.justifications,
             )?;
             world.tasks.insert((task.day, task.sequence), task);
@@ -899,6 +909,7 @@ impl World {
                 &self.completions,
                 &self.modifiers,
                 &self.governments,
+                &self.metrics,
                 &self.justifications,
             )?;
         }
@@ -911,6 +922,7 @@ impl World {
                 &self.completions,
                 &self.modifiers,
                 &self.governments,
+                &self.metrics,
                 &self.justifications,
             )?;
         }
@@ -927,10 +939,41 @@ pub(crate) fn validate_plan(
     completions: &crate::Completions,
     modifiers: &Modifiers,
     governments: &Governments,
+    metrics: &crate::Metrics,
     justifications: &crate::Justifications,
 ) -> Result<(), Error> {
     for action in plan {
         match action {
+            Action::ForEach {
+                selectors,
+                condition,
+                plan,
+                ..
+            } => {
+                for selector in selectors {
+                    selector.validate()?;
+                }
+                validate_condition(
+                    condition,
+                    schema,
+                    completions,
+                    modifiers,
+                    governments,
+                    metrics,
+                    justifications,
+                )?;
+                validate_plan(
+                    plan,
+                    schema,
+                    rule_count,
+                    events,
+                    completions,
+                    modifiers,
+                    governments,
+                    metrics,
+                    justifications,
+                )?;
+            }
             Action::SetAffiliation {
                 dimension, member, ..
             } => {
@@ -974,7 +1017,7 @@ pub(crate) fn validate_plan(
             Action::UpdateNumeric {
                 slot, operation, ..
             } => {
-                slot.validate(schema, governments)?;
+                slot.validate(schema, governments, metrics)?;
                 operation.validate()?;
             }
             Action::RecordCompletion { id } => completions.identifier(id)?,
@@ -997,6 +1040,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    metrics,
                     justifications,
                 )?;
             }
@@ -1031,6 +1075,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    metrics,
                     justifications,
                 )?;
                 validate_plan(
@@ -1041,6 +1086,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    metrics,
                     justifications,
                 )?;
                 validate_plan(
@@ -1051,6 +1097,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    metrics,
                     justifications,
                 )?;
             }
@@ -1063,6 +1110,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    metrics,
                     justifications,
                 )?;
                 validate_plan(
@@ -1073,6 +1121,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    metrics,
                     justifications,
                 )?;
             }
@@ -1084,6 +1133,7 @@ pub(crate) fn validate_plan(
                 completions,
                 modifiers,
                 governments,
+                metrics,
                 justifications,
             )?,
             Action::Schedule { delay, plan } => {
@@ -1098,6 +1148,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    metrics,
                     justifications,
                 )?;
             }
@@ -1121,6 +1172,7 @@ pub(crate) fn validate_condition(
     completions: &crate::Completions,
     modifiers: &Modifiers,
     governments: &Governments,
+    metrics: &crate::Metrics,
     justifications: &crate::Justifications,
 ) -> Result<(), Error> {
     match condition {
@@ -1150,7 +1202,9 @@ pub(crate) fn validate_condition(
         }
         crate::Condition::HasMarker { name, .. } => crate::markers::validate_name(name),
         crate::Condition::HasModifier { name, .. } => modifiers.identifier(name),
-        crate::Condition::NumericCompare { slot, .. } => slot.validate(schema, governments),
+        crate::Condition::NumericCompare { slot, .. } => {
+            slot.validate(schema, governments, metrics)
+        }
         crate::Condition::CompletionRecorded { id, .. } => completions.identifier(id),
         crate::Condition::EntityNamed { name, .. } if name.is_empty() => {
             Err(Error::Invalid("empty entity condition name".into()))
@@ -1165,6 +1219,7 @@ pub(crate) fn validate_condition(
             completions,
             modifiers,
             governments,
+            metrics,
             justifications,
         ),
         crate::Condition::InScope {
@@ -1179,6 +1234,7 @@ pub(crate) fn validate_condition(
                 completions,
                 modifiers,
                 governments,
+                metrics,
                 justifications,
             )
         }
@@ -1196,6 +1252,7 @@ pub(crate) fn validate_condition(
                     completions,
                     modifiers,
                     governments,
+                    metrics,
                     justifications,
                 )?;
             }
@@ -1207,6 +1264,7 @@ pub(crate) fn validate_condition(
             completions,
             modifiers,
             governments,
+            metrics,
             justifications,
         ),
         _ => Ok(()),

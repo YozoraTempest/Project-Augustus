@@ -40,6 +40,8 @@ struct Compiler {
     mission_ids: BTreeSet<String>,
     modifier_ids: BTreeSet<String>,
     government_metric_ids: BTreeSet<String>,
+    metric_ids: BTreeSet<String>,
+    area_scopes: BTreeMap<String, Vec<u32>>,
     religious_school_groups: BTreeMap<String, Option<String>>,
     casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
     hidden_descriptions: bool,
@@ -80,6 +82,8 @@ impl Compiler {
                     let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
                         .with_hidden_descriptions(self.hidden_descriptions)
                         .with_government_metric_ids(self.government_metric_ids.clone())
+                        .with_metric_ids(self.metric_ids.clone())
+                        .with_area_scopes(self.area_scopes.clone())
                         .compile_scalar_effect_reader(
                             parsed,
                             &name,
@@ -149,6 +153,37 @@ impl Compiler {
                     ),
                     location,
                 )),
+                name if self.area_scopes.contains_key(name)
+                    || name.parse::<u32>().is_ok_and(|id| id > 0) =>
+                {
+                    let library = crate::ScriptLibrary::new();
+                    let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                        .with_metric_ids(self.metric_ids.clone())
+                        .with_hidden_descriptions(self.hidden_descriptions)
+                        .with_area_scopes(self.area_scopes.clone())
+                        .with_government_metric_ids(self.government_metric_ids.clone())
+                        .with_modifier_ids(self.modifier_ids.clone())
+                        .with_mission_ids(self.mission_ids.clone())
+                        .with_casus_belli_types(self.casus_belli_types.clone())
+                        .with_religious_school_groups(self.religious_school_groups.clone())
+                        .compile_effect_reader(
+                            parsed,
+                            name,
+                            block(&value, &fail)?,
+                            at,
+                            EntityKind::Country,
+                        );
+                    match compiled {
+                        Ok(plan) => result.extend(
+                            plan.into_iter()
+                                .map(|action| Step::Metric(action, location.clone())),
+                        ),
+                        Err(error) => result.push(Step::Pending(
+                            format!("uncompiled_startup_effect:{error}"),
+                            source(parsed, error.location().unwrap_or(at)),
+                        )),
+                    }
+                }
                 "country_event"
                 | "add_casus_belli"
                 | "reverse_add_casus_belli"
@@ -166,6 +201,8 @@ impl Compiler {
                     let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
                         .with_hidden_descriptions(self.hidden_descriptions)
                         .with_government_metric_ids(self.government_metric_ids.clone())
+                        .with_metric_ids(self.metric_ids.clone())
+                        .with_area_scopes(self.area_scopes.clone())
                         .with_mission_ids(self.mission_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())
                         .with_religious_school_groups(self.religious_school_groups.clone())
@@ -378,6 +415,8 @@ impl EstateStartup {
         schema: &Schema,
         modifier_ids: BTreeSet<String>,
         government_metric_ids: BTreeSet<String>,
+        metric_ids: BTreeSet<String>,
+        area_scopes: BTreeMap<String, Vec<u32>>,
         religious_school_groups: BTreeMap<String, Option<String>>,
         casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
         report: &mut EstateReport,
@@ -394,6 +433,8 @@ impl EstateStartup {
             mission_ids: crate::missions::identifiers(root, files)?,
             modifier_ids,
             government_metric_ids,
+            metric_ids,
+            area_scopes,
             religious_school_groups,
             casus_belli_types,
         };
@@ -721,6 +762,15 @@ impl EstateStartup {
                 initial
                     .set_governments(governments)
                     .map_err(|e| Error::caused_by("common/on_actions", e))?;
+                let mut metrics = initial.world().metrics().clone();
+                for values in metrics.entities.values_mut() {
+                    for value in values.values_mut() {
+                        *value = None;
+                    }
+                }
+                initial
+                    .set_metrics(metrics)
+                    .map_err(|e| Error::caused_by("common/on_actions", e))?;
                 let mut estates = initial.world().estates().clone();
                 for states in estates.countries.values_mut() {
                     for state in states.values_mut().filter(|s| s.active != Some(false)) {
@@ -1031,6 +1081,8 @@ fn load_events(
             let document = root.read_text(&file.relative_path, ENCODING)?;
             let compiled = crate::ScriptCompiler::new(&compiler.schema, &library, true)
                 .with_government_metric_ids(compiler.government_metric_ids.clone())
+                .with_metric_ids(compiler.metric_ids.clone())
+                .with_area_scopes(compiler.area_scopes.clone())
                 .with_mission_ids(compiler.mission_ids.clone())
                 .with_modifier_ids(compiler.modifier_ids.clone())
                 .with_religious_school_groups(compiler.religious_school_groups.clone())

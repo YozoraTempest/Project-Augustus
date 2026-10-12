@@ -82,6 +82,7 @@ pub struct BootstrapReport {
 pub struct ProvinceView<'a> {
     #[serde(flatten)]
     pub state: &'a ProvinceState,
+    pub metrics: Option<&'a BTreeMap<String, Option<i64>>>,
     pub buildings: Option<Vec<&'a str>>,
     pub trade_node: Option<&'a str>,
     pub trade_node_outgoing: Option<Vec<&'a str>>,
@@ -465,6 +466,7 @@ impl VanillaWorld {
                 );
             }
         }
+        let mut metric_scoped_history_unknown = false;
         for file in files
             .iter()
             .filter(|f| direct_txt(&f.relative_path, "history/countries"))
@@ -493,6 +495,9 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
+                let (direct, scoped) =
+                    crate::province_metrics::history_mutations(reader.clone(), 0);
+                metric_scoped_history_unknown |= direct || scoped;
                 religious_schools.country_history(
                     &parsed,
                     reader.clone(),
@@ -527,6 +532,7 @@ impl VanillaWorld {
                 )
             })?;
         }
+        let mut metric_history_unknown = BTreeSet::new();
         for file in files
             .iter()
             .filter(|f| direct_txt(&f.relative_path, "history/provinces"))
@@ -561,6 +567,12 @@ impl VanillaWorld {
             visit_history(&parsed, date, |reader| {
                 if nested_owner(reader.clone(), 0) {
                     unresolved_ownership.insert(id);
+                }
+                let (direct, scoped) =
+                    crate::province_metrics::history_mutations(reader.clone(), 0);
+                metric_scoped_history_unknown |= scoped;
+                if direct {
+                    metric_history_unknown.insert(id);
                 }
                 administration.province_history(
                     &parsed,
@@ -640,6 +652,16 @@ impl VanillaWorld {
         initial
             .set_affiliations(affiliations)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        let area_scopes = administration.ordered_areas();
+        initial
+            .set_metrics(crate::province_metrics::bind(
+                &initial,
+                &attribute_draft,
+                report.start_date,
+                &metric_history_unknown,
+                metric_scoped_history_unknown,
+            ))
+            .map_err(|e| Error::caused_by("province metrics", e))?;
         let attributes = attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
         let administration = administration.bind(
             &initial,
@@ -696,6 +718,14 @@ impl VanillaWorld {
                 .keys()
                 .cloned()
                 .collect(),
+            initial
+                .world()
+                .metrics()
+                .definitions
+                .keys()
+                .cloned()
+                .collect(),
+            area_scopes,
             initial.world().affiliations().0["religious_school"]
                 .groups
                 .clone(),
@@ -854,6 +884,7 @@ impl VanillaWorld {
         let economic_state = economy.provinces.get(&entity);
         Some(ProvinceView {
             state,
+            metrics: self.initial.world().metrics().entities.get(&entity),
             administration: self
                 .initial
                 .world()

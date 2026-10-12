@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+namespace=area
+country_event={
+    id=area.start is_triggered_only=yes
+    immediate={
+        set_country_flag=gate
+        test_area={limit={owner={has_country_flag=gate}} log=first_only owner={clr_country_flag=gate}}
+        test_area={add_devastation=500 add_devastation=-50.999 log=member}
+        country_event={id=area.after days=2}
+        log=return
+    }
+    option={name=repair test_area={add_devastation=-12.344}}
+}
+country_event={
+    id=area.after is_triggered_only=yes
+    immediate={test_area={if={limit={devastation=38 NOT={devastation=38.001}} log=settled}}}
+    option={name=done}
+}

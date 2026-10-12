@@ -156,6 +156,7 @@ impl EventCatalog {
                 world.completions(),
                 world.modifiers(),
                 world.governments(),
+                world.metrics(),
                 world.justifications(),
             )?;
         }
@@ -172,6 +173,7 @@ impl EventCatalog {
                     world.completions(),
                     world.modifiers(),
                     world.governments(),
+                    world.metrics(),
                     world.justifications(),
                 )?;
             }

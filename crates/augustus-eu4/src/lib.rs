@@ -27,6 +27,7 @@ mod ideas;
 mod load;
 mod missions;
 mod politics;
+mod province_metrics;
 mod religious_schools;
 mod script;
 mod setup;

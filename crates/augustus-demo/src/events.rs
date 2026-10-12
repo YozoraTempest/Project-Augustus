@@ -41,6 +41,10 @@ struct Scene {
     markers: augustus_core::Markers,
     #[serde(default, skip_serializing_if = "augustus_core::Governments::is_empty")]
     governments: augustus_core::Governments,
+    #[serde(default, skip_serializing_if = "augustus_core::Metrics::is_empty")]
+    metrics: augustus_core::Metrics,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    area_scopes: BTreeMap<String, Vec<u32>>,
     #[serde(default, skip_serializing_if = "augustus_core::Affiliations::is_empty")]
     affiliations: augustus_core::Affiliations,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -111,6 +115,8 @@ pub struct EventView {
     pub markers: augustus_core::Markers,
     #[serde(skip_serializing_if = "augustus_core::Governments::is_empty")]
     pub governments: augustus_core::Governments,
+    #[serde(skip_serializing_if = "augustus_core::Metrics::is_empty")]
+    pub metrics: augustus_core::Metrics,
     #[serde(skip_serializing_if = "augustus_core::Affiliations::is_empty")]
     pub affiliations: augustus_core::Affiliations,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -148,6 +154,8 @@ impl EventDemo {
                 ))?;
                 let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
+                    .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
+                    .with_area_scopes(scene.area_scopes.clone())
                     .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
                     .with_religious_school_groups(
                         scene
@@ -240,6 +248,8 @@ impl EventDemo {
                 let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_casus_belli_types(casus_belli.types)
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
+                    .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
+                    .with_area_scopes(scene.area_scopes.clone())
                     .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
                     .with_religious_school_groups(
                         scene
@@ -363,6 +373,7 @@ impl EventDemo {
         world.set_markers(scene.markers)?;
         world.set_modifiers(scene.modifiers)?;
         world.set_governments(scene.governments)?;
+        world.set_metrics(scene.metrics)?;
         world.set_justifications(scene.justifications)?;
         world.set_affiliations(scene.affiliations)?;
         for (country, controller) in scene.country_controllers {
@@ -532,6 +543,7 @@ impl EventDemo {
             justifications: self.world.justifications().clone(),
             markers: self.world.markers().clone(),
             governments: self.world.governments().clone(),
+            metrics: self.world.metrics().clone(),
             affiliations: self.world.affiliations().clone(),
             country_controllers: self.world.country_controllers().clone(),
             administration: self.world.administration().clone(),
@@ -562,6 +574,7 @@ fn effect_labels(
             }
             Action::With { plan, .. }
             | Action::InScope { plan, .. }
+            | Action::ForEach { plan, .. }
             | Action::Schedule { plan, .. }
             | Action::Preview { plan } => effect_labels(plan, durations, descriptions),
             _ => (),

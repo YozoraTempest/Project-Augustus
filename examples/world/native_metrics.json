@@ -1,0 +1,38 @@
+{
+  "definitions": {
+    "devastation": {
+      "kind": "Province",
+      "minimum": 0,
+      "maximum": 100000,
+      "baseline": 0,
+      "divisor": 100000,
+      "modifier": {
+        "values_micros": {
+          "local_manpower_modifier": -1000000
+        },
+        "flags": {}
+      },
+      "unresolved_properties": []
+    }
+  },
+  "entities": {
+    "2": {
+      "devastation": 0
+    },
+    "3": {
+      "devastation": 0
+    },
+    "4": {
+      "devastation": 0
+    },
+    "5": {
+      "devastation": 0
+    },
+    "6": {
+      "devastation": 0
+    },
+    "7": {
+      "devastation": 0
+    }
+  }
+}
