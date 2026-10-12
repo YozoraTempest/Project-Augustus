@@ -24,6 +24,8 @@ pub enum NumericSlot {
     Government(String),
     /// Read active or retained inactive values; all writes use the active slot.
     StoredGovernment(String),
+    /// Read the subject system's explicit, unscaled count.
+    SubjectCount,
     Metric(String),
 }
 
@@ -83,7 +85,7 @@ impl NumericSlot {
                 governments.metric_definition(name).map(|_| ())
             }
             Self::Metric(name) => metrics.definition(name).map(|_| ()),
-            Self::Field(_) => Ok(()),
+            Self::Field(_) | Self::SubjectCount => Ok(()),
         }
     }
 
@@ -92,6 +94,9 @@ impl NumericSlot {
             return Err(Error::Invalid(
                 "stored government metric slots are read only".into(),
             ));
+        }
+        if matches!(self, Self::SubjectCount) {
+            return Err(Error::Invalid("subject count slots are read only".into()));
         }
         Ok(())
     }
@@ -147,6 +152,7 @@ impl World {
                 self.government_metric_stored_value(entity, name)
             }
             NumericSlot::Metric(name) => self.metrics().value(self, entity, name),
+            NumericSlot::SubjectCount => self.subject_count(entity).map(i64::from),
             NumericSlot::Named(name) => {
                 if let Some(value) = self
                     .named_values
@@ -210,7 +216,9 @@ impl World {
         let value =
             i64::try_from(value).map_err(|_| Error::Invalid("numeric state overflow".into()))?;
         match slot {
-            NumericSlot::StoredGovernment(_) => unreachable!("validated writable numeric slot"),
+            NumericSlot::StoredGovernment(_) | NumericSlot::SubjectCount => {
+                unreachable!("validated writable numeric slot")
+            }
             NumericSlot::Field(field) => self.set(entity, *field, value),
             NumericSlot::Metric(name) => self.set_metric_value(entity, name, Some(value)),
             NumericSlot::Government(name) => {

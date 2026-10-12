@@ -1651,6 +1651,23 @@ impl<'a> ScriptCompiler<'a> {
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "num_of_subjects" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("subject count requires country scope"));
+                    }
+                    let text = field.scalar()?;
+                    let count = text
+                        .parse::<u32>()
+                        .ok()
+                        .filter(|_| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()))
+                        .ok_or_else(|| field.error("subject count requires a nonnegative literal integer"))?;
+                    Condition::NumericCompare {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::SubjectCount,
+                        comparison: augustus_core::NumericComparison::AtLeast,
+                        value: i64::from(count),
+                    }
+                }
                 "any_subject_country" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("subject queries require country scope"));

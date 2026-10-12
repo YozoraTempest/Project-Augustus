@@ -207,6 +207,21 @@ impl World {
         politics.relations.sort();
         politics.validate(self)?;
         self.subjects.validate(&politics)?;
+        // Replacing relationships does not establish the subject system's count.
+        // Unrelated political updates retain explicit observations.
+        let subjects = |state: &Politics| {
+            state
+                .relations
+                .iter()
+                .filter(|relation| relation.kind == DiplomaticKind::Subject)
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        };
+        let previous = subjects(&self.politics);
+        let current = subjects(&politics);
+        for relation in previous.symmetric_difference(&current) {
+            self.subjects.counts.remove(&relation.first);
+        }
         self.subject_index = crate::subjects::SubjectIndex::from_politics(&politics);
         self.politics = politics;
         Ok(())

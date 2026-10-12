@@ -13,11 +13,15 @@ use crate::{Condition, DiplomaticKind, EntityId, EntityKind, Error, Politics, Wo
 pub struct Subjects {
     pub types: BTreeSet<String>,
     pub known: bool,
+    /// Explicit count observations. Missing countries have an unknown count.
+    /// Membership and count can differ until the owning system refreshes it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub counts: BTreeMap<EntityId, u32>,
 }
 
 impl Subjects {
     pub fn is_empty(&self) -> bool {
-        !self.known && self.types.is_empty()
+        !self.known && self.types.is_empty() && self.counts.is_empty()
     }
 
     pub(crate) fn identifier(&self, name: &str) -> Result<(), Error> {
@@ -36,6 +40,15 @@ impl Subjects {
                 if relation.kind == DiplomaticKind::Subject {
                     self.identifier(relation.subject_type.as_deref().unwrap_or_default())?;
                 }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_counts(&self, world: &World) -> Result<(), Error> {
+        for &country in self.counts.keys() {
+            if world.entity(country)?.kind != EntityKind::Country {
+                return Err(Error::Invalid("subject counts require a country".into()));
             }
         }
         Ok(())
@@ -74,6 +87,7 @@ impl World {
     pub fn set_subjects(&mut self, subjects: Subjects) -> Result<(), Error> {
         self.require_running()?;
         subjects.validate(&self.politics)?;
+        subjects.validate_counts(self)?;
         let previous = std::mem::replace(&mut self.subjects, subjects);
         let validation = self
             .event_catalog
@@ -107,6 +121,19 @@ impl World {
             .get(&country)
             .map(Vec::as_slice)
             .unwrap_or_default())
+    }
+
+    /// Read an explicit count without deriving it from current membership.
+    pub fn subject_count(&self, country: EntityId) -> Result<u32, Error> {
+        if self.entity(country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid("subject count requires a country".into()));
+        }
+        self.subjects.counts.get(&country).copied().ok_or_else(|| {
+            Error::Invalid(format!(
+                "subject count is unknown for country {}",
+                country.0
+            ))
+        })
     }
 
     pub fn is_subject_of_type(&self, country: EntityId, subject_type: &str) -> Result<bool, Error> {

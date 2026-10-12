@@ -37,6 +37,80 @@ fn write(root: &Path, name: &str, text: &str) {
 }
 
 #[test]
+fn count_thresholds_use_explicit_counts_instead_of_membership_in_both_modes() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    for optimise in [false, true] {
+        let mut world = World::new(schema.clone());
+        world.add_entity("AAA", EntityKind::Country);
+        world.add_entity("Port", EntityKind::Province);
+        world.set_owner(EntityId(1), EntityId(0)).unwrap();
+        world
+            .set_subjects(Subjects {
+                known: true,
+                counts: [(EntityId(0), 2)].into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let plan = ScriptCompiler::new(&schema, &library, optimise).compile(&document(
+            "if={limit={num_of_subjects=0 num_of_subjects=2 NOT={num_of_subjects=3} NOT={any_subject_country={always=yes}}} log=retained}"
+        ), EntityKind::Country).unwrap().plan;
+        world.execute(EntityId(0), &plan).unwrap();
+        let owner = ScriptCompiler::new(&schema, &library, optimise)
+            .compile(
+                &document("if={limit={owner={num_of_subjects=2}} log=owner_count}"),
+                EntityKind::Province,
+            )
+            .unwrap()
+            .plan;
+        world.execute(EntityId(1), &owner).unwrap();
+        assert_eq!(
+            world
+                .events()
+                .iter()
+                .map(|row| row.2.as_str())
+                .collect::<Vec<_>>(),
+            ["retained", "owner_count"]
+        );
+        let mut subjects = world.subjects().clone();
+        subjects.counts.clear();
+        world.set_subjects(subjects).unwrap();
+        assert!(world.execute(EntityId(0), &plan).is_err());
+    }
+}
+
+#[test]
+fn count_literals_and_country_scope_are_checked_before_optimisation() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    for optimise in [false, true] {
+        for value in [
+            "-1",
+            "+1",
+            "1.5",
+            "yes",
+            "$count$",
+            "4294967296",
+            "{value=1}",
+        ] {
+            let text = format!("if={{limit={{always=no num_of_subjects={value}}} log=wrong}}");
+            let error = ScriptCompiler::new(&schema, &library, optimise)
+                .compile(&document(&text), EntityKind::Country)
+                .unwrap_err();
+            assert!(error.location().is_some(), "{error}");
+        }
+        assert!(
+            ScriptCompiler::new(&schema, &library, optimise)
+                .compile(
+                    &document("if={limit={num_of_subjects=0} log=wrong}"),
+                    EntityKind::Province
+                )
+                .is_err()
+        );
+    }
+}
+
+#[test]
 fn typed_member_and_capital_owner_queries_translate_in_both_compilation_modes() {
     let schema = Schema::new(["unused"]).unwrap();
     let library = ScriptLibrary::new();
@@ -60,7 +134,13 @@ fn typed_member_and_capital_owner_queries_translate_in_both_compilation_modes() 
             })
             .unwrap();
         let types = ["test_vassal", "test_union"].map(String::from).into();
-        world.set_subjects(Subjects { types, known: true }).unwrap();
+        world
+            .set_subjects(Subjects {
+                types,
+                known: true,
+                ..Default::default()
+            })
+            .unwrap();
         let plan = ScriptCompiler::new(&schema, &library, optimise)
             .with_subject_type_ids(world.subjects().types.clone())
             .compile(&document(r#"
@@ -138,6 +218,10 @@ fn initial_conditions_and_later_events_share_loaded_subject_declarations_and_rel
     "#,
     );
     let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let first = loaded.initial.country_entity("AAA").unwrap();
+    let second = loaded.initial.country_entity("BBB").unwrap();
+    assert_eq!(loaded.initial.world().subject_count(first).unwrap(), 1);
+    assert_eq!(loaded.initial.world().subject_count(second).unwrap(), 0);
     assert!(
         loaded.report.estates.startup_unresolved.is_empty(),
         "{:?}",
@@ -196,6 +280,7 @@ fn future_history_is_skipped_and_active_unapplied_changes_and_failed_startup_rem
     let later = VanillaWorld::load(temp.path(), "1445.1.1").unwrap();
     assert!(!later.initial.world().subjects().known);
     let member = later.initial.country_entity("BBB").unwrap();
+    assert!(later.initial.world().subject_count(member).is_err());
     assert!(
         later
             .initial
@@ -261,6 +346,7 @@ fn future_history_is_skipped_and_active_unapplied_changes_and_failed_startup_rem
     );
     let failed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     assert!(!failed.initial.world().subjects().known);
+    assert!(failed.initial.world().subjects().counts.is_empty());
     assert!(failed.initial.world().events().is_empty());
     assert!(!failed.report.estates.startup_unresolved.is_empty());
 }

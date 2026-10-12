@@ -678,10 +678,32 @@ impl VanillaWorld {
         initial
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        let subject_history_known =
+            !subject_history_unknown && report.unapplied_diplomacy_fields.is_empty();
+        let mut subject_counts = if subject_history_known {
+            initial
+                .countries()
+                .iter()
+                .filter_map(|country| initial.country_entity(&country.id))
+                .map(|entity| (entity, 0_u32))
+                .collect::<BTreeMap<_, _>>()
+        } else {
+            BTreeMap::new()
+        };
+        for relation in &initial.world().politics().relations {
+            if relation.kind == augustus_core::DiplomaticKind::Subject
+                && let Some(count) = subject_counts.get_mut(&relation.first)
+            {
+                *count = count
+                    .checked_add(1)
+                    .ok_or_else(|| Error::caused_by(root.path(), augustus_core::Error::Overflow))?;
+            }
+        }
         initial
             .set_subjects(augustus_core::Subjects {
                 types: subject_types,
-                known: !subject_history_unknown && report.unapplied_diplomacy_fields.is_empty(),
+                known: subject_history_known,
+                counts: subject_counts,
             })
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let economy = economy.bind(&initial, &province_histories, &mut report.economy)?;

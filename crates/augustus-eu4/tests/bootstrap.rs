@@ -819,6 +819,11 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
         .set_subjects(augustus_core::Subjects {
             types: ["default", "test_vassal"].map(String::from).into(),
             known: true,
+            counts: [
+                (augustus_core::EntityId(0), 1),
+                (augustus_core::EntityId(1), 0),
+            ]
+            .into(),
         })
         .unwrap();
     for index in 4..8 {

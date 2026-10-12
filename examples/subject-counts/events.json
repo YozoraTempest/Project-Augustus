@@ -1,0 +1,159 @@
+[
+  {
+    "id": "counts.begin",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": "SubjectCount",
+                  "comparison": "AtLeast",
+                  "value": 2
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "count_two"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "wrong"
+            }
+          ]
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": "SubjectCount",
+                  "comparison": "AtLeast",
+                  "value": 3
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "wrong"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "below_three"
+            }
+          ]
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "AnySubjectCountry": {
+                  "target": "Current",
+                  "condition": {
+                    "All": [
+                      {
+                        "EntityNamed": {
+                          "target": "Current",
+                          "name": "BBB"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "member_present"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "wrong"
+            }
+          ]
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "counts.later"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "first_choice"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "counts.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": "SubjectCount",
+                  "comparison": "AtLeast",
+                  "value": 2
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "count_retained"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "wrong"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "later_choice"
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

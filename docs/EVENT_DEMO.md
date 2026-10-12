@@ -145,7 +145,16 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/s
 
 场景在 `politics.relations` 中提供关系，在 `subjects.types` 中声明类型，`subjects.known: true` 表示当前关系列表完整。列表不完整时，查询保留未知；未注册类型和错误作用域会被拒绝。旧场景缺少这项声明时，也不能据此推断国家没有属国。关系索引由当前记录建立，保存恢复后重建；延期条件读取执行时的关系。
 
-兼容编译器通过 `with_subject_type_ids` 接收类型声明。原版加载器从本地 `common/subject_types` 和选定日期的外交历史取得初始数据，供开局条件、任务与事件使用。遇到已识别但尚未执行的历史关系变更、未知外交字段或启动失败时，不把历史记录当作完整的当前状态。当前支持查询；属国数量条件、创建与解除效果，以及成员遍历效果尚未接入。
+兼容编译器通过 `with_subject_type_ids` 接收类型声明。原版加载器从本地 `common/subject_types` 和选定日期的外交历史取得初始数据，供开局条件、任务与事件使用。遇到已识别但尚未执行的历史关系变更、未知外交字段或启动失败时，不把历史记录当作完整的当前状态。当前支持成员、类型和数量条件；创建与解除效果，以及成员遍历效果尚未接入。
+
+`examples/subject-counts` 演示数量条件与延期事件。`num_of_subjects = N` 接受非负整数字面量，判断国家记录的数量是否至少为 N。场景的 `subjects.counts` 以国家实体编号为键，明确提供数量；缺少记录表示未知，包括门槛为零时。数量可以与当前成员列表不同，保存和恢复会保留它，时间推进不会自行刷新。通用关系替换会撤销发生变化的宗主国数量，等待所属系统提供新记录。
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/subject-counts --trigger counts.begin --choose 0:0 --save count_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/subject-counts --input native --load count_waiting.json --days 1 --choose 1:0
+```
+
+原版加载器在外交历史完整时为各国建立初始数量；未执行的开局脚本会撤销这些记录。当前尚未实现原版数量的自动刷新时机，不能用本示例确认创建、解除或读入原版存档的完整行为。
 
 `examples/government-metrics` 演示正统性的增减、范围限制、实时条件和延期事件：
 

@@ -852,6 +852,7 @@ impl World {
         }
         world.politics.validate(&world)?;
         world.subjects.validate(&world.politics)?;
+        world.subjects.validate_counts(&world)?;
         world.economy.validate(&world)?;
         world.technology.validate(&world)?;
         world.modifiers.validate(&world)?;

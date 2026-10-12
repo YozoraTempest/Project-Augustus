@@ -6,6 +6,127 @@ use augustus_core::{
     Subjects, Target, World,
 };
 
+fn count_at_least(value: i64) -> Condition {
+    Condition::NumericCompare {
+        target: Target::Current,
+        slot: augustus_core::NumericSlot::SubjectCount,
+        comparison: augustus_core::NumericComparison::AtLeast,
+        value,
+    }
+}
+
+#[test]
+fn explicit_counts_can_differ_from_membership_and_round_trip_without_refresh() {
+    let mut world = fixture();
+    let mut subjects = world.subjects().clone();
+    subjects.counts = [(EntityId(0), 3), (EntityId(4), 0)].into();
+    world.set_subjects(subjects).unwrap();
+    assert_eq!(world.subject_countries(EntityId(0)).unwrap().len(), 2);
+    assert_eq!(world.subject_count(EntityId(0)).unwrap(), 3);
+    assert!(count_at_least(3).evaluate(&world, EntityId(0)).unwrap());
+    assert!(!count_at_least(4).evaluate(&world, EntityId(0)).unwrap());
+    assert!(count_at_least(0).evaluate(&world, EntityId(4)).unwrap());
+    assert!(!count_at_least(1).evaluate(&world, EntityId(4)).unwrap());
+    assert!(count_at_least(0).evaluate(&world, EntityId(1)).is_err());
+    assert!(world.subject_count(EntityId(5)).is_err());
+    world.advance_to(40).unwrap();
+    let saved = world.save("explicit-count").unwrap();
+    let restored = World::restore(&saved, "explicit-count", world.schema()).unwrap();
+    assert_eq!(world, restored);
+    assert_eq!(restored.subject_count(EntityId(0)).unwrap(), 3);
+    let mut legacy: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    legacy["subjects"].as_object_mut().unwrap().remove("counts");
+    let legacy = World::restore(&legacy.to_string(), "explicit-count", world.schema()).unwrap();
+    assert!(legacy.subject_count(EntityId(0)).is_err());
+    assert!(
+        !legacy
+            .save("explicit-count")
+            .unwrap()
+            .contains("\"counts\"")
+    );
+}
+
+#[test]
+fn relationship_replacement_invalidates_only_affected_counts_and_failure_is_atomic() {
+    let mut world = fixture();
+    let mut subjects = world.subjects().clone();
+    subjects.counts = [(EntityId(0), 3), (EntityId(1), 1), (EntityId(4), 0)].into();
+    world.set_subjects(subjects).unwrap();
+    let saved = world.save("counts").unwrap();
+    let mut invalid = world.subjects().clone();
+    invalid.counts.insert(EntityId(5), 0);
+    assert!(world.set_subjects(invalid).is_err());
+    assert_eq!(world.save("counts").unwrap(), saved);
+    let mut invalid_save: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    invalid_save["subjects"]["counts"]["99"] = serde_json::json!(0);
+    assert!(World::restore(&invalid_save.to_string(), "counts", world.schema()).is_err());
+    let mut politics = world.politics().clone();
+    politics.offices.insert("office".into(), EntityId(4));
+    world.set_politics(politics).unwrap();
+    assert_eq!(world.subject_count(EntityId(0)).unwrap(), 3);
+    let mut politics = world.politics().clone();
+    politics.relations.push(relation(4, 1, "vassal"));
+    let saved = world.save("counts").unwrap();
+    assert!(world.set_politics(politics).is_err());
+    assert_eq!(world.save("counts").unwrap(), saved);
+    let mut politics = world.politics().clone();
+    politics.relations.retain(|r| r.second != EntityId(2));
+    world.set_politics(politics).unwrap();
+    assert!(world.subject_count(EntityId(0)).is_err());
+    assert_eq!(world.subject_count(EntityId(1)).unwrap(), 1);
+    assert_eq!(world.subject_count(EntityId(4)).unwrap(), 0);
+}
+
+#[test]
+fn queued_count_reads_use_explicit_state_and_numeric_writes_are_rejected() {
+    let mut world = fixture();
+    let mut subjects = world.subjects().clone();
+    subjects.known = false;
+    subjects.counts.insert(EntityId(0), 1);
+    world.set_subjects(subjects).unwrap();
+    assert!(world.subject_countries(EntityId(0)).is_err());
+    assert_eq!(world.subject_count(EntityId(0)).unwrap(), 1);
+    world
+        .schedule(
+            EntityId(0),
+            2,
+            vec![Action::If {
+                condition: count_at_least(2),
+                then: vec![Action::Emit("two".into())],
+                otherwise: vec![Action::Emit("one".into())],
+            }],
+        )
+        .unwrap();
+    let saved = world.save("queued-count").unwrap();
+    let action = Action::UpdateNumeric {
+        target: Target::Current,
+        slot: augustus_core::NumericSlot::SubjectCount,
+        operation: augustus_core::NumericOperation::Set,
+        value: 2,
+    };
+    assert!(world.schedule(EntityId(0), 1, vec![action]).is_err());
+    assert!(
+        world
+            .update_numeric(
+                EntityId(0),
+                &augustus_core::NumericSlot::SubjectCount,
+                augustus_core::NumericOperation::Set,
+                2
+            )
+            .is_err()
+    );
+    assert_eq!(world.save("queued-count").unwrap(), saved);
+    let mut subjects = world.subjects().clone();
+    subjects.counts.insert(EntityId(0), 2);
+    world.set_subjects(subjects).unwrap();
+    let saved = world.save("queued-count").unwrap();
+    let mut resumed = World::restore(&saved, "queued-count", world.schema()).unwrap();
+    world.advance_to(2).unwrap();
+    resumed.advance_to(2).unwrap();
+    assert_eq!(world, resumed);
+    assert_eq!(world.events()[0].2, "two");
+}
+
 fn relation(first: usize, second: usize, kind: &str) -> DiplomaticRelation {
     DiplomaticRelation {
         kind: DiplomaticKind::Subject,
@@ -37,6 +158,7 @@ fn fixture() -> World {
         .set_subjects(Subjects {
             types: ["vassal", "tributary", "union"].map(String::from).into(),
             known: true,
+            ..Default::default()
         })
         .unwrap();
     world
@@ -180,7 +302,8 @@ fn delayed_queries_read_live_relations_and_declarations_cannot_invalidate_queued
         world
             .set_subjects(Subjects {
                 types: ["union", "tributary"].map(String::from).into(),
-                known: false
+                known: false,
+                ..Default::default()
             })
             .is_err()
     );
@@ -228,6 +351,7 @@ fn large_direct_graph_and_unrelated_relations_do_not_change_membership() {
         .set_subjects(Subjects {
             types: ["vassal".into()].into(),
             known: true,
+            ..Default::default()
         })
         .unwrap();
     assert_eq!(world.subject_countries(EntityId(0)).unwrap().len(), 20_000);

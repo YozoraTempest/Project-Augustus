@@ -711,6 +711,7 @@ impl EstateStartup {
                     .map_err(|e| Error::caused_by("common/on_actions", e))?;
                 let mut subjects = initial.world().subjects().clone();
                 subjects.known = false;
+                subjects.counts.clear();
                 initial
                     .set_subjects(subjects)
                     .map_err(|e| Error::caused_by("common/on_actions", e))?;

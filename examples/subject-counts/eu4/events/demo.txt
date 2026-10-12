@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+namespace = counts
+country_event = {
+    id = counts.begin
+    is_triggered_only = yes
+    immediate = {
+        if = { limit = { num_of_subjects = 2 } log = count_two }
+        else = { log = wrong }
+        if = { limit = { num_of_subjects = 3 } log = wrong }
+        else = { log = below_three }
+        if = { limit = { any_subject_country = { tag = BBB } } log = member_present }
+        else = { log = wrong }
+        country_event = { id = counts.later days = 1 }
+    }
+    option = { name = continue log = first_choice }
+}
+country_event = {
+    id = counts.later
+    is_triggered_only = yes
+    immediate = {
+        if = { limit = { num_of_subjects = 2 } log = count_retained }
+        else = { log = wrong }
+    }
+    option = { name = continue log = later_choice }
+}

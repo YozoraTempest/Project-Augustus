@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 2,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Port",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "subjects": {
+    "types": [
+      "test_vassal"
+    ],
+    "known": true,
+    "counts": {
+      "0": 2,
+      "1": 0
+    }
+  },
+  "politics": {
+    "countries": {},
+    "offices": {},
+    "relations": [
+      {
+        "kind": "subject",
+        "first": 0,
+        "second": 1,
+        "subject_type": "test_vassal"
+      }
+    ]
+  }
+}
