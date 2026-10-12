@@ -165,6 +165,8 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 地区来自 `default.map` 指定的 `area` 文件。支持省份列表，以及在列表前声明的三分量 `color`。同一地区重复列出省份时合并归属，在 `report.administration.repeated_province_memberships` 中记录重复次数；跨地区重复归属时报错。空地区标识保留并列入 `empty_areas`。地图没有声明地区文件时，原有入口仍能载入，陆地省份的缺失归属列入 `missing_land_areas`。
 
+大陆成员关系读取 `default.map` 指定的 `continent` 文件，进入共享 `Administration.continents`；重复省份编号合并，跨大陆重复成员和无效引用会报错。`report.administration.continents` 统计载入的分组，包括已声明的空组。`island_check_provinces` 保留为未执行的连通性声明，不作为大陆；空的随机新世界预留组也不代表已支持随机地图。事件与受支持的开局条件可直接查询这些地理状态，详见 [作用域条件演示](../examples/scoped-conditions/README.md)。
+
 在固定的 `1444.11.11` 开局，兼容入口为各国实际拥有省份的每个地区建立州，历史 `add_core` 载入为完整核心。地区关系按国家分别保存；其他国家的核心宣称不会替该国建立州。首都引用无效时仍按所有权建立州，不另选首都。报告的 `initial_states` 和 `full_core_types` 给出这两项数量。选择其他日期时，这两项生成规则暂不应用：只确定已绑定首都所在的地区为州，核心类型保留为 `unspecified`。
 
 固定 `1444.11.11` 开局已接入原始自治度生成，使用所选日期的文化、宗教、核心及国家等级输入，再逐条执行省份历史和国家历史中的自治操作，每一步限制在 0%—100%。国家等级读取直接历史、政体改革的固定等级、属国类型的继承上限及皇帝职位；这些输入目前用于自治初始化，尚不构成完整政体系统。

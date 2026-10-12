@@ -23,6 +23,7 @@ pub(super) enum Condition {
     Modifier(String),
     Marker(String),
     Numeric(augustus_core::Condition),
+    Scoped(augustus_core::Condition),
     Control(augustus_core::CountryController),
     Feature(String),
     Estate(String),
@@ -164,7 +165,7 @@ impl Condition {
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
                         match crate::ScriptCompiler::new(&schema, &library, true)
-                            .compile_numeric_condition_reader(
+                            .compile_block_condition_reader(
                                 parsed,
                                 &name,
                                 block(&value, &fail)?,
@@ -253,6 +254,46 @@ impl Condition {
                         library,
                         false,
                     )?),
+                    "owner" if !country => {
+                        let schema =
+                            augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
+                        let library = crate::ScriptLibrary::new();
+                        match crate::ScriptCompiler::new(&schema, &library, true)
+                            .compile_block_condition_reader(
+                                parsed,
+                                &name,
+                                block(&value, &fail)?,
+                                at,
+                                augustus_core::EntityKind::Province,
+                            ) {
+                            Ok(condition) => Self::Scoped(condition),
+                            Err(error) => {
+                                report.unsupported(parsed, "trigger", &name, at);
+                                Self::Unknown(error.to_string())
+                            }
+                        }
+                    }
+                    "area" | "continent" if !country => {
+                        let schema =
+                            augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
+                        let library = crate::ScriptLibrary::new();
+                        match crate::ScriptCompiler::new(&schema, &library, true)
+                            .compile_scalar_condition_reader(
+                                parsed,
+                                &name,
+                                value
+                                    .read_string()
+                                    .map_err(|_| fail("expected geographic identifier"))?,
+                                at,
+                                augustus_core::EntityKind::Province,
+                            ) {
+                            Ok(condition) => Self::Scoped(condition),
+                            Err(error) => {
+                                report.unsupported(parsed, "trigger", &name, at);
+                                Self::Unknown(error.to_string())
+                            }
+                        }
+                    }
                     "region" | "superregion" if !country => {
                         let id = value
                             .read_string()
@@ -406,13 +447,18 @@ impl Condition {
                     }
                 }
             }
-            Self::Numeric(condition) => {
+            Self::Numeric(condition) | Self::Scoped(condition) => {
                 let entity = province
                     .unwrap_or_else(|| initial.country_entity(tag).expect("registered country"));
                 match condition.evaluate(initial.world(), entity) {
                     Ok(value) => Some(value),
                     Err(error) => {
-                        reasons.insert(format!("unknown_variable_state:{error}"));
+                        let kind = if matches!(self, Self::Scoped(_)) {
+                            "unknown_scoped_condition"
+                        } else {
+                            "unknown_variable_state"
+                        };
+                        reasons.insert(format!("{kind}:{error}"));
                         None
                     }
                 }
@@ -655,6 +701,7 @@ impl Condition {
                 ..
             }) => replace(name),
             Self::Numeric(_) => true,
+            Self::Scoped(_) => true,
             Self::Match(name, value) => replace(name) && replace(value),
             Self::Feature(id)
             | Self::Completion(id)

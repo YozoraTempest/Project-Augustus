@@ -40,6 +40,13 @@ struct Scene {
     affiliations: augustus_core::Affiliations,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     country_controllers: BTreeMap<EntityId, augustus_core::CountryController>,
+    #[serde(
+        default,
+        skip_serializing_if = "augustus_core::Administration::is_empty"
+    )]
+    administration: augustus_core::Administration,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    known_absent_targets: BTreeMap<EntityId, std::collections::BTreeSet<augustus_core::Target>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -95,6 +102,10 @@ pub struct EventView {
     pub affiliations: augustus_core::Affiliations,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub country_controllers: BTreeMap<EntityId, augustus_core::CountryController>,
+    #[serde(skip_serializing_if = "augustus_core::Administration::is_empty")]
+    pub administration: augustus_core::Administration,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub known_absent_targets: BTreeMap<EntityId, std::collections::BTreeSet<augustus_core::Target>>,
 }
 
 /// Self-authored scenario exercising the same core from two content formats.
@@ -292,6 +303,17 @@ impl EventDemo {
         for (country, controller) in scene.country_controllers {
             world.set_country_controller(country, controller)?;
         }
+        world.set_administration(scene.administration)?;
+        for (current, targets) in scene.known_absent_targets {
+            if targets.is_empty() {
+                return Err(Error::Invalid(
+                    "empty absent relationship declaration".into(),
+                ));
+            }
+            for target in targets {
+                world.mark_target_absent(current, target)?;
+            }
+        }
         world.set_event_catalog(catalog)?;
         Ok(Self { world, content })
     }
@@ -426,6 +448,8 @@ impl EventDemo {
             governments: self.world.governments().clone(),
             affiliations: self.world.affiliations().clone(),
             country_controllers: self.world.country_controllers().clone(),
+            administration: self.world.administration().clone(),
+            known_absent_targets: self.world.known_absent_targets().clone(),
         })
     }
 }

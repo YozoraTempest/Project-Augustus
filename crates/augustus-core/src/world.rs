@@ -87,6 +87,7 @@ pub struct World {
     pub(crate) politics: Politics,
     pub(crate) country_controllers: BTreeMap<EntityId, crate::CountryController>,
     pub(crate) global_scopes: BTreeMap<String, EntityId>,
+    pub(crate) known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
     economy: Economy,
     technology: Technology,
     pub(crate) modifiers: Modifiers,
@@ -127,6 +128,8 @@ struct Snapshot {
     country_controllers: BTreeMap<EntityId, crate::CountryController>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     global_scopes: BTreeMap<String, EntityId>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
     #[serde(default, skip_serializing_if = "Economy::is_empty")]
     economy: Economy,
     #[serde(default, skip_serializing_if = "Technology::is_empty")]
@@ -189,6 +192,7 @@ impl World {
             politics: Politics::default(),
             country_controllers: BTreeMap::new(),
             global_scopes: BTreeMap::new(),
+            known_absent_targets: BTreeMap::new(),
             economy: Economy::default(),
             technology: Technology::default(),
             modifiers: Modifiers::default(),
@@ -451,6 +455,7 @@ impl World {
             ));
         }
         self.entities[province.0].owner = Some(country);
+        self.clear_absent_target(province, Target::Owner);
         Ok(())
     }
 
@@ -461,6 +466,7 @@ impl World {
             return Err(Error::Invalid("capital must be an owned province".into()));
         }
         self.entities[country.0].capital = Some(province);
+        self.clear_absent_target(country, Target::Capital);
         Ok(())
     }
 
@@ -628,6 +634,7 @@ impl World {
             politics: self.politics.clone(),
             country_controllers: self.country_controllers.clone(),
             global_scopes: self.global_scopes.clone(),
+            known_absent_targets: self.known_absent_targets.clone(),
             economy: self.economy.clone(),
             technology: self.technology.clone(),
             modifiers: self.modifiers.clone(),
@@ -690,6 +697,7 @@ impl World {
             politics: snapshot.politics,
             country_controllers: snapshot.country_controllers,
             global_scopes: snapshot.global_scopes,
+            known_absent_targets: snapshot.known_absent_targets,
             economy: snapshot.economy,
             technology: snapshot.technology,
             modifier_expirations: snapshot.modifiers.expiration_index(),
@@ -721,6 +729,7 @@ impl World {
         }
         world.event_catalog.validate(&world)?;
         world.event_queue.validate(&world)?;
+        world.validate_absent_targets()?;
         for &country in world.country_controllers.keys() {
             world.country_controller(country)?;
         }
@@ -1033,6 +1042,20 @@ pub(crate) fn validate_condition(
             "year condition requires a positive year".into(),
         )),
         crate::Condition::ScopeIsCurrent(selector) => selector.validate(),
+        crate::Condition::With { condition, .. } => {
+            validate_condition(condition, schema, completions, modifiers, governments)
+        }
+        crate::Condition::InScope {
+            selector,
+            condition,
+            ..
+        } => {
+            selector.validate()?;
+            validate_condition(condition, schema, completions, modifiers, governments)
+        }
+        crate::Condition::GeographicMember { name, .. } if name.trim().is_empty() => Err(
+            Error::Invalid("empty geographic condition identifier".into()),
+        ),
         crate::Condition::AtLeast { field, .. } if field.0 >= schema.fields.len() => {
             Err(Error::Invalid("invalid saved condition field".into()))
         }

@@ -32,7 +32,7 @@ mod world;
 
 pub use administration::{
     Administration, AdministrationEvaluation, AdministrationRules, AdministrativeCategory,
-    AreaStatus, CoreType, ProvinceAdministration,
+    AreaStatus, CoreType, GeographicLevel, ProvinceAdministration,
 };
 pub use affiliations::{
     AffiliationAcceptance, AffiliationDimension, AffiliationRelation, Affiliations,

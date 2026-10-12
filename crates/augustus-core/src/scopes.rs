@@ -27,6 +27,114 @@ pub(crate) fn validate_name(name: &str) -> Result<(), Error> {
 }
 
 impl World {
+    pub fn known_absent_targets(
+        &self,
+    ) -> &std::collections::BTreeMap<EntityId, std::collections::BTreeSet<crate::Target>> {
+        &self.known_absent_targets
+    }
+
+    /// Declare confirmed absence separately from an unbound, unknown relationship.
+    pub fn mark_target_absent(
+        &mut self,
+        current: EntityId,
+        target: crate::Target,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        self.check_absent_target(current, target)?;
+        self.known_absent_targets
+            .entry(current)
+            .or_default()
+            .insert(target);
+        Ok(())
+    }
+
+    fn check_absent_target(&self, current: EntityId, target: crate::Target) -> Result<(), Error> {
+        let entity = self.entity(current)?;
+        let absent = match target {
+            crate::Target::Owner => {
+                entity.kind == crate::EntityKind::Province && entity.owner.is_none()
+            }
+            crate::Target::Capital => {
+                entity.kind == crate::EntityKind::Country && entity.capital.is_none()
+            }
+            crate::Target::Current => false,
+        };
+        if !absent {
+            return Err(Error::Invalid(
+                "invalid absent relationship declaration".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn clear_absent_target(&mut self, current: EntityId, target: crate::Target) {
+        if let Some(targets) = self.known_absent_targets.get_mut(&current) {
+            targets.remove(&target);
+            if targets.is_empty() {
+                self.known_absent_targets.remove(&current);
+            }
+        }
+    }
+
+    pub(crate) fn validate_absent_targets(&self) -> Result<(), Error> {
+        for (&current, targets) in &self.known_absent_targets {
+            if targets.is_empty() {
+                return Err(Error::Invalid(
+                    "empty absent relationship declaration".into(),
+                ));
+            }
+            for &target in targets {
+                self.check_absent_target(current, target)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn condition_target(
+        &self,
+        current: EntityId,
+        target: crate::Target,
+    ) -> Result<Option<EntityId>, Error> {
+        let entity = self.entity(current)?;
+        let selected = match target {
+            crate::Target::Current => Some(current),
+            crate::Target::Owner => {
+                if entity.kind != crate::EntityKind::Province {
+                    return Err(Error::Invalid(
+                        "owner condition scope requires a province".into(),
+                    ));
+                }
+                entity.owner
+            }
+            crate::Target::Capital => {
+                if entity.kind != crate::EntityKind::Country {
+                    return Err(Error::Invalid(
+                        "capital condition scope requires a country".into(),
+                    ));
+                }
+                if let Some(capital) = entity.capital
+                    && self.entity(capital)?.owner != Some(current)
+                {
+                    return Err(Error::Invalid(
+                        "capital condition scope is not an owned province".into(),
+                    ));
+                }
+                entity.capital
+            }
+        };
+        if selected.is_none()
+            && !self
+                .known_absent_targets
+                .get(&current)
+                .is_some_and(|targets| targets.contains(&target))
+        {
+            return Err(Error::Invalid(
+                "unknown condition scope relationship".into(),
+            ));
+        }
+        Ok(selected)
+    }
+
     /// Absence is distinct from an invalid reference or a wrong entity type.
     pub fn resolve_scope(&self, selector: &ScopeSelector) -> Result<Option<EntityId>, Error> {
         selector.validate()?;

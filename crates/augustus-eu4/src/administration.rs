@@ -25,6 +25,7 @@ pub struct AdministrationReport {
     pub areas: usize,
     pub regions: usize,
     pub superregions: usize,
+    pub continents: usize,
     pub unapplied_geography_fields: BTreeMap<String, LoadedSource>,
     pub mapped_provinces: usize,
     pub province_records: usize,
@@ -293,6 +294,19 @@ impl AdministrationDraft {
             rules,
             ..Default::default()
         };
+        for (name, provinces) in &self.autonomy.geography.continents {
+            let mut members = BTreeSet::new();
+            for &id in provinces {
+                let entity = initial.province_entity(id).ok_or_else(|| {
+                    Error::message(
+                        "map/continent",
+                        format!("continent {name} references unknown province {id}"),
+                    )
+                })?;
+                members.insert(entity);
+            }
+            administration.continents.insert(name.clone(), members);
+        }
         let mut country_areas = BTreeSet::new();
         for p in initial
             .provinces()

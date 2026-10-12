@@ -20,6 +20,7 @@ fn world() -> World {
         areas: ["shared".into()].into_iter().collect(),
         regions: Default::default(),
         superregions: Default::default(),
+        continents: Default::default(),
         country_areas: [
             (
                 a,

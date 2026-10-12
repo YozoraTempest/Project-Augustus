@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 2,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": 3,
+      "values": {}
+    },
+    {
+      "name": "Home",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Other",
+      "kind": "Province",
+      "owner": 1,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Sea",
+      "kind": "Province",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "global_scope_types": {
+    "place": "Province",
+    "absent": "Province"
+  },
+  "known_absent_targets": {
+    "4": [
+      "Owner"
+    ]
+  },
+  "administration": {
+    "areas": [
+      "home_area",
+      "other_area"
+    ],
+    "regions": {
+      "home_region": [
+        "home_area"
+      ],
+      "other_region": [
+        "other_area"
+      ]
+    },
+    "superregions": {
+      "outer": [
+        "home_region",
+        "other_region"
+      ]
+    },
+    "continents": {
+      "near": [
+        2
+      ],
+      "far": [
+        3
+      ]
+    },
+    "country_areas": {},
+    "provinces": {
+      "2": {
+        "area": "home_area",
+        "cores_known": false,
+        "cores": {},
+        "raw_autonomy_micros": null,
+        "history_autonomy_delta_micros": 0,
+        "unresolved": []
+      },
+      "3": {
+        "area": "other_area",
+        "cores_known": false,
+        "cores": {},
+        "raw_autonomy_micros": null,
+        "history_autonomy_delta_micros": 0,
+        "unresolved": []
+      }
+    },
+    "rules": {}
+  }
+}

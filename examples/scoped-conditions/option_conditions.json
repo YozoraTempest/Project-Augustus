@@ -1,0 +1,182 @@
+{
+  "scopes.start": {
+    "0": {
+      "All": [
+        {
+          "With": {
+            "target": "Capital",
+            "kind": "Province",
+            "condition": {
+              "All": [
+                {
+                  "GeographicMember": {
+                    "target": "Current",
+                    "level": "area",
+                    "name": "home_area"
+                  }
+                },
+                {
+                  "GeographicMember": {
+                    "target": "Current",
+                    "level": "region",
+                    "name": "home_region"
+                  }
+                },
+                {
+                  "GeographicMember": {
+                    "target": "Current",
+                    "level": "superregion",
+                    "name": "outer"
+                  }
+                },
+                {
+                  "GeographicMember": {
+                    "target": "Current",
+                    "level": "continent",
+                    "name": "near"
+                  }
+                },
+                {
+                  "With": {
+                    "target": "Owner",
+                    "kind": "Country",
+                    "condition": {
+                      "All": [
+                        {
+                          "EntityNamed": {
+                            "target": "Current",
+                            "name": "AAA"
+                          }
+                        },
+                        {
+                          "With": {
+                            "target": "Capital",
+                            "kind": "Province",
+                            "condition": {
+                              "All": [
+                                {
+                                  "GeographicMember": {
+                                    "target": "Current",
+                                    "level": "area",
+                                    "name": "home_area"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "1": {
+      "All": [
+        {
+          "With": {
+            "target": "Capital",
+            "kind": "Province",
+            "condition": {
+              "All": [
+                {
+                  "GeographicMember": {
+                    "target": "Current",
+                    "level": "continent",
+                    "name": "far"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "2": {
+      "All": [
+        {
+          "InScope": {
+            "selector": {
+              "Global": "absent"
+            },
+            "kind": "Province",
+            "condition": {
+              "All": []
+            }
+          }
+        }
+      ]
+    }
+  },
+  "scopes.later": {
+    "0": {
+      "All": [
+        {
+          "With": {
+            "target": "Capital",
+            "kind": "Province",
+            "condition": {
+              "All": [
+                {
+                  "GeographicMember": {
+                    "target": "Current",
+                    "level": "area",
+                    "name": "home_area"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "InScope": {
+            "selector": {
+              "Global": "place"
+            },
+            "kind": "Province",
+            "condition": {
+              "All": [
+                {
+                  "GeographicMember": {
+                    "target": "Current",
+                    "level": "area",
+                    "name": "other_area"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "scopes.sea": {
+    "0": {
+      "All": [
+        {
+          "Not": {
+            "All": [
+              {
+                "With": {
+                  "target": "Owner",
+                  "kind": "Country",
+                  "condition": {
+                    "All": [
+                      {
+                        "Always": true
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

@@ -13,6 +13,7 @@ type Groups = BTreeMap<String, BTreeSet<String>>;
 pub(super) struct GeographicGroups {
     pub regions: Groups,
     pub superregions: Groups,
+    pub continents: BTreeMap<String, BTreeSet<u32>>,
 }
 
 impl GeographicGroups {
@@ -22,7 +23,7 @@ impl GeographicGroups {
         report: &mut AdministrationReport,
     ) -> Result<Self, Error> {
         let mut result = Self::default();
-        for kind in ["region", "superregion"] {
+        for kind in ["region", "superregion", "continent"] {
             let paths: Vec<_> = map
                 .reader()
                 .fields()
@@ -48,6 +49,50 @@ impl GeographicGroups {
                 TextEncoding::Windows1252,
             )?;
             let parsed = doc.parse()?;
+            if kind == "continent" {
+                for (key, op, value) in parsed.reader().fields() {
+                    let name = key.read_string();
+                    let at = parsed.field_location(&key);
+                    let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
+                    equal(op, &fail)?;
+                    if name == "island_check_provinces" {
+                        report
+                            .unapplied_geography_fields
+                            .insert(format!("continent:{name}"), source(&parsed, at));
+                        continue;
+                    }
+                    if name.trim().is_empty() {
+                        return Err(fail("empty continent identifier"));
+                    }
+                    if value
+                        .read_object()
+                        .is_ok_and(|body| body.fields().next().is_some())
+                    {
+                        return Err(fail("expected continent province list"));
+                    }
+                    let mut provinces = BTreeSet::new();
+                    for value in value
+                        .read_array()
+                        .map_err(|_| fail("expected continent province list"))?
+                        .values()
+                    {
+                        let id = value
+                            .read_string()
+                            .ok()
+                            .and_then(|id| id.parse::<u32>().ok())
+                            .filter(|id| *id > 0)
+                            .ok_or_else(|| fail("expected positive province identifier"))?;
+                        provinces.insert(id);
+                    }
+                    if result.continents.insert(name.clone(), provinces).is_some() {
+                        return Err(fail("duplicate continent identifier"));
+                    }
+                    report
+                        .rule_sources
+                        .insert(format!("map/continent:{name}"), source(&parsed, at));
+                }
+                continue;
+            }
             for (key, op, value) in parsed.reader().fields() {
                 let name = key.read_string();
                 let at = parsed.field_location(&key);
@@ -140,6 +185,7 @@ impl GeographicGroups {
         }
         report.regions = result.regions.len();
         report.superregions = result.superregions.len();
+        report.continents = result.continents.len();
         Ok(result)
     }
 }

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{EntityId, Error, FieldId, RuleId, World};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Target {
     Current,
     Owner,
@@ -15,6 +15,21 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    With {
+        target: Target,
+        kind: crate::EntityKind,
+        condition: Box<Condition>,
+    },
+    InScope {
+        selector: crate::ScopeSelector,
+        kind: crate::EntityKind,
+        condition: Box<Condition>,
+    },
+    GeographicMember {
+        target: Target,
+        level: crate::GeographicLevel,
+        name: String,
+    },
     CountryControlled {
         target: Target,
         controller: crate::CountryController,
@@ -198,6 +213,57 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::With {
+                target,
+                kind,
+                condition,
+            } => {
+                let Some(selected) = world.condition_target(current, *target)? else {
+                    return Ok(false);
+                };
+                if world.entity(selected)?.kind != *kind {
+                    return Err(Error::Invalid(
+                        "condition scope has the wrong entity type".into(),
+                    ));
+                }
+                condition.evaluate(world, selected)
+            }
+            Self::InScope {
+                selector,
+                kind,
+                condition,
+            } => {
+                let Some(selected) = world.resolve_scope(selector)? else {
+                    return Ok(false);
+                };
+                if world.entity(selected)?.kind != *kind {
+                    return Err(Error::Invalid(
+                        "condition scope has the wrong entity type".into(),
+                    ));
+                }
+                condition.evaluate(world, selected)
+            }
+            Self::GeographicMember {
+                target,
+                level,
+                name,
+            } => {
+                let province = world.target(current, *target)?;
+                if world.entity(province)?.kind != crate::EntityKind::Province {
+                    return Err(Error::Invalid(
+                        "geographic condition requires a province".into(),
+                    ));
+                }
+                world
+                    .administration()
+                    .geographic_member(province, *level, name)
+                    .ok_or_else(|| {
+                        Error::Invalid(format!(
+                            "unknown geographic membership {name} for entity {}",
+                            province.0
+                        ))
+                    })
+            }
             Self::CountryControlled { target, controller } => {
                 let country = world.target(current, *target)?;
                 let actual = world.country_controller(country)?.ok_or_else(|| {

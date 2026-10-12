@@ -212,6 +212,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 `AND`、`OR`、`NOT` 及其小写写法可以嵌套，条件按声明顺序短路求值。多项 `NOT` 要求内部每项都不成立；未知触发器即使出现在常量分支中，也会报告编译错误。原生组合使用 `All`、`Any` 和 `Not`。
 
+条件块支持 `capital_scope`、`owner`、`emperor` 和已声明类型的 `event_target:name`；省份作用域支持字面 `area`、`region`、`superregion`、`continent`。条件按当前实体关系和地理状态求值，命名目标保留实体身份。缺失对象返回假，未确定的关系或成员数据报告错误；原生条件分别使用 `With`、`InScope`、`GeographicMember`。初始状态、缺失关系声明和跨输入读档见 [作用域与地理条件演示](../examples/scoped-conditions/README.md)。
+
 `has_dlc` 使用固定终版、全部 DLC 基线，识别 22 个玩法资料片以及 American Dream、Purple Phoenix、Star and Crescent、Women in History、Dharma 的两个单位包。已识别名称编译为真，名称大小写或其他名称不匹配会报错。这只表示所选规则基线的内容可用性，各机制与效果的支持范围仍分别校验。
 
 国家作用域支持 `complete_mission = 标识` 和 `mission_completed = 标识`，分别编译为核心 `RecordCompletion` 和 `CompletionRecorded`。登记只修改当前国家的记录，不检查任务条件、不执行奖励；条件读取执行时的状态。原生场景通过 `completions.identifiers` 注册标识，通过 `completions.entities` 提供已知记录；缺少实体条目表示状态未知，空列表表示已知未完成。标识要求已注册且非空，动态名称和错误作用域会报错；本入口对不存在的任务名称使用严格诊断，不沿用原版的假值查询。直接使用 `ScriptCompiler` 时，通过 `with_mission_ids` 提供注册标识。任务树、可用性、玩家领取奖励和分支切换尚未实现。
@@ -220,4 +222,4 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 命名作用域支持 `emperor = { ... }`、`save_global_event_target_as`、`clear_global_event_target`，以及已经声明类型的 `event_target:name = { ... }`。本入口仅处理全局目标；局部事件目标、动态目标名及完整原版目录中的类型推导尚未支持。原版启动入口也能使用皇帝作用域和全局国家目标，其他未支持效果仍会报告阻塞位置。
 
-周期自动候选、其他 `on_action` 调度、MTTH、AI 权重、过期处理、条件选项及完整 `ROOT`／`FROM`／`PREV` 上下文尚未支持。相关字段或不支持的效果会报告来源位置，整份输入编译失败。核心命令拒绝非法选择；原版某些异常选项编号会移除待选记录的行为不在本接口的支持范围内。完整原版战役事件和 Godot 事件界面仍未跑通。
+周期自动候选、其他 `on_action` 调度、MTTH、AI 权重、过期处理及完整 `ROOT`／`FROM`／`PREV` 上下文尚未支持。相关字段或不支持的效果会报告来源位置，整份输入编译失败。核心命令拒绝非法选择；原版某些异常选项编号会移除待选记录的行为不在本接口的支持范围内。完整原版战役事件和 Godot 事件界面仍未跑通。

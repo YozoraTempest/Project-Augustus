@@ -308,7 +308,7 @@ impl<'a> ScriptCompiler<'a> {
         })
     }
 
-    pub(crate) fn compile_numeric_condition_reader(
+    pub(crate) fn compile_block_condition_reader(
         mut self,
         parsed: &ParsedText<'_>,
         name: &str,
@@ -328,7 +328,7 @@ impl<'a> ScriptCompiler<'a> {
         else {
             unreachable!()
         };
-        Ok(conditions.pop().expect("one numeric condition"))
+        Ok(conditions.pop().expect("one condition"))
     }
 
     pub fn with_mission_ids(mut self, ids: BTreeSet<String>) -> Self {
@@ -450,7 +450,7 @@ impl<'a> ScriptCompiler<'a> {
         )
     }
 
-    /// Compile explicitly dispatched events with literal IDs and unconditional options.
+    /// Compile explicitly dispatched events with literal IDs and optional option guards.
     /// Semantic fields outside this subset are errors, including automatic selection.
     pub fn compile_events(mut self, document: &TextDocument) -> Result<CompiledEvents, Error> {
         let parsed = document.parse()?;
@@ -977,6 +977,39 @@ impl<'a> ScriptCompiler<'a> {
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "capital_scope" | "owner" => {
+                    let (target, required, nested) = if field.name == "capital_scope" {
+                        (Target::Capital, EntityKind::Country, EntityKind::Province)
+                    } else { (Target::Owner, EntityKind::Province, EntityKind::Country) };
+                    if scope != required { return Err(field.error("invalid entity type for condition scope transition")); }
+                    Condition::With { target, kind: nested, condition: Box::new(self.conditions(field.block()?, nested)?) }
+                }
+                "emperor" => Condition::InScope {
+                    selector: ScopeSelector::Office("imperial_emperor".into()), kind: EntityKind::Country,
+                    condition: Box::new(self.conditions(field.block()?, EntityKind::Country)?),
+                },
+                name if name.starts_with("event_target:") => {
+                    let name = name.strip_prefix("event_target:").expect("matched prefix");
+                    let kind = self.global_scope_types.get(name).copied()
+                        .ok_or_else(|| field.error("global event target condition requires a declared entity type"))?;
+                    Condition::InScope { selector: ScopeSelector::Global(name.into()), kind,
+                        condition: Box::new(self.conditions(field.block()?, kind)?) }
+                }
+                "area" | "region" | "superregion" | "continent" => {
+                    if scope != EntityKind::Province { return Err(field.error("geographic conditions require province scope")); }
+                    let name = field.scalar()?;
+                    if name.trim().is_empty() || name.chars().any(|c| matches!(c, '$' | '@' | ':' | '.' | '[' | ']'))
+                        || ["ROOT", "FROM", "PREV", "THIS"].iter().any(|word| name.eq_ignore_ascii_case(word)) {
+                        return Err(field.error("geographic condition requires a literal identifier"));
+                    }
+                    let level = match field.name.as_str() {
+                        "area" => augustus_core::GeographicLevel::Area,
+                        "region" => augustus_core::GeographicLevel::Region,
+                        "superregion" => augustus_core::GeographicLevel::Superregion,
+                        _ => augustus_core::GeographicLevel::Continent,
+                    };
+                    Condition::GeographicMember { target: Target::Current, level, name: name.into() }
+                }
                 "ai" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("ai conditions require country scope"));

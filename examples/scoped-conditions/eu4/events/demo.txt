@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace = scopes
+country_event = {
+ id = scopes.start is_triggered_only = yes
+ immediate = { capital_scope = { save_global_event_target_as = place } log = start }
+ option = {
+  name = accept
+  trigger = { capital_scope = {
+   area = home_area region = home_region superregion = outer continent = near
+   owner = { tag = AAA capital_scope = { area = home_area } }
+  } }
+  country_event = { id = scopes.later days = 1 } log = accepted
+ }
+ option = { name = far trigger = { capital_scope = { continent = far } } log = wrong_continent }
+ option = { name = absent trigger = { event_target:absent = {} } log = missing_target }
+}
+country_event = {
+ id = scopes.rebind is_triggered_only = yes
+ immediate = { capital_scope = { save_global_event_target_as = place } }
+ option = { name = continue }
+}
+country_event = {
+ id = scopes.later is_triggered_only = yes
+ immediate = {
+  if = { limit = { event_target:place = { area = other_area owner = { tag = BBB } } } log = changed }
+  else = { log = wrong_target }
+ }
+ option = { name = finish trigger = { capital_scope = { area = home_area } event_target:place = { area = other_area } } log = done }
+}
+province_event = {
+ id = scopes.sea is_triggered_only = yes
+ immediate = { if = { limit = { NOT = { owner = {} } } log = unowned } else = { log = wrong_owner } }
+ option = { name = continue trigger = { NOT = { owner = { always = yes } } } log = sea }
+}

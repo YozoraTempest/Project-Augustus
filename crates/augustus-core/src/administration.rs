@@ -11,6 +11,15 @@ const ONE: i64 = 1_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum GeographicLevel {
+    Area,
+    Region,
+    Superregion,
+    Continent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AreaStatus {
     State,
     Territory,
@@ -104,6 +113,8 @@ pub struct Administration {
     pub regions: BTreeMap<String, BTreeSet<String>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub superregions: BTreeMap<String, BTreeSet<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub continents: BTreeMap<String, BTreeSet<EntityId>>,
     pub country_areas: BTreeMap<EntityId, BTreeMap<String, AreaStatus>>,
     pub provinces: BTreeMap<EntityId, ProvinceAdministration>,
     pub rules: AdministrationRules,
@@ -114,6 +125,7 @@ impl Administration {
         self.areas.is_empty()
             && self.regions.is_empty()
             && self.superregions.is_empty()
+            && self.continents.is_empty()
             && self.country_areas.is_empty()
             && self.provinces.is_empty()
             && self.rules == AdministrationRules::default()
@@ -122,6 +134,25 @@ impl Administration {
     pub fn in_region(&self, province: EntityId, name: &str) -> Option<bool> {
         let area = self.provinces.get(&province)?.area.as_ref()?;
         Some(self.regions.get(name)?.contains(area))
+    }
+
+    pub fn geographic_member(
+        &self,
+        province: EntityId,
+        level: GeographicLevel,
+        name: &str,
+    ) -> Option<bool> {
+        match level {
+            GeographicLevel::Area => {
+                if !self.areas.contains(name) {
+                    return None;
+                }
+                Some(self.provinces.get(&province)?.area.as_ref()? == name)
+            }
+            GeographicLevel::Region => self.in_region(province, name),
+            GeographicLevel::Superregion => self.in_superregion(province, name),
+            GeographicLevel::Continent => Some(self.continents.get(name)?.contains(&province)),
+        }
     }
 
     pub fn in_superregion(&self, province: EntityId, name: &str) -> Option<bool> {
@@ -260,6 +291,21 @@ impl Administration {
         }
         hierarchy(&self.regions, &self.areas)?;
         hierarchy(&self.superregions, &self.regions.keys().cloned().collect())?;
+        let mut continental_members = BTreeSet::new();
+        for (name, provinces) in &self.continents {
+            if name.trim().is_empty() {
+                return Err(Error::Invalid("empty continent identifier".into()));
+            }
+            for &province in provinces {
+                if world.entity(province)?.kind != EntityKind::Province
+                    || !continental_members.insert(province)
+                {
+                    return Err(Error::Invalid(
+                        "invalid or overlapping continent membership".into(),
+                    ));
+                }
+            }
+        }
         if self.areas.iter().any(String::is_empty) {
             return Err(Error::Invalid("empty administrative area".into()));
         }

@@ -1,0 +1,207 @@
+[
+  {
+    "id": "scopes.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "BindGlobalScope": {
+                "name": "place"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Emit": "start"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "scopes.later"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "Emit": "accepted"
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": [
+          {
+            "Emit": "wrong_continent"
+          }
+        ]
+      },
+      {
+        "id": "2",
+        "effects": [
+          {
+            "Emit": "missing_target"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "scopes.rebind",
+    "scope": "Country",
+    "immediate": [
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "BindGlobalScope": {
+                "name": "place"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "scopes.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "InScope": {
+                  "selector": {
+                    "Global": "place"
+                  },
+                  "kind": "Province",
+                  "condition": {
+                    "All": [
+                      {
+                        "GeographicMember": {
+                          "target": "Current",
+                          "level": "area",
+                          "name": "other_area"
+                        }
+                      },
+                      {
+                        "With": {
+                          "target": "Owner",
+                          "kind": "Country",
+                          "condition": {
+                            "All": [
+                              {
+                                "EntityNamed": {
+                                  "target": "Current",
+                                  "name": "BBB"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "changed"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "wrong_target"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "done"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "scopes.sea",
+    "scope": "Province",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "With": {
+                        "target": "Owner",
+                        "kind": "Country",
+                        "condition": {
+                          "All": []
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "unowned"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "wrong_owner"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "sea"
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]
