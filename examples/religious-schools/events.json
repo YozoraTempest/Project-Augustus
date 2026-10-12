@@ -1,0 +1,63 @@
+[
+  {
+    "id": "school.selected",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "selected"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TryEvent": {
+                    "event": "school.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "school.absent",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "absent"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "school.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "later"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

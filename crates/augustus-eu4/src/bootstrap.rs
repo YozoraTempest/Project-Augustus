@@ -74,6 +74,7 @@ pub struct BootstrapReport {
     pub governments: GovernmentReport,
     pub ideas: IdeaReport,
     pub estates: EstateReport,
+    pub religious_schools: crate::ReligiousSchoolReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -230,6 +231,7 @@ impl VanillaWorld {
             governments: GovernmentReport::default(),
             ideas: IdeaReport::default(),
             estates: EstateReport::default(),
+            religious_schools: crate::ReligiousSchoolReport::default(),
         };
         let mut provinces = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
@@ -417,6 +419,11 @@ impl VanillaWorld {
         let mut administration =
             AdministrationDraft::load(&root, &files, &map_parsed, &mut report.administration)?;
         let mut political_drafts = BTreeMap::new();
+        let mut religious_schools = crate::religious_schools::ReligiousSchoolsDraft::load(
+            &root,
+            &files,
+            &mut report.religious_schools,
+        )?;
         let mut country_histories = BTreeSet::new();
         let mut province_histories = BTreeSet::new();
         let mut history_groups: BTreeMap<String, Vec<&Path>> = BTreeMap::new();
@@ -465,6 +472,12 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
+                religious_schools.country_history(
+                    &parsed,
+                    reader.clone(),
+                    &id,
+                    &mut report.religious_schools,
+                )?;
                 markers.history(&parsed, reader.clone(), &id)?;
                 status_draft.country_history(&parsed, reader.clone(), &id, &mut report.ideas)?;
                 estates.country_history(&parsed, reader.clone(), &id, &mut report.estates)?;
@@ -575,8 +588,13 @@ impl VanillaWorld {
         initial
             .set_governments(governments)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        let mut affiliations = administration.affiliations(&initial);
+        affiliations.0.insert(
+            "religious_school".into(),
+            religious_schools.bind(&initial, &mut report.religious_schools),
+        );
         initial
-            .set_affiliations(administration.affiliations(&initial))
+            .set_affiliations(affiliations)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let attributes = attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
         let administration = administration.bind(
@@ -1171,6 +1189,7 @@ fn apply_country(
         let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
         match name.as_str() {
             "legitimacy"
+            | "religious_school"
             | "add_government_reform"
             | "remove_government_reform"
             | "revolution_target" => (),

@@ -498,6 +498,9 @@ impl AttributeDraft {
                     let at = parsed.field_location(&key);
                     let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
                     equal(op, &fail)?;
+                    if name == "religious_schools" {
+                        continue;
+                    }
                     let identifier = format!("religions:{name}");
                     if let Some(origins) = report.ambiguous_definitions.get_mut(&identifier) {
                         origins.push(source(&parsed, at));

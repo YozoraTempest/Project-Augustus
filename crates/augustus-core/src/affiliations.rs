@@ -30,6 +30,9 @@ pub struct AffiliationDimension {
     /// A member with an unknown group can still match an identical member.
     pub groups: BTreeMap<String, Option<String>>,
     pub members: BTreeMap<EntityId, Option<String>>,
+    /// Explicitly known absence; missing entries and null members remain unknown.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub absent_members: BTreeSet<EntityId>,
     pub acceptance: BTreeMap<EntityId, AffiliationAcceptance>,
 }
 
@@ -45,6 +48,15 @@ impl Affiliations {
 
     pub fn member(&self, dimension: &str, entity: EntityId) -> Option<&str> {
         self.0.get(dimension)?.members.get(&entity)?.as_deref()
+    }
+
+    pub fn present(&self, dimension: &str, entity: EntityId) -> Option<bool> {
+        let data = self.0.get(dimension)?;
+        if data.absent_members.contains(&entity) {
+            Some(false)
+        } else {
+            self.member(dimension, entity).map(|_| true)
+        }
     }
 
     pub fn group(&self, dimension: &str, entity: EntityId) -> Option<&str> {
@@ -110,6 +122,12 @@ impl Affiliations {
                     return Err(Error::Invalid("empty affiliation member".into()));
                 }
             }
+            for &entity in &data.absent_members {
+                world.entity(entity)?;
+                if data.members.contains_key(&entity) {
+                    return Err(Error::Invalid("conflicting affiliation presence".into()));
+                }
+            }
             for (&entity, policy) in &data.acceptance {
                 if world.entity(entity)?.kind != EntityKind::Country
                     || [policy.members.as_ref(), policy.groups.as_ref()]
@@ -125,8 +143,8 @@ impl Affiliations {
     }
 }
 
-pub(crate) fn validate_condition(dimension: &str, value: &str) -> Result<(), Error> {
-    if dimension.is_empty() || value.is_empty() {
+pub(crate) fn validate_condition(dimension: &str, value: Option<&str>) -> Result<(), Error> {
+    if dimension.is_empty() || value.is_some_and(str::is_empty) {
         return Err(Error::Invalid(
             "empty affiliation condition identifier".into(),
         ));

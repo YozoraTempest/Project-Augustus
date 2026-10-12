@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "fields": [
+    "value"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {
+        "value": 0
+      }
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {
+        "value": 0
+      }
+    }
+  ],
+  "affiliations": {
+    "religious_school": {
+      "groups": {
+        "first": "family",
+        "second": "family"
+      },
+      "members": {
+        "0": "first"
+      },
+      "absent_members": [
+        1
+      ],
+      "acceptance": {}
+    }
+  }
+}

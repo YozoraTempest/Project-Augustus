@@ -65,7 +65,7 @@ fn integer(text: &str, maximum: u8, fail: &impl Fn(&str) -> Error) -> Result<u8,
         .ok_or_else(|| fail("invalid government rank"))
 }
 
-fn groups(
+pub(super) fn groups(
     root: &ContentRoot,
     files: &[FileEntry],
     directory: &str,
@@ -91,6 +91,9 @@ fn groups(
                     continue;
                 }
                 let name = key.read_string();
+                if directory == "common/religions" && name == "religious_schools" {
+                    continue;
+                }
                 let parent = group.read_string();
                 result
                     .entry(name.clone())

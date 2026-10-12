@@ -11,5 +11,11 @@
     "groups": {"test_faith": "test_religions"},
     "members": {"0": "test_faith", "1": "test_faith", "2": "test_faith", "3": "test_faith", "4": null, "5": null, "6": null, "7": null},
     "acceptance": {}
+  },
+  "religious_school": {
+    "groups": {},
+    "members": {},
+    "absent_members": [0, 1],
+    "acceptance": {}
   }
 }

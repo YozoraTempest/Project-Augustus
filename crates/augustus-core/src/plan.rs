@@ -15,6 +15,10 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    AffiliationPresent {
+        target: Target,
+        dimension: String,
+    },
     /// Compare an entity's live membership in a content-defined dimension.
     AffiliationMember {
         target: Target,
@@ -190,13 +194,29 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::AffiliationPresent { target, dimension } => {
+                crate::affiliations::validate_condition(dimension, None)?;
+                let entity = world.target(current, *target)?;
+                world
+                    .affiliations()
+                    .present(dimension, entity)
+                    .ok_or_else(|| {
+                        Error::Invalid(format!(
+                            "unknown affiliation presence {dimension} for entity {}",
+                            entity.0
+                        ))
+                    })
+            }
             Self::AffiliationMember {
                 target,
                 dimension,
                 member,
             } => {
-                crate::affiliations::validate_condition(dimension, member)?;
+                crate::affiliations::validate_condition(dimension, Some(member))?;
                 let entity = world.target(current, *target)?;
+                if world.affiliations().present(dimension, entity) == Some(false) {
+                    return Ok(false);
+                }
                 let actual = world
                     .affiliations()
                     .member(dimension, entity)
@@ -213,8 +233,11 @@ impl Condition {
                 dimension,
                 group,
             } => {
-                crate::affiliations::validate_condition(dimension, group)?;
+                crate::affiliations::validate_condition(dimension, Some(group))?;
                 let entity = world.target(current, *target)?;
+                if world.affiliations().present(dimension, entity) == Some(false) {
+                    return Ok(false);
+                }
                 let actual = world
                     .affiliations()
                     .group(dimension, entity)

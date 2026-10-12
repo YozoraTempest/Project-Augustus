@@ -48,6 +48,62 @@ use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 
 #[test]
+fn selected_and_absent_schools_share_candidates_delays_and_cross_input_restore() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/religious-schools");
+    let mut compatible = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    let candidates = ["school.selected".into(), "school.absent".into()];
+    for country in [0, 1] {
+        compatible.candidates(&candidates, country).unwrap();
+    }
+    native.restore(&compatible.save().unwrap()).unwrap();
+    for state in [&mut compatible, &mut native] {
+        let before = state.save().unwrap();
+        for _ in 0..3 {
+            assert_eq!(
+                state
+                    .view()
+                    .unwrap()
+                    .affiliations
+                    .present("religious_school", EntityId(1)),
+                Some(false)
+            );
+        }
+        assert_eq!(state.save().unwrap(), before);
+        for pending in [0, 1] {
+            state
+                .choose(&EventChoice {
+                    pending: PendingEventId(pending),
+                    option: "0".into(),
+                })
+                .unwrap();
+        }
+    }
+    compatible.restore(&native.save().unwrap()).unwrap();
+    for state in [&mut compatible, &mut native] {
+        state.advance(1).unwrap();
+        state
+            .choose(&EventChoice {
+                pending: PendingEventId(2),
+                option: "0".into(),
+            })
+            .unwrap();
+        assert_eq!(
+            state.world().events(),
+            &[
+                (0, EntityId(0), "selected".into()),
+                (0, EntityId(1), "absent".into()),
+                (1, EntityId(0), "later".into())
+            ]
+        );
+        assert!(state.world().pending_events().is_empty());
+    }
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+}
+
+#[test]
 fn affiliations_share_candidates_nested_scopes_and_delays_across_content_formats() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples/affiliation-conditions");

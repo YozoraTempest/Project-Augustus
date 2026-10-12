@@ -189,6 +189,8 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 共享核心的 `Affiliations` 保存实体的文化与宗教归属、分组和接受政策，可整项替换；`Attributes` 根据当前所有者及归属选择来源，修改这些状态后无需重建公式。原生内容通过同一接口提供状态和效果，样本见 [native_affiliations.json](../examples/world/native_affiliations.json)。接受政策与归属随核心存档保存，未知输入继续保持未知；这尚不包含战役中的文化转换、宗教转换或国家等级变化系统。
 
+宗教学派定义和国家历史选择进入同一 `Affiliations` 的 `religious_school` 维度。报告的 `religious_schools` 给出定义、历史来源，以及已选择、明确未选择和未知国家的数量。历史声明按日期及文件顺序处理；同宗教组的变更保留选择，跨组变更清除。原生输入用 `absent_members` 表示明确没有归属，缺少成员或成员为 `null` 仍表示未知。查询与跨输入读档见 [宗教学派演示](../examples/religious-schools/README.md)。当前未接入学派属性、学者邀请和运行时选择效果；历史初值也不代表未完成启动动作后的最终值。
+
 国家历史、开局效果和事件共用核心 `Markers`。历史中的直接设置与清除按既有日期顺序处理；阶层和免费理念的初始条件从同一状态读取。国家查询的 `flags` 给出已确定的名称值，`flag_namespace_known` 表示其余名称是否也已确定。缺少或有歧义的历史，以及尚未执行的嵌套修改，保留未知；整体开局失败时撤销候选写入，将存活国家的最终标记空间标为未知。事件中的设置、清除和查询见 [事件演示](EVENT_DEMO.md)。标记变化后重新选择阶层或理念的动态系统尚未实现。
 
 ## 验证

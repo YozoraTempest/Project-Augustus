@@ -1,0 +1,9 @@
+country_event={id=school.selected is_triggered_only=yes
+    trigger={has_religious_school=yes religious_school={group=family school=first}}
+    immediate={log=selected} option={name=Continue country_event={id=school.later days=1}}}
+country_event={id=school.absent is_triggered_only=yes
+    trigger={has_religious_school=no}
+    immediate={log=absent} option={name=Continue}}
+country_event={id=school.later is_triggered_only=yes
+    trigger={has_religious_school=yes religious_school={group=family school=first}}
+    immediate={log=later} option={name=Continue}}

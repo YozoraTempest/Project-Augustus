@@ -908,6 +908,34 @@ impl<'a> ScriptCompiler<'a> {
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "has_religious_school" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("religious school conditions require country scope"));
+                    }
+                    let condition = Condition::AffiliationPresent { target: Target::Current, dimension: "religious_school".into() };
+                    if boolean(field)? { condition } else { Condition::Not(Box::new(condition)) }
+                }
+                "religious_school" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("religious school conditions require country scope"));
+                    }
+                    let body = field.block()?;
+                    if body.len() != 2 || body.iter().filter(|v| v.name == "group").count() != 1 || body.iter().filter(|v| v.name == "school").count() != 1 {
+                        return Err(field.error("religious school requires exactly one group and one school"));
+                    }
+                    let group = body.iter().find(|v| v.name == "group").unwrap();
+                    let school = body.iter().find(|v| v.name == "school").unwrap();
+                    for operand in [group, school] {
+                        let name = operand.scalar()?;
+                        if name.trim().is_empty() || name.chars().any(|c| matches!(c, '$' | '@' | ':' | '.' | '[' | ']')) || matches!(name, "ROOT" | "FROM" | "PREV" | "THIS") {
+                            return Err(operand.error("religious school requires literal identifiers"));
+                        }
+                    }
+                    Condition::All(vec![
+                        Condition::AffiliationMember { target: Target::Current, dimension: "religious_school".into(), member: school.scalar()?.into() },
+                        Condition::AffiliationGroup { target: Target::Current, dimension: "religious_school".into(), group: group.scalar()?.into() },
+                    ])
+                }
                 "religion" | "religion_group" => {
                     let value = field.scalar()?;
                     if value.trim().is_empty()

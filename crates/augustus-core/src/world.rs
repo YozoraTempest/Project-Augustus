@@ -1001,12 +1001,15 @@ pub(crate) fn validate_condition(
     governments: &Governments,
 ) -> Result<(), Error> {
     match condition {
+        crate::Condition::AffiliationPresent { dimension, .. } => {
+            crate::affiliations::validate_condition(dimension, None)
+        }
         crate::Condition::AffiliationMember {
             dimension, member, ..
-        } => crate::affiliations::validate_condition(dimension, member),
+        } => crate::affiliations::validate_condition(dimension, Some(member)),
         crate::Condition::AffiliationGroup {
             dimension, group, ..
-        } => crate::affiliations::validate_condition(dimension, group),
+        } => crate::affiliations::validate_condition(dimension, Some(group)),
         crate::Condition::GovernmentMetricActive { name, .. } => {
             governments.metric_definition(name).map(|_| ())
         }

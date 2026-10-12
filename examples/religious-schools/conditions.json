@@ -1,0 +1,70 @@
+{
+  "school.selected": {
+    "All": [
+      {
+        "AffiliationPresent": {
+          "target": "Current",
+          "dimension": "religious_school"
+        }
+      },
+      {
+        "All": [
+          {
+            "AffiliationMember": {
+              "target": "Current",
+              "dimension": "religious_school",
+              "member": "first"
+            }
+          },
+          {
+            "AffiliationGroup": {
+              "target": "Current",
+              "dimension": "religious_school",
+              "group": "family"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "school.absent": {
+    "All": [
+      {
+        "Not": {
+          "AffiliationPresent": {
+            "target": "Current",
+            "dimension": "religious_school"
+          }
+        }
+      }
+    ]
+  },
+  "school.later": {
+    "All": [
+      {
+        "AffiliationPresent": {
+          "target": "Current",
+          "dimension": "religious_school"
+        }
+      },
+      {
+        "All": [
+          {
+            "AffiliationMember": {
+              "target": "Current",
+              "dimension": "religious_school",
+              "member": "first"
+            }
+          },
+          {
+            "AffiliationGroup": {
+              "target": "Current",
+              "dimension": "religious_school",
+              "group": "family"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
