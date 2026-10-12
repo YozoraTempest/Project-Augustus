@@ -28,6 +28,11 @@ pub enum NumericSlot {
     SubjectCount,
     /// Read the current ruler's authoritative skill, rather than a numeric copy.
     RulerSkill(crate::RulerSkill),
+    /// Query a current calculation in content-selected integer units.
+    Attribute {
+        name: String,
+        divisor: i64,
+    },
     Metric(String),
 }
 
@@ -87,6 +92,15 @@ impl NumericSlot {
                 governments.metric_definition(name).map(|_| ())
             }
             Self::Metric(name) => metrics.definition(name).map(|_| ()),
+            Self::Attribute { name, divisor } => {
+                validate_name(name)?;
+                if *divisor <= 0 {
+                    return Err(Error::Invalid(
+                        "attribute numeric divisor must be positive".into(),
+                    ));
+                }
+                Ok(())
+            }
             Self::Field(_) | Self::SubjectCount | Self::RulerSkill(_) => Ok(()),
         }
     }
@@ -102,6 +116,11 @@ impl NumericSlot {
         }
         if matches!(self, Self::RulerSkill(_)) {
             return Err(Error::Invalid("ruler skill slots are read only".into()));
+        }
+        if matches!(self, Self::Attribute { .. }) {
+            return Err(Error::Invalid(
+                "attribute numeric slots are read only".into(),
+            ));
         }
         Ok(())
     }
@@ -159,6 +178,12 @@ impl World {
             NumericSlot::Metric(name) => self.metrics().value(self, entity, name),
             NumericSlot::SubjectCount => self.subject_count(entity).map(i64::from),
             NumericSlot::RulerSkill(skill) => self.ruler_skill(entity, *skill).map(i64::from),
+            NumericSlot::Attribute { name, divisor } => self
+                .attributes()
+                .evaluate(self, entity, name)?
+                .value_micros
+                .map(|value| value / divisor)
+                .ok_or_else(|| Error::Invalid(format!("attribute {name} is unknown"))),
             NumericSlot::Named(name) => {
                 if let Some(value) = self
                     .named_values
@@ -189,6 +214,17 @@ impl World {
         operation: NumericOperation,
         value: i64,
     ) -> Result<(), Error> {
+        let value = self.preview_numeric_update(entity, slot, operation, value)?;
+        self.write_numeric_value(entity, slot, value)
+    }
+
+    pub(crate) fn preview_numeric_update(
+        &self,
+        entity: EntityId,
+        slot: &NumericSlot,
+        operation: NumericOperation,
+        value: i64,
+    ) -> Result<i64, Error> {
         self.require_running()?;
         self.entity(entity)?;
         slot.validate(self.schema(), self.governments(), self.metrics())?;
@@ -233,10 +269,20 @@ impl World {
         };
         let value =
             i64::try_from(value).map_err(|_| Error::Invalid("numeric state overflow".into()))?;
+        Ok(value)
+    }
+
+    fn write_numeric_value(
+        &mut self,
+        entity: EntityId,
+        slot: &NumericSlot,
+        value: i64,
+    ) -> Result<(), Error> {
         match slot {
             NumericSlot::StoredGovernment(_)
             | NumericSlot::SubjectCount
-            | NumericSlot::RulerSkill(_) => {
+            | NumericSlot::RulerSkill(_)
+            | NumericSlot::Attribute { .. } => {
                 unreachable!("validated writable numeric slot")
             }
             NumericSlot::Field(field) => self.set(entity, *field, value),

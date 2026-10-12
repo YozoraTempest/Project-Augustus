@@ -13,7 +13,7 @@ pub enum RulerSkill {
 }
 
 impl RulerSkill {
-    fn field(self, person: &PersonState) -> Option<u8> {
+    pub(crate) fn field(self, person: &PersonState) -> Option<u8> {
         match self {
             Self::Administration => person.administration,
             Self::Diplomacy => person.diplomacy,
@@ -28,6 +28,13 @@ impl RulerSkill {
             Self::Military => &mut person.military,
         }
     }
+}
+
+/// An explicit choice. Absence of this record means the choice is unknown.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NationalFocus {
+    pub skill: Option<RulerSkill>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +76,8 @@ pub struct PersonState {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CountryPolitics {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub national_focus: Option<NationalFocus>,
     /// Explicit political facts. Missing entries and None both mean unknown.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub statuses: BTreeMap<String, Option<bool>>,
@@ -246,6 +255,38 @@ impl Politics {
 impl World {
     pub fn politics(&self) -> &Politics {
         &self.politics
+    }
+
+    pub fn national_focus(&self, entity: EntityId) -> Result<NationalFocus, Error> {
+        if self.entity(entity)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "national focus requires country scope".into(),
+            ));
+        }
+        self.politics
+            .countries
+            .get(&entity)
+            .and_then(|country| country.national_focus)
+            .ok_or_else(|| Error::Invalid("national focus is unknown".into()))
+    }
+
+    pub fn change_national_focus(
+        &mut self,
+        entity: EntityId,
+        focus: NationalFocus,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        if self.entity(entity)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "national focus requires country scope".into(),
+            ));
+        }
+        self.politics
+            .countries
+            .entry(entity)
+            .or_default()
+            .national_focus = Some(focus);
+        Ok(())
     }
 
     pub fn ruler_skill(&self, entity: EntityId, skill: RulerSkill) -> Result<u8, Error> {

@@ -1,0 +1,280 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "metrics": {
+    "definitions": {
+      "adm_power": {
+        "kind": "Country",
+        "minimum": -100,
+        "maximum": 9223372036854775807,
+        "baseline": 0,
+        "divisor": 1,
+        "modifier": null,
+        "unresolved_properties": [],
+        "growth_ceiling": true
+      },
+      "dip_power": {
+        "kind": "Country",
+        "minimum": -999,
+        "maximum": 9223372036854775807,
+        "baseline": 0,
+        "divisor": 1,
+        "modifier": null,
+        "unresolved_properties": [],
+        "growth_ceiling": true
+      },
+      "mil_power": {
+        "kind": "Country",
+        "minimum": -100,
+        "maximum": 9223372036854775807,
+        "baseline": 0,
+        "divisor": 1,
+        "modifier": null,
+        "unresolved_properties": [],
+        "growth_ceiling": true
+      }
+    },
+    "entities": {
+      "0": {
+        "adm_power": 10,
+        "dip_power": 10,
+        "mil_power": 10
+      }
+    },
+    "ceilings": {
+      "0": {
+        "adm_power": 20,
+        "dip_power": 20,
+        "mil_power": 20
+      }
+    }
+  },
+  "calendar": {
+    "start": {
+      "year": 1444,
+      "month": 11,
+      "day": 11
+    },
+    "month_lengths": [
+      31,
+      28,
+      31,
+      30,
+      31,
+      30,
+      31,
+      31,
+      30,
+      31,
+      30,
+      31
+    ]
+  },
+  "politics": {
+    "ruler_skill_bounds": {
+      "minimum": 0,
+      "maximum": 6
+    },
+    "countries": {
+      "0": {
+        "national_focus": {
+          "skill": null
+        },
+        "ruler": {
+          "name": "Iris",
+          "administration": 2,
+          "diplomacy": 3,
+          "military": 4
+        },
+        "heir": null,
+        "consort": null
+      }
+    },
+    "offices": {},
+    "relations": []
+  },
+  "modifiers": {
+    "definitions": {
+      "first": {
+        "values_micros": {
+          "country_admin_power": 600000,
+          "country_diplomatic_power": 600000,
+          "country_military_power": 600000
+        },
+        "flags": {}
+      },
+      "second": {
+        "values_micros": {
+          "country_admin_power": 600000,
+          "country_diplomatic_power": 600000,
+          "country_military_power": 600000
+        },
+        "flags": {}
+      }
+    },
+    "active": {}
+  },
+  "attributes": {
+    "formulas": {
+      "0": {
+        "monthly_adm": {
+          "base": {
+            "kind": "constant",
+            "micros": 3000000
+          },
+          "channels": [
+            {
+              "flat": [
+                {
+                  "kind": "ruler_skill",
+                  "target": "Current",
+                  "skill": "Administration",
+                  "micros_per_unit": 1000000
+                },
+                {
+                  "kind": "national_focus",
+                  "target": "Current",
+                  "skill": "Administration",
+                  "increase_micros": 2000000,
+                  "decrease_micros": -1000000
+                },
+                {
+                  "kind": "truncated_sum",
+                  "source": "country_power_sources",
+                  "quantum_micros": 1000000,
+                  "terms": [
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "country_admin_power"
+                    }
+                  ]
+                }
+              ],
+              "rates": []
+            }
+          ],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        },
+        "monthly_dip": {
+          "base": {
+            "kind": "constant",
+            "micros": 3000000
+          },
+          "channels": [
+            {
+              "flat": [
+                {
+                  "kind": "ruler_skill",
+                  "target": "Current",
+                  "skill": "Diplomacy",
+                  "micros_per_unit": 1000000
+                },
+                {
+                  "kind": "national_focus",
+                  "target": "Current",
+                  "skill": "Diplomacy",
+                  "increase_micros": 2000000,
+                  "decrease_micros": -1000000
+                },
+                {
+                  "kind": "truncated_sum",
+                  "source": "country_power_sources",
+                  "quantum_micros": 1000000,
+                  "terms": [
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "country_diplomatic_power"
+                    }
+                  ]
+                }
+              ],
+              "rates": []
+            }
+          ],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        },
+        "monthly_mil": {
+          "base": {
+            "kind": "constant",
+            "micros": 3000000
+          },
+          "channels": [
+            {
+              "flat": [
+                {
+                  "kind": "ruler_skill",
+                  "target": "Current",
+                  "skill": "Military",
+                  "micros_per_unit": 1000000
+                },
+                {
+                  "kind": "national_focus",
+                  "target": "Current",
+                  "skill": "Military",
+                  "increase_micros": 2000000,
+                  "decrease_micros": -1000000
+                },
+                {
+                  "kind": "truncated_sum",
+                  "source": "country_power_sources",
+                  "quantum_micros": 1000000,
+                  "terms": [
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "country_military_power"
+                    }
+                  ]
+                }
+              ],
+              "rates": []
+            }
+          ],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        }
+      }
+    },
+    "static_modifiers": {},
+    "building_modifiers": {},
+    "trade_good_modifiers": {}
+  },
+  "monthly_accruals": {
+    "rules": {
+      "0": {
+        "adm_power": {
+          "attribute": "monthly_adm",
+          "divisor": 1000000
+        },
+        "dip_power": {
+          "attribute": "monthly_dip",
+          "divisor": 1000000
+        },
+        "mil_power": {
+          "attribute": "monthly_mil",
+          "divisor": 1000000
+        }
+      }
+    },
+    "settlement_count": 0,
+    "last_settlement": null
+  }
+}

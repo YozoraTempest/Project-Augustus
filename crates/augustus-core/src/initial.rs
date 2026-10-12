@@ -285,6 +285,10 @@ impl InitialWorld {
         self.world.set_taxation(taxation)
     }
 
+    pub fn set_monthly_accruals(&mut self, accruals: crate::MonthlyAccruals) -> Result<(), Error> {
+        self.world.set_monthly_accruals(accruals)
+    }
+
     pub fn advance(&mut self, days: u64) -> Result<(), Error> {
         self.world
             .advance_to(self.world.day().checked_add(days).ok_or(Error::Overflow)?)
@@ -304,6 +308,8 @@ impl InitialWorld {
             || restored.justifications().definitions != self.world.justifications().definitions
             || restored.calendar() != self.world.calendar()
             || restored.monthly_system_id() != self.world.monthly_system_id()
+            || restored.monthly_accruals().map(|a| &a.rules)
+                != self.world.monthly_accruals().map(|a| &a.rules)
             || restored
                 .taxation()
                 .map(|t| (&t.annual_attribute, &t.countries))

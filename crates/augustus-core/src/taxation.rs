@@ -81,8 +81,13 @@ impl Taxation {
     }
 
     pub(crate) fn settle(&mut self, world: &mut World) -> Result<(), Error> {
-        let count = self
-            .settlement_count
+        let settlement = self.prepare(world)?;
+        self.commit(world, settlement);
+        Ok(())
+    }
+
+    pub(crate) fn prepare(&self, world: &World) -> Result<TaxSettlement, Error> {
+        self.settlement_count
             .checked_add(1)
             .ok_or(Error::Overflow)?;
         let mut accounts = BTreeMap::new();
@@ -117,19 +122,22 @@ impl Taxation {
                 },
             );
         }
-        for (&country, account) in &accounts {
+        Ok(TaxSettlement {
+            day: world.day(),
+            accounts,
+        })
+    }
+
+    pub(crate) fn commit(&mut self, world: &mut World, settlement: TaxSettlement) {
+        for (&country, account) in &settlement.accounts {
             world
                 .country_resources
                 .entry(country)
                 .or_default()
                 .treasury_milli = account.treasury_after_milli;
         }
-        self.last_settlement = Some(TaxSettlement {
-            day: world.day(),
-            accounts,
-        });
-        self.settlement_count = count;
-        Ok(())
+        self.last_settlement = Some(settlement);
+        self.settlement_count += 1;
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {

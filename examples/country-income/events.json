@@ -1,0 +1,309 @@
+[
+  {
+    "id": "income.begin",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Attribute": {
+                      "name": "monthly_adm",
+                      "divisor": 1000000
+                    }
+                  },
+                  "comparison": "AtLeast",
+                  "value": 5
+                }
+              },
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Attribute": {
+                      "name": "monthly_dip",
+                      "divisor": 1000000
+                    }
+                  },
+                  "comparison": "AtLeast",
+                  "value": 6
+                }
+              },
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Attribute": {
+                      "name": "monthly_mil",
+                      "divisor": 1000000
+                    }
+                  },
+                  "comparison": "AtLeast",
+                  "value": 7
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "initial"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "ChangeNationalFocus": {
+          "target": "Current",
+          "focus": {
+            "skill": "Administration"
+          }
+        }
+      },
+      {
+        "AttachModifier": {
+          "target": "Current",
+          "name": "first",
+          "duration": null,
+          "hidden": null,
+          "renewal": "KeepLatestDated"
+        }
+      },
+      {
+        "AttachModifier": {
+          "target": "Current",
+          "name": "second",
+          "duration": null,
+          "hidden": null,
+          "renewal": "KeepLatestDated"
+        }
+      },
+      {
+        "ChangeRulerSkill": {
+          "target": "Current",
+          "skill": "Military",
+          "delta": 1
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NationalFocus": {
+                  "target": "Current",
+                  "skill": "Administration"
+                }
+              },
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Attribute": {
+                      "name": "monthly_adm",
+                      "divisor": 1000000
+                    }
+                  },
+                  "comparison": "AtLeast",
+                  "value": 8
+                }
+              },
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Attribute": {
+                      "name": "monthly_dip",
+                      "divisor": 1000000
+                    }
+                  },
+                  "comparison": "AtLeast",
+                  "value": 6
+                }
+              },
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Attribute": {
+                      "name": "monthly_mil",
+                      "divisor": 1000000
+                    }
+                  },
+                  "comparison": "AtLeast",
+                  "value": 8
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "focused"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 20,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "income.month"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "ChangeRulerSkill": {
+              "target": "Current",
+              "skill": "Administration",
+              "delta": 1
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "waiting"
+      }
+    ]
+  },
+  {
+    "id": "income.month",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "adm_power"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 10
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Metric": "adm_power"
+                        },
+                        "comparison": "AtLeast",
+                        "value": 11
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "before_credit"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "ChangeNationalFocus": {
+          "target": "Current",
+          "focus": {
+            "skill": null
+          }
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Attribute": {
+                      "name": "monthly_adm",
+                      "divisor": 1000000
+                    }
+                  },
+                  "comparison": "AtLeast",
+                  "value": 7
+                }
+              },
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Attribute": {
+                      "name": "monthly_dip",
+                      "divisor": 1000000
+                    }
+                  },
+                  "comparison": "AtLeast",
+                  "value": 7
+                }
+              },
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Attribute": {
+                      "name": "monthly_mil",
+                      "divisor": 1000000
+                    }
+                  },
+                  "comparison": "AtLeast",
+                  "value": 9
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "unfocused"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "RemoveModifier": {
+              "target": "Current",
+              "name": "first"
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "finished"
+      }
+    ]
+  }
+]

@@ -25,6 +25,7 @@ pub(super) struct PersonDraft {
 
 #[derive(Debug, Default)]
 pub(super) struct CountryDraft {
+    pub national_focus: Option<augustus_core::NationalFocus>,
     pub ruler: Option<PersonDraft>,
     pub heir: Option<PersonDraft>,
     pub consort: Option<PersonDraft>,
@@ -236,7 +237,10 @@ pub(super) fn bind_people(
 ) -> Result<Politics, Error> {
     let mut politics = Politics::default();
     for (tag, draft) in drafts {
-        let mut country = CountryPolitics::default();
+        let mut country = CountryPolitics {
+            national_focus: draft.national_focus,
+            ..Default::default()
+        };
         for (role, person, slot) in [
             ("ruler", draft.ruler, &mut country.ruler),
             ("heir", draft.heir, &mut country.heir),

@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "0": {
+      "adm_power": {
+        "attribute": "monthly_adm",
+        "divisor": 1000000
+      },
+      "mil_power": {
+        "attribute": "monthly_mil",
+        "divisor": 1000000
+      }
+    },
+    "1": {
+      "adm_power": {
+        "attribute": "monthly_adm",
+        "divisor": 1000000
+      },
+      "mil_power": {
+        "attribute": "monthly_mil",
+        "divisor": 1000000
+      }
+    }
+  },
+  "settlement_count": 0,
+  "last_settlement": null
+}

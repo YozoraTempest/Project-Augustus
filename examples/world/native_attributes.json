@@ -19,6 +19,406 @@
   "building_modifiers": {"test_market": {"values_micros": {"test_power": 500000, "local_tax_modifier": 125000}, "flags": {}}, "test_fort": {"values_micros": {}, "flags": {}}},
   "trade_good_modifiers": {"grain": {"values_micros": {"local_manpower_modifier": 100000}, "flags": {}}, "cloth": {"values_micros": {"local_tax_modifier": 150000}, "flags": {}}, "gold": {"values_micros": {}, "flags": {}}},
   "formulas": {
+    "0": {
+      "monthly_adm": {
+        "base": {
+          "kind": "unknown",
+          "reason": "power_income:missing_base_define"
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "ruler_skill",
+                "target": "Current",
+                "skill": "Administration",
+                "micros_per_unit": 1000000
+              },
+              {
+                "kind": "national_focus",
+                "target": "Current",
+                "skill": "Administration",
+                "increase_micros": 0,
+                "decrease_micros": 0
+              },
+              {
+                "kind": "truncated_sum",
+                "source": "country_power_sources",
+                "quantum_micros": 1000000,
+                "terms": [
+                  {
+                    "kind": "modifiers",
+                    "target": "Current",
+                    "property": "country_admin_power"
+                  },
+                  {
+                    "kind": "government",
+                    "target": "Current",
+                    "property": "country_admin_power"
+                  },
+                  {
+                    "kind": "ideas",
+                    "target": "Current",
+                    "property": "country_admin_power"
+                  },
+                  {
+                    "kind": "estates",
+                    "target": "Current",
+                    "property": "country_admin_power"
+                  },
+                  {
+                    "kind": "metrics",
+                    "target": "Current",
+                    "property": "country_admin_power"
+                  }
+                ]
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "power_income:advisors_not_initialized",
+          "power_income:remaining_sources_not_bound",
+          "power_income:missing_define:NAT_FOCUS_INCREASE",
+          "power_income:missing_define:NAT_FOCUS_DECREASE"
+        ]
+      },
+      "monthly_dip": {
+        "base": {
+          "kind": "unknown",
+          "reason": "power_income:missing_base_define"
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "ruler_skill",
+                "target": "Current",
+                "skill": "Diplomacy",
+                "micros_per_unit": 1000000
+              },
+              {
+                "kind": "national_focus",
+                "target": "Current",
+                "skill": "Diplomacy",
+                "increase_micros": 0,
+                "decrease_micros": 0
+              },
+              {
+                "kind": "truncated_sum",
+                "source": "country_power_sources",
+                "quantum_micros": 1000000,
+                "terms": [
+                  {
+                    "kind": "modifiers",
+                    "target": "Current",
+                    "property": "country_diplomatic_power"
+                  },
+                  {
+                    "kind": "government",
+                    "target": "Current",
+                    "property": "country_diplomatic_power"
+                  },
+                  {
+                    "kind": "ideas",
+                    "target": "Current",
+                    "property": "country_diplomatic_power"
+                  },
+                  {
+                    "kind": "estates",
+                    "target": "Current",
+                    "property": "country_diplomatic_power"
+                  },
+                  {
+                    "kind": "metrics",
+                    "target": "Current",
+                    "property": "country_diplomatic_power"
+                  }
+                ]
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "power_income:advisors_not_initialized",
+          "power_income:remaining_sources_not_bound",
+          "power_income:missing_define:NAT_FOCUS_INCREASE",
+          "power_income:missing_define:NAT_FOCUS_DECREASE"
+        ]
+      },
+      "monthly_mil": {
+        "base": {
+          "kind": "unknown",
+          "reason": "power_income:missing_base_define"
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "ruler_skill",
+                "target": "Current",
+                "skill": "Military",
+                "micros_per_unit": 1000000
+              },
+              {
+                "kind": "national_focus",
+                "target": "Current",
+                "skill": "Military",
+                "increase_micros": 0,
+                "decrease_micros": 0
+              },
+              {
+                "kind": "truncated_sum",
+                "source": "country_power_sources",
+                "quantum_micros": 1000000,
+                "terms": [
+                  {
+                    "kind": "modifiers",
+                    "target": "Current",
+                    "property": "country_military_power"
+                  },
+                  {
+                    "kind": "government",
+                    "target": "Current",
+                    "property": "country_military_power"
+                  },
+                  {
+                    "kind": "ideas",
+                    "target": "Current",
+                    "property": "country_military_power"
+                  },
+                  {
+                    "kind": "estates",
+                    "target": "Current",
+                    "property": "country_military_power"
+                  },
+                  {
+                    "kind": "metrics",
+                    "target": "Current",
+                    "property": "country_military_power"
+                  }
+                ]
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "power_income:advisors_not_initialized",
+          "power_income:remaining_sources_not_bound",
+          "power_income:missing_define:NAT_FOCUS_INCREASE",
+          "power_income:missing_define:NAT_FOCUS_DECREASE"
+        ]
+      }
+    },
+    "1": {
+      "monthly_adm": {
+        "base": {
+          "kind": "unknown",
+          "reason": "power_income:missing_base_define"
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "ruler_skill",
+                "target": "Current",
+                "skill": "Administration",
+                "micros_per_unit": 1000000
+              },
+              {
+                "kind": "national_focus",
+                "target": "Current",
+                "skill": "Administration",
+                "increase_micros": 0,
+                "decrease_micros": 0
+              },
+              {
+                "kind": "truncated_sum",
+                "source": "country_power_sources",
+                "quantum_micros": 1000000,
+                "terms": [
+                  {
+                    "kind": "modifiers",
+                    "target": "Current",
+                    "property": "country_admin_power"
+                  },
+                  {
+                    "kind": "government",
+                    "target": "Current",
+                    "property": "country_admin_power"
+                  },
+                  {
+                    "kind": "ideas",
+                    "target": "Current",
+                    "property": "country_admin_power"
+                  },
+                  {
+                    "kind": "estates",
+                    "target": "Current",
+                    "property": "country_admin_power"
+                  },
+                  {
+                    "kind": "metrics",
+                    "target": "Current",
+                    "property": "country_admin_power"
+                  }
+                ]
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "power_income:advisors_not_initialized",
+          "power_income:remaining_sources_not_bound",
+          "power_income:missing_define:NAT_FOCUS_INCREASE",
+          "power_income:missing_define:NAT_FOCUS_DECREASE"
+        ]
+      },
+      "monthly_dip": {
+        "base": {
+          "kind": "unknown",
+          "reason": "power_income:missing_base_define"
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "ruler_skill",
+                "target": "Current",
+                "skill": "Diplomacy",
+                "micros_per_unit": 1000000
+              },
+              {
+                "kind": "national_focus",
+                "target": "Current",
+                "skill": "Diplomacy",
+                "increase_micros": 0,
+                "decrease_micros": 0
+              },
+              {
+                "kind": "truncated_sum",
+                "source": "country_power_sources",
+                "quantum_micros": 1000000,
+                "terms": [
+                  {
+                    "kind": "modifiers",
+                    "target": "Current",
+                    "property": "country_diplomatic_power"
+                  },
+                  {
+                    "kind": "government",
+                    "target": "Current",
+                    "property": "country_diplomatic_power"
+                  },
+                  {
+                    "kind": "ideas",
+                    "target": "Current",
+                    "property": "country_diplomatic_power"
+                  },
+                  {
+                    "kind": "estates",
+                    "target": "Current",
+                    "property": "country_diplomatic_power"
+                  },
+                  {
+                    "kind": "metrics",
+                    "target": "Current",
+                    "property": "country_diplomatic_power"
+                  }
+                ]
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "power_income:advisors_not_initialized",
+          "power_income:remaining_sources_not_bound",
+          "power_income:missing_define:NAT_FOCUS_INCREASE",
+          "power_income:missing_define:NAT_FOCUS_DECREASE"
+        ]
+      },
+      "monthly_mil": {
+        "base": {
+          "kind": "unknown",
+          "reason": "power_income:missing_base_define"
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "ruler_skill",
+                "target": "Current",
+                "skill": "Military",
+                "micros_per_unit": 1000000
+              },
+              {
+                "kind": "national_focus",
+                "target": "Current",
+                "skill": "Military",
+                "increase_micros": 0,
+                "decrease_micros": 0
+              },
+              {
+                "kind": "truncated_sum",
+                "source": "country_power_sources",
+                "quantum_micros": 1000000,
+                "terms": [
+                  {
+                    "kind": "modifiers",
+                    "target": "Current",
+                    "property": "country_military_power"
+                  },
+                  {
+                    "kind": "government",
+                    "target": "Current",
+                    "property": "country_military_power"
+                  },
+                  {
+                    "kind": "ideas",
+                    "target": "Current",
+                    "property": "country_military_power"
+                  },
+                  {
+                    "kind": "estates",
+                    "target": "Current",
+                    "property": "country_military_power"
+                  },
+                  {
+                    "kind": "metrics",
+                    "target": "Current",
+                    "property": "country_military_power"
+                  }
+                ]
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "power_income:advisors_not_initialized",
+          "power_income:remaining_sources_not_bound",
+          "power_income:missing_define:NAT_FOCUS_INCREASE",
+          "power_income:missing_define:NAT_FOCUS_DECREASE"
+        ]
+      }
+    },
     "2": {
       "tax_basis": {
         "base": {"kind": "field", "field": 0, "micros_per_unit": 1000},

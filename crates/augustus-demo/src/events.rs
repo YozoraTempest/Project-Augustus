@@ -69,6 +69,8 @@ struct Scene {
     known_absent_targets: BTreeMap<EntityId, std::collections::BTreeSet<augustus_core::Target>>,
     #[serde(default, skip_serializing_if = "augustus_core::Attributes::is_empty")]
     attributes: augustus_core::Attributes,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    monthly_accruals: Option<augustus_core::MonthlyAccruals>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -109,6 +111,8 @@ pub struct PendingChoiceView {
 
 #[derive(Debug, Serialize)]
 pub struct EventView {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub monthly_accruals: Option<augustus_core::MonthlyAccruals>,
     #[serde(skip_serializing_if = "augustus_core::Subjects::is_empty")]
     pub subjects: augustus_core::Subjects,
     pub day: u64,
@@ -408,6 +412,9 @@ impl EventDemo {
         }
         world.set_administration(scene.administration)?;
         world.set_attributes(scene.attributes)?;
+        if let Some(accruals) = scene.monthly_accruals {
+            world.set_monthly_accruals(accruals)?;
+        }
         for (current, targets) in scene.known_absent_targets {
             if targets.is_empty() {
                 return Err(Error::Invalid(
@@ -560,6 +567,7 @@ impl EventDemo {
             })
             .collect::<Result<Vec<_>, augustus_core::Error>>()?;
         Ok(EventView {
+            monthly_accruals: self.world.monthly_accruals().cloned(),
             subjects: self.world.subjects().clone(),
             day: self.world.day(),
             pending_tasks: self.world.pending_tasks(),

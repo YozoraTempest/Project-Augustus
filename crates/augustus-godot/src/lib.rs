@@ -146,10 +146,28 @@ impl AugustusWorldSession {
     #[func]
     fn query_country(&self, id: GString) -> GString {
         world_reply(self.loaded().and_then(|loaded| {
-            loaded
-                .country(&id.to_string())
-                .map(|c| serde_json::json!(c))
-                .ok_or_else(|| "unknown country".into())
+            let id = id.to_string();
+            let country = loaded.country(&id).ok_or("unknown country")?;
+            let mut value = serde_json::json!(country);
+            value["attributes"] = serde_json::to_value(
+                loaded
+                    .country_attributes(&id)
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+            if let Some(accounts) = loaded
+                .initial
+                .world()
+                .monthly_accruals()
+                .and_then(|state| state.last_settlement.as_ref())
+                .and_then(|last| {
+                    last.accounts
+                        .get(&loaded.initial.country_entity(&id).expect("known country"))
+                })
+            {
+                value["last_monthly_accruals"] = serde_json::json!(accounts);
+            }
+            Ok(value)
         }))
     }
 

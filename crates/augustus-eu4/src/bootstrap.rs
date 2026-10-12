@@ -568,7 +568,10 @@ impl VanillaWorld {
                     country,
                     political_drafts
                         .entry(id.clone())
-                        .or_insert_with(CountryDraft::default),
+                        .or_insert_with(|| CountryDraft {
+                            national_focus: Some(augustus_core::NationalFocus::default()),
+                            ..Default::default()
+                        }),
                     &mut setup,
                     &mut report,
                 )
@@ -785,7 +788,10 @@ impl VanillaWorld {
         initial
             .set_metrics(metrics)
             .map_err(|e| Error::caused_by("world metrics", e))?;
-        let attributes = attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
+        let mut attributes =
+            attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
+        let accruals =
+            crate::power_income::bind(&root, &files, &initial, &mut attributes, &mut report.setup)?;
         let administration = administration.bind(
             &initial,
             &province_histories,
@@ -800,6 +806,9 @@ impl VanillaWorld {
         let politics = status_draft.bind(&initial, report.start_date, &mut report.ideas)?;
         initial
             .set_politics(politics)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        initial
+            .set_attributes(attributes.clone())
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let casus_belli =
             crate::CasusBelliTypes::from_root(&root, &files, initial.world().schema())?;
@@ -892,6 +901,9 @@ impl VanillaWorld {
                     .map(|c| initial.country_entity(&c.id).expect("registered country"))
                     .collect(),
             ))
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        initial
+            .set_monthly_accruals(accruals)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         if let Some(players) = players {
             for player in players {
@@ -1115,6 +1127,33 @@ impl VanillaWorld {
                 .declared_totals(entity)
                 .expect("validated modifier totals"),
         })
+    }
+
+    pub fn country_attributes(
+        &self,
+        id: &str,
+    ) -> Result<
+        std::collections::BTreeMap<String, augustus_core::AttributeEvaluation>,
+        augustus_core::Error,
+    > {
+        let entity = self
+            .initial
+            .country_entity(id)
+            .ok_or_else(|| augustus_core::Error::Invalid("unknown country".into()))?;
+        let world = self.initial.world();
+        world
+            .attributes()
+            .formulas
+            .get(&entity)
+            .into_iter()
+            .flat_map(|formulas| formulas.keys())
+            .map(|name| {
+                Ok((
+                    name.clone(),
+                    world.attributes().evaluate(world, entity, name)?,
+                ))
+            })
+            .collect()
     }
 
     pub fn country(&self, id: &str) -> Option<CountryView<'_>> {
@@ -1511,6 +1550,23 @@ fn apply_country(
         let location = parsed.field_location(&key);
         let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
         match name.as_str() {
+            "national_focus" => {
+                equal(op, &fail)?;
+                let text = value
+                    .read_string()
+                    .map_err(|_| fail("expected national focus scalar"))?;
+                let skill = match text.as_str() {
+                    "ADM" => augustus_core::RulerSkill::Administration,
+                    "DIP" => augustus_core::RulerSkill::Diplomacy,
+                    "MIL" => augustus_core::RulerSkill::Military,
+                    _ => return Err(fail("unsupported historical national focus")),
+                };
+                politics.national_focus = Some(augustus_core::NationalFocus { skill: Some(skill) });
+                report
+                    .setup
+                    .national_focus_sources
+                    .insert(country.id.clone(), source(parsed, location));
+            }
             "legitimacy"
             | "religious_school"
             | "add_government_reform"
@@ -1547,10 +1603,32 @@ fn apply_country(
                 };
                 *slot = Some(text);
             }
-            _ => unapplied(parsed, name, location, true, report),
+            _ => {
+                if value
+                    .read_object()
+                    .is_ok_and(|reader| nested_focus_mutation(reader, 0))
+                {
+                    politics.national_focus = None;
+                }
+                unapplied(parsed, name, location, true, report);
+            }
         }
     }
     Ok(())
+}
+
+fn nested_focus_mutation(reader: ObjectReader<'_, '_, TextEncoding>, depth: usize) -> bool {
+    if depth > 64 {
+        return true;
+    }
+    reader.fields().any(|(key, _, value)| {
+        matches!(
+            key.read_string().as_str(),
+            "national_focus" | "change_national_focus"
+        ) || value
+            .read_object()
+            .is_ok_and(|nested| nested_focus_mutation(nested, depth + 1))
+    })
 }
 
 // Dated blocks are visited separately. An unhandled conditional owner assignment

@@ -16,6 +16,10 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    NationalFocus {
+        target: Target,
+        skill: crate::RulerSkill,
+    },
     HasJustification {
         issuer: crate::EntityRef,
         target: crate::EntityRef,
@@ -226,6 +230,10 @@ pub enum Action {
         skill: crate::RulerSkill,
         delta: i64,
     },
+    ChangeNationalFocus {
+        target: Target,
+        focus: crate::NationalFocus,
+    },
     RefreshObjectives,
     RecordCompletion {
         id: String,
@@ -318,6 +326,9 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::NationalFocus { target, skill } => {
+                Ok(world.national_focus(world.target(current, *target)?)?.skill == Some(*skill))
+            }
             Self::HasJustification {
                 issuer,
                 target,
@@ -764,6 +775,10 @@ impl World {
                 } => {
                     let entity = self.target(current, *target)?;
                     self.change_ruler_skill(entity, *skill, *delta)?;
+                }
+                Action::ChangeNationalFocus { target, focus } => {
+                    let entity = self.target(current, *target)?;
+                    self.change_national_focus(entity, *focus)?;
                 }
                 Action::RecordCompletion { id } => {
                     self.record_completion(current, id)?;

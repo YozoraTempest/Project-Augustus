@@ -228,6 +228,10 @@ impl Condition {
                     | "adm"
                     | "dip"
                     | "mil"
+                    | "monthly_adm"
+                    | "monthly_dip"
+                    | "monthly_mil"
+                    | "national_focus"
                         if country =>
                     {
                         let schema =

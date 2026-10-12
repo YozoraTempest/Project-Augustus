@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod accruals;
 mod administration;
 mod affiliations;
 mod attributes;
@@ -36,6 +37,9 @@ mod taxation;
 mod technology;
 mod world;
 
+pub use accruals::{
+    AccrualAccount, AccrualRule, AccrualSettlement, MonthlyAccruals, MonthlyEconomy,
+};
 pub use administration::{
     Administration, AdministrationEvaluation, AdministrationRules, AdministrativeCategory,
     AreaStatus, CoreType, GeographicLevel, ProvinceAdministration,
@@ -77,8 +81,8 @@ pub use named_values::{NamedValues, NumericComparison, NumericOperation, Numeric
 pub use objectives::{ObjectiveGroup, Objectives};
 pub use plan::{Action, Condition, Plan, Target};
 pub use politics::{
-    CountryPolitics, DiplomaticKind, DiplomaticRelation, PersonState, Politics, RulerSkill,
-    RulerSkillBounds,
+    CountryPolitics, DiplomaticKind, DiplomaticRelation, NationalFocus, PersonState, Politics,
+    RulerSkill, RulerSkillBounds,
 };
 pub use resources::CountryResources;
 pub use scopes::{EntityRef, ScopeSelector};

@@ -1272,6 +1272,22 @@ impl<'a> ScriptCompiler<'a> {
                         delta: script_integer(field, "ruler skill")?,
                     });
                 }
+                "change_national_focus" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("national focus effects require country scope"));
+                    }
+                    let skill = match field.scalar()? {
+                        "ADM" => Some(augustus_core::RulerSkill::Administration),
+                        "DIP" => Some(augustus_core::RulerSkill::Diplomacy),
+                        "MIL" => Some(augustus_core::RulerSkill::Military),
+                        "none" => None,
+                        _ => return Err(field.error("unsupported national focus")),
+                    };
+                    plan.push(Action::ChangeNationalFocus {
+                        target: Target::Current,
+                        focus: augustus_core::NationalFocus { skill },
+                    });
+                }
                 name if self.area_scopes.contains_key(name) => {
                     let members = self.area_scopes[name].clone();
                     if members.contains(&0) {
@@ -1783,6 +1799,27 @@ impl<'a> ScriptCompiler<'a> {
                         comparison: augustus_core::NumericComparison::AtLeast,
                         value: script_integer(field, "ruler skill")?,
                     }
+                }
+                "monthly_adm" | "monthly_dip" | "monthly_mil" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("monthly income queries require country scope"));
+                    }
+                    Condition::NumericCompare { target: Target::Current,
+                        slot: augustus_core::NumericSlot::Attribute { name: field.name.clone(), divisor: 1_000_000 },
+                        comparison: augustus_core::NumericComparison::AtLeast,
+                        value: script_integer(field, "monthly income")? }
+                }
+                "national_focus" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("national focus queries require country scope"));
+                    }
+                    let skill = match field.scalar()? {
+                        "ADM" => augustus_core::RulerSkill::Administration,
+                        "DIP" => augustus_core::RulerSkill::Diplomacy,
+                        "MIL" => augustus_core::RulerSkill::Military,
+                        _ => return Err(field.error("unsupported national focus query")),
+                    };
+                    Condition::NationalFocus { target: Target::Current, skill }
                 }
                 "province_id" => {
                     if scope != EntityKind::Province { return Err(field.error("province_id requires province scope")); }

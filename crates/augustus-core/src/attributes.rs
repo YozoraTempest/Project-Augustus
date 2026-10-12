@@ -32,6 +32,24 @@ pub enum AttributeBase {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AttributeTerm {
+    RulerSkill {
+        target: Target,
+        skill: crate::RulerSkill,
+        micros_per_unit: i64,
+    },
+    NationalFocus {
+        target: Target,
+        skill: crate::RulerSkill,
+        increase_micros: i64,
+        decrease_micros: i64,
+    },
+    /// Sum these sources before truncating to a multiple of the quantum.
+    /// The contribution list retains the inputs and a separate rounding delta.
+    TruncatedSum {
+        source: String,
+        quantum_micros: i64,
+        terms: Vec<AttributeTerm>,
+    },
     Metrics {
         target: Target,
         property: String,
@@ -216,7 +234,8 @@ impl Attributes {
             let mut rate = 0_i128;
             for (terms, is_rate) in [(&channel.flat, false), (&channel.rates, true)] {
                 for term in terms {
-                    let (resolved, known) = self.resolve(world, entity, term, &mut unresolved)?;
+                    let (resolved, known) =
+                        self.resolve(world, entity, term, &mut unresolved, 0)?;
                     if !known {
                         value = None;
                     }
@@ -329,7 +348,13 @@ impl Attributes {
         entity: EntityId,
         term: &AttributeTerm,
         unresolved: &mut BTreeSet<String>,
+        depth: usize,
     ) -> Result<ResolvedContributions, Error> {
+        if depth > 64 {
+            return Err(Error::Invalid(
+                "attribute term nesting limit exceeded".into(),
+            ));
+        }
         let mut values = Vec::new();
         let mut append = |source: String,
                           property: &str,
@@ -346,6 +371,95 @@ impl Attributes {
             Ok(())
         };
         match term {
+            AttributeTerm::TruncatedSum {
+                source,
+                quantum_micros,
+                terms,
+            } => {
+                if source.is_empty() || *quantum_micros <= 0 {
+                    return Err(Error::Invalid("invalid attribute truncation group".into()));
+                }
+                let mut known = true;
+                let mut total = 0_i128;
+                for term in terms {
+                    let (contributions, complete) =
+                        self.resolve(world, entity, term, unresolved, depth + 1)?;
+                    known &= complete;
+                    for contribution in contributions {
+                        total += i128::from(contribution.2);
+                        values.push(contribution);
+                    }
+                }
+                let quantum = i128::from(*quantum_micros);
+                let adjustment = narrow(total / quantum * quantum - total)?;
+                values.push((source.clone(), "truncation".into(), adjustment));
+                return Ok((values, known));
+            }
+            AttributeTerm::RulerSkill {
+                target,
+                skill,
+                micros_per_unit,
+            } => {
+                if let Some(selected) = attribute_target(world, entity, *target)? {
+                    if world.entity(selected)?.kind != EntityKind::Country {
+                        return Err(Error::Invalid(
+                            "ruler attribute requires country scope".into(),
+                        ));
+                    }
+                    if let Some(value) = world
+                        .politics()
+                        .countries
+                        .get(&selected)
+                        .and_then(|country| country.ruler.as_ref())
+                        .and_then(|person| skill.field(person))
+                    {
+                        values.push((
+                            format!("ruler:{skill:?}"),
+                            "skill".into(),
+                            narrow(i128::from(value) * i128::from(*micros_per_unit))?,
+                        ));
+                    } else {
+                        unresolved.insert(format!("ruler:{skill:?}:unknown"));
+                        return Ok((values, false));
+                    }
+                } else {
+                    unresolved.insert(format!("target:{target:?}:unknown"));
+                    return Ok((values, false));
+                }
+            }
+            AttributeTerm::NationalFocus {
+                target,
+                skill,
+                increase_micros,
+                decrease_micros,
+            } => {
+                if let Some(selected) = attribute_target(world, entity, *target)? {
+                    if world.entity(selected)?.kind != EntityKind::Country {
+                        return Err(Error::Invalid(
+                            "focus attribute requires country scope".into(),
+                        ));
+                    }
+                    if let Some(focus) = world
+                        .politics()
+                        .countries
+                        .get(&selected)
+                        .and_then(|country| country.national_focus)
+                    {
+                        let value = match focus.skill {
+                            None => 0,
+                            Some(selected) if selected == *skill => *increase_micros,
+                            Some(_) => *decrease_micros,
+                        };
+                        values.push(("national_focus".into(), format!("{skill:?}"), value));
+                    } else {
+                        unresolved.insert("national_focus:unknown".into());
+                        return Ok((values, false));
+                    }
+                } else {
+                    unresolved.insert(format!("target:{target:?}:unknown"));
+                    return Ok((values, false));
+                }
+            }
             AttributeTerm::Administration { mapping, property } => {
                 let definitions = self.administration_mappings.get(mapping).ok_or_else(|| {
                     Error::Invalid("unknown administrative attribute mapping".into())
@@ -657,12 +771,29 @@ impl Attributes {
                 {
                     return Err(Error::Invalid("invalid attribute formula".into()));
                 }
-                for term in formula
+                let mut terms: Vec<_> = formula
                     .channels
                     .iter()
-                    .flat_map(|c| c.flat.iter().chain(&c.rates))
-                {
+                    .flat_map(|c| {
+                        c.flat
+                            .iter()
+                            .map(|term| (term, false))
+                            .chain(c.rates.iter().map(|term| (term, true)))
+                    })
+                    .collect();
+                while let Some((term, is_rate)) = terms.pop() {
                     let valid = match term {
+                        AttributeTerm::TruncatedSum {
+                            source,
+                            quantum_micros,
+                            terms: children,
+                        } => {
+                            terms.extend(children.iter().map(|term| (term, is_rate)));
+                            !source.is_empty() && *quantum_micros > 0
+                        }
+                        AttributeTerm::RulerSkill { .. } | AttributeTerm::NationalFocus { .. } => {
+                            true
+                        }
                         AttributeTerm::Administration { mapping, property } => {
                             world.entity(entity)?.kind == EntityKind::Province
                                 && !property.is_empty()
@@ -685,10 +816,7 @@ impl Attributes {
                             ..
                         } => !dimension.is_empty() && !scope.is_empty() && !property.is_empty(),
                         AttributeTerm::Autonomy => {
-                            world.entity(entity)?.kind == EntityKind::Province
-                                && formula.channels.iter().all(|c| {
-                                    !c.flat.iter().any(|t| matches!(t, AttributeTerm::Autonomy))
-                                })
+                            world.entity(entity)?.kind == EntityKind::Province && is_rate
                         }
                         AttributeTerm::Constant { source, .. } => !source.is_empty(),
                         AttributeTerm::Static {

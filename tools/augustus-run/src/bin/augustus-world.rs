@@ -15,7 +15,7 @@ struct Cli {
     game_root: PathBuf,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
-    /// Advance calendar days and execute supported monthly tax settlements.
+    /// Advance calendar days and execute supported monthly settlements.
     #[arg(
         long,
         default_value_t = 0,
@@ -149,6 +149,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(id) = cli.country {
         output["country"] = serde_json::to_value(loaded.country(&id).ok_or("unknown country")?)?;
+        output["country"]["attributes"] = serde_json::to_value(loaded.country_attributes(&id)?)?;
+        if let Some(accounts) = loaded
+            .initial
+            .world()
+            .monthly_accruals()
+            .and_then(|state| state.last_settlement.as_ref())
+            .and_then(|last| {
+                last.accounts
+                    .get(&loaded.initial.country_entity(&id).expect("known country"))
+            })
+        {
+            output["country"]["last_monthly_accruals"] = serde_json::to_value(accounts)?;
+        }
         output["country_sources"] = serde_json::to_value(&loaded.country_sources[&id])?;
     }
     if let Some(id) = cli.province {

@@ -11,4 +11,4 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 场景用 `metrics.entities` 声明库存，用 `metrics.ceilings` 声明各实体的增长上限，定义中的 `growth_ceiling = true` 启用此规则。`minimum` 和 `maximum` 是库存可保存的数值范围。改变增长上限不修改已有库存；未知库存不能进行运算，未知上限不能执行需要增长的操作。系统实现可调用 `World::set_metric_ceiling` 更新上限。
 
-这些初值由场景明确提供。原版开局的点数初始化、月收入、动态上限来源、科技购买和其他点数消费尚未接入。
+这些初值由场景明确提供。原版开局的点数初始化、完整月收入、动态上限来源、科技购买和其他点数消费尚未接入。已知公式的月结用法见 [月度君主点数](../country-income/README.md)。

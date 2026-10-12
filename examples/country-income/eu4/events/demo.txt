@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+namespace = income
+country_event = {
+    id = income.begin
+    is_triggered_only = yes
+    immediate = {
+        if = { limit = { monthly_adm = 5 monthly_dip = 6 monthly_mil = 7 } log = initial }
+        change_national_focus = ADM
+        add_country_modifier = { name = first duration = -1 }
+        add_country_modifier = { name = second duration = -1 }
+        change_mil = 1
+        if = { limit = { national_focus = ADM monthly_adm = 8 monthly_dip = 6 monthly_mil = 8 } log = focused }
+        country_event = { id = income.month days = 20 }
+    }
+    option = { name = continue change_adm = 1 }
+    after = { log = waiting }
+}
+country_event = {
+    id = income.month
+    is_triggered_only = yes
+    immediate = {
+        if = { limit = { adm_power = 10 NOT = { adm_power = 11 } } log = before_credit }
+        change_national_focus = none
+        if = { limit = { monthly_adm = 7 monthly_dip = 7 monthly_mil = 9 } log = unfocused }
+    }
+    option = { name = continue remove_country_modifier = first }
+    after = { log = finished }
+}

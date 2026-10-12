@@ -100,7 +100,8 @@ pub struct World {
     pub(crate) country_resources: BTreeMap<EntityId, CountryResources>,
     calendar: Option<Calendar>,
     pub(crate) taxation: Option<Taxation>,
-    monthly_system_id: Option<String>,
+    pub(crate) monthly_accruals: Option<crate::MonthlyAccruals>,
+    pub(crate) monthly_system_id: Option<String>,
     attributes: Attributes,
     administration: Administration,
     pub(crate) affiliations: Affiliations,
@@ -156,6 +157,8 @@ struct Snapshot {
     calendar: Option<Calendar>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     taxation: Option<Taxation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    monthly_accruals: Option<crate::MonthlyAccruals>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     monthly_system_id: Option<String>,
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
@@ -225,6 +228,7 @@ impl World {
             country_resources: BTreeMap::new(),
             calendar: None,
             taxation: None,
+            monthly_accruals: None,
             monthly_system_id: None,
             attributes: Attributes::default(),
             administration: Administration::default(),
@@ -322,6 +326,20 @@ impl World {
     pub fn set_attributes(&mut self, attributes: Attributes) -> Result<(), Error> {
         self.require_running()?;
         attributes.validate(self)?;
+        if self.monthly_accruals.as_ref().is_some_and(|accruals| {
+            accruals.rules.iter().any(|(entity, rules)| {
+                rules.values().any(|rule| {
+                    !attributes
+                        .formulas
+                        .get(entity)
+                        .is_some_and(|formulas| formulas.contains_key(&rule.attribute))
+                })
+            })
+        }) {
+            return Err(Error::Invalid(
+                "attributes omit an accrual calculation".into(),
+            ));
+        }
         self.attributes = attributes;
         Ok(())
     }
@@ -419,11 +437,13 @@ impl World {
             || self.calendar.is_none()
             || system.id().is_empty()
             || system.id() == MonthlyTax.id()
+            || system.id() == crate::MonthlyEconomy.id()
         {
             return Err(Error::Invalid("invalid monthly system selection".into()));
         }
         system.validate(self)?;
         self.taxation = None;
+        self.monthly_accruals = None;
         self.monthly_system_id = Some(system.id().into());
         Ok(())
     }
@@ -442,14 +462,24 @@ impl World {
 
     pub fn set_taxation(&mut self, taxation: Taxation) -> Result<(), Error> {
         self.require_running()?;
-        if self.day != 0 && self.monthly_system_id() != Some(MonthlyTax.id()) {
+        if self.day != 0
+            && self.monthly_system_id() != Some(MonthlyTax.id())
+            && self.monthly_system_id() != Some(crate::MonthlyEconomy.id())
+        {
             return Err(Error::Invalid(
                 "monthly system cannot change after advancing".into(),
             ));
         }
         taxation.validate(self)?;
         self.taxation = Some(taxation);
-        self.monthly_system_id = Some(MonthlyTax.id().into());
+        self.monthly_system_id = Some(
+            if self.monthly_accruals.is_some() {
+                crate::MonthlyEconomy.id()
+            } else {
+                MonthlyTax.id()
+            }
+            .into(),
+        );
         Ok(())
     }
     pub fn entities(&self) -> &[Entity] {
@@ -593,6 +623,9 @@ impl World {
         match self.monthly_system_id() {
             None => self.advance_inner(day, None),
             Some(id) if id == MonthlyTax.id() => self.advance_with_monthly_system(day, &MonthlyTax),
+            Some(id) if id == crate::MonthlyEconomy.id() => {
+                self.advance_with_monthly_system(day, &crate::MonthlyEconomy)
+            }
             Some(_) => Err(Error::Invalid(
                 "selected monthly system requires its matching provider".into(),
             )),
@@ -711,6 +744,7 @@ impl World {
             country_resources: self.country_resources.clone(),
             calendar: self.calendar.clone(),
             taxation: self.taxation.clone(),
+            monthly_accruals: self.monthly_accruals.clone(),
             monthly_system_id: self.monthly_system_id.clone(),
             attributes: self.attributes.clone(),
             administration: self.administration.clone(),
@@ -783,6 +817,7 @@ impl World {
             country_resources: snapshot.country_resources,
             calendar: snapshot.calendar,
             taxation: snapshot.taxation,
+            monthly_accruals: snapshot.monthly_accruals,
             monthly_system_id: snapshot.monthly_system_id,
             attributes: snapshot.attributes,
             administration: snapshot.administration,
@@ -876,11 +911,16 @@ impl World {
         if let Some(taxation) = &world.taxation {
             taxation.validate(&world)?;
         }
+        if let Some(accruals) = &world.monthly_accruals {
+            accruals.validate(&world)?;
+        }
         match world.monthly_system_id() {
-            None if world.taxation.is_none() => {}
+            None if world.taxation.is_none() && world.monthly_accruals.is_none() => {}
+            Some(id) if id == crate::MonthlyEconomy.id() && world.monthly_accruals.is_some() => {}
             Some(id)
                 if !id.is_empty()
                     && world.calendar.is_some()
+                    && world.monthly_accruals.is_none()
                     && (world.taxation.is_some() == (id == MonthlyTax.id())) => {}
             _ => {
                 return Err(Error::Invalid(
