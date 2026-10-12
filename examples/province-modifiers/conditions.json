@@ -1,0 +1,34 @@
+{
+  "province.later": {
+    "All": [
+      {
+        "With": {
+          "target": "Capital",
+          "kind": "Province",
+          "condition": {
+            "All": [
+              {
+                "HasModifier": {
+                  "target": "Current",
+                  "name": "guard"
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "HasModifier": {
+                        "target": "Current",
+                        "name": "boost"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

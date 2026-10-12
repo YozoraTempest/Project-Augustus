@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+country_event={id=province.start is_triggered_only=yes
+ immediate={capital_scope={
+   if={limit={has_province_modifier=boost} log=attached}
+   owner={if={limit={NOT={has_country_modifier=boost}} log=separate}}}}
+ option={name=continue capital_scope={remove_province_modifier=boost
+  if={limit={NOT={has_province_modifier=boost}} log=removed}
+  if={limit={has_province_modifier=guard} log=retained}}
+  country_event={id=province.later days=2}}
+ after={capital_scope={if={limit={has_province_modifier=guard} log=after}}}}
+country_event={id=province.later is_triggered_only=yes
+ trigger={capital_scope={has_province_modifier=guard NOT={has_province_modifier=boost}}}
+ immediate={log=later}
+ option={name=finish capital_scope={remove_province_modifier=guard}
+  if={limit={has_country_modifier=guard} log=country_retained}
+  remove_country_modifier=guard}
+ after={capital_scope={if={limit={NOT={has_province_modifier=guard}} log=cleared}}}}

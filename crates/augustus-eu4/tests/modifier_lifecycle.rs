@@ -236,3 +236,187 @@ fn duration_description_is_retained_in_effect_content_and_not_in_attached_state(
         assert_eq!(world, restored);
     }
 }
+
+#[test]
+fn province_modifier_queries_and_removal_keep_entity_scope_across_restore() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    let mut results = Vec::new();
+    for optimise in [false, true] {
+        let compiler = || {
+            ScriptCompiler::new(&schema, &library, optimise)
+                .with_modifier_ids(definitions().definitions.keys().cloned().collect())
+        };
+        let plan = compiler()
+            .compile(
+                &document(
+                    r#"
+            if={limit={has_province_modifier=boost} log=attached}
+            remove_province_modifier=boost
+            if={limit={NOT={has_province_modifier=boost}} log=removed}
+            if={limit={has_province_modifier=guard} log=retained}
+            owner={if={limit={has_country_modifier=boost} log=owner}}
+        "#,
+                ),
+                EntityKind::Province,
+            )
+            .unwrap()
+            .plan;
+        let cleanup = compiler().compile(&document(
+            "remove_province_modifier=guard if={limit={NOT={has_province_modifier=guard}} log=cleared}"
+        ), EntityKind::Province).unwrap().plan;
+        let mut world = World::new(schema.clone());
+        world.add_entity("AAA", EntityKind::Country);
+        world.add_entity("Port", EntityKind::Province);
+        world.add_entity("Inland", EntityKind::Province);
+        world.set_owner(EntityId(1), EntityId(0)).unwrap();
+        world.set_modifiers(definitions()).unwrap();
+        for (entity, name) in [
+            (EntityId(0), "boost"),
+            (EntityId(1), "boost"),
+            (EntityId(1), "guard"),
+        ] {
+            world
+                .attach_modifier(entity, name, None, None, ModifierRenewal::Replace)
+                .unwrap();
+        }
+        world.execute(EntityId(1), &plan).unwrap();
+        assert!(world.has_modifier(EntityId(0), "boost").unwrap());
+        assert!(!world.has_modifier(EntityId(1), "boost").unwrap());
+        assert!(!world.has_modifier(EntityId(2), "boost").unwrap());
+        assert!(world.has_modifier(EntityId(1), "guard").unwrap());
+        let mut resumed = World::restore(
+            &world.save("province-modifiers").unwrap(),
+            "province-modifiers",
+            &schema,
+        )
+        .unwrap();
+        for state in [&mut world, &mut resumed] {
+            state.execute(EntityId(1), &cleanup).unwrap();
+            assert!(state.has_modifier(EntityId(0), "boost").unwrap());
+            assert!(!state.has_modifier(EntityId(1), "guard").unwrap());
+            assert_eq!(
+                state
+                    .events()
+                    .iter()
+                    .map(|e| e.2.as_str())
+                    .collect::<Vec<_>>(),
+                ["attached", "removed", "retained", "owner", "cleared"]
+            );
+        }
+        assert_eq!(world, resumed);
+        results.push(world);
+    }
+    assert_eq!(results[0], results[1]);
+}
+
+#[test]
+fn province_modifier_scope_and_names_are_checked_before_folding() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    for (scope, text) in [
+        (EntityKind::Country, "remove_province_modifier=boost"),
+        (
+            EntityKind::Country,
+            "if={limit={has_province_modifier=boost} log=wrong}",
+        ),
+        (EntityKind::Province, "add_country_modifier={name=boost}"),
+        (EntityKind::Province, "remove_country_modifier=boost"),
+        (
+            EntityKind::Province,
+            "if={limit={has_country_modifier=boost} log=wrong}",
+        ),
+        (EntityKind::Province, "remove_province_modifier=missing"),
+        (EntityKind::Province, "remove_province_modifier=$name$"),
+        (
+            EntityKind::Province,
+            "if={limit={has_province_modifier=\"\"} log=wrong}",
+        ),
+        (
+            EntityKind::Province,
+            "if={limit={has_province_modifier=boost@ROOT} log=wrong}",
+        ),
+        (
+            EntityKind::Province,
+            "if={limit={has_province_modifier=$name$} log=wrong}",
+        ),
+        (
+            EntityKind::Country,
+            "if={limit={always=no} remove_province_modifier=boost}",
+        ),
+        (
+            EntityKind::Province,
+            "if={limit={always=no} remove_province_modifier=missing}",
+        ),
+        (
+            EntityKind::Province,
+            "add_province_modifier={name=boost duration=2}",
+        ),
+    ] {
+        for optimise in [false, true] {
+            let error = ScriptCompiler::new(&schema, &library, optimise)
+                .with_modifier_ids(definitions().definitions.keys().cloned().collect())
+                .compile(&document(text), scope)
+                .unwrap_err();
+            assert!(error.location().is_some(), "{text}");
+            assert_eq!(
+                error.path().to_string_lossy(),
+                "self-authored-modifiers.txt"
+            );
+        }
+    }
+    for optimise in [false, true] {
+        let plan = ScriptCompiler::new(&schema, &library, optimise)
+            .with_modifier_ids(definitions().definitions.keys().cloned().collect())
+            .compile(
+                &document("if={limit={has_province_modifier=missing} log=wrong} else={log=absent}"),
+                EntityKind::Province,
+            )
+            .unwrap()
+            .plan;
+        let mut world = World::new(schema.clone());
+        world.add_entity("Port", EntityKind::Province);
+        world.set_modifiers(definitions()).unwrap();
+        world.execute(EntityId(0), &plan).unwrap();
+        assert_eq!(
+            world
+                .events()
+                .iter()
+                .map(|e| e.2.as_str())
+                .collect::<Vec<_>>(),
+            ["absent"]
+        );
+    }
+}
+
+#[test]
+fn unknown_province_attachments_fail_closed_without_treating_unknown_as_absent() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    let mut modifiers = definitions();
+    modifiers.unknown_entities.insert(EntityId(1));
+    let compiler = || {
+        ScriptCompiler::new(&schema, &library, true)
+            .with_modifier_ids(modifiers.definitions.keys().cloned().collect())
+    };
+    let mut world = World::new(schema.clone());
+    world.add_entity("AAA", EntityKind::Country);
+    world.add_entity("Port", EntityKind::Province);
+    world.set_owner(EntityId(1), EntityId(0)).unwrap();
+    world.set_modifiers(modifiers.clone()).unwrap();
+    for text in [
+        "owner={add_country_modifier={name=guard}} if={limit={NOT={has_province_modifier=boost}} log=wrong}",
+        "owner={add_country_modifier={name=guard}} remove_province_modifier=boost",
+    ] {
+        let plan = compiler()
+            .compile(&document(text), EntityKind::Province)
+            .unwrap()
+            .plan;
+        let mut failed = world.clone();
+        assert!(failed.execute(EntityId(1), &plan).is_err());
+        assert!(failed.events().is_empty());
+        assert!(failed.save("unknown-province").is_err());
+        assert!(failed.advance_to(1).is_err());
+        assert!(!world.has_modifier(EntityId(0), "guard").unwrap());
+    }
+}

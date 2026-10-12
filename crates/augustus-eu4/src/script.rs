@@ -720,6 +720,24 @@ impl<'a> ScriptCompiler<'a> {
         Ok(())
     }
 
+    fn modifier_scope(&self, field: &Field, scope: EntityKind) -> Result<(), Error> {
+        let (required, message) = match field.name.as_str() {
+            "add_country_modifier" | "remove_country_modifier" | "has_country_modifier" => (
+                EntityKind::Country,
+                "country modifiers require country scope",
+            ),
+            "remove_province_modifier" | "has_province_modifier" => (
+                EntityKind::Province,
+                "province modifiers require province scope",
+            ),
+            _ => unreachable!("modifier scope is checked only for modifier statements"),
+        };
+        if scope != required {
+            return Err(field.error(message));
+        }
+        Ok(())
+    }
+
     pub(crate) fn compile_scalar_effect_reader(
         mut self,
         parsed: &ParsedText<'_>,
@@ -1170,9 +1188,7 @@ impl<'a> ScriptCompiler<'a> {
                     });
                 }
                 "add_country_modifier" => {
-                    if scope != EntityKind::Country {
-                        return Err(field.error("country modifiers require country scope"));
-                    }
+                    self.modifier_scope(field, scope)?;
                     let mut name = None;
                     let mut duration = None;
                     let mut hidden = None;
@@ -1254,10 +1270,8 @@ impl<'a> ScriptCompiler<'a> {
                         }
                     });
                 }
-                "remove_country_modifier" => {
-                    if scope != EntityKind::Country {
-                        return Err(field.error("country modifiers require country scope"));
-                    }
+                "remove_country_modifier" | "remove_province_modifier" => {
+                    self.modifier_scope(field, scope)?;
                     let name = field.scalar()?;
                     if name.is_empty() || !self.modifier_ids.contains(name) {
                         return Err(field.error(format!("unknown modifier {name}")));
@@ -1740,10 +1754,8 @@ impl<'a> ScriptCompiler<'a> {
                         Condition::Not(Box::new(Condition::Any(children)))
                     }
                 }
-                "has_country_modifier" => {
-                    if scope != EntityKind::Country {
-                        return Err(field.error("country modifiers require country scope"));
-                    }
+                "has_country_modifier" | "has_province_modifier" => {
+                    self.modifier_scope(field, scope)?;
                     let name = field.scalar()?;
                     if name.is_empty() {
                         return Err(field.error("empty modifier name"));

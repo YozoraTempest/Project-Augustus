@@ -1,0 +1,265 @@
+[
+  {
+    "id": "province.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "HasModifier": {
+                        "target": "Current",
+                        "name": "boost"
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "attached"
+                  }
+                ],
+                "otherwise": []
+              }
+            },
+            {
+              "With": {
+                "target": "Owner",
+                "plan": [
+                  {
+                    "If": {
+                      "condition": {
+                        "All": [
+                          {
+                            "Not": {
+                              "All": [
+                                {
+                                  "HasModifier": {
+                                    "target": "Current",
+                                    "name": "boost"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "then": [
+                        {
+                          "Emit": "separate"
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "With": {
+              "target": "Capital",
+              "plan": [
+                {
+                  "RemoveModifier": {
+                    "target": "Current",
+                    "name": "boost"
+                  }
+                },
+                {
+                  "If": {
+                    "condition": {
+                      "All": [
+                        {
+                          "Not": {
+                            "All": [
+                              {
+                                "HasModifier": {
+                                  "target": "Current",
+                                  "name": "boost"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    "then": [
+                      {
+                        "Emit": "removed"
+                      }
+                    ],
+                    "otherwise": []
+                  }
+                },
+                {
+                  "If": {
+                    "condition": {
+                      "All": [
+                        {
+                          "HasModifier": {
+                            "target": "Current",
+                            "name": "guard"
+                          }
+                        }
+                      ]
+                    },
+                    "then": [
+                      {
+                        "Emit": "retained"
+                      }
+                    ],
+                    "otherwise": []
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 2,
+              "plan": [
+                {
+                  "TryEvent": {
+                    "event": "province.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "HasModifier": {
+                        "target": "Current",
+                        "name": "guard"
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "after"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "province.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "later"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "With": {
+              "target": "Capital",
+              "plan": [
+                {
+                  "RemoveModifier": {
+                    "target": "Current",
+                    "name": "guard"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "If": {
+              "condition": {
+                "All": [
+                  {
+                    "HasModifier": {
+                      "target": "Current",
+                      "name": "guard"
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "Emit": "country_retained"
+                }
+              ],
+              "otherwise": []
+            }
+          },
+          {
+            "RemoveModifier": {
+              "target": "Current",
+              "name": "guard"
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "Not": {
+                        "All": [
+                          {
+                            "HasModifier": {
+                              "target": "Current",
+                              "name": "guard"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "cleared"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+]
