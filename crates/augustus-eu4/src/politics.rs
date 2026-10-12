@@ -46,6 +46,55 @@ pub(super) fn label(date: Date) -> WorldDate {
     }
 }
 
+pub(super) fn ruler_skill_bounds(
+    root: &ContentRoot,
+    files: &[FileEntry],
+    report: &mut crate::SetupReport,
+) -> Result<Option<augustus_core::RulerSkillBounds>, Error> {
+    if !files
+        .iter()
+        .any(|file| file.relative_path == std::path::Path::new("common/defines.lua"))
+    {
+        return Ok(None);
+    }
+    let mut bounds = Vec::new();
+    for (key, name) in [
+        ("MONARCH_MIN_SKILL", "minimum"),
+        ("MONARCH_MAX_SKILL", "maximum"),
+    ] {
+        let Some((value, source)) = crate::defines::optional_literal(root, files, "NCountry", key)?
+        else {
+            continue;
+        };
+        let bound = u8::try_from(value / 1_000_000)
+            .ok()
+            .filter(|_| value % 1_000_000 == 0)
+            .ok_or_else(|| {
+                Error::message(&source.path, format!("{key} requires an integer in 0..255"))
+            })?;
+        report
+            .definition_sources
+            .insert(format!("ruler_skill:{name}"), source);
+        bounds.push(bound);
+    }
+    let result = if bounds.len() == 2 {
+        if bounds[0] > bounds[1] {
+            return Err(Error::message(
+                root.path(),
+                "MONARCH_MIN_SKILL exceeds MONARCH_MAX_SKILL",
+            ));
+        }
+        Some(augustus_core::RulerSkillBounds {
+            minimum: bounds[0],
+            maximum: bounds[1],
+        })
+    } else {
+        None
+    };
+    report.ruler_skill_bounds = result;
+    Ok(result)
+}
+
 pub(super) fn unknown(
     parsed: &ParsedText<'_>,
     name: String,

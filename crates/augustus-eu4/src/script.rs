@@ -1260,6 +1260,18 @@ impl<'a> ScriptCompiler<'a> {
                         value: script_integer(field, "monarch power")?,
                     });
                 }
+                "change_adm" | "change_dip" | "change_mil" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("ruler skill effects require country scope"));
+                    }
+                    plan.push(Action::ChangeRulerSkill {
+                        target: Target::Current,
+                        skill: ruler_skill(
+                            field.name.strip_prefix("change_").expect("skill effect"),
+                        ),
+                        delta: script_integer(field, "ruler skill")?,
+                    });
+                }
                 name if self.area_scopes.contains_key(name) => {
                     let members = self.area_scopes[name].clone();
                     if members.contains(&0) {
@@ -1761,6 +1773,17 @@ impl<'a> ScriptCompiler<'a> {
                         value: script_integer(field, "monarch power")?,
                     }
                 }
+                "adm" | "dip" | "mil" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("ruler skill queries require country scope"));
+                    }
+                    Condition::NumericCompare {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::RulerSkill(ruler_skill(&field.name)),
+                        comparison: augustus_core::NumericComparison::AtLeast,
+                        value: script_integer(field, "ruler skill")?,
+                    }
+                }
                 "province_id" => {
                     if scope != EntityKind::Province { return Err(field.error("province_id requires province scope")); }
                     let id = province_identifier(field.scalar()?)
@@ -2128,6 +2151,15 @@ fn script_integer(field: &Field, purpose: &str) -> Result<i64, Error> {
     let value = decimal(field)? / 1000;
     i32::try_from(value).map_err(|_| field.error(format!("{purpose} integer overflow")))?;
     Ok(value)
+}
+
+fn ruler_skill(name: &str) -> augustus_core::RulerSkill {
+    match name {
+        "adm" => augustus_core::RulerSkill::Administration,
+        "dip" => augustus_core::RulerSkill::Diplomacy,
+        "mil" => augustus_core::RulerSkill::Military,
+        _ => unreachable!("matched ruler skill"),
+    }
 }
 
 /// Restricted literal decimals, exactly represented in thousandths. No float parsing.

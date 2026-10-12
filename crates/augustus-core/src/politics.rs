@@ -5,6 +5,47 @@ use crate::{EntityId, EntityKind, Error, World, WorldDate};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RulerSkill {
+    Administration,
+    Diplomacy,
+    Military,
+}
+
+impl RulerSkill {
+    fn field(self, person: &PersonState) -> Option<u8> {
+        match self {
+            Self::Administration => person.administration,
+            Self::Diplomacy => person.diplomacy,
+            Self::Military => person.military,
+        }
+    }
+
+    fn field_mut(self, person: &mut PersonState) -> &mut Option<u8> {
+        match self {
+            Self::Administration => &mut person.administration,
+            Self::Diplomacy => &mut person.diplomacy,
+            Self::Military => &mut person.military,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RulerSkillBounds {
+    pub minimum: u8,
+    pub maximum: u8,
+}
+
+impl RulerSkillBounds {
+    pub(crate) fn validate(self) -> Result<(), Error> {
+        if self.minimum > self.maximum {
+            return Err(Error::Invalid("invalid ruler skill bounds".into()));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PersonState {
@@ -72,6 +113,9 @@ impl DiplomaticRelation {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Politics {
+    /// Bounds for skill changes. Absence leaves the rule unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ruler_skill_bounds: Option<RulerSkillBounds>,
     pub countries: BTreeMap<EntityId, CountryPolitics>,
     pub relations: Vec<DiplomaticRelation>,
     pub offices: BTreeMap<String, EntityId>,
@@ -87,10 +131,16 @@ impl Politics {
             .flatten()
     }
     pub fn is_empty(&self) -> bool {
-        self.countries.is_empty() && self.relations.is_empty() && self.offices.is_empty()
+        self.ruler_skill_bounds.is_none()
+            && self.countries.is_empty()
+            && self.relations.is_empty()
+            && self.offices.is_empty()
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
+        if let Some(bounds) = self.ruler_skill_bounds {
+            bounds.validate()?;
+        }
         let country = |id| -> Result<(), Error> {
             if world.entity(id)?.kind != EntityKind::Country {
                 return Err(Error::Invalid("politics requires a country entity".into()));
@@ -196,6 +246,45 @@ impl Politics {
 impl World {
     pub fn politics(&self) -> &Politics {
         &self.politics
+    }
+
+    pub fn ruler_skill(&self, entity: EntityId, skill: RulerSkill) -> Result<u8, Error> {
+        if self.entity(entity)?.kind != EntityKind::Country {
+            return Err(Error::Invalid("ruler skill requires country scope".into()));
+        }
+        self.politics
+            .countries
+            .get(&entity)
+            .and_then(|country| country.ruler.as_ref())
+            .and_then(|person| skill.field(person))
+            .ok_or_else(|| Error::Invalid(format!("ruler skill {skill:?} is unknown")))
+    }
+
+    /// Content supplies the bounds; only the current ruler's known skill changes.
+    pub fn change_ruler_skill(
+        &mut self,
+        entity: EntityId,
+        skill: RulerSkill,
+        delta: i64,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        let bounds = self
+            .politics
+            .ruler_skill_bounds
+            .ok_or_else(|| Error::Invalid("ruler skill bounds are unknown".into()))?;
+        bounds.validate()?;
+        let previous = self.ruler_skill(entity, skill)?;
+        let value = (i128::from(previous) + i128::from(delta))
+            .clamp(i128::from(bounds.minimum), i128::from(bounds.maximum))
+            as u8;
+        let ruler = self
+            .politics
+            .countries
+            .get_mut(&entity)
+            .and_then(|country| country.ruler.as_mut())
+            .expect("validated current ruler");
+        *skill.field_mut(ruler) = Some(value);
+        Ok(())
     }
 
     /// Validates the complete replacement before changing authoritative state.

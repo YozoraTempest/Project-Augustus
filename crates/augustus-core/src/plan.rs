@@ -221,6 +221,11 @@ pub enum Action {
         operation: crate::NumericOperation,
         value: i64,
     },
+    ChangeRulerSkill {
+        target: Target,
+        skill: crate::RulerSkill,
+        delta: i64,
+    },
     RefreshObjectives,
     RecordCompletion {
         id: String,
@@ -752,6 +757,14 @@ impl World {
                     self.update_numeric(entity, slot, *operation, *value)?;
                 }
                 Action::RefreshObjectives => self.refresh_objectives(current)?,
+                Action::ChangeRulerSkill {
+                    target,
+                    skill,
+                    delta,
+                } => {
+                    let entity = self.target(current, *target)?;
+                    self.change_ruler_skill(entity, *skill, *delta)?;
+                }
                 Action::RecordCompletion { id } => {
                     self.record_completion(current, id)?;
                 }

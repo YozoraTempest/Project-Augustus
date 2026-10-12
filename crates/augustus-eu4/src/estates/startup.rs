@@ -81,7 +81,7 @@ impl Compiler {
             match name.as_str() {
                 "add_legitimacy" | "add_stability" | "add_adm_power" | "add_dip_power"
                 | "add_mil_power" | "change_government" | "custom_tooltip" | "set_global_flag"
-                | "clr_global_flag" => {
+                | "clr_global_flag" | "change_adm" | "change_dip" | "change_mil" => {
                     let compiled = crate::ScriptCompiler::new(&self.schema, &self.library, true)
                         .with_government_form_ids(self.government_form_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())

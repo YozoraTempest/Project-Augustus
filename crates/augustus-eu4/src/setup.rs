@@ -21,6 +21,7 @@ const BASE_DATE: &str = "1444.11.11";
 
 #[derive(Debug, Default, Serialize)]
 pub struct SetupReport {
+    pub ruler_skill_bounds: Option<augustus_core::RulerSkillBounds>,
     pub monarch_power_base_maximum: Option<i64>,
     pub unknown_monarch_power_countries: Vec<String>,
     pub technology_groups: usize,

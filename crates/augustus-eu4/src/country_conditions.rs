@@ -225,6 +225,9 @@ impl Condition {
                     | "adm_power"
                     | "dip_power"
                     | "mil_power"
+                    | "adm"
+                    | "dip"
+                    | "mil"
                         if country =>
                     {
                         let schema =
@@ -236,8 +239,13 @@ impl Condition {
                             "stability" | "adm_power" | "dip_power" | "mil_power"
                         ) {
                             compiler.with_metric_ids([name.clone()].into())
-                        } else {
+                        } else if matches!(
+                            name.as_str(),
+                            "legitimacy" | "republican_tradition" | "devotion"
+                        ) {
                             compiler.with_government_metric_ids([name.clone()].into())
+                        } else {
+                            compiler
                         };
                         let compiled = compiler.compile_scalar_condition_reader(
                             parsed,

@@ -1,5 +1,7 @@
 # 事件演示
 
+[当前君主能力](../examples/country-ruler/README.md) 演示能力条件、增减及延期事件。EU4 写法和原生计划读写同一个当前人物；变更范围由内容定义，保存恢复后继续使用相同规则。
+
 [国家点数库存](../examples/country-power/README.md) 演示 `add_adm_power`、`add_dip_power`、`add_mil_power` 和相应条件。兼容层把字面数值翻译成共享核心操作；实体的增长上限独立于已有库存，降低上限时保留超额点数。原版初始化与收入、消费系统尚未接入。
 
 `examples/country-stability` 演示国家稳定度、正负修正和所属省份的税收属性。核心数值定义中的可选 `below_baseline` 指定低于基准值时的另一组效果；省略时，两侧继续使用同一组效果。EU4 输入把稳定度条件和效果转成同一核心操作，不需要第二套国家状态。

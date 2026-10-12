@@ -26,6 +26,8 @@ pub enum NumericSlot {
     StoredGovernment(String),
     /// Read the subject system's explicit, unscaled count.
     SubjectCount,
+    /// Read the current ruler's authoritative skill, rather than a numeric copy.
+    RulerSkill(crate::RulerSkill),
     Metric(String),
 }
 
@@ -85,7 +87,7 @@ impl NumericSlot {
                 governments.metric_definition(name).map(|_| ())
             }
             Self::Metric(name) => metrics.definition(name).map(|_| ()),
-            Self::Field(_) | Self::SubjectCount => Ok(()),
+            Self::Field(_) | Self::SubjectCount | Self::RulerSkill(_) => Ok(()),
         }
     }
 
@@ -97,6 +99,9 @@ impl NumericSlot {
         }
         if matches!(self, Self::SubjectCount) {
             return Err(Error::Invalid("subject count slots are read only".into()));
+        }
+        if matches!(self, Self::RulerSkill(_)) {
+            return Err(Error::Invalid("ruler skill slots are read only".into()));
         }
         Ok(())
     }
@@ -153,6 +158,7 @@ impl World {
             }
             NumericSlot::Metric(name) => self.metrics().value(self, entity, name),
             NumericSlot::SubjectCount => self.subject_count(entity).map(i64::from),
+            NumericSlot::RulerSkill(skill) => self.ruler_skill(entity, *skill).map(i64::from),
             NumericSlot::Named(name) => {
                 if let Some(value) = self
                     .named_values
@@ -228,7 +234,9 @@ impl World {
         let value =
             i64::try_from(value).map_err(|_| Error::Invalid("numeric state overflow".into()))?;
         match slot {
-            NumericSlot::StoredGovernment(_) | NumericSlot::SubjectCount => {
+            NumericSlot::StoredGovernment(_)
+            | NumericSlot::SubjectCount
+            | NumericSlot::RulerSkill(_) => {
                 unreachable!("validated writable numeric slot")
             }
             NumericSlot::Field(field) => self.set(entity, *field, value),

@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+namespace = skill
+country_event = {
+    id = skill.begin
+    is_triggered_only = yes
+    immediate = {
+        if = { limit = { adm = 5 } log = historical }
+        change_adm = 0.999
+        change_dip = 1.999
+        change_mil = -1.999
+        if = { limit = { adm = 4 dip = 4 mil = 2 } log = changed }
+        country_event = { id = skill.later days = 1 }
+    }
+    option = { name = continue change_adm = -100000 }
+    after = { log = spent }
+}
+country_event = {
+    id = skill.later
+    is_triggered_only = yes
+    immediate = {
+        change_adm = 100000
+        change_dip = -100000
+        if = { limit = { adm = 4 mil = 2 } log = restored }
+    }
+    option = { name = continue change_mil = 100000 }
+    after = { log = finished }
+}

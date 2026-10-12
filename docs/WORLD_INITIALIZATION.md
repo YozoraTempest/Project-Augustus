@@ -209,6 +209,8 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 ## 验证
 
+当前君主的 `adm`、`dip`、`mil` 条件与 `change_adm`、`change_dip`、`change_mil` 效果已经接入。条件实时读取人物状态；变更范围从字面 `MONARCH_MIN_SKILL`、`MONARCH_MAX_SKILL` 读取，并在 `setup.ruler_skill_bounds` 中报告。历史能力在载入时保持原值，执行变更时才按范围钳制。缺少任一范围定义时，变更规则保持未知。人物生成、继位、收入和完整开局仍需其他系统。用法见 [当前君主能力](../examples/country-ruler/README.md)。
+
 国家查询中的 `metrics` 提供行政、外交、军事点数，`metric_ceilings` 提供已知的增长上限。当前原版初始化规则尚未接入，这些值保留为未知；不能据此运行原版的完整开局。`setup` 报告列出 `POWER_MAX` 的基础值、声明来源及点数未知的国家。外交负值下限读取字面 `DEBT_LIMIT_DIP`；缺少声明时不猜测下限，额外 Lua 赋值仍需要尚未支持的 Lua 求值。自制场景用法见 [国家点数库存](../examples/country-power/README.md)。
 
 入口读取 `common/cb_types`，在 `casus_belli` 报告中列出定义来源、显式授予类型数量及尚未编译的保留条件。受支持的启动授予使用核心的有向记录；启动初始化未完成时清除部分写入并将库存标为未知。其他书签的历史授予尚未导入，同样不能判成已知没有记录。自动生成、宣战权限和战争目标尚未运行。自制样本及接口见 [宣战理由记录演示](../examples/justifications/README.md)。

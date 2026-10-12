@@ -693,6 +693,8 @@ impl VanillaWorld {
             .set_global_markers(global_markers)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let mut politics = politics::bind_people(&initial, political_drafts, date, &mut report)?;
+        politics.ruler_skill_bounds =
+            politics::ruler_skill_bounds(&root, &files, &mut report.setup)?;
         let subject_types =
             politics::load_diplomacy(&root, &files, &initial, date, &mut politics, &mut report)?;
         initial

@@ -1,0 +1,201 @@
+[
+  {
+    "id": "skill.begin",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "RulerSkill": "Administration"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 5
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "historical"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "ChangeRulerSkill": {
+          "target": "Current",
+          "skill": "Administration",
+          "delta": 0
+        }
+      },
+      {
+        "ChangeRulerSkill": {
+          "target": "Current",
+          "skill": "Diplomacy",
+          "delta": 1
+        }
+      },
+      {
+        "ChangeRulerSkill": {
+          "target": "Current",
+          "skill": "Military",
+          "delta": -1
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "RulerSkill": "Administration"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 4
+                }
+              },
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "RulerSkill": "Diplomacy"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 4
+                }
+              },
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "RulerSkill": "Military"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 2
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "changed"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "skill.later"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "ChangeRulerSkill": {
+              "target": "Current",
+              "skill": "Administration",
+              "delta": -100000
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "spent"
+      }
+    ]
+  },
+  {
+    "id": "skill.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "ChangeRulerSkill": {
+          "target": "Current",
+          "skill": "Administration",
+          "delta": 100000
+        }
+      },
+      {
+        "ChangeRulerSkill": {
+          "target": "Current",
+          "skill": "Diplomacy",
+          "delta": -100000
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "RulerSkill": "Administration"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 4
+                }
+              },
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "RulerSkill": "Military"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 2
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "restored"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "ChangeRulerSkill": {
+              "target": "Current",
+              "skill": "Military",
+              "delta": 100000
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "finished"
+      }
+    ]
+  }
+]

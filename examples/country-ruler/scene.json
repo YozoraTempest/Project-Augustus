@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "politics": {
+    "ruler_skill_bounds": {
+      "minimum": 2,
+      "maximum": 4
+    },
+    "countries": {
+      "0": {
+        "ruler": {
+          "name": "Iris",
+          "administration": 5,
+          "diplomacy": 3,
+          "military": 1
+        },
+        "heir": {
+          "name": "Rowan",
+          "administration": 1,
+          "diplomacy": 2,
+          "military": 3
+        },
+        "consort": null
+      }
+    },
+    "relations": [],
+    "offices": {}
+  }
+}
