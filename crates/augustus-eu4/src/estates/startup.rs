@@ -547,15 +547,7 @@ impl EstateStartup {
             collect_references(&callback.granted, &mut references);
             collect_references(&callback.revoked, &mut references);
         }
-        let events = match load_events(
-            root,
-            files,
-            schema,
-            references,
-            &compiler.mission_ids,
-            &compiler.modifier_ids,
-            &compiler.government_metric_ids,
-        ) {
+        let events = match load_events(root, files, references, &compiler, report) {
             Ok(events) => events,
             Err(error) => {
                 let at = error
@@ -977,16 +969,25 @@ fn collect_references(steps: &[Step], references: &mut BTreeSet<String>) {
 fn load_events(
     root: &ContentRoot,
     files: &[FileEntry],
-    schema: &Schema,
     mut needed: BTreeSet<String>,
-    mission_ids: &BTreeSet<String>,
-    modifier_ids: &BTreeSet<String>,
-    government_metric_ids: &BTreeSet<String>,
+    compiler: &Compiler,
+    report: &mut EstateReport,
 ) -> Result<EventCatalog, Error> {
     if needed.is_empty() {
         return Ok(EventCatalog::default());
     }
-    let library = crate::ScriptLibrary::new();
+    let library = crate::ScriptLibrary::from_root(root, files, ENCODING)?;
+    for (name, path, location) in library.ignored_definitions() {
+        report
+            .startup_script_ignored_definitions
+            .entry(name.clone())
+            .or_default()
+            .push(LoadedSource {
+                path: path.clone(),
+                line: location.line,
+                column: location.column,
+            });
+    }
     let mut definitions = BTreeMap::new();
     let mut conditions = BTreeMap::new();
     let mut once_events = BTreeSet::new();
@@ -998,10 +999,10 @@ fn load_events(
             .filter(|file| direct_txt(&file.relative_path, "events"))
         {
             let document = root.read_text(&file.relative_path, ENCODING)?;
-            let compiled = crate::ScriptCompiler::new(schema, &library, true)
-                .with_government_metric_ids(government_metric_ids.clone())
-                .with_mission_ids(mission_ids.clone())
-                .with_modifier_ids(modifier_ids.clone())
+            let compiled = crate::ScriptCompiler::new(&compiler.schema, &library, true)
+                .with_government_metric_ids(compiler.government_metric_ids.clone())
+                .with_mission_ids(compiler.mission_ids.clone())
+                .with_modifier_ids(compiler.modifier_ids.clone())
                 .compile_selected_events(&document, &requested)?;
             for definition in compiled.definitions {
                 if !found.insert(definition.id.clone()) {

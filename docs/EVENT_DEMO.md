@@ -214,7 +214,7 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 国家作用域支持 `complete_mission = 标识` 和 `mission_completed = 标识`，分别编译为核心 `RecordCompletion` 和 `CompletionRecorded`。登记只修改当前国家的记录，不检查任务条件、不执行奖励；条件读取执行时的状态。原生场景通过 `completions.identifiers` 注册标识，通过 `completions.entities` 提供已知记录；缺少实体条目表示状态未知，空列表表示已知未完成。标识要求已注册且非空，动态名称和错误作用域会报错；本入口对不存在的任务名称使用严格诊断，不沿用原版的假值查询。直接使用 `ScriptCompiler` 时，通过 `with_mission_ids` 提供注册标识。任务树、可用性、玩家领取奖励和分支切换尚未实现。
 
-原版世界入口可以读取 `on_startup` 的 `events` 列表和普通国家事件调用，只绑定直接及间接引用的受支持事件，先处理候选列表，再运行启动效果。该入口中的事件脚本宏、其他事件字段及未注册状态字段仍会报告阻塞来源。启动处理未完成时，候选事件和其他启动写入一起撤销，避免留下部分初始化结果。
+原版世界入口可以读取 `on_startup` 的 `events` 列表和普通国家事件调用，只绑定直接及间接引用的受支持事件，先处理候选列表，再运行启动效果。启动事件使用已有脚本库展开无参数条件和效果宏，宏中的事件引用也会继续绑定。文件次序、重名处理、原生写法和跨输入读档见 [脚本宏演示](../examples/scripted-events/README.md)。其他事件字段及未注册状态字段仍会报告阻塞来源。启动处理未完成时，候选事件和其他启动写入一起撤销，避免留下部分初始化结果。
 
 命名作用域支持 `emperor = { ... }`、`save_global_event_target_as`、`clear_global_event_target`，以及已经声明类型的 `event_target:name = { ... }`。本入口仅处理全局目标；局部事件目标、动态目标名及完整原版目录中的类型推导尚未支持。原版启动入口也能使用皇帝作用域和全局国家目标，其他未支持效果仍会报告阻塞位置。
 

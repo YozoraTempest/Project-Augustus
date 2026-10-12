@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+opening = { begin = yes Word = yes word = yes }
+begin = { log = first }
+begin = { log = wrong }
+Word = { log = upper }
+word = { log = lower }
+choose = { set_country_flag = chosen country_event = { id = scripts.later days = 1 } }
+finish = { if = { limit = { after_choice = yes } log = after } }
+later_effect = { log = later }
+closing = { log = end }
+unused_effect = { log = { first second } }

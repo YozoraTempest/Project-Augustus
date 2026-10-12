@@ -48,6 +48,72 @@ use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 
 #[test]
+fn expanded_scripts_share_effective_content_and_cross_input_resume() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/scripted-events");
+    let mut compatible = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    for state in [&mut compatible, &mut native] {
+        let before = state.save().unwrap();
+        state.candidates(&["scripts.start".into()], 1).unwrap();
+        assert_eq!(state.save().unwrap(), before);
+        state.candidates(&["scripts.start".into()], 0).unwrap();
+        assert_eq!(
+            state.world().events(),
+            &[
+                (0, EntityId(0), "first".into()),
+                (0, EntityId(0), "upper".into()),
+                (0, EntityId(0), "lower".into())
+            ]
+        );
+    }
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    native.restore(&compatible.save().unwrap()).unwrap();
+    for state in [&mut compatible, &mut native] {
+        state
+            .choose(&EventChoice {
+                pending: PendingEventId(0),
+                option: "0".into(),
+            })
+            .unwrap();
+        let before = state.save().unwrap();
+        state.candidates(&["scripts.start".into()], 0).unwrap();
+        assert_eq!(state.save().unwrap(), before);
+        assert_eq!(state.world().events().last().unwrap().2, "after");
+    }
+    compatible.restore(&native.save().unwrap()).unwrap();
+    for state in [&mut compatible, &mut native] {
+        state.advance(1).unwrap();
+        state
+            .choose(&EventChoice {
+                pending: PendingEventId(1),
+                option: "0".into(),
+            })
+            .unwrap();
+        assert_eq!(
+            state
+                .world()
+                .events()
+                .iter()
+                .map(|e| (e.0, e.2.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (0, "first"),
+                (0, "upper"),
+                (0, "lower"),
+                (0, "after"),
+                (1, "later"),
+                (1, "end")
+            ]
+        );
+        assert!(state.world().pending_events().is_empty());
+        assert_eq!(state.world().pending_tasks(), 0);
+    }
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+}
+
+#[test]
 fn selected_and_absent_schools_share_candidates_delays_and_cross_input_restore() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/religious-schools");

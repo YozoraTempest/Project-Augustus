@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+ready = { tag = AAA NOT = { has_country_flag = chosen } }
+ready = { always = no }
+can_start = { ready = yes }
+after_choice = { ready = no has_country_flag = chosen }
+unused_trigger = { has_country_flag = { first second } }

@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+country_event = {
+    id = scripts.start
+    is_triggered_only = yes
+    trigger = { can_start = yes }
+    immediate = { opening = yes }
+    option = { name = Continue choose = yes }
+    after = { finish = yes }
+}
+country_event = {
+    id = scripts.later
+    is_triggered_only = yes
+    trigger = { after_choice = yes }
+    immediate = { later_effect = yes }
+    option = { name = Continue closing = yes }
+}

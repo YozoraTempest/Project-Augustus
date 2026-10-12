@@ -1,0 +1,237 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Project Augustus contributors
+
+use augustus_core::{EntityId, EventChoice, PendingEventId};
+use augustus_eu4::VanillaWorld;
+use std::{fs, path::Path};
+
+fn write(root: &Path, name: &str, text: &str) {
+    let path = root.join(name);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, text).unwrap();
+}
+
+fn copy(source: &Path, target: &Path) {
+    for entry in walkdir::WalkDir::new(source) {
+        let entry = entry.unwrap();
+        let path = target.join(entry.path().strip_prefix(source).unwrap());
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(path).unwrap();
+        } else {
+            fs::copy(entry.path(), path).unwrap();
+        }
+    }
+}
+
+fn fixture() -> tempfile::TempDir {
+    let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let temp = tempfile::tempdir().unwrap();
+    copy(&examples.join("world"), temp.path());
+    copy(&examples.join("scripted-events/eu4"), temp.path());
+    fs::rename(
+        temp.path().join("events/demo.txt"),
+        temp.path().join("events/A_first.txt"),
+    )
+    .unwrap();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={events={scripts.start} if={limit={tag=AAA} log=startup}}",
+    );
+    temp
+}
+
+#[test]
+fn startup_macros_bind_first_declarations_and_discover_delayed_event_dependencies() {
+    let temp = fixture();
+    // Nested definitions are outside the loader's direct-file view.
+    write(
+        temp.path(),
+        "common/scripted_effects/nested/earlier.txt",
+        "begin={log=wrong_nested}",
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.pending_startup_effects.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    assert_eq!(
+        loaded.initial.world().events(),
+        &[
+            (0, EntityId(0), "first".into()),
+            (0, EntityId(0), "upper".into()),
+            (0, EntityId(0), "lower".into()),
+            (0, EntityId(0), "startup".into())
+        ]
+    );
+    let ignored = &loaded.report.estates.startup_script_ignored_definitions;
+    assert_eq!(ignored["begin"].len(), 2);
+    assert_eq!(ignored["ready"].len(), 2);
+    assert!(
+        ignored["begin"][0]
+            .path
+            .ends_with("common/scripted_effects/Z_first.txt")
+    );
+    assert!(
+        ignored["begin"][1]
+            .path
+            .ends_with("common/scripted_effects/a_second.txt")
+    );
+    assert!(
+        ignored["ready"][0]
+            .path
+            .ends_with("common/scripted_triggers/Z_first.txt")
+    );
+    assert_eq!(loaded.initial.world().pending_events().len(), 1);
+    let saved = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&saved).unwrap();
+    for state in [&mut loaded, &mut restored] {
+        state
+            .initial
+            .choose_event(&EventChoice {
+                pending: PendingEventId(0),
+                option: "0".into(),
+            })
+            .unwrap();
+        assert_eq!(state.initial.world().events().last().unwrap().2, "after");
+        state.advance(1).unwrap();
+        assert_eq!(state.initial.world().events().last().unwrap().2, "later");
+        state
+            .initial
+            .choose_event(&EventChoice {
+                pending: PendingEventId(1),
+                option: "0".into(),
+            })
+            .unwrap();
+        assert_eq!(state.initial.world().events().last().unwrap().2, "end");
+        assert!(state.initial.world().pending_events().is_empty());
+    }
+    assert_eq!(loaded.save().unwrap(), restored.save().unwrap());
+}
+
+#[test]
+fn expanded_macro_changes_participate_in_the_content_guard() {
+    let temp = fixture();
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let saved = loaded.save().unwrap();
+    let path = temp.path().join("common/scripted_effects/Z_first.txt");
+    let text = fs::read_to_string(&path).unwrap();
+    fs::write(&path, text.replace("log = first", "log = changed")).unwrap();
+    let mut changed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(changed.restore(&saved).is_err());
+    let before = changed.save().unwrap();
+    // Editing an unbound template changes no effective core plan.
+    fs::write(
+        &path,
+        text.replace("log = first", "log = changed")
+            .replace("log = { first second }", "log = { third fourth }"),
+    )
+    .unwrap();
+    let same = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(same.save().unwrap(), before);
+}
+
+#[test]
+fn reached_macro_failures_keep_the_definition_source_and_roll_back_all_startup_writes() {
+    for (definition, call, reason) in [
+        (
+            "bad={\nlog={first second}\n}",
+            "bad=yes",
+            "unsupported script value",
+        ),
+        (
+            "bad={\nlog>wrong\n}",
+            "bad=yes",
+            "unsupported script operator",
+        ),
+        (
+            "bad={\nbad=yes\n}",
+            "bad=yes",
+            "recursive or excessive script call",
+        ),
+        (
+            "bad={\nprovince_event={id=wrong}\n}",
+            "bad=yes",
+            "event call requires a matching entity scope",
+        ),
+    ] {
+        let temp = fixture();
+        write(temp.path(), "common/scripted_effects/bad.txt", definition);
+        write(
+            temp.path(),
+            "events/A_first.txt",
+            &format!(
+                "country_event={{id=scripts.start is_triggered_only=yes immediate={{{call}}} option={{name=Continue}}}}"
+            ),
+        );
+        let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+        assert!(loaded.initial.world().events().is_empty());
+        assert!(loaded.initial.world().pending_events().is_empty());
+        let report = &loaded.report.estates;
+        assert!(
+            report
+                .startup_unresolved
+                .iter()
+                .any(|item| item.contains(reason)),
+            "{:?}",
+            report.startup_unresolved
+        );
+        let location = &report.pending_startup_effects[0];
+        assert!(location.path.ends_with("common/scripted_effects/bad.txt"));
+        assert_eq!(location.line, 2);
+    }
+}
+
+#[test]
+fn unbound_templates_are_allowed_but_invalid_calls_and_missing_references_still_block() {
+    for (effect, reason, expected_path) in [
+        (
+            "unused_effect=yes",
+            "unsupported script value",
+            "common/scripted_effects/Z_first.txt",
+        ),
+        (
+            "opening={parameter=value}",
+            "expected scalar",
+            "events/A_first.txt",
+        ),
+        (
+            "not_registered=yes",
+            "unsupported effect not_registered",
+            "events/A_first.txt",
+        ),
+        (
+            "country_event={id=missing}",
+            "missing startup event missing",
+            "events",
+        ),
+    ] {
+        let temp = fixture();
+        write(
+            temp.path(),
+            "events/A_first.txt",
+            &format!(
+                "country_event={{id=scripts.start is_triggered_only=yes immediate={{{effect}}} option={{name=Continue}}}}"
+            ),
+        );
+        let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+        assert!(loaded.initial.world().events().is_empty());
+        assert!(
+            loaded
+                .report
+                .estates
+                .startup_unresolved
+                .iter()
+                .any(|item| item.contains(reason)),
+            "{:?}",
+            loaded.report.estates.startup_unresolved
+        );
+        assert!(
+            loaded.report.estates.pending_startup_effects[0]
+                .path
+                .ends_with(expected_path)
+        );
+    }
+}

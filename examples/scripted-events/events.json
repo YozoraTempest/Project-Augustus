@@ -1,0 +1,113 @@
+[
+  {
+    "id": "scripts.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "first"
+      },
+      {
+        "Emit": "upper"
+      },
+      {
+        "Emit": "lower"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "SetMarker": {
+              "target": "Current",
+              "name": "chosen",
+              "present": true
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TryEvent": {
+                    "event": "scripts.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "Not": {
+                      "All": [
+                        {
+                          "EntityNamed": {
+                            "target": "Current",
+                            "name": "AAA"
+                          }
+                        },
+                        {
+                          "Not": {
+                            "All": [
+                              {
+                                "HasMarker": {
+                                  "target": "Current",
+                                  "name": "chosen"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "HasMarker": {
+                      "target": "Current",
+                      "name": "chosen"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "after"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "scripts.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "later"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "end"
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

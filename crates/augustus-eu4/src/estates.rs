@@ -49,6 +49,7 @@ pub struct EstateReport {
     pub pending_loyalty_changes: BTreeMap<String, Vec<LoadedSource>>,
     pub applied_startup_effects: usize,
     pub startup_effect_sources: Vec<LoadedSource>,
+    pub startup_script_ignored_definitions: BTreeMap<String, Vec<LoadedSource>>,
     pub pending_startup_effects: Vec<LoadedSource>,
     pub startup_unresolved: BTreeSet<String>,
 }

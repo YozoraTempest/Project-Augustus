@@ -146,3 +146,74 @@ fn identifier_case_and_fractional_literals_are_preserved() {
         -1199
     );
 }
+
+#[test]
+fn library_registration_preserves_unsupported_templates_for_call_site_validation() {
+    let mut library = ScriptLibrary::new();
+    library
+        .add_effects(&TextDocument::from_bytes(
+            "effect-library.txt",
+            b"list={\nlog={first second}\n} operator={\nlog>text\n} good={log=good}".to_vec(),
+            TextEncoding::Utf8,
+        ))
+        .unwrap();
+    library
+        .add_triggers(&TextDocument::from_bytes(
+            "trigger-library.txt",
+            b"list={\nalways={yes no}\n} operator={\nalways>yes\n}".to_vec(),
+            TextEncoding::Utf8,
+        ))
+        .unwrap();
+    let schema = Schema::new(["unused"]).unwrap();
+    for optimise in [false, true] {
+        let compiled = ScriptCompiler::new(&schema, &library, optimise)
+            .compile(&document("good=yes"), EntityKind::Country)
+            .unwrap();
+        assert_eq!(compiled.plan, [augustus_core::Action::Emit("good".into())]);
+        assert!(
+            compiled
+                .sources
+                .iter()
+                .any(|(path, _)| path == std::path::Path::new("effect-library.txt"))
+        );
+        for (input, path, message) in [
+            (
+                "if={limit={always=no} list=yes}",
+                "effect-library.txt",
+                "unsupported script value",
+            ),
+            (
+                "operator=yes",
+                "effect-library.txt",
+                "unsupported script operator",
+            ),
+            (
+                "if={limit={always=no list=yes} log=unused}",
+                "trigger-library.txt",
+                "unsupported script value",
+            ),
+            (
+                "if={limit={operator=no} log=unused}",
+                "trigger-library.txt",
+                "unsupported script operator",
+            ),
+        ] {
+            let error = ScriptCompiler::new(&schema, &library, optimise)
+                .compile(&document(input), EntityKind::Country)
+                .unwrap_err();
+            assert_eq!(error.path(), std::path::Path::new(path));
+            assert!(error.to_string().contains(message), "{error}");
+            assert!(error.location().is_some());
+        }
+    }
+    // Explicit input still rejects unsupported grammar during its initial parse.
+    assert!(
+        ScriptCompiler::new(&schema, &library, true)
+            .compile(
+                &document("if={limit={always=no} log={first second}}"),
+                EntityKind::Country
+            )
+            .is_err()
+    );
+    assert!(library.add_effects(&document("invalid=scalar")).is_err());
+}

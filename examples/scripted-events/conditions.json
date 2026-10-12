@@ -1,0 +1,70 @@
+{
+  "scripts.start": {
+    "All": [
+      {
+        "All": [
+          {
+            "All": [
+              {
+                "EntityNamed": {
+                  "target": "Current",
+                  "name": "AAA"
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "HasMarker": {
+                        "target": "Current",
+                        "name": "chosen"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scripts.later": {
+    "All": [
+      {
+        "All": [
+          {
+            "Not": {
+              "All": [
+                {
+                  "EntityNamed": {
+                    "target": "Current",
+                    "name": "AAA"
+                  }
+                },
+                {
+                  "Not": {
+                    "All": [
+                      {
+                        "HasMarker": {
+                          "target": "Current",
+                          "name": "chosen"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "HasMarker": {
+              "target": "Current",
+              "name": "chosen"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -16,7 +16,8 @@ use jomini::{
 };
 
 use crate::{
-    ContentSet, DefinitionKind, Error, ParsedText, SourceLocation, TextDocument, TextEncoding,
+    ContentRoot, ContentSet, DefinitionKind, Error, FileEntry, ParsedText, SourceLocation,
+    TextDocument, TextEncoding,
 };
 
 #[derive(Debug, Clone)]
@@ -31,6 +32,7 @@ struct Field {
 enum Value {
     Scalar(String),
     Block(Vec<Field>),
+    Unsupported(&'static str),
 }
 
 impl Field {
@@ -40,12 +42,14 @@ impl Field {
     fn scalar(&self) -> Result<&str, Error> {
         match &self.value {
             Value::Scalar(value) => Ok(value),
+            Value::Unsupported(message) => Err(self.error(*message)),
             _ => Err(self.error("expected scalar")),
         }
     }
     fn block(&self) -> Result<&[Field], Error> {
         match &self.value {
             Value::Block(fields) => Ok(fields),
+            Value::Unsupported(message) => Err(self.error(*message)),
             _ => Err(self.error("expected block")),
         }
     }
@@ -55,6 +59,7 @@ fn read_fields(
     parsed: &ParsedText<'_>,
     reader: ObjectReader<'_, '_, TextEncoding>,
     depth: usize,
+    defer_unsupported: bool,
 ) -> Result<Vec<Field>, Error> {
     if depth > 64 {
         return Err(Error::message(parsed.source(), "script nesting exceeds 64"));
@@ -65,7 +70,15 @@ fn read_fields(
             let location = parsed.field_location(&key);
             let fail = |message| Error::message(parsed.source(), message).with_location(location);
             if operator.is_some_and(|operator| operator != Operator::Equal) {
-                return Err(fail("unsupported script operator"));
+                if !defer_unsupported {
+                    return Err(fail("unsupported script operator"));
+                }
+                return Ok(Field {
+                    name: key.read_string(),
+                    value: Value::Unsupported("unsupported script operator"),
+                    path: parsed.source().into(),
+                    location,
+                });
             }
             let value = match value.token() {
                 TextToken::Unquoted(_) | TextToken::Quoted(_) => {
@@ -75,6 +88,7 @@ fn read_fields(
                     parsed,
                     value.read_object().map_err(|_| fail("invalid block"))?,
                     depth + 1,
+                    defer_unsupported,
                 )?),
                 TextToken::Array { mixed: false, .. }
                     if value
@@ -83,6 +97,7 @@ fn read_fields(
                 {
                     Value::Block(Vec::new())
                 }
+                _ if defer_unsupported => Value::Unsupported("unsupported script value"),
                 _ => return Err(fail("unsupported script value")),
             };
             Ok(Field {
@@ -119,6 +134,38 @@ impl ScriptLibrary {
         ] {
             for (logical_path, _) in Self::files(content, kind)? {
                 library.add(&content.read_text(logical_path, encoding)?, triggers)?;
+            }
+        }
+        Ok(library)
+    }
+
+    pub(crate) fn from_root(
+        root: &ContentRoot,
+        files: &[FileEntry],
+        encoding: TextEncoding,
+    ) -> Result<Self, Error> {
+        let mut library = Self::new();
+        for (kind, triggers) in [
+            (DefinitionKind::ScriptedEffects, false),
+            (DefinitionKind::ScriptedTriggers, true),
+        ] {
+            let mut selected: Vec<_> = files
+                .iter()
+                .filter(|file| crate::bootstrap::direct_txt(&file.relative_path, kind.directory()))
+                .map(|file| {
+                    let name = file
+                        .relative_path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .ok_or_else(|| {
+                            Error::message(&file.relative_path, "script filename must be UTF-8")
+                        })?;
+                    Ok((name.as_bytes().to_vec(), file))
+                })
+                .collect::<Result<_, Error>>()?;
+            selected.sort_by(|left, right| left.0.cmp(&right.0));
+            for (_, file) in selected {
+                library.add(&root.read_text(&file.relative_path, encoding)?, triggers)?;
             }
         }
         Ok(library)
@@ -166,7 +213,7 @@ impl ScriptLibrary {
     }
     fn add(&mut self, document: &TextDocument, triggers: bool) -> Result<(), Error> {
         let parsed = document.parse()?;
-        let fields = read_fields(&parsed, parsed.reader(), 0)?;
+        let fields = read_fields(&parsed, parsed.reader(), 0, true)?;
         let destination = if triggers {
             &mut self.triggers
         } else {
@@ -271,7 +318,7 @@ impl<'a> ScriptCompiler<'a> {
         let Condition::All(mut conditions) = self.conditions(
             &[Field {
                 name: name.into(),
-                value: Value::Block(read_fields(parsed, reader, 1)?),
+                value: Value::Block(read_fields(parsed, reader, 1, false)?),
                 path: parsed.source().into(),
                 location,
             }],
@@ -374,7 +421,7 @@ impl<'a> ScriptCompiler<'a> {
         scope: EntityKind,
     ) -> Result<CompiledScript, Error> {
         let parsed = document.parse()?;
-        let fields = read_fields(&parsed, parsed.reader(), 0)?;
+        let fields = read_fields(&parsed, parsed.reader(), 0, false)?;
         let plan = self.effects(&fields, scope)?;
         Ok(CompiledScript {
             plan,
@@ -394,7 +441,7 @@ impl<'a> ScriptCompiler<'a> {
         self.effects(
             &[Field {
                 name: name.into(),
-                value: Value::Block(read_fields(parsed, reader, 1)?),
+                value: Value::Block(read_fields(parsed, reader, 1, false)?),
                 path: parsed.source().into(),
                 location,
             }],
@@ -406,7 +453,7 @@ impl<'a> ScriptCompiler<'a> {
     /// Semantic fields outside this subset are errors, including automatic selection.
     pub fn compile_events(mut self, document: &TextDocument) -> Result<CompiledEvents, Error> {
         let parsed = document.parse()?;
-        let fields = read_fields(&parsed, parsed.reader(), 0)?;
+        let fields = read_fields(&parsed, parsed.reader(), 0, false)?;
         self.events(&fields)
     }
 
@@ -448,7 +495,7 @@ impl<'a> ScriptCompiler<'a> {
                 }
                 fields.push(Field {
                     name: key.read_string(),
-                    value: Value::Block(read_fields(&parsed, body, 1)?),
+                    value: Value::Block(read_fields(&parsed, body, 1, false)?),
                     path: parsed.source().into(),
                     location,
                 });
