@@ -809,6 +809,12 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             ..Default::default()
         })
         .unwrap();
+    native
+        .set_global_markers(augustus_core::GlobalMarkers {
+            known: true,
+            ..Default::default()
+        })
+        .unwrap();
     for index in 4..8 {
         native
             .mark_target_absent(augustus_core::EntityId(index), augustus_core::Target::Owner)

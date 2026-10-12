@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+country_event = {
+    id = global.start
+    is_triggered_only = yes
+    immediate = {
+        if = { limit = { NOT = { has_global_flag = ready } } log = before }
+        set_global_flag = ready
+        clr_country_flag = ready
+        capital_scope = {
+            owner = { if = { limit = { has_global_flag = ready } log = owner } }
+            province_event = { id = global.later days = 1 }
+        }
+    }
+    option = { name = accept set_country_flag = chosen }
+    after = { if = { limit = { has_global_flag = ready } log = after } }
+}
+
+province_event = {
+    id = global.later
+    is_triggered_only = yes
+    trigger = { has_global_flag = ready }
+    immediate = {
+        if = { limit = { has_global_flag = ready } log = delayed }
+        clr_global_flag = ready
+    }
+    option = { name = accept set_global_flag = finished }
+    after = { if = { limit = { has_global_flag = finished } log = province_done } }
+}

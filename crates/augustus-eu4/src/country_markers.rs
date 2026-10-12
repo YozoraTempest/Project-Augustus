@@ -14,6 +14,34 @@ pub(super) fn literal_name(name: &str) -> bool {
     !name.is_empty() && !name.contains(['$', '@'])
 }
 
+pub(super) fn has_global_mutation(
+    parsed: &ParsedText<'_>,
+    reader: ObjectReader<'_, '_, TextEncoding>,
+    depth: usize,
+) -> Result<bool, Error> {
+    if depth > 64 {
+        return Err(Error::message(
+            parsed.source(),
+            "global flag history nesting exceeds limit",
+        ));
+    }
+    for (key, _, value) in reader.fields() {
+        let name = key.read_string();
+        if dated_name(&name) {
+            continue;
+        }
+        if matches!(name.as_str(), "set_global_flag" | "clr_global_flag") {
+            return Ok(true);
+        }
+        if let Ok(body) = value.read_object()
+            && has_global_mutation(parsed, body, depth + 1)?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[derive(Default)]
 struct History {
     values: BTreeMap<String, bool>,

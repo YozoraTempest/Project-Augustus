@@ -87,6 +87,9 @@ pub enum Condition {
         target: Target,
         name: String,
     },
+    HasGlobalMarker {
+        name: String,
+    },
     HasModifier {
         target: Target,
         name: String,
@@ -178,6 +181,10 @@ pub enum Action {
     },
     SetMarker {
         target: Target,
+        name: String,
+        present: bool,
+    },
+    SetGlobalMarker {
         name: String,
         present: bool,
     },
@@ -445,6 +452,7 @@ impl Condition {
             Self::HasMarker { target, name } => {
                 world.has_marker(world.target(current, *target)?, name)
             }
+            Self::HasGlobalMarker { name } => world.has_global_marker(name),
             Self::HasModifier { target, name } => {
                 world.has_modifier(world.target(current, *target)?, name)
             }
@@ -676,6 +684,9 @@ impl World {
                 } => {
                     let entity = self.target(current, *target)?;
                     self.set_marker(entity, name, *present)?;
+                }
+                Action::SetGlobalMarker { name, present } => {
+                    self.set_global_marker(name, *present)?
                 }
                 Action::AttachModifier {
                     target,

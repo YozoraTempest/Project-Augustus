@@ -41,6 +41,11 @@ struct Scene {
     justifications: augustus_core::Justifications,
     #[serde(default, skip_serializing_if = "augustus_core::Markers::is_empty")]
     markers: augustus_core::Markers,
+    #[serde(
+        default,
+        skip_serializing_if = "augustus_core::GlobalMarkers::is_empty"
+    )]
+    global_markers: augustus_core::GlobalMarkers,
     #[serde(default, skip_serializing_if = "augustus_core::Governments::is_empty")]
     governments: augustus_core::Governments,
     #[serde(default, skip_serializing_if = "augustus_core::Metrics::is_empty")]
@@ -117,6 +122,8 @@ pub struct EventView {
     pub justifications: augustus_core::Justifications,
     #[serde(skip_serializing_if = "augustus_core::Markers::is_empty")]
     pub markers: augustus_core::Markers,
+    #[serde(skip_serializing_if = "augustus_core::GlobalMarkers::is_empty")]
+    pub global_markers: augustus_core::GlobalMarkers,
     #[serde(skip_serializing_if = "augustus_core::Governments::is_empty")]
     pub governments: augustus_core::Governments,
     #[serde(skip_serializing_if = "augustus_core::Metrics::is_empty")]
@@ -375,6 +382,7 @@ impl EventDemo {
         world.set_completions(scene.completions)?;
         world.set_named_values(scene.named_values)?;
         world.set_markers(scene.markers)?;
+        world.set_global_markers(scene.global_markers)?;
         world.set_modifiers(scene.modifiers)?;
         world.set_governments(scene.governments)?;
         world.set_metrics(scene.metrics)?;
@@ -549,6 +557,7 @@ impl EventDemo {
             modifiers: self.world.modifiers().clone(),
             justifications: self.world.justifications().clone(),
             markers: self.world.markers().clone(),
+            global_markers: self.world.global_markers().clone(),
             governments: self.world.governments().clone(),
             metrics: self.world.metrics().clone(),
             affiliations: self.world.affiliations().clone(),

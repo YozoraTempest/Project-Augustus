@@ -110,6 +110,7 @@ pub struct World {
     pub(crate) objectives: crate::Objectives,
     pub(crate) named_values: crate::NamedValues,
     pub(crate) markers: crate::Markers,
+    pub(crate) global_markers: crate::GlobalMarkers,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
@@ -175,6 +176,8 @@ struct Snapshot {
     named_values: crate::NamedValues,
     #[serde(default, skip_serializing_if = "crate::Markers::is_empty")]
     markers: crate::Markers,
+    #[serde(default, skip_serializing_if = "crate::GlobalMarkers::is_empty")]
+    global_markers: crate::GlobalMarkers,
     #[serde(
         default,
         skip_serializing_if = "crate::event_choices::EventQueue::is_empty"
@@ -228,6 +231,7 @@ impl World {
             objectives: crate::Objectives::default(),
             named_values: crate::NamedValues::default(),
             markers: crate::Markers::default(),
+            global_markers: crate::GlobalMarkers::default(),
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
@@ -711,6 +715,7 @@ impl World {
             objectives: self.objectives.clone(),
             named_values: self.named_values.clone(),
             markers: self.markers.clone(),
+            global_markers: self.global_markers.clone(),
             event_queue: self.event_queue.clone(),
         })?)
     }
@@ -780,6 +785,7 @@ impl World {
             objectives: snapshot.objectives,
             named_values: snapshot.named_values,
             markers: snapshot.markers,
+            global_markers: snapshot.global_markers,
         };
         world.rebuild_ownership();
         world
@@ -848,6 +854,7 @@ impl World {
         world.objectives.validate(&world)?;
         world.named_values.validate(&world)?;
         world.markers.validate(&world)?;
+        world.global_markers.validate()?;
         world.attributes.validate(&world)?;
         if let Some(calendar) = &world.calendar {
             calendar.date(world.day)?;
@@ -1042,7 +1049,9 @@ pub(crate) fn validate_plan(
                 justifications.identifier(name)?;
             }
             Action::Description { key, .. } => crate::plan::validate_description_key(key)?,
-            Action::SetMarker { name, .. } => crate::markers::validate_name(name)?,
+            Action::SetMarker { name, .. } | Action::SetGlobalMarker { name, .. } => {
+                crate::markers::validate_name(name)?
+            }
             Action::AttachModifier {
                 name,
                 duration,
@@ -1254,7 +1263,9 @@ pub(crate) fn validate_condition(
         | crate::Condition::GovernmentMetricStored { name, .. } => {
             governments.metric_definition(name).map(|_| ())
         }
-        crate::Condition::HasMarker { name, .. } => crate::markers::validate_name(name),
+        crate::Condition::HasMarker { name, .. } | crate::Condition::HasGlobalMarker { name } => {
+            crate::markers::validate_name(name)
+        }
         crate::Condition::HasModifier { name, .. } => modifiers.identifier(name),
         crate::Condition::NumericCompare { slot, .. } => {
             slot.validate(schema, governments, metrics)

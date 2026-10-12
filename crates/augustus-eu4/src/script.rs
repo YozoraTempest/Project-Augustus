@@ -787,6 +787,14 @@ impl<'a> ScriptCompiler<'a> {
         Ok(name.into())
     }
 
+    fn global_flag_name(&self, field: &Field) -> Result<String, Error> {
+        let name = field.scalar()?;
+        if !crate::country_markers::literal_name(name) {
+            return Err(field.error("global flag requires a literal name"));
+        }
+        Ok(name.into())
+    }
+
     fn mission_id(&self, field: &Field, scope: EntityKind) -> Result<String, Error> {
         if scope != EntityKind::Country {
             return Err(field.error("mission records require country scope"));
@@ -1217,6 +1225,12 @@ impl<'a> ScriptCompiler<'a> {
                         target: Target::Current,
                         name,
                         present: field.name == "set_country_flag",
+                    });
+                }
+                "set_global_flag" | "clr_global_flag" => {
+                    plan.push(Action::SetGlobalMarker {
+                        name: self.global_flag_name(field)?,
+                        present: field.name == "set_global_flag",
                     });
                 }
                 "add_country_modifier" => {
@@ -1729,6 +1743,9 @@ impl<'a> ScriptCompiler<'a> {
                 "has_country_flag" => Condition::HasMarker {
                     target: Target::Current,
                     name: self.country_flag_name(field, scope)?,
+                },
+                "has_global_flag" => Condition::HasGlobalMarker {
+                    name: self.global_flag_name(field)?,
                 },
                 "has_dlc" => {
                     let expansion = field.scalar()?;

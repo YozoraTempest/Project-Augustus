@@ -436,6 +436,10 @@ impl VanillaWorld {
         let mut status_draft = CountryStatusDraft::load(&root, &files, &mut report.ideas)?;
         let mut estates = EstateDraft::load(&root, &files, &mut report.estates)?;
         let mut markers = crate::country_markers::CountryMarkers::default();
+        let mut global_markers = augustus_core::GlobalMarkers {
+            known: true,
+            ..Default::default()
+        };
         let mut ideas = IdeaDraft::load(&root, &files, &mut report.ideas)?;
         let mut setup = SetupDraft::load(&root, &files, &mut report.setup)?;
         let attribute_draft = AttributeDraft::load(&root, &files, &mut report.attributes)?;
@@ -483,6 +487,7 @@ impl VanillaWorld {
             // Selection of duplicate history files has not been validated. Preserve the
             // ambiguity and leave those history-derived fields unset instead of guessing.
             if history_groups[&id].len() > 1 {
+                global_markers.mark_unknown();
                 continue;
             }
             country_histories.insert(id.clone());
@@ -497,6 +502,9 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
+                if crate::country_markers::has_global_mutation(&parsed, reader.clone(), 0)? {
+                    global_markers.mark_unknown();
+                }
                 let (direct, scoped) =
                     crate::province_metrics::history_mutations(reader.clone(), 0);
                 metric_scoped_history_unknown |= direct || scoped;
@@ -567,6 +575,9 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
+                if crate::country_markers::has_global_mutation(&parsed, reader.clone(), 0)? {
+                    global_markers.mark_unknown();
+                }
                 if nested_owner(reader.clone(), 0) {
                     unresolved_ownership.insert(id);
                 }
@@ -626,6 +637,9 @@ impl VanillaWorld {
         }
         initial
             .set_markers(markers.bind(&initial))
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        initial
+            .set_global_markers(global_markers)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let mut politics = politics::bind_people(&initial, political_drafts, date, &mut report)?;
         politics::load_diplomacy(&root, &files, &initial, date, &mut politics, &mut report)?;

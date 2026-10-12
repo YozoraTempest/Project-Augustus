@@ -76,7 +76,7 @@ impl Compiler {
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             equal(op, &fail)?;
             match name.as_str() {
-                "add_legitimacy" | "custom_tooltip" => {
+                "add_legitimacy" | "custom_tooltip" | "set_global_flag" | "clr_global_flag" => {
                     let library = crate::ScriptLibrary::new();
                     let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
                         .with_hidden_descriptions(self.hidden_descriptions)
@@ -687,6 +687,11 @@ impl EstateStartup {
                 }
                 initial
                     .set_markers(markers)
+                    .map_err(|e| Error::caused_by("common/on_actions", e))?;
+                let mut global_markers = initial.world().global_markers().clone();
+                global_markers.mark_unknown();
+                initial
+                    .set_global_markers(global_markers)
                     .map_err(|e| Error::caused_by("common/on_actions", e))?;
                 let mut modifiers = initial.world().modifiers().clone();
                 modifiers.unknown_entities.extend(

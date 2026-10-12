@@ -17,6 +17,42 @@ pub struct Markers {
     pub unknown_entities: BTreeSet<EntityId>,
 }
 
+/// Session-wide named boolean state. Missing names are false only when known.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GlobalMarkers {
+    #[serde(default)]
+    pub known: bool,
+    #[serde(default)]
+    pub values: BTreeMap<String, bool>,
+}
+
+impl GlobalMarkers {
+    pub fn is_empty(&self) -> bool {
+        !self.known && self.values.is_empty()
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), Error> {
+        for name in self.values.keys() {
+            validate_name(name)?;
+        }
+        Ok(())
+    }
+
+    pub fn mark_unknown(&mut self) {
+        self.known = false;
+        self.values.clear();
+    }
+}
+
+fn write_marker(values: &mut BTreeMap<String, bool>, name: &str, present: bool, known: bool) {
+    if present || !known {
+        values.insert(name.into(), present);
+    } else {
+        values.remove(name);
+    }
+}
+
 pub(crate) fn validate_name(name: &str) -> Result<(), Error> {
     if name.is_empty() {
         return Err(Error::Invalid("empty marker name".into()));
@@ -49,6 +85,43 @@ impl Markers {
 }
 
 impl World {
+    pub fn global_markers(&self) -> &GlobalMarkers {
+        &self.global_markers
+    }
+
+    pub fn set_global_markers(&mut self, markers: GlobalMarkers) -> Result<(), Error> {
+        self.require_running()?;
+        markers.validate()?;
+        self.global_markers = markers;
+        Ok(())
+    }
+
+    pub fn has_global_marker(&self, name: &str) -> Result<bool, Error> {
+        validate_name(name)?;
+        if let Some(&value) = self.global_markers.values.get(name) {
+            return Ok(value);
+        }
+        if self.global_markers.known {
+            Ok(false)
+        } else {
+            Err(Error::Invalid(format!(
+                "global marker state is unknown for name {name}"
+            )))
+        }
+    }
+
+    pub fn set_global_marker(&mut self, name: &str, present: bool) -> Result<(), Error> {
+        self.require_running()?;
+        validate_name(name)?;
+        write_marker(
+            &mut self.global_markers.values,
+            name,
+            present,
+            self.global_markers.known,
+        );
+        Ok(())
+    }
+
     pub fn markers(&self) -> &Markers {
         &self.markers
     }
@@ -91,11 +164,7 @@ impl World {
             self.markers.unknown_entities.insert(entity);
         }
         let values = self.markers.entities.entry(entity).or_default();
-        if present || !known {
-            values.insert(name.into(), present);
-        } else {
-            values.remove(name);
-        }
+        write_marker(values, name, present, known);
         Ok(())
     }
 }

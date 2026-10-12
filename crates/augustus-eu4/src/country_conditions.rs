@@ -58,7 +58,7 @@ impl Condition {
                 let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
                 equal(op, &fail)?;
                 Ok(match name.as_str() {
-                    "exists" => {
+                    "exists" | "has_global_flag" => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
@@ -68,7 +68,7 @@ impl Condition {
                                 &name,
                                 value
                                     .read_string()
-                                    .map_err(|_| fail("expected existence operand"))?,
+                                    .map_err(|_| fail("expected scalar condition operand"))?,
                                 at,
                                 if country {
                                     augustus_core::EntityKind::Country

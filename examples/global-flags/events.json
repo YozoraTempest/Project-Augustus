@@ -1,0 +1,25 @@
+[
+  {
+    "id": "global.start", "scope": "Country",
+    "immediate": [
+      {"If": {"condition": {"All": [{"Not": {"All": [{"HasGlobalMarker": {"name": "ready"}}]}}]}, "then": [{"Emit": "before"}], "otherwise": []}},
+      {"SetGlobalMarker": {"name": "ready", "present": true}},
+      {"SetMarker": {"target": "Current", "name": "ready", "present": false}},
+      {"With": {"target": "Capital", "plan": [
+        {"With": {"target": "Owner", "plan": [{"If": {"condition": {"All": [{"HasGlobalMarker": {"name": "ready"}}]}, "then": [{"Emit": "owner"}], "otherwise": []}}]}},
+        {"Schedule": {"delay": 1, "plan": [{"TryEvent": {"event": "global.later"}}]}}
+      ]}}
+    ],
+    "options": [{"id": "0", "effects": [{"SetMarker": {"target": "Current", "name": "chosen", "present": true}}]}],
+    "after": [{"If": {"condition": {"All": [{"HasGlobalMarker": {"name": "ready"}}]}, "then": [{"Emit": "after"}], "otherwise": []}}]
+  },
+  {
+    "id": "global.later", "scope": "Province",
+    "immediate": [
+      {"If": {"condition": {"All": [{"HasGlobalMarker": {"name": "ready"}}]}, "then": [{"Emit": "delayed"}], "otherwise": []}},
+      {"SetGlobalMarker": {"name": "ready", "present": false}}
+    ],
+    "options": [{"id": "0", "effects": [{"SetGlobalMarker": {"name": "finished", "present": true}}]}],
+    "after": [{"If": {"condition": {"All": [{"HasGlobalMarker": {"name": "finished"}}]}, "then": [{"Emit": "province_done"}], "otherwise": []}}]
+  }
+]

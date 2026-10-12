@@ -121,9 +121,18 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/f
 
 日志依次为 `before`、`owner`、`after`、`delayed`。最后一条在次日出现；结束时两国的标记空间均已知为空。查询的 `markers` 给出按实体保存的状态。
 
-国家作用域支持字面名称形式的 `set_country_flag`、`clr_country_flag` 和 `has_country_flag`，分别使用核心 `SetMarker` 和 `HasMarker`。重复设置保持一个标记，清除已知不存在的名称没有副作用。条件读取当前状态，选项和 `after` 的修改立即可见。动态名称、`@ROOT` 等作用域后缀、`had_country_flag` 时间条件，以及全局、省份、人物标记的兼容写法尚未支持；未知形式报告来源位置。
+国家作用域支持字面名称形式的 `set_country_flag`、`clr_country_flag` 和 `has_country_flag`，分别使用核心 `SetMarker` 和 `HasMarker`。重复设置保持一个标记，清除已知不存在的名称没有副作用。条件读取当前状态，选项和 `after` 的修改立即可见。动态名称、`@ROOT` 等作用域后缀、`had_country_flag` 时间条件，以及省份、人物标记的兼容写法尚未支持；未知形式报告来源位置。
 
 原生场景通过 `markers.entities` 提供初始状态。空对象表示该实体的标记空间已知为空，未记录的名称查询为假；缺少实体条目或列入 `unknown_entities` 表示其他名称未知。明确写入 `true` 或 `false` 可以确定个别名称，同时保留其他名称未知。原生核心可以操作不同实体，状态随存档保存，恢复不会重放设置动作。
+
+`examples/global-flags` 演示全局标记。国家和省份作用域都支持字面名称形式的 `set_global_flag`、`clr_global_flag`、`has_global_flag`，编译为核心 `SetGlobalMarker` 和 `HasGlobalMarker`。各实体读取同一份状态，清除同名国家标记不会影响全局标记。可以先运行国家事件并保存，再从原生输入继续次日的省份事件：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/global-flags --trigger global.start --choose 0:0 --save global_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/global-flags --input native --load global_waiting.json --days 1 --choose 1:0
+```
+
+原生场景通过 `global_markers` 提供初始状态：`known: true` 表示未记录的名称为假，默认的 `known: false` 表示其他名称未知；`values` 中的明确布尔值可以确定个别名称。状态随存档保存，延期查询读取执行时的值。当前原版加载器遇到尚未执行的历史全局标记操作，或开局脚本执行失败时，保留全局状态未知。
 
 `examples/government-metrics` 演示正统性的增减、范围限制、实时条件和延期事件：
 
