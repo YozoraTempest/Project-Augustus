@@ -30,6 +30,8 @@ struct Scene {
     completions: augustus_core::Completions,
     #[serde(default, skip_serializing_if = "augustus_core::NamedValues::is_empty")]
     named_values: augustus_core::NamedValues,
+    #[serde(default, skip_serializing_if = "augustus_core::Modifiers::is_empty")]
+    modifiers: augustus_core::Modifiers,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,6 +71,8 @@ pub struct EventView {
     pub completions: augustus_core::Completions,
     #[serde(skip_serializing_if = "augustus_core::NamedValues::is_empty")]
     pub named_values: augustus_core::NamedValues,
+    #[serde(skip_serializing_if = "augustus_core::Modifiers::is_empty")]
+    pub modifiers: augustus_core::Modifiers,
 }
 
 /// Self-authored scenario exercising the same core from two content formats.
@@ -95,6 +99,7 @@ impl EventDemo {
                     include_str!("../../../examples/events/eu4/common/scripted_effects/demo.txt"),
                 ))?;
                 let compiled = ScriptCompiler::new(&schema, &library, true)
+                    .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
                     .with_mission_ids(scene.completions.identifiers.clone())
                     .with_global_scope_types(scene.global_scope_types.clone())
                     .compile_events(&document(
@@ -144,6 +149,7 @@ impl EventDemo {
                 let library = ScriptLibrary::from_content(&content, TextEncoding::Utf8)?;
                 let schema = Schema::new(scene.fields.clone())?;
                 let compiled = ScriptCompiler::new(&schema, &library, true)
+                    .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
                     .with_mission_ids(scene.completions.identifiers.clone())
                     .with_global_scope_types(scene.global_scope_types.clone())
                     .compile_events(&content.read_text("events/demo.txt", TextEncoding::Utf8)?)?;
@@ -223,6 +229,7 @@ impl EventDemo {
         }
         world.set_completions(scene.completions)?;
         world.set_named_values(scene.named_values)?;
+        world.set_modifiers(scene.modifiers)?;
         world.set_event_catalog(catalog)?;
         Ok(Self { world, content })
     }
@@ -338,6 +345,7 @@ impl EventDemo {
             log: self.world.events().to_vec(),
             completions: self.world.completions().clone(),
             named_values: self.world.named_values().clone(),
+            modifiers: self.world.modifiers().clone(),
         })
     }
 }

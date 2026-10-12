@@ -38,6 +38,7 @@ struct Compiler {
     needed_privileges: BTreeSet<String>,
     startup_metadata: bool,
     mission_ids: BTreeSet<String>,
+    modifier_ids: BTreeSet<String>,
 }
 
 pub(crate) struct EstateStartup {
@@ -70,6 +71,21 @@ impl Compiler {
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             equal(op, &fail)?;
             match name.as_str() {
+                "remove_country_modifier" => {
+                    let id = value
+                        .read_string()
+                        .map_err(|_| fail("expected modifier name"))?;
+                    if id.is_empty() || !self.modifier_ids.contains(&id) {
+                        return Err(fail("unknown modifier name"));
+                    }
+                    result.push(Step::Metric(
+                        Action::RemoveModifier {
+                            target: augustus_core::Target::Current,
+                            name: id,
+                        },
+                        location,
+                    ));
+                }
                 "complete_mission" => {
                     let id = value
                         .read_string()
@@ -88,21 +104,33 @@ impl Compiler {
                     ),
                     location,
                 )),
-                "country_event" | "set_variable" | "change_variable" | "subtract_variable"
-                | "multiply_variable" | "divide_variable" => {
+                "country_event"
+                | "add_country_modifier"
+                | "set_variable"
+                | "change_variable"
+                | "subtract_variable"
+                | "multiply_variable"
+                | "divide_variable" => {
                     let library = crate::ScriptLibrary::new();
-                    let plan = crate::ScriptCompiler::new(&self.schema, &library, true)
+                    let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                        .with_modifier_ids(self.modifier_ids.clone())
                         .compile_effect_reader(
                             parsed,
                             &name,
                             block(&value, &fail)?,
                             at,
                             EntityKind::Country,
-                        )?;
-                    result.extend(
-                        plan.into_iter()
-                            .map(|action| Step::Metric(action, location.clone())),
-                    );
+                        );
+                    match compiled {
+                        Ok(plan) => result.extend(
+                            plan.into_iter()
+                                .map(|action| Step::Metric(action, location.clone())),
+                        ),
+                        Err(error) => result.push(Step::Pending(
+                            format!("uncompiled_startup_effect:{error}"),
+                            source(parsed, error.location().unwrap_or(at)),
+                        )),
+                    }
                 }
                 "emperor" => {
                     let office = "imperial_emperor";
@@ -291,6 +319,7 @@ impl EstateStartup {
         root: &ContentRoot,
         files: &[FileEntry],
         schema: &Schema,
+        modifier_ids: BTreeSet<String>,
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
         let mut compiler = Compiler {
@@ -302,6 +331,7 @@ impl EstateStartup {
             needed_privileges: BTreeSet::new(),
             startup_metadata: false,
             mission_ids: crate::missions::identifiers(root, files)?,
+            modifier_ids,
         };
         for file in files
             .iter()
@@ -467,7 +497,14 @@ impl EstateStartup {
             collect_references(&callback.granted, &mut references);
             collect_references(&callback.revoked, &mut references);
         }
-        let events = match load_events(root, files, schema, references, &compiler.mission_ids) {
+        let events = match load_events(
+            root,
+            files,
+            schema,
+            references,
+            &compiler.mission_ids,
+            &compiler.modifier_ids,
+        ) {
             Ok(events) => events,
             Err(error) => {
                 let at = error
@@ -588,6 +625,15 @@ impl EstateStartup {
             Err(pending) => {
                 report.pending_startup_effects.push(pending.source);
                 report.startup_unresolved.extend(pending.reasons);
+                let mut modifiers = initial.world().modifiers().clone();
+                modifiers.unknown_entities.extend(
+                    countries
+                        .iter()
+                        .filter_map(|tag| initial.country_entity(tag)),
+                );
+                initial
+                    .set_modifiers(modifiers)
+                    .map_err(|e| Error::caused_by("common/on_actions", e))?;
                 let mut estates = initial.world().estates().clone();
                 for states in estates.countries.values_mut() {
                     for state in states.values_mut().filter(|s| s.active != Some(false)) {
@@ -877,6 +923,7 @@ fn load_events(
     schema: &Schema,
     mut needed: BTreeSet<String>,
     mission_ids: &BTreeSet<String>,
+    modifier_ids: &BTreeSet<String>,
 ) -> Result<EventCatalog, Error> {
     if needed.is_empty() {
         return Ok(EventCatalog::default());
@@ -895,6 +942,7 @@ fn load_events(
             let document = root.read_text(&file.relative_path, ENCODING)?;
             let compiled = crate::ScriptCompiler::new(schema, &library, true)
                 .with_mission_ids(mission_ids.clone())
+                .with_modifier_ids(modifier_ids.clone())
                 .compile_selected_events(&document, &requested)?;
             for definition in compiled.definitions {
                 if !found.insert(definition.id.clone()) {

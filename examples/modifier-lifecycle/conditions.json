@@ -1,0 +1,18 @@
+{
+  "modifier.expired": {
+    "All": [
+      {
+        "Not": {
+          "All": [
+            {
+              "HasModifier": {
+                "target": "Current",
+                "name": "boost"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

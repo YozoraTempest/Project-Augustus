@@ -60,10 +60,22 @@ fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
         6
     );
     let future = VanillaWorld::load(fixture(), "1445.1.1").unwrap();
+    let entity = future.initial.province_entity(1).unwrap();
+    assert!(
+        future
+            .initial
+            .world()
+            .has_modifier(entity, "test_harbor")
+            .is_err()
+    );
+    assert!(!future.province(1).unwrap().modifier_attachments_known);
     assert!(
         future.province(1).unwrap().attributes["tax_basis"]
             .unresolved
-            .contains("pending_modifier:province:1:test_harbor")
+            .contains(&format!(
+                "modifier:{}:test_harbor:unknown_attachment",
+                future.initial.world().entity(entity).unwrap().name
+            ))
     );
     let temp = copy_fixture();
     let history = temp.path().join("history/provinces/1 - North.txt");

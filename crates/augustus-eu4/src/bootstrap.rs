@@ -85,6 +85,7 @@ pub struct ProvinceView<'a> {
     pub trade_node_outgoing: Option<Vec<&'a str>>,
     pub trade_good_definition: Option<&'a augustus_core::TradeGoodDefinition>,
     pub modifiers: Vec<&'a str>,
+    pub modifier_attachments_known: bool,
     pub declared_modifier_totals_micros: BTreeMap<String, i64>,
     pub attributes: BTreeMap<String, augustus_core::AttributeEvaluation>,
     pub administration: Option<augustus_core::AdministrationEvaluation>,
@@ -108,6 +109,7 @@ pub struct CountryView<'a> {
     pub technology: Option<&'a BTreeMap<String, u16>>,
     pub resources: Option<&'a augustus_core::CountryResources>,
     pub modifiers: Vec<&'a str>,
+    pub modifier_attachments_known: bool,
     pub declared_modifier_totals_micros: BTreeMap<String, i64>,
     pub province_attribute_totals: BTreeMap<String, augustus_core::AttributeAggregate>,
     pub administrative_areas: Option<&'a BTreeMap<String, augustus_core::AreaStatus>>,
@@ -590,6 +592,13 @@ impl VanillaWorld {
             &root,
             &files,
             initial.world().schema(),
+            initial
+                .world()
+                .modifiers()
+                .definitions
+                .keys()
+                .cloned()
+                .collect(),
             &mut report.estates,
         )?;
         let estates = estates.bind(&initial, &mut report.estates)?;
@@ -726,6 +735,11 @@ impl VanillaWorld {
                 .and_then(|s| s.trade_good.as_ref())
                 .and_then(|name| economy.trade_goods.get(name)),
             modifiers: self.modifier_names(entity),
+            modifier_attachments_known: self
+                .initial
+                .world()
+                .modifier_attachments_known(entity)
+                .expect("registered province"),
             attributes: self
                 .initial
                 .world()
@@ -868,6 +882,13 @@ impl VanillaWorld {
                 .get(&self.initial.country_entity(id).expect("registered country")),
             modifiers: self
                 .modifier_names(self.initial.country_entity(id).expect("registered country")),
+            modifier_attachments_known: self
+                .initial
+                .world()
+                .modifier_attachments_known(
+                    self.initial.country_entity(id).expect("registered country"),
+                )
+                .expect("registered country"),
             declared_modifier_totals_micros: self
                 .initial
                 .world()

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
@@ -88,7 +88,8 @@ pub struct World {
     pub(crate) global_scopes: BTreeMap<String, EntityId>,
     economy: Economy,
     technology: Technology,
-    modifiers: Modifiers,
+    pub(crate) modifiers: Modifiers,
+    pub(crate) modifier_expirations: BTreeMap<u64, BTreeSet<(EntityId, String)>>,
     pub(crate) country_resources: BTreeMap<EntityId, CountryResources>,
     calendar: Option<Calendar>,
     pub(crate) taxation: Option<Taxation>,
@@ -184,6 +185,7 @@ impl World {
             economy: Economy::default(),
             technology: Technology::default(),
             modifiers: Modifiers::default(),
+            modifier_expirations: BTreeMap::new(),
             country_resources: BTreeMap::new(),
             calendar: None,
             taxation: None,
@@ -296,7 +298,16 @@ impl World {
     pub fn set_modifiers(&mut self, modifiers: Modifiers) -> Result<(), Error> {
         self.require_running()?;
         modifiers.validate(self)?;
-        self.modifiers = modifiers;
+        let previous = std::mem::replace(&mut self.modifiers, modifiers);
+        let validation = self
+            .event_catalog
+            .validate(self)
+            .and_then(|()| self.validate_event_content(&self.event_catalog));
+        if let Err(error) = validation {
+            self.modifiers = previous;
+            return Err(error);
+        }
+        self.modifier_expirations = self.modifiers.expiration_index();
         Ok(())
     }
 
@@ -487,6 +498,7 @@ impl World {
             self.rules.len(),
             &self.event_catalog,
             &self.completions,
+            &self.modifiers,
         )?;
         if delay == 0 {
             return Err(Error::Invalid(
@@ -554,11 +566,16 @@ impl World {
                 })
                 .transpose()?;
             let task_day = self.tasks.first_key_value().map(|(key, _)| key.0);
-            let next = task_day.into_iter().chain(month).min();
+            let expiration = self
+                .modifier_expirations
+                .first_key_value()
+                .map(|(day, _)| *day);
+            let next = task_day.into_iter().chain(month).chain(expiration).min();
             let Some(next) = next.filter(|&next| next <= day) else {
                 break;
             };
             self.day = next;
+            self.expire_modifiers(next);
             while self
                 .tasks
                 .first_key_value()
@@ -655,6 +672,7 @@ impl World {
             global_scopes: snapshot.global_scopes,
             economy: snapshot.economy,
             technology: snapshot.technology,
+            modifier_expirations: snapshot.modifiers.expiration_index(),
             modifiers: snapshot.modifiers,
             country_resources: snapshot.country_resources,
             calendar: snapshot.calendar,
@@ -676,6 +694,7 @@ impl World {
                 world.rules.len(),
                 &world.event_catalog,
                 &world.completions,
+                &world.modifiers,
             )?;
         }
         world.event_catalog.validate(&world)?;
@@ -747,6 +766,7 @@ impl World {
                 world.rules.len(),
                 &world.event_catalog,
                 &world.completions,
+                &world.modifiers,
             )?;
             world.tasks.insert((task.day, task.sequence), task);
         }
@@ -780,6 +800,7 @@ impl World {
                 self.rules.len(),
                 catalog,
                 &self.completions,
+                &self.modifiers,
             )?;
         }
         for task in self.tasks.values() {
@@ -789,6 +810,7 @@ impl World {
                 self.rules.len(),
                 catalog,
                 &self.completions,
+                &self.modifiers,
             )?;
         }
         Ok(())
@@ -801,9 +823,17 @@ pub(crate) fn validate_plan(
     rule_count: usize,
     events: &crate::EventCatalog,
     completions: &crate::Completions,
+    modifiers: &Modifiers,
 ) -> Result<(), Error> {
     for action in plan {
         match action {
+            Action::AttachModifier { name, duration, .. } => {
+                modifiers.identifier(name)?;
+                if *duration == Some(0) {
+                    return Err(Error::Invalid("modifier duration must be positive".into()));
+                }
+            }
+            Action::RemoveModifier { name, .. } => modifiers.identifier(name)?,
             Action::UpdateNumeric {
                 slot, operation, ..
             } => {
@@ -822,7 +852,7 @@ pub(crate) fn validate_plan(
                 {
                     return Err(Error::Invalid("office scope requires country type".into()));
                 }
-                validate_plan(plan, schema, rule_count, events, completions)?;
+                validate_plan(plan, schema, rule_count, events, completions, modifiers)?;
             }
             Action::BindGlobalScope { name } | Action::ClearGlobalScope { name } => {
                 crate::scopes::validate_name(name)?;
@@ -849,22 +879,36 @@ pub(crate) fn validate_plan(
                 then,
                 otherwise,
             } => {
-                validate_condition(condition, schema, completions)?;
-                validate_plan(then, schema, rule_count, events, completions)?;
-                validate_plan(otherwise, schema, rule_count, events, completions)?;
+                validate_condition(condition, schema, completions, modifiers)?;
+                validate_plan(then, schema, rule_count, events, completions, modifiers)?;
+                validate_plan(
+                    otherwise,
+                    schema,
+                    rule_count,
+                    events,
+                    completions,
+                    modifiers,
+                )?;
             }
             Action::RandomBranch { then, otherwise } => {
-                validate_plan(then, schema, rule_count, events, completions)?;
-                validate_plan(otherwise, schema, rule_count, events, completions)?;
+                validate_plan(then, schema, rule_count, events, completions, modifiers)?;
+                validate_plan(
+                    otherwise,
+                    schema,
+                    rule_count,
+                    events,
+                    completions,
+                    modifiers,
+                )?;
             }
             Action::With { plan, .. } => {
-                validate_plan(plan, schema, rule_count, events, completions)?
+                validate_plan(plan, schema, rule_count, events, completions, modifiers)?
             }
             Action::Schedule { delay, plan } => {
                 if *delay == 0 {
                     return Err(Error::Invalid("invalid saved task delay".into()));
                 }
-                validate_plan(plan, schema, rule_count, events, completions)?;
+                validate_plan(plan, schema, rule_count, events, completions, modifiers)?;
             }
             Action::Accumulate { field, source, .. }
                 if field.0 >= schema.fields.len() || source.0 >= schema.fields.len() =>
@@ -884,8 +928,10 @@ pub(crate) fn validate_condition(
     condition: &crate::Condition,
     schema: &Schema,
     completions: &crate::Completions,
+    modifiers: &Modifiers,
 ) -> Result<(), Error> {
     match condition {
+        crate::Condition::HasModifier { name, .. } => modifiers.identifier(name),
         crate::Condition::NumericCompare { slot, .. } => slot.validate(schema),
         crate::Condition::CompletionRecorded { id, .. } => completions.identifier(id),
         crate::Condition::EntityNamed { name, .. } if name.is_empty() => {
@@ -900,11 +946,13 @@ pub(crate) fn validate_condition(
         }
         crate::Condition::All(conditions) | crate::Condition::Any(conditions) => {
             for condition in conditions {
-                validate_condition(condition, schema, completions)?;
+                validate_condition(condition, schema, completions, modifiers)?;
             }
             Ok(())
         }
-        crate::Condition::Not(condition) => validate_condition(condition, schema, completions),
+        crate::Condition::Not(condition) => {
+            validate_condition(condition, schema, completions, modifiers)
+        }
         _ => Ok(()),
     }
 }

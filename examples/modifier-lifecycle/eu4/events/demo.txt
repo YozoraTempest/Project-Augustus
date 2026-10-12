@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+country_event={id=modifier.control is_triggered_only=yes
+ immediate={log=before add_country_modifier={name=boost duration=4} add_country_modifier={name=boost duration=2 hidden=yes} add_country_modifier={name=guard duration=-1} capital_scope={owner={if={limit={has_country_modifier=boost} log=owner}}} country_event={id=modifier.expired days=4}}
+ option={name=accept add_country_modifier={name=boost duration=-1}}
+ after={if={limit={has_country_modifier=boost} log=after}}
+}
+country_event={id=modifier.expired is_triggered_only=yes trigger={NOT={has_country_modifier=boost}} immediate={log=expired} option={name=accept remove_country_modifier=guard}}

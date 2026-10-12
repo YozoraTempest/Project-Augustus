@@ -404,17 +404,6 @@ impl AttributeDraft {
                     }
                     _ => (),
                 }
-                let mut origins = vec![format!("province:{}:", province.id)];
-                if let Some(owner) = &province.owner {
-                    origins.push(format!("country:{owner}:"));
-                }
-                for pending in setup
-                    .pending_timed_modifiers
-                    .keys()
-                    .filter(|key| origins.iter().any(|p| key.starts_with(p)))
-                {
-                    unresolved.insert(format!("pending_modifier:{pending}"));
-                }
                 Self::ambiguities(initial, entity, &channel, report, setup, &mut unresolved);
                 let formula = AttributeFormula {
                     base: if base.is_some() {
@@ -624,34 +613,6 @@ impl AttributeDraft {
                 AttributeTerm::TradeGood { property } => {
                     if let Some(good) = economy.and_then(|s| s.trade_good.as_ref()) {
                         candidates.push(format!("tradegoods:{good}:{property}"));
-                    }
-                }
-                AttributeTerm::Modifiers { target, property } => {
-                    let target = match target {
-                        Target::Current => Some(entity),
-                        Target::Owner => {
-                            initial
-                                .world()
-                                .entity(entity)
-                                .expect("known province")
-                                .owner
-                        }
-                        Target::Capital => {
-                            initial
-                                .world()
-                                .entity(entity)
-                                .expect("known entity")
-                                .capital
-                        }
-                    };
-                    if let Some(active) =
-                        target.and_then(|e| initial.world().modifiers().active.get(&e))
-                    {
-                        candidates.extend(
-                            active
-                                .keys()
-                                .map(|name| format!("event_modifier:{name}:{property}")),
-                        );
                     }
                 }
                 AttributeTerm::Autonomy | AttributeTerm::Government { .. } => (),

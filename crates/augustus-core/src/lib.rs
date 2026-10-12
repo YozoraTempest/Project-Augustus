@@ -59,7 +59,7 @@ pub use ideas::{
     IdeaContribution, IdeaDefinition, IdeaEffect, IdeaEvaluation, IdeaGroup, IdeaState, Ideas,
 };
 pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
-pub use modifiers::{ModifierDefinition, ModifierInstance, Modifiers};
+pub use modifiers::{ModifierDefinition, ModifierInstance, ModifierRenewal, Modifiers};
 pub use named_values::{NamedValues, NumericComparison, NumericOperation, NumericSlot};
 pub use plan::{Action, Condition, Plan, Target};
 pub use politics::{CountryPolitics, DiplomaticKind, DiplomaticRelation, PersonState, Politics};

@@ -573,7 +573,13 @@ impl SetupDraft {
             if remove || duration != Some(-1) {
                 active.remove(&id);
             } else {
-                active.insert(id, ModifierInstance { hidden });
+                active.insert(
+                    id,
+                    ModifierInstance {
+                        hidden,
+                        ..Default::default()
+                    },
+                );
             }
             if !remove && duration != Some(-1) {
                 report
@@ -657,6 +663,37 @@ impl SetupDraft {
             .ok_or_else(|| Error::message("world", "unknown modifier entity"))?;
             report.active_modifiers += active.len();
             self.modifiers.active.insert(entity, active);
+        }
+        for pending in report.pending_timed_modifiers.keys() {
+            let (kind, rest) = pending.split_once(':').expect("history target kind");
+            let (id, name) = rest.split_once(':').expect("history target modifier");
+            let entity = if kind == "country" {
+                initial.country_entity(id)
+            } else {
+                id.parse().ok().and_then(|id| initial.province_entity(id))
+            }
+            .ok_or_else(|| Error::message("world", "unknown pending modifier entity"))?;
+            self.modifiers
+                .unresolved
+                .entry(entity)
+                .or_default()
+                .insert(name.into());
+        }
+        for name in self.modifiers.definitions.keys() {
+            let prefix = format!("event_modifier:{name}:");
+            let properties: BTreeSet<_> = report
+                .ambiguous_properties
+                .keys()
+                .chain(report.unapplied_definition_fields.keys())
+                .filter_map(|k| k.strip_prefix(&prefix))
+                .filter(|p| !matches!(*p, "picture" | "desc"))
+                .map(String::from)
+                .collect();
+            if !properties.is_empty() {
+                self.modifiers
+                    .unresolved_properties
+                    .insert(name.clone(), properties);
+            }
         }
         initial
             .set_technology(self.technology)

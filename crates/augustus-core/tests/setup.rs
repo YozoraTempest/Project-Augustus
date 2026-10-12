@@ -55,6 +55,7 @@ fn modifiers() -> Modifiers {
         )]
         .into_iter()
         .collect(),
+        ..Default::default()
     }
 }
 

@@ -1,0 +1,145 @@
+[
+  {
+    "id": "modifier.control",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "before"
+      },
+      {
+        "AttachModifier": {
+          "target": "Current",
+          "name": "boost",
+          "duration": 4,
+          "hidden": null,
+          "renewal": "KeepLatestDated"
+        }
+      },
+      {
+        "AttachModifier": {
+          "target": "Current",
+          "name": "boost",
+          "duration": 2,
+          "hidden": true,
+          "renewal": "KeepLatestDated"
+        }
+      },
+      {
+        "AttachModifier": {
+          "target": "Current",
+          "name": "guard",
+          "duration": null,
+          "hidden": null,
+          "renewal": "KeepLatestDated"
+        }
+      },
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "With": {
+                "target": "Owner",
+                "plan": [
+                  {
+                    "If": {
+                      "condition": {
+                        "All": [
+                          {
+                            "HasModifier": {
+                              "target": "Current",
+                              "name": "boost"
+                            }
+                          }
+                        ]
+                      },
+                      "then": [
+                        {
+                          "Emit": "owner"
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 4,
+          "plan": [
+            {
+              "TryEvent": {
+                "event": "modifier.expired"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "AttachModifier": {
+              "target": "Current",
+              "name": "boost",
+              "duration": null,
+              "hidden": null,
+              "renewal": "KeepLatestDated"
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "HasModifier": {
+                  "target": "Current",
+                  "name": "boost"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "after"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "modifier.expired",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "expired"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "RemoveModifier": {
+              "target": "Current",
+              "name": "guard"
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

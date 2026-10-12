@@ -164,6 +164,173 @@ fn startup_named_values_share_candidates_choices_delays_and_rollback() {
 }
 
 #[test]
+fn startup_modifier_state_drives_queries_attributes_choices_expiry_and_rollback() {
+    let temp = startup_fixture();
+    let path = "common/event_modifiers/test_modifiers.txt";
+    let mut text = fs::read_to_string(temp.path().join(path)).unwrap();
+    text.push_str("\nsample_boost={global_tax_modifier=0.125}\nsample_guard={}\nsample_ambiguous={global_tax_modifier=0.1 global_tax_modifier=0.2}\n");
+    write(temp.path(), path, &text);
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        r#"on_startup={events={modifier.before} if={limit={tag=AAA} add_country_modifier={name=sample_boost duration=4} if={limit={has_country_modifier=sample_boost} log=startup} country_event={id=modifier.expired days=4}}}"#,
+    );
+    write(
+        temp.path(),
+        "events/test.txt",
+        r#"
+      country_event={id=modifier.before is_triggered_only=yes trigger={tag=AAA NOT={has_country_modifier=sample_boost}} immediate={add_country_modifier={name=sample_guard duration=-1} log=before} option={name=accept add_country_modifier={name=sample_boost duration=-1}} after={if={limit={has_country_modifier=sample_boost} log=after}}}
+      country_event={id=modifier.expired is_triggered_only=yes trigger={NOT={has_country_modifier=sample_boost}} immediate={log=expired} option={name=accept remove_country_modifier=sample_guard}}
+    "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let province = loaded.country("AAA").unwrap().bound_capital.unwrap();
+    assert!(loaded.country("AAA").unwrap().modifier_attachments_known);
+    let other = loaded.initial.country_entity("BBB").unwrap();
+    assert!(
+        loaded
+            .initial
+            .world()
+            .has_modifier(country, "sample_boost")
+            .unwrap()
+    );
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .has_modifier(other, "sample_boost")
+            .unwrap()
+    );
+    assert!(
+        loaded.province(province).unwrap().attributes["tax_basis"]
+            .steps
+            .iter()
+            .flat_map(|s| &s.contributions)
+            .any(|c| c.source == "modifier:AAA:sample_boost")
+    );
+    loaded
+        .initial
+        .choose_event(&augustus_core::EventChoice {
+            pending: augustus_core::PendingEventId(0),
+            option: "0".into(),
+        })
+        .unwrap();
+    let waiting = loaded.save().unwrap();
+    let mut resumed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    resumed.restore(&waiting).unwrap();
+    for state in [&mut loaded, &mut resumed] {
+        state.advance(4).unwrap();
+        state
+            .initial
+            .choose_event(&augustus_core::EventChoice {
+                pending: augustus_core::PendingEventId(1),
+                option: "0".into(),
+            })
+            .unwrap();
+        assert!(
+            !state
+                .initial
+                .world()
+                .has_modifier(country, "sample_boost")
+                .unwrap()
+        );
+        assert!(
+            !state.province(province).unwrap().attributes["tax_basis"]
+                .steps
+                .iter()
+                .flat_map(|s| &s.contributions)
+                .any(|c| c.source == "modifier:AAA:sample_boost")
+        );
+        assert_eq!(
+            state
+                .initial
+                .world()
+                .events()
+                .iter()
+                .map(|e| (e.0, e.2.as_str()))
+                .collect::<Vec<_>>(),
+            [(0, "before"), (0, "startup"), (0, "after"), (4, "expired")]
+        );
+    }
+    assert_eq!(loaded.save().unwrap(), resumed.save().unwrap());
+    loaded
+        .initial
+        .execute(
+            country,
+            &[Action::AttachModifier {
+                target: augustus_core::Target::Current,
+                name: "sample_ambiguous".into(),
+                duration: None,
+                hidden: None,
+                renewal: augustus_core::ModifierRenewal::Replace,
+            }],
+        )
+        .unwrap();
+    assert!(
+        loaded.province(province).unwrap().attributes["tax_basis"]
+            .unresolved
+            .contains("modifier:sample_ambiguous:global_tax_modifier:unknown_property")
+    );
+    loaded
+        .initial
+        .execute(
+            country,
+            &[Action::RemoveModifier {
+                target: augustus_core::Target::Current,
+                name: "sample_ambiguous".into(),
+            }],
+        )
+        .unwrap();
+    assert!(
+        !loaded.province(province).unwrap().attributes["tax_basis"]
+            .unresolved
+            .contains("modifier:sample_ambiguous:global_tax_modifier:unknown_property")
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA} add_country_modifier={name=sample_boost duration=4} add_country_modifier={name=sample_guard duration=-1 desc=unverified}}}",
+    );
+    let failed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(!failed.report.estates.startup_unresolved.is_empty());
+    assert!(
+        failed
+            .report
+            .estates
+            .startup_unresolved
+            .iter()
+            .any(|reason| reason.contains("unsupported modifier parameter"))
+    );
+    assert!(!failed.country("AAA").unwrap().modifier_attachments_known);
+    assert!(
+        failed
+            .initial
+            .world()
+            .modifiers()
+            .unknown_entities
+            .contains(&country)
+    );
+    assert!(
+        failed
+            .initial
+            .world()
+            .has_modifier(country, "sample_boost")
+            .is_err()
+    );
+    assert!(
+        !failed
+            .initial
+            .world()
+            .modifiers()
+            .active
+            .get(&country)
+            .is_some_and(|v| v.contains_key("sample_boost"))
+    );
+}
+
+#[test]
 fn startup_mission_records_are_live_per_country_and_survive_pending_choices() {
     let temp = startup_fixture();
     write(

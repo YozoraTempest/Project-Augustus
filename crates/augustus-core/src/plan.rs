@@ -15,6 +15,10 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    HasModifier {
+        target: Target,
+        name: String,
+    },
     NumericCompare {
         target: Target,
         slot: crate::NumericSlot,
@@ -47,6 +51,17 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    AttachModifier {
+        target: Target,
+        name: String,
+        duration: Option<u64>,
+        hidden: Option<bool>,
+        renewal: crate::ModifierRenewal,
+    },
+    RemoveModifier {
+        target: Target,
+        name: String,
+    },
     UpdateNumeric {
         target: Target,
         slot: crate::NumericSlot,
@@ -137,6 +152,9 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::HasModifier { target, name } => {
+                world.has_modifier(world.target(current, *target)?, name)
+            }
             Self::NumericCompare {
                 target,
                 slot,
@@ -240,6 +258,20 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::AttachModifier {
+                    target,
+                    name,
+                    duration,
+                    hidden,
+                    renewal,
+                } => {
+                    let entity = self.target(current, *target)?;
+                    self.attach_modifier(entity, name, *duration, *hidden, *renewal)?;
+                }
+                Action::RemoveModifier { target, name } => {
+                    let entity = self.target(current, *target)?;
+                    self.remove_modifier(entity, name)?;
+                }
                 Action::UpdateNumeric {
                     target,
                     slot,

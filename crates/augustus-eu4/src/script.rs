@@ -210,6 +210,7 @@ pub struct ScriptCompiler<'a> {
     folded: usize,
     global_scope_types: BTreeMap<String, EntityKind>,
     mission_ids: BTreeSet<String>,
+    modifier_ids: BTreeSet<String>,
 }
 
 impl<'a> ScriptCompiler<'a> {
@@ -223,6 +224,7 @@ impl<'a> ScriptCompiler<'a> {
             folded: 0,
             global_scope_types: BTreeMap::new(),
             mission_ids: BTreeSet::new(),
+            modifier_ids: BTreeSet::new(),
         }
     }
 
@@ -274,6 +276,11 @@ impl<'a> ScriptCompiler<'a> {
 
     pub fn with_mission_ids(mut self, ids: BTreeSet<String>) -> Self {
         self.mission_ids = ids;
+        self
+    }
+
+    pub fn with_modifier_ids(mut self, ids: BTreeSet<String>) -> Self {
+        self.modifier_ids = ids;
         self
     }
 
@@ -519,6 +526,62 @@ impl<'a> ScriptCompiler<'a> {
             let field = &fields[index];
             self.sources.push((field.path.clone(), field.location));
             match field.name.as_str() {
+                "add_country_modifier" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("country modifiers require country scope"));
+                    }
+                    let mut name = None;
+                    let mut duration = None;
+                    let mut hidden = None;
+                    let mut seen = BTreeSet::new();
+                    for parameter in field.block()? {
+                        if !seen.insert(&parameter.name) {
+                            return Err(parameter.error("duplicate modifier parameter"));
+                        }
+                        match parameter.name.as_str() {
+                            "name" => name = Some(parameter.scalar()?.to_owned()),
+                            "duration" => {
+                                let value: i32 = parameter
+                                    .scalar()?
+                                    .parse()
+                                    .map_err(|_| parameter.error("invalid modifier duration"))?;
+                                if value < -1 {
+                                    return Err(parameter.error("invalid modifier duration"));
+                                }
+                                duration = Some(value);
+                            }
+                            "hidden" => hidden = Some(boolean(parameter)?),
+                            _ => return Err(parameter.error("unsupported modifier parameter")),
+                        }
+                    }
+                    let name = name.ok_or_else(|| field.error("missing modifier name"))?;
+                    if name.is_empty() || !self.modifier_ids.contains(&name) {
+                        return Err(field.error(format!("unknown modifier {name}")));
+                    }
+                    plan.push(Action::AttachModifier {
+                        target: Target::Current,
+                        name,
+                        duration: match duration.unwrap_or(0) {
+                            -1 => None,
+                            value => Some(u64::try_from(value.max(1)).expect("positive duration")),
+                        },
+                        hidden,
+                        renewal: augustus_core::ModifierRenewal::KeepLatestDated,
+                    });
+                }
+                "remove_country_modifier" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("country modifiers require country scope"));
+                    }
+                    let name = field.scalar()?;
+                    if name.is_empty() || !self.modifier_ids.contains(name) {
+                        return Err(field.error(format!("unknown modifier {name}")));
+                    }
+                    plan.push(Action::RemoveModifier {
+                        target: Target::Current,
+                        name: name.into(),
+                    });
+                }
                 "complete_mission" => plan.push(Action::RecordCompletion {
                     id: self.mission_id(field, scope)?,
                 }),
@@ -803,6 +866,26 @@ impl<'a> ScriptCompiler<'a> {
                             unreachable!("condition blocks produce conjunctions")
                         };
                         Condition::Not(Box::new(Condition::Any(children)))
+                    }
+                }
+                "has_country_modifier" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("country modifiers require country scope"));
+                    }
+                    let name = field.scalar()?;
+                    if name.is_empty() {
+                        return Err(field.error("empty modifier name"));
+                    }
+                    if self.modifier_ids.contains(name) {
+                        Condition::HasModifier {
+                            target: Target::Current,
+                            name: name.into(),
+                        }
+                    } else {
+                        if name.chars().any(|c| matches!(c, '$' | '@')) {
+                            return Err(field.error("unsupported dynamic modifier name"));
+                        }
+                        Condition::Always(false)
                     }
                 }
                 "check_variable" | "is_variable_equal" => {

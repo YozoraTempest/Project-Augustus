@@ -20,6 +20,7 @@ pub(super) enum Condition {
     Status(String, bool),
     Office(String, bool),
     Completion(String),
+    Modifier(String),
     Numeric(augustus_core::Condition),
     Feature(String),
     Estate(String),
@@ -104,6 +105,15 @@ impl Condition {
                             return Err(fail("empty mission identifier"));
                         }
                         Self::Completion(id)
+                    }
+                    "has_country_modifier" if country => {
+                        let id = value
+                            .read_string()
+                            .map_err(|_| fail("expected modifier name"))?;
+                        if id.is_empty() {
+                            return Err(fail("empty modifier name"));
+                        }
+                        Self::Modifier(id)
                     }
                     "check_variable" | "is_variable_equal" => {
                         let schema =
@@ -311,6 +321,19 @@ impl Condition {
         estates: EstateLookup<'_>,
     ) -> Option<bool> {
         match self {
+            Self::Modifier(name) => {
+                let entity = initial.country_entity(tag).expect("registered country");
+                if !initial.world().modifiers().definitions.contains_key(name) {
+                    return Some(false);
+                }
+                match initial.world().has_modifier(entity, name) {
+                    Ok(value) => Some(value),
+                    Err(error) => {
+                        reasons.insert(format!("unknown_modifier_state:{error}"));
+                        None
+                    }
+                }
+            }
             Self::Numeric(condition) => {
                 let entity = province
                     .unwrap_or_else(|| initial.country_entity(tag).expect("registered country"));
@@ -571,6 +594,7 @@ impl Condition {
             Self::Match(name, value) => replace(name) && replace(value),
             Self::Feature(id)
             | Self::Completion(id)
+            | Self::Modifier(id)
             | Self::Estate(id)
             | Self::EstatePrivilege(id)
             | Self::Region(id, _) => replace(id),

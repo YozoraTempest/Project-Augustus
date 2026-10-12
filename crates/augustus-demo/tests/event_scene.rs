@@ -5,6 +5,43 @@ use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 
 #[test]
+fn modifier_renewal_expiry_and_waiting_choices_share_cross_input_saves() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/modifier-lifecycle");
+    let mut compatible = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    compatible.trigger("modifier.control", 0).unwrap();
+    native.restore(&compatible.save().unwrap()).unwrap();
+    for demo in [&mut compatible, &mut native] {
+        demo.choose(&EventChoice {
+            pending: PendingEventId(0),
+            option: "0".into(),
+        })
+        .unwrap();
+        demo.advance(2).unwrap();
+        assert!(demo.world().has_modifier(EntityId(0), "boost").unwrap());
+        assert!(!demo.world().has_modifier(EntityId(1), "boost").unwrap());
+        demo.advance(2).unwrap();
+        demo.choose(&EventChoice {
+            pending: PendingEventId(1),
+            option: "0".into(),
+        })
+        .unwrap();
+        assert!(demo.view().unwrap().modifiers.active.is_empty());
+        assert_eq!(
+            demo.world()
+                .events()
+                .iter()
+                .map(|e| (e.0, e.2.as_str()))
+                .collect::<Vec<_>>(),
+            [(0, "before"), (0, "owner"), (0, "after"), (4, "expired")]
+        );
+    }
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+}
+
+#[test]
 fn named_variables_share_cross_input_saves_scopes_choices_and_live_delays() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/named-variables");

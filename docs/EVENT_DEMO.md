@@ -97,6 +97,15 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/n
 
 日志依次为 `before`、`owner`、`after`、`delayed`。查询的 `named_values` 中，国家 `AAA` 的 `count` 为 1000，首都省份为 4500；演示中的整数表示千分位数值。
 
+`examples/modifier-lifecycle` 演示国家修正的添加、续期、查询和到期。四天期限随后又添加两天期限，选项再添加永久期限；兼容规则保留四天这一较晚的有限期限：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/modifier-lifecycle --trigger modifier.control --choose 0:0 --save modifier_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/modifier-lifecycle --input native --load modifier_waiting.json --days 4 --choose 1:0
+```
+
+日志依次为 `before`、`owner`、`after`、`expired`。最后一条在第四天出现；到期条件读取已经清理的修正状态。查询的 `modifiers` 给出定义和附着记录，结束时没有活动修正。
+
 ## 运行规则
 
 事件先执行 `immediate`，成功后保存当前实体和触发日期。等待期间的数值及实体关系保持实时更新；选择时执行选项效果，再执行 `after`，成功后移除对应记录。多个同类事件各有独立编号。读档不重复即时效果，重复选择、未知选项和错误实体类型会在写入前被拒绝。效果运行错误保留已经发生的写入并停止模拟，不能继续推进或保存。
@@ -120,6 +129,12 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/n
 变量支持 `set_variable`、`change_variable`、`subtract_variable`、`multiply_variable`、`divide_variable`，以及 `check_variable` 的大于等于判断和 `is_variable_equal` 的相等判断。当前接受恰好一个 `which` 和一个字面 `value`，最多三位小数；动态名称、变量作为操作数和其他参数形式尚未支持。未显式绑定到状态字段的名称编译为命名状态；已有 `variable/名称` 字段绑定保持原执行计划与存档内容标识。除零、整数溢出和非法缩放会报错。
 
 原生数值操作使用 `UpdateNumeric`、`NumericCompare` 和 `NumericSlot::Named`，可通过 `NumericSlot::Field` 操作已有字段。乘除指令显式提供正整数 `scale`，结果向零截断。`NamedValues.entities` 的空对象声明该实体的变量空间已知为空，未赋值的名称读为零；缺少实体条目表示未知。`unknown_entities` 可保留其他名称未知，同时保存个别已确定值。`Set` 能写入一个已知值，其他运算需要先取得已知旧值。场景通过可选的 `named_values` 提供初始状态，保存恢复不会重复初始化。
+
+国家修正支持 `add_country_modifier`、`remove_country_modifier` 和 `has_country_modifier`。添加接受 `name`、字面整数 `duration` 和可选的 `hidden`，每个参数最多一次；`-1` 表示永久，正数为有效天数，零或省略期限在次日清理。重复添加保留较晚的有限到期日，有限期限与永久期限混用时采用有限期限。未知字面名称的兼容查询为假，添加与移除要求名称已注册；动态名称、说明和消息参数、其他数值形式以及省份效果尚未支持。独立使用编译器时通过 `with_modifier_ids` 提供名称集合，演示场景从 `modifiers.definitions` 提供。
+
+原生指令为 `AttachModifier`、`RemoveModifier` 和 `HasModifier`，可以操作核心的不同实体。添加的 `duration` 为正整数或空值；`renewal: Replace` 采用新期限，`KeepLatestDated` 提供上述兼容续期行为。`expires_on` 是首次失效的模拟日；到期清理先于同日任务和月结，属性计算从当前附着记录取值。日期索引在读档时重建，已移除或续期的旧期限不会误删当前记录。
+
+修正的 `unresolved` 保存按实体区分的未知名称，`unknown_entities` 表示整个附着状态未知，`unresolved_properties` 保存定义中未确定的属性。未知状态不能按缺少修正处理；需要保留旧期限的续期也不能覆盖未知旧期限。原生替换和明确移除可以解决单个未知名称，整个实体未知时须先提供完整状态。
 
 事件调用支持匹配当前类型的 `country_event = { id = ... days = ... }` 和 `province_event = { id = ... days = ... }`。`days` 只接受非负整数；负值、小数、随机延迟及其他参数会被拒绝。原生条件调用使用 `TryEvent`，延迟执行使用 `Schedule`。已绑定的无条件调用可以编译成直接执行计划。
 

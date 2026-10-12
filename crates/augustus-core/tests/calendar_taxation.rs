@@ -79,6 +79,74 @@ fn balance(world: &World, id: usize) -> Option<i64> {
 }
 
 #[test]
+fn modifier_expiry_then_due_effects_precede_monthly_attribute_reads() {
+    let mut world = scenario();
+    world.set_modifiers(serde_json::from_str(r#"{"definitions":{"boost":{"values_micros":{"rate":1000000},"flags":{}}},"active":{}}"#).unwrap()).unwrap();
+    let mut attributes = world.attributes().clone();
+    attributes
+        .formulas
+        .get_mut(&EntityId(2))
+        .unwrap()
+        .get_mut("annual_tax")
+        .unwrap()
+        .channels
+        .push(augustus_core::AttributeChannel {
+            flat: vec![],
+            rates: vec![augustus_core::AttributeTerm::Modifiers {
+                target: Target::Owner,
+                property: "rate".into(),
+            }],
+        });
+    world.set_attributes(attributes).unwrap();
+    world
+        .attach_modifier(
+            EntityId(0),
+            "boost",
+            Some(20),
+            None,
+            augustus_core::ModifierRenewal::Replace,
+        )
+        .unwrap();
+    world
+        .schedule(
+            EntityId(0),
+            20,
+            vec![
+                Action::If {
+                    condition: augustus_core::Condition::HasModifier {
+                        target: Target::Current,
+                        name: "boost".into(),
+                    },
+                    then: vec![Action::Emit("stale".into())],
+                    otherwise: vec![Action::Emit("expired".into())],
+                },
+                Action::AttachModifier {
+                    target: Target::Current,
+                    name: "boost".into(),
+                    duration: Some(20),
+                    hidden: None,
+                    renewal: augustus_core::ModifierRenewal::Replace,
+                },
+            ],
+        )
+        .unwrap();
+    let saved = world.save("tax-modifiers").unwrap();
+    let mut resumed = World::restore(&saved, "tax-modifiers", world.schema()).unwrap();
+    for state in [&mut world, &mut resumed] {
+        state.advance_to(20).unwrap();
+        assert_eq!(state.events()[0].2, "expired");
+        assert_eq!(balance(state, 0), Some(12000));
+        state.advance_to(51).unwrap();
+        assert_eq!(balance(state, 0), Some(13000));
+        assert!(!state.has_modifier(EntityId(0), "boost").unwrap());
+    }
+    assert_eq!(
+        world.save("tax-modifiers").unwrap(),
+        resumed.save("tax-modifiers").unwrap()
+    );
+}
+
+#[test]
 fn calendar_has_content_defined_month_lengths_and_checked_dates() {
     let c = calendar(date(1444, 2, 28));
     assert_eq!(c.date(1).unwrap(), date(1444, 3, 1));

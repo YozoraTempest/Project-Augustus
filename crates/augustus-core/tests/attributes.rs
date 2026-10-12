@@ -118,6 +118,7 @@ fn world_fields_owners_buildings_goods_and_attached_modifiers_are_read_live() {
             )]
             .into_iter()
             .collect(),
+            ..Default::default()
         })
         .unwrap();
     let mut formula = formula(AttributeBase::Field {

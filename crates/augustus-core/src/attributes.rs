@@ -532,8 +532,33 @@ impl Attributes {
             AttributeTerm::Modifiers { target, property } => {
                 let target_entity = attribute_target(world, entity, *target)?;
                 if let Some(target_entity) = target_entity {
+                    if world.modifiers().unknown_entities.contains(&target_entity) {
+                        unresolved.insert(format!(
+                            "modifier:{}:unknown_namespace",
+                            world.entity(target_entity)?.name
+                        ));
+                        return Ok((values, true));
+                    }
+                    if let Some(names) = world.modifiers().unresolved.get(&target_entity) {
+                        for name in names {
+                            unresolved.insert(format!(
+                                "modifier:{}:{name}:unknown_attachment",
+                                world.entity(target_entity)?.name
+                            ));
+                        }
+                    }
                     if let Some(active) = world.modifiers().active.get(&target_entity) {
                         for name in active.keys() {
+                            if world
+                                .modifiers()
+                                .unresolved_properties
+                                .get(name)
+                                .is_some_and(|p| p.contains(property))
+                            {
+                                unresolved
+                                    .insert(format!("modifier:{name}:{property}:unknown_property"));
+                                continue;
+                            }
                             let data =
                                 world.modifiers().definitions.get(name).ok_or_else(|| {
                                     Error::Invalid("unknown attached attribute source".into())
