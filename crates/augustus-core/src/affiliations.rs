@@ -47,6 +47,11 @@ impl Affiliations {
         self.0.get(dimension)?.members.get(&entity)?.as_deref()
     }
 
+    pub fn group(&self, dimension: &str, entity: EntityId) -> Option<&str> {
+        let data = self.0.get(dimension)?;
+        data.groups.get(self.member(dimension, entity)?)?.as_deref()
+    }
+
     pub fn relation(
         &self,
         dimension: &str,
@@ -118,4 +123,13 @@ impl Affiliations {
         }
         Ok(())
     }
+}
+
+pub(crate) fn validate_condition(dimension: &str, value: &str) -> Result<(), Error> {
+    if dimension.is_empty() || value.is_empty() {
+        return Err(Error::Invalid(
+            "empty affiliation condition identifier".into(),
+        ));
+    }
+    Ok(())
 }

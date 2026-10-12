@@ -48,6 +48,67 @@ use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 
 #[test]
+fn affiliations_share_candidates_nested_scopes_and_delays_across_content_formats() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/affiliation-conditions");
+    let mut compatible = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    compatible.candidates(&["faith.control".into()], 0).unwrap();
+    native.restore(&compatible.save().unwrap()).unwrap();
+    for state in [&mut compatible, &mut native] {
+        let before = state.save().unwrap();
+        for _ in 0..3 {
+            assert_eq!(
+                state
+                    .view()
+                    .unwrap()
+                    .affiliations
+                    .member("religion", EntityId(0)),
+                Some("alpha")
+            );
+            assert_eq!(
+                state
+                    .view()
+                    .unwrap()
+                    .affiliations
+                    .group("religion", EntityId(1)),
+                Some("south")
+            );
+        }
+        assert_eq!(state.save().unwrap(), before);
+        state
+            .choose(&EventChoice {
+                pending: PendingEventId(0),
+                option: "0".into(),
+            })
+            .unwrap();
+    }
+    compatible.restore(&native.save().unwrap()).unwrap();
+    for state in [&mut compatible, &mut native] {
+        state.advance(1).unwrap();
+        state
+            .choose(&EventChoice {
+                pending: PendingEventId(1),
+                option: "0".into(),
+            })
+            .unwrap();
+        assert!(state.world().pending_events().is_empty());
+        assert_eq!(state.world().pending_tasks(), 0);
+        assert_eq!(
+            state.world().events(),
+            &[
+                (0, EntityId(0), "country".into()),
+                (0, EntityId(1), "province".into()),
+                (0, EntityId(0), "owner".into()),
+                (1, EntityId(0), "later".into()),
+            ]
+        );
+    }
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+}
+
+#[test]
 fn custom_descriptions_share_keys_hidden_visibility_and_cross_input_restore() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/custom-descriptions");

@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "fields": [
+    "value"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 1,
+      "values": {
+        "value": 0
+      }
+    },
+    {
+      "name": "Port",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {
+        "value": 0
+      }
+    }
+  ],
+  "affiliations": {
+    "religion": {
+      "groups": {
+        "alpha": "north",
+        "beta": "north",
+        "gamma": "south"
+      },
+      "members": {
+        "0": "alpha",
+        "1": "gamma"
+      },
+      "acceptance": {}
+    }
+  }
+}

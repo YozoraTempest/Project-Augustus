@@ -36,6 +36,8 @@ struct Scene {
     markers: augustus_core::Markers,
     #[serde(default, skip_serializing_if = "augustus_core::Governments::is_empty")]
     governments: augustus_core::Governments,
+    #[serde(default, skip_serializing_if = "augustus_core::Affiliations::is_empty")]
+    affiliations: augustus_core::Affiliations,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -87,6 +89,8 @@ pub struct EventView {
     pub markers: augustus_core::Markers,
     #[serde(skip_serializing_if = "augustus_core::Governments::is_empty")]
     pub governments: augustus_core::Governments,
+    #[serde(skip_serializing_if = "augustus_core::Affiliations::is_empty")]
+    pub affiliations: augustus_core::Affiliations,
 }
 
 /// Self-authored scenario exercising the same core from two content formats.
@@ -248,6 +252,7 @@ impl EventDemo {
         world.set_markers(scene.markers)?;
         world.set_modifiers(scene.modifiers)?;
         world.set_governments(scene.governments)?;
+        world.set_affiliations(scene.affiliations)?;
         world.set_event_catalog(catalog)?;
         Ok(Self { world, content })
     }
@@ -380,6 +385,7 @@ impl EventDemo {
             modifiers: self.world.modifiers().clone(),
             markers: self.world.markers().clone(),
             governments: self.world.governments().clone(),
+            affiliations: self.world.affiliations().clone(),
         })
     }
 }

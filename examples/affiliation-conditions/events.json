@@ -1,0 +1,155 @@
+[
+  {
+    "id": "faith.control",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "AffiliationMember": {
+                  "target": "Current",
+                  "dimension": "religion",
+                  "member": "alpha"
+                }
+              },
+              {
+                "AffiliationGroup": {
+                  "target": "Current",
+                  "dimension": "religion",
+                  "group": "north"
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "AffiliationMember": {
+                        "target": "Current",
+                        "dimension": "religion",
+                        "member": "beta"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "country"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "AffiliationMember": {
+                        "target": "Current",
+                        "dimension": "religion",
+                        "member": "gamma"
+                      }
+                    },
+                    {
+                      "AffiliationGroup": {
+                        "target": "Current",
+                        "dimension": "religion",
+                        "group": "south"
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "province"
+                  }
+                ],
+                "otherwise": []
+              }
+            },
+            {
+              "With": {
+                "target": "Owner",
+                "plan": [
+                  {
+                    "If": {
+                      "condition": {
+                        "All": [
+                          {
+                            "AffiliationMember": {
+                              "target": "Current",
+                              "dimension": "religion",
+                              "member": "alpha"
+                            }
+                          },
+                          {
+                            "AffiliationGroup": {
+                              "target": "Current",
+                              "dimension": "religion",
+                              "group": "north"
+                            }
+                          }
+                        ]
+                      },
+                      "then": [
+                        {
+                          "Emit": "owner"
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TryEvent": {
+                    "event": "faith.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "faith.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "later"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

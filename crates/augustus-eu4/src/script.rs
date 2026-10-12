@@ -908,6 +908,22 @@ impl<'a> ScriptCompiler<'a> {
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "religion" | "religion_group" => {
+                    let value = field.scalar()?;
+                    if value.trim().is_empty()
+                        || value.chars().any(|c| matches!(c, '$' | '@' | '[' | ']' | ':' | '.'))
+                        || value.bytes().all(|b| b.is_ascii_digit())
+                        || (value.len() == 3 && value.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()))
+                        || ["root", "from", "prev", "this", "secondary", "dominant", "heretic", "heathen"].iter().any(|name| value.eq_ignore_ascii_case(name))
+                    {
+                        return Err(field.error("religion conditions require a literal religion or group identifier; dynamic references are unsupported"));
+                    }
+                    if field.name == "religion" {
+                        Condition::AffiliationMember { target: Target::Current, dimension: "religion".into(), member: value.into() }
+                    } else {
+                        Condition::AffiliationGroup { target: Target::Current, dimension: "religion".into(), group: value.into() }
+                    }
+                }
                 "legitimacy" => {
                     self.government_metric(field, scope, "legitimacy")?;
                     let value = decimal(field)?;

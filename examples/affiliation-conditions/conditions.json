@@ -1,0 +1,31 @@
+{
+  "faith.control": {
+    "All": [
+      {
+        "AffiliationMember": {
+          "target": "Current",
+          "dimension": "religion",
+          "member": "alpha"
+        }
+      },
+      {
+        "AffiliationGroup": {
+          "target": "Current",
+          "dimension": "religion",
+          "group": "north"
+        }
+      }
+    ]
+  },
+  "faith.later": {
+    "All": [
+      {
+        "AffiliationGroup": {
+          "target": "Current",
+          "dimension": "religion",
+          "group": "north"
+        }
+      }
+    ]
+  }
+}

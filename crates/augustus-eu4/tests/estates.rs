@@ -783,6 +783,75 @@ fn startup_event_conditions_read_loaded_country_identity_and_calendar() {
 }
 
 #[test]
+fn startup_affiliation_conditions_read_loaded_history_through_nested_scopes_and_restore() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/religions/test.txt",
+        "test_religions={test_faith={}} remote_group={remote_faith={}}",
+    );
+    for path in [
+        "history/provinces/1 - North.txt",
+        "history/provinces/2 - East.txt",
+    ] {
+        append(temp.path(), path, "religion=remote_faith");
+    }
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        r#"on_startup={
+        events={faith.initial}
+        if={limit={tag=AAA religion=test_faith religion_group=test_religions} log=startup}
+    }"#,
+    );
+    write(
+        temp.path(),
+        "events/test.txt",
+        r#"
+        country_event={id=faith.initial is_triggered_only=yes
+            trigger={tag=AAA religion=test_faith religion_group=test_religions}
+            immediate={log=country capital_scope={if={limit={religion=remote_faith religion_group=remote_group NOT={religion_group=test_religions}} log=province}}}
+            option={name=Continue country_event={id=faith.later days=1}}}
+        country_event={id=faith.later is_triggered_only=yes
+            trigger={religion=test_faith religion_group=test_religions}
+            immediate={log=later} option={name=Continue}}
+    "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.pending_startup_effects.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|event| event.2.as_str())
+            .collect::<Vec<_>>(),
+        ["country", "province", "startup"]
+    );
+    let saved = loaded.save().unwrap();
+    let mut resumed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    resumed.restore(&saved).unwrap();
+    for state in [&mut loaded, &mut resumed] {
+        state
+            .initial
+            .choose_event(&augustus_core::EventChoice {
+                pending: augustus_core::PendingEventId(0),
+                option: "0".into(),
+            })
+            .unwrap();
+        state.advance(1).unwrap();
+        assert_eq!(state.initial.world().events().last().unwrap().2, "later");
+        assert_eq!(state.initial.world().pending_events().len(), 1);
+    }
+    assert_eq!(loaded.save().unwrap(), resumed.save().unwrap());
+}
+
+#[test]
 fn startup_once_records_are_global_persistent_and_part_of_content_identity() {
     let temp = startup_fixture();
     write(

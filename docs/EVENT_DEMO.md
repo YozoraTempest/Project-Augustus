@@ -204,6 +204,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 事件 `trigger` 支持已有的常量、变量、国库和无参数脚本条件，以及国家作用域的 `is_emperor`、`is_emperor_of_china`；职位条件读取当前持有人。`tag`／`TAG` 比较当前国家的字面标识，要求三位大写字母或数字；动态 `ROOT`、`FROM`、`PREV` 标识及国家标签变更尚未支持。`is_year` 表示当前年份大于或等于给定正整数，要求场景已提供日历。原生条件分别使用 `EntityNamed`、`YearAtLeast`。
 
+`religion = 字面宗教标识`、`religion_group = 字面分组标识` 支持国家和省份作用域，分别编译为核心 `AffiliationMember`、`AffiliationGroup`。查询从当前 `affiliations` 读取成员及其分组，不使用接受政策，也不缓存开局值。未知归属或分组会报错，不能通过取反变成已确定的真值。国家标签、省份编号、作用域引用、次要宗教、dominant 等特殊值和动态表达式尚未支持。自制场景、原生写法和交叉读档命令见 [宗教归属条件演示](../examples/affiliation-conditions/README.md)。
+
 `AND`、`OR`、`NOT` 及其小写写法可以嵌套，条件按声明顺序短路求值。多项 `NOT` 要求内部每项都不成立；未知触发器即使出现在常量分支中，也会报告编译错误。原生组合使用 `All`、`Any` 和 `Not`。
 
 `has_dlc` 使用固定终版、全部 DLC 基线，识别 22 个玩法资料片以及 American Dream、Purple Phoenix、Star and Crescent、Women in History、Dharma 的两个单位包。已识别名称编译为真，名称大小写或其他名称不匹配会报错。这只表示所选规则基线的内容可用性，各机制与效果的支持范围仍分别校验。

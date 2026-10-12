@@ -15,6 +15,18 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    /// Compare an entity's live membership in a content-defined dimension.
+    AffiliationMember {
+        target: Target,
+        dimension: String,
+        member: String,
+    },
+    /// Compare the live membership's group; unknown membership or grouping is an error.
+    AffiliationGroup {
+        target: Target,
+        dimension: String,
+        group: String,
+    },
     GovernmentMetricActive {
         target: Target,
         name: String,
@@ -178,6 +190,42 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::AffiliationMember {
+                target,
+                dimension,
+                member,
+            } => {
+                crate::affiliations::validate_condition(dimension, member)?;
+                let entity = world.target(current, *target)?;
+                let actual = world
+                    .affiliations()
+                    .member(dimension, entity)
+                    .ok_or_else(|| {
+                        Error::Invalid(format!(
+                            "unknown affiliation member {dimension} for entity {}",
+                            entity.0
+                        ))
+                    })?;
+                Ok(actual == member)
+            }
+            Self::AffiliationGroup {
+                target,
+                dimension,
+                group,
+            } => {
+                crate::affiliations::validate_condition(dimension, group)?;
+                let entity = world.target(current, *target)?;
+                let actual = world
+                    .affiliations()
+                    .group(dimension, entity)
+                    .ok_or_else(|| {
+                        Error::Invalid(format!(
+                            "unknown affiliation group {dimension} for entity {}",
+                            entity.0
+                        ))
+                    })?;
+                Ok(actual == group)
+            }
             Self::GovernmentMetricActive { target, name } => {
                 world.government_metric_active(world.target(current, *target)?, name)
             }

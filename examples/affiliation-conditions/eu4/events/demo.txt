@@ -1,0 +1,18 @@
+country_event={
+    id=faith.control is_triggered_only=yes
+    trigger={religion=alpha religion_group=north}
+    immediate={
+        if={limit={religion=alpha religion_group=north NOT={religion=beta}} log=country}
+        capital_scope={
+            if={limit={religion=gamma religion_group=south} log=province}
+            owner={if={limit={religion=alpha religion_group=north} log=owner}}
+        }
+    }
+    option={name=Continue country_event={id=faith.later days=1}}
+}
+country_event={
+    id=faith.later is_triggered_only=yes
+    trigger={religion_group=north}
+    immediate={log=later}
+    option={name=Continue}
+}
