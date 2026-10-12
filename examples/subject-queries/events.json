@@ -1,0 +1,21 @@
+[
+  {
+    "id": "subject.start", "scope": "Country",
+    "immediate": [
+      {"If": {"condition": {"All": [{"AnySubjectCountry": {"target": "Current", "condition": {"All": [{"EntityNamed": {"target": "Current", "name": "BBB"}}, {"SubjectType": {"target": "Current", "subject_type": "test_vassal"}}]}}}]}, "then": [{"Emit": "direct_vassal"}], "otherwise": []}},
+      {"If": {"condition": {"All": [{"AnySubjectCountry": {"target": "Current", "condition": {"All": [{"SubjectType": {"target": "Current", "subject_type": "test_tributary"}}]}}}]}, "then": [{"Emit": "direct_tributary"}], "otherwise": []}},
+      {"If": {"condition": {"All": [{"AnySubjectCountry": {"target": "Current", "condition": {"All": [{"SubjectType": {"target": "Current", "subject_type": "test_union"}}]}}}]}, "then": [{"Emit": "wrong"}], "otherwise": [{"Emit": "indirect_excluded"}]}},
+      {"Schedule": {"delay": 1, "plan": [{"TryEvent": {"event": "subject.later"}}]}}
+    ],
+    "options": [{"id": "0", "effects": [{"Emit": "first_choice"}]}],
+    "after": []
+  },
+  {
+    "id": "subject.later", "scope": "Country",
+    "immediate": [
+      {"With": {"target": "Capital", "plan": [{"With": {"target": "Owner", "plan": [{"If": {"condition": {"All": [{"Not": {"All": [{"SubjectType": {"target": "Current", "subject_type": "test_vassal"}}]}}]}, "then": [{"Emit": "independent_owner"}], "otherwise": []}}]}}]}}
+    ],
+    "options": [{"id": "0", "effects": [{"Emit": "later_choice"}]}],
+    "after": []
+  }
+]

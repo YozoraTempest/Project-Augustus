@@ -1,0 +1,3 @@
+{
+  "subject.later": {"All": [{"AnySubjectCountry": {"target": "Current", "condition": {"All": [{"SubjectType": {"target": "Current", "subject_type": "test_vassal"}}]}}}]}
+}

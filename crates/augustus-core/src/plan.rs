@@ -28,6 +28,14 @@ pub enum Condition {
         target: Target,
         condition: Box<Condition>,
     },
+    AnySubjectCountry {
+        target: Target,
+        condition: Box<Condition>,
+    },
+    SubjectType {
+        target: Target,
+        subject_type: String,
+    },
     With {
         target: Target,
         kind: crate::EntityKind,
@@ -317,6 +325,13 @@ impl Condition {
             Self::AnyOwnedProvince { target, condition } => {
                 world.any_owned_province(world.target(current, *target)?, condition)
             }
+            Self::AnySubjectCountry { target, condition } => {
+                world.any_subject_country(world.target(current, *target)?, condition)
+            }
+            Self::SubjectType {
+                target,
+                subject_type,
+            } => world.is_subject_of_type(world.target(current, *target)?, subject_type),
             Self::With {
                 target,
                 kind,

@@ -22,6 +22,10 @@ struct Scene {
     entities: Vec<SceneEntity>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     offices: BTreeMap<String, EntityId>,
+    #[serde(default, skip_serializing_if = "augustus_core::Politics::is_empty")]
+    politics: augustus_core::Politics,
+    #[serde(default, skip_serializing_if = "augustus_core::Subjects::is_empty")]
+    subjects: augustus_core::Subjects,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     global_scope_types: BTreeMap<String, EntityKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -105,6 +109,8 @@ pub struct PendingChoiceView {
 
 #[derive(Debug, Serialize)]
 pub struct EventView {
+    #[serde(skip_serializing_if = "augustus_core::Subjects::is_empty")]
+    pub subjects: augustus_core::Subjects,
     pub day: u64,
     pub pending_tasks: usize,
     pub entities: Vec<EventEntityView>,
@@ -164,6 +170,7 @@ impl EventDemo {
                     include_str!("../../../examples/events/eu4/common/scripted_effects/demo.txt"),
                 ))?;
                 let compiled = ScriptCompiler::new(&schema, &library, true)
+                    .with_subject_type_ids(scene.subjects.types.clone())
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
                     .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
                     .with_area_scopes(scene.area_scopes.clone())
@@ -257,6 +264,7 @@ impl EventDemo {
                     ));
                 }
                 let compiled = ScriptCompiler::new(&schema, &library, true)
+                    .with_subject_type_ids(scene.subjects.types.clone())
                     .with_casus_belli_types(casus_belli.types)
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
                     .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
@@ -373,12 +381,16 @@ impl EventDemo {
                 world.set_capital(EntityId(index), EntityId(capital))?;
             }
         }
-        if !scene.offices.is_empty() {
-            world.set_politics(augustus_core::Politics {
-                offices: scene.offices.clone(),
-                ..Default::default()
-            })?;
+        let mut politics = scene.politics;
+        for (name, holder) in scene.offices {
+            if politics.offices.insert(name, holder).is_some() {
+                return Err(Error::Invalid("duplicate scene political office".into()));
+            }
         }
+        if !politics.is_empty() {
+            world.set_politics(politics)?;
+        }
+        world.set_subjects(scene.subjects)?;
         world.set_completions(scene.completions)?;
         world.set_named_values(scene.named_values)?;
         world.set_markers(scene.markers)?;
@@ -546,6 +558,7 @@ impl EventDemo {
             })
             .collect::<Result<Vec<_>, augustus_core::Error>>()?;
         Ok(EventView {
+            subjects: self.world.subjects().clone(),
             day: self.world.day(),
             pending_tasks: self.world.pending_tasks(),
             entities,

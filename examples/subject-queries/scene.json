@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "fields": ["unused"],
+  "entities": [
+    {"name": "AAA", "kind": "Country", "owner": null, "capital": 4, "values": {}},
+    {"name": "BBB", "kind": "Country", "owner": null, "capital": 5, "values": {}},
+    {"name": "CCC", "kind": "Country", "owner": null, "capital": null, "values": {}},
+    {"name": "DDD", "kind": "Country", "owner": null, "capital": null, "values": {}},
+    {"name": "Port", "kind": "Province", "owner": 0, "capital": null, "values": {}},
+    {"name": "Inland", "kind": "Province", "owner": 1, "capital": null, "values": {}}
+  ],
+  "politics": {
+    "countries": {},
+    "offices": {},
+    "relations": [
+      {"kind": "subject", "first": 0, "second": 1, "subject_type": "test_vassal"},
+      {"kind": "subject", "first": 0, "second": 2, "subject_type": "test_tributary"},
+      {"kind": "subject", "first": 1, "second": 3, "subject_type": "test_union"}
+    ]
+  },
+  "subjects": {"types": ["test_vassal", "test_tributary", "test_union"], "known": true}
+}

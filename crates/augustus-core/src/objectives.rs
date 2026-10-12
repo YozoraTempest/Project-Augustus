@@ -51,6 +51,7 @@ impl Objectives {
                 world.governments(),
                 world.metrics(),
                 world.justifications(),
+                world.subjects(),
             )?;
         }
         let declared: BTreeSet<_> = self.groups.iter().flat_map(|g| &g.objectives).collect();

@@ -38,6 +38,7 @@ impl MissionDraft {
             .map(|file| root.read_text(&file.relative_path, TextEncoding::Windows1252))
             .collect::<Result<Vec<_>, _>>()?;
         let mut objectives = ScriptCompiler::new(world.schema(), &library, true)
+            .with_subject_type_ids(world.subjects().types.clone())
             .with_mission_ids(ids.clone())
             .with_modifier_ids(world.modifiers().definitions.keys().cloned().collect())
             .with_metric_ids(world.metrics().definitions.keys().cloned().collect())

@@ -250,7 +250,7 @@ pub(super) fn load_diplomacy(
     date: Date,
     politics: &mut Politics,
     report: &mut BootstrapReport,
-) -> Result<(), Error> {
+) -> Result<BTreeSet<String>, Error> {
     let mut subject_types = BTreeSet::new();
     for file in files
         .iter()
@@ -438,7 +438,76 @@ pub(super) fn load_diplomacy(
                 .count()
         })
         .sum();
-    Ok(())
+    Ok(subject_types)
+}
+
+pub(super) fn has_subject_mutation(
+    parsed: &ParsedText<'_>,
+    reader: jomini::text::ObjectReader<'_, '_, TextEncoding>,
+    scripted_effects: &BTreeSet<String>,
+    depth: usize,
+) -> Result<bool, Error> {
+    if depth > 64 {
+        return Err(Error::message(
+            parsed.source(),
+            "subject history nesting exceeds limit",
+        ));
+    }
+    for (key, _, value) in reader.fields() {
+        let name = key.read_string();
+        if crate::bootstrap::dated_name(&name) {
+            continue;
+        }
+        if scripted_effects.contains(&name)
+            || matches!(
+                name.as_str(),
+                "create_subject"
+                    | "create_vassal"
+                    | "create_march"
+                    | "create_union"
+                    | "change_subject_type"
+                    | "grant_independence"
+                    | "break_union"
+                    | "free_vassal"
+                    | "vassalize"
+                    | "inherit"
+                    | "release"
+                    | "release_all_subjects"
+                    | "release_all_possible_countries"
+                    | "effect"
+            )
+        {
+            return Ok(true);
+        }
+        if let Ok(body) = value.read_object()
+            && has_subject_mutation(parsed, body, scripted_effects, depth + 1)?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+pub(super) fn history_effect_names(
+    root: &ContentRoot,
+    files: &[FileEntry],
+) -> Result<BTreeSet<String>, Error> {
+    let mut names = BTreeSet::new();
+    for file in files
+        .iter()
+        .filter(|file| direct_txt(&file.relative_path, "common/scripted_effects"))
+    {
+        let document = root.read_text(&file.relative_path, TextEncoding::Windows1252)?;
+        let parsed = document.parse()?;
+        names.extend(
+            parsed
+                .reader()
+                .fields()
+                .map(|(key, _, _)| key.read_string())
+                .filter(|name| !name.starts_with('@')),
+        );
+    }
+    Ok(names)
 }
 
 #[derive(Debug, Serialize)]

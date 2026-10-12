@@ -473,6 +473,8 @@ impl VanillaWorld {
             }
         }
         let mut metric_scoped_history_unknown = false;
+        let mut subject_history_unknown = false;
+        let history_effect_names = politics::history_effect_names(&root, &files)?;
         for file in files
             .iter()
             .filter(|f| direct_txt(&f.relative_path, "history/countries"))
@@ -488,6 +490,7 @@ impl VanillaWorld {
             // ambiguity and leave those history-derived fields unset instead of guessing.
             if history_groups[&id].len() > 1 {
                 global_markers.mark_unknown();
+                subject_history_unknown = true;
                 continue;
             }
             country_histories.insert(id.clone());
@@ -505,6 +508,12 @@ impl VanillaWorld {
                 if crate::country_markers::has_global_mutation(&parsed, reader.clone(), 0)? {
                     global_markers.mark_unknown();
                 }
+                subject_history_unknown |= politics::has_subject_mutation(
+                    &parsed,
+                    reader.clone(),
+                    &history_effect_names,
+                    0,
+                )?;
                 let (direct, scoped) =
                     crate::province_metrics::history_mutations(reader.clone(), 0);
                 metric_scoped_history_unknown |= direct || scoped;
@@ -578,6 +587,12 @@ impl VanillaWorld {
                 if crate::country_markers::has_global_mutation(&parsed, reader.clone(), 0)? {
                     global_markers.mark_unknown();
                 }
+                subject_history_unknown |= politics::has_subject_mutation(
+                    &parsed,
+                    reader.clone(),
+                    &history_effect_names,
+                    0,
+                )?;
                 if nested_owner(reader.clone(), 0) {
                     unresolved_ownership.insert(id);
                 }
@@ -642,9 +657,16 @@ impl VanillaWorld {
             .set_global_markers(global_markers)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let mut politics = politics::bind_people(&initial, political_drafts, date, &mut report)?;
-        politics::load_diplomacy(&root, &files, &initial, date, &mut politics, &mut report)?;
+        let subject_types =
+            politics::load_diplomacy(&root, &files, &initial, date, &mut politics, &mut report)?;
         initial
             .set_politics(politics)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        initial
+            .set_subjects(augustus_core::Subjects {
+                types: subject_types,
+                known: !subject_history_unknown && report.unapplied_diplomacy_fields.is_empty(),
+            })
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let economy = economy.bind(&initial, &province_histories, &mut report.economy)?;
         initial
@@ -729,6 +751,7 @@ impl VanillaWorld {
                 .keys()
                 .cloned()
                 .collect(),
+            initial.world().subjects().types.clone(),
             initial
                 .world()
                 .governments()

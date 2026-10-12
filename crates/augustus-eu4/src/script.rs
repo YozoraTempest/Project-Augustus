@@ -260,6 +260,7 @@ pub struct ScriptCompiler<'a> {
     global_scope_types: BTreeMap<String, EntityKind>,
     mission_ids: BTreeSet<String>,
     modifier_ids: BTreeSet<String>,
+    subject_type_ids: Option<BTreeSet<String>>,
     casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
     government_metric_ids: BTreeSet<String>,
     metric_ids: BTreeSet<String>,
@@ -280,6 +281,7 @@ impl<'a> ScriptCompiler<'a> {
             global_scope_types: BTreeMap::new(),
             mission_ids: BTreeSet::new(),
             modifier_ids: BTreeSet::new(),
+            subject_type_ids: Some(BTreeSet::new()),
             casus_belli_types: BTreeMap::new(),
             government_metric_ids: BTreeSet::new(),
             metric_ids: BTreeSet::new(),
@@ -302,6 +304,17 @@ impl<'a> ScriptCompiler<'a> {
 
     pub fn with_metric_ids(mut self, ids: BTreeSet<String>) -> Self {
         self.metric_ids = ids;
+        self
+    }
+
+    pub fn with_subject_type_ids(mut self, ids: BTreeSet<String>) -> Self {
+        self.subject_type_ids = Some(ids);
+        self
+    }
+
+    /// Initial conditions bind declarations later against the constructed world.
+    pub(crate) fn with_unbound_subject_types(mut self) -> Self {
+        self.subject_type_ids = None;
         self
     }
 
@@ -1555,6 +1568,28 @@ impl<'a> ScriptCompiler<'a> {
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "any_subject_country" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("subject queries require country scope"));
+                    }
+                    Condition::AnySubjectCountry {
+                        target: Target::Current,
+                        condition: Box::new(self.conditions(field.block()?, EntityKind::Country)?),
+                    }
+                }
+                "is_subject_of_type" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("subject type queries require country scope"));
+                    }
+                    let subject_type = field.scalar()?;
+                    if !crate::country_markers::literal_name(subject_type) {
+                        return Err(field.error("subject type requires a literal identifier"));
+                    }
+                    if self.subject_type_ids.as_ref().is_some_and(|ids| !ids.contains(subject_type)) {
+                        return Err(field.error(format!("unregistered subject type {subject_type}")));
+                    }
+                    Condition::SubjectType {target: Target::Current, subject_type: subject_type.into()}
+                }
                 "any_owned_province" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("owned province queries require country scope"));

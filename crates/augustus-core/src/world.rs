@@ -87,6 +87,8 @@ pub struct World {
     pub(crate) event_catalog: crate::EventCatalog,
     pub(crate) event_queue: crate::event_choices::EventQueue,
     pub(crate) politics: Politics,
+    pub(crate) subjects: crate::Subjects,
+    pub(crate) subject_index: crate::subjects::SubjectIndex,
     pub(crate) country_controllers: BTreeMap<EntityId, crate::CountryController>,
     pub(crate) global_scopes: BTreeMap<String, EntityId>,
     pub(crate) known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
@@ -132,6 +134,8 @@ struct Snapshot {
     random: ChaCha8Rng,
     #[serde(default, skip_serializing_if = "Politics::is_empty")]
     politics: Politics,
+    #[serde(default, skip_serializing_if = "crate::Subjects::is_empty")]
+    subjects: crate::Subjects,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     country_controllers: BTreeMap<EntityId, crate::CountryController>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -208,6 +212,8 @@ impl World {
             event_catalog: crate::EventCatalog::default(),
             event_queue: crate::event_choices::EventQueue::default(),
             politics: Politics::default(),
+            subjects: crate::Subjects::default(),
+            subject_index: crate::subjects::SubjectIndex::default(),
             country_controllers: BTreeMap::new(),
             global_scopes: BTreeMap::new(),
             known_absent_targets: BTreeMap::new(),
@@ -558,6 +564,7 @@ impl World {
             &self.governments,
             &self.metrics,
             &self.justifications,
+            &self.subjects,
         )?;
         if delay == 0 {
             return Err(Error::Invalid(
@@ -693,6 +700,7 @@ impl World {
             events: self.events.clone(),
             random: self.random.clone(),
             politics: self.politics.clone(),
+            subjects: self.subjects.clone(),
             country_controllers: self.country_controllers.clone(),
             global_scopes: self.global_scopes.clone(),
             known_absent_targets: self.known_absent_targets.clone(),
@@ -762,6 +770,8 @@ impl World {
             rules,
             random: snapshot.random,
             politics: snapshot.politics,
+            subjects: snapshot.subjects,
+            subject_index: crate::subjects::SubjectIndex::default(),
             country_controllers: snapshot.country_controllers,
             global_scopes: snapshot.global_scopes,
             known_absent_targets: snapshot.known_absent_targets,
@@ -788,6 +798,7 @@ impl World {
             global_markers: snapshot.global_markers,
         };
         world.rebuild_ownership();
+        world.subject_index = crate::subjects::SubjectIndex::from_politics(&world.politics);
         world
             .ownership
             .restore_order(snapshot.owned_province_order)?;
@@ -809,6 +820,7 @@ impl World {
                 &world.governments,
                 &world.metrics,
                 &world.justifications,
+                &world.subjects,
             )?;
         }
         world.event_catalog.validate(&world)?;
@@ -839,6 +851,7 @@ impl World {
             }
         }
         world.politics.validate(&world)?;
+        world.subjects.validate(&world.politics)?;
         world.economy.validate(&world)?;
         world.technology.validate(&world)?;
         world.modifiers.validate(&world)?;
@@ -893,6 +906,7 @@ impl World {
                 &world.governments,
                 &world.metrics,
                 &world.justifications,
+                &world.subjects,
             )?;
             world.tasks.insert((task.day, task.sequence), task);
         }
@@ -932,6 +946,7 @@ impl World {
                 &self.governments,
                 &self.metrics,
                 &self.justifications,
+                &self.subjects,
             )?;
         }
         for task in self.tasks.values() {
@@ -945,9 +960,23 @@ impl World {
                 &self.governments,
                 &self.metrics,
                 &self.justifications,
+                &self.subjects,
             )?;
         }
         Ok(())
+    }
+
+    pub fn validate_condition(&self, condition: &crate::Condition) -> Result<(), Error> {
+        validate_condition(
+            condition,
+            &self.schema,
+            &self.completions,
+            &self.modifiers,
+            &self.governments,
+            &self.metrics,
+            &self.justifications,
+            &self.subjects,
+        )
     }
 }
 
@@ -962,6 +991,7 @@ pub(crate) fn validate_plan(
     governments: &Governments,
     metrics: &crate::Metrics,
     justifications: &crate::Justifications,
+    subjects: &crate::Subjects,
 ) -> Result<(), Error> {
     for action in plan {
         match action {
@@ -980,6 +1010,7 @@ pub(crate) fn validate_plan(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
                 validate_plan(
                     plan,
@@ -991,6 +1022,7 @@ pub(crate) fn validate_plan(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
             }
             Action::ForEach {
@@ -1010,6 +1042,7 @@ pub(crate) fn validate_plan(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
                 validate_plan(
                     plan,
@@ -1021,6 +1054,7 @@ pub(crate) fn validate_plan(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
             }
             Action::SetAffiliation {
@@ -1095,6 +1129,7 @@ pub(crate) fn validate_plan(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
             }
             Action::BindGlobalScope { name } | Action::ClearGlobalScope { name } => {
@@ -1130,6 +1165,7 @@ pub(crate) fn validate_plan(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
                 validate_plan(
                     then,
@@ -1141,6 +1177,7 @@ pub(crate) fn validate_plan(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
                 validate_plan(
                     otherwise,
@@ -1152,6 +1189,7 @@ pub(crate) fn validate_plan(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
             }
             Action::RandomBranch { then, otherwise } => {
@@ -1165,6 +1203,7 @@ pub(crate) fn validate_plan(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
                 validate_plan(
                     otherwise,
@@ -1176,6 +1215,7 @@ pub(crate) fn validate_plan(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
             }
             Action::With { plan, .. } | Action::Preview { plan } => validate_plan(
@@ -1188,6 +1228,7 @@ pub(crate) fn validate_plan(
                 governments,
                 metrics,
                 justifications,
+                subjects,
             )?,
             Action::Schedule { delay, plan } => {
                 if *delay == 0 {
@@ -1203,6 +1244,7 @@ pub(crate) fn validate_plan(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
             }
             Action::Accumulate { field, source, .. }
@@ -1219,6 +1261,7 @@ pub(crate) fn validate_plan(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_condition(
     condition: &crate::Condition,
     schema: &Schema,
@@ -1227,6 +1270,7 @@ pub(crate) fn validate_condition(
     governments: &Governments,
     metrics: &crate::Metrics,
     justifications: &crate::Justifications,
+    subjects: &crate::Subjects,
 ) -> Result<(), Error> {
     match condition {
         crate::Condition::HasJustification {
@@ -1250,6 +1294,7 @@ pub(crate) fn validate_condition(
         crate::Condition::AffiliationGroup {
             dimension, group, ..
         } => crate::affiliations::validate_condition(dimension, Some(group)),
+        crate::Condition::SubjectType { subject_type, .. } => subjects.identifier(subject_type),
         crate::Condition::GovernmentKind { kind, .. } => {
             crate::governments::validate_identifier(kind)
         }
@@ -1286,7 +1331,8 @@ pub(crate) fn validate_condition(
             "year condition requires a positive year".into(),
         )),
         crate::Condition::ScopeIsCurrent(selector) => selector.validate(),
-        crate::Condition::With { condition, .. }
+        crate::Condition::AnySubjectCountry { condition, .. }
+        | crate::Condition::With { condition, .. }
         | crate::Condition::AnyOwnedProvince { condition, .. } => validate_condition(
             condition,
             schema,
@@ -1295,6 +1341,7 @@ pub(crate) fn validate_condition(
             governments,
             metrics,
             justifications,
+            subjects,
         ),
         crate::Condition::InScope {
             selector,
@@ -1310,6 +1357,7 @@ pub(crate) fn validate_condition(
                 governments,
                 metrics,
                 justifications,
+                subjects,
             )
         }
         crate::Condition::GeographicMember { name, .. } if name.trim().is_empty() => Err(
@@ -1328,6 +1376,7 @@ pub(crate) fn validate_condition(
                     governments,
                     metrics,
                     justifications,
+                    subjects,
                 )?;
             }
             Ok(())
@@ -1340,6 +1389,7 @@ pub(crate) fn validate_condition(
             governments,
             metrics,
             justifications,
+            subjects,
         ),
         _ => Ok(()),
     }

@@ -158,6 +158,7 @@ impl EventCatalog {
                 world.governments(),
                 world.metrics(),
                 world.justifications(),
+                world.subjects(),
             )?;
         }
         for definition in self.definitions.values() {
@@ -175,6 +176,7 @@ impl EventCatalog {
                     world.governments(),
                     world.metrics(),
                     world.justifications(),
+                    world.subjects(),
                 )?;
             }
         }

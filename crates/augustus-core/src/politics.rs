@@ -206,6 +206,8 @@ impl World {
         }
         politics.relations.sort();
         politics.validate(self)?;
+        self.subjects.validate(&politics)?;
+        self.subject_index = crate::subjects::SubjectIndex::from_politics(&politics);
         self.politics = politics;
         Ok(())
     }

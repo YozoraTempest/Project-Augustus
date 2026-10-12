@@ -815,6 +815,12 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             ..Default::default()
         })
         .unwrap();
+    native
+        .set_subjects(augustus_core::Subjects {
+            types: ["default", "test_vassal"].map(String::from).into(),
+            known: true,
+        })
+        .unwrap();
     for index in 4..8 {
         native
             .mark_target_absent(augustus_core::EntityId(index), augustus_core::Target::Owner)

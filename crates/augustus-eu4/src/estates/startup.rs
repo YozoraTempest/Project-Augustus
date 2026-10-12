@@ -39,6 +39,7 @@ struct Compiler {
     startup_metadata: bool,
     mission_ids: BTreeSet<String>,
     modifier_ids: BTreeSet<String>,
+    subject_type_ids: BTreeSet<String>,
     government_metric_ids: BTreeSet<String>,
     metric_ids: BTreeSet<String>,
     area_scopes: BTreeMap<String, Vec<u32>>,
@@ -79,6 +80,7 @@ impl Compiler {
                 "add_legitimacy" | "custom_tooltip" | "set_global_flag" | "clr_global_flag" => {
                     let library = crate::ScriptLibrary::new();
                     let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                        .with_subject_type_ids(self.subject_type_ids.clone())
                         .with_hidden_descriptions(self.hidden_descriptions)
                         .with_government_metric_ids(self.government_metric_ids.clone())
                         .with_metric_ids(self.metric_ids.clone())
@@ -164,6 +166,7 @@ impl Compiler {
                 {
                     let library = crate::ScriptLibrary::new();
                     let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                        .with_subject_type_ids(self.subject_type_ids.clone())
                         .with_metric_ids(self.metric_ids.clone())
                         .with_hidden_descriptions(self.hidden_descriptions)
                         .with_area_scopes(self.area_scopes.clone())
@@ -205,6 +208,7 @@ impl Compiler {
                 | "divide_variable" => {
                     let library = crate::ScriptLibrary::new();
                     let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                        .with_subject_type_ids(self.subject_type_ids.clone())
                         .with_hidden_descriptions(self.hidden_descriptions)
                         .with_government_metric_ids(self.government_metric_ids.clone())
                         .with_metric_ids(self.metric_ids.clone())
@@ -420,6 +424,7 @@ impl EstateStartup {
         files: &[FileEntry],
         schema: &Schema,
         modifier_ids: BTreeSet<String>,
+        subject_type_ids: BTreeSet<String>,
         government_metric_ids: BTreeSet<String>,
         metric_ids: BTreeSet<String>,
         area_scopes: BTreeMap<String, Vec<u32>>,
@@ -438,6 +443,7 @@ impl EstateStartup {
             startup_metadata: false,
             mission_ids: crate::missions::identifiers(root, files)?,
             modifier_ids,
+            subject_type_ids,
             government_metric_ids,
             metric_ids,
             area_scopes,
@@ -692,6 +698,11 @@ impl EstateStartup {
                 global_markers.mark_unknown();
                 initial
                     .set_global_markers(global_markers)
+                    .map_err(|e| Error::caused_by("common/on_actions", e))?;
+                let mut subjects = initial.world().subjects().clone();
+                subjects.known = false;
+                initial
+                    .set_subjects(subjects)
                     .map_err(|e| Error::caused_by("common/on_actions", e))?;
                 let mut modifiers = initial.world().modifiers().clone();
                 modifiers.unknown_entities.extend(
@@ -1052,6 +1063,7 @@ fn load_events(
         {
             let document = root.read_text(&file.relative_path, ENCODING)?;
             let compiled = crate::ScriptCompiler::new(&compiler.schema, &library, true)
+                .with_subject_type_ids(compiler.subject_type_ids.clone())
                 .with_government_metric_ids(compiler.government_metric_ids.clone())
                 .with_metric_ids(compiler.metric_ids.clone())
                 .with_area_scopes(compiler.area_scopes.clone())

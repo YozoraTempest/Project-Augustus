@@ -134,6 +134,17 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/g
 
 原生场景通过 `global_markers` 提供初始状态：`known: true` 表示未记录的名称为假，默认的 `known: false` 表示其他名称未知；`values` 中的明确布尔值可以确定个别名称。状态随存档保存，延期查询读取执行时的值。当前原版加载器遇到尚未执行的历史全局标记操作，或开局脚本执行失败时，保留全局状态未知。
 
+`examples/subject-queries` 演示直接属国与类型条件。国家作用域中的 `any_subject_country` 检查当前直接成员，包括场景中声明的朝贡关系；`is_subject_of_type` 按注册标识精确匹配。下一级属国不会自动成为上一级国家的直接成员。可以先保存，再从原生输入继续延期事件：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/subject-queries --trigger subject.start --choose 0:0 --save subject_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/subject-queries --input native --load subject_waiting.json --days 1 --choose 1:0
+```
+
+场景在 `politics.relations` 中提供关系，在 `subjects.types` 中声明类型，`subjects.known: true` 表示当前关系列表完整。列表不完整时，查询保留未知；未注册类型和错误作用域会被拒绝。旧场景缺少这项声明时，也不能据此推断国家没有属国。关系索引由当前记录建立，保存恢复后重建；延期条件读取执行时的关系。
+
+兼容编译器通过 `with_subject_type_ids` 接收类型声明。原版加载器从本地 `common/subject_types` 和选定日期的外交历史取得初始数据，供开局条件、任务与事件使用。遇到已识别但尚未执行的历史关系变更、未知外交字段或启动失败时，不把历史记录当作完整的当前状态。当前支持查询；属国数量条件、创建与解除效果，以及成员遍历效果尚未接入。
+
 `examples/government-metrics` 演示正统性的增减、范围限制、实时条件和延期事件：
 
 ```sh

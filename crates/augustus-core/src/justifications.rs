@@ -107,6 +107,7 @@ impl Justifications {
                     &world.governments,
                     &world.metrics,
                     self,
+                    world.subjects(),
                 )?;
             }
         }

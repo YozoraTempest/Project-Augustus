@@ -24,6 +24,7 @@ pub(super) enum Condition {
     Marker(String),
     Numeric(augustus_core::Condition),
     Scoped(augustus_core::Condition),
+    Subject(augustus_core::Condition),
     Control(augustus_core::CountryController),
     Institution(String, String),
     Estate(String),
@@ -58,6 +59,44 @@ impl Condition {
                 let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
                 equal(op, &fail)?;
                 Ok(match name.as_str() {
+                    "is_subject_of_type" | "any_subject_country" => {
+                        let schema =
+                            augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
+                        let library = crate::ScriptLibrary::new();
+                        let compiler = crate::ScriptCompiler::new(&schema, &library, false)
+                            .with_unbound_subject_types();
+                        let scope = if country {
+                            augustus_core::EntityKind::Country
+                        } else {
+                            augustus_core::EntityKind::Province
+                        };
+                        let compiled = if name == "any_subject_country" {
+                            compiler.compile_block_condition_reader(
+                                parsed,
+                                &name,
+                                block(&value, &fail)?,
+                                at,
+                                scope,
+                            )
+                        } else {
+                            compiler.compile_scalar_condition_reader(
+                                parsed,
+                                &name,
+                                value
+                                    .read_string()
+                                    .map_err(|_| fail("expected subject type identifier"))?,
+                                at,
+                                scope,
+                            )
+                        };
+                        match compiled {
+                            Ok(condition) => Self::Subject(condition),
+                            Err(error) => {
+                                report.unsupported(parsed, "trigger", &name, at);
+                                Self::Unknown(error.to_string())
+                            }
+                        }
+                    }
                     "exists" | "has_global_flag" => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
@@ -449,6 +488,21 @@ impl Condition {
         estates: EstateLookup<'_>,
     ) -> Option<bool> {
         match self {
+            Self::Subject(condition) => {
+                let entity = province
+                    .unwrap_or_else(|| initial.country_entity(tag).expect("registered country"));
+                match initial
+                    .world()
+                    .validate_condition(condition)
+                    .and_then(|()| condition.evaluate(initial.world(), entity))
+                {
+                    Ok(value) => Some(value),
+                    Err(error) => {
+                        reasons.insert(format!("unknown_subject_condition:{error}"));
+                        None
+                    }
+                }
+            }
             Self::Control(expected) => {
                 let entity = province
                     .unwrap_or_else(|| initial.country_entity(tag).expect("registered country"));
@@ -736,6 +790,7 @@ impl Condition {
             }) => replace(name),
             Self::Numeric(_) => true,
             Self::Scoped(_) => true,
+            Self::Subject(_) => true,
             Self::Match(name, value) | Self::Institution(name, value) => {
                 replace(name) && replace(value)
             }

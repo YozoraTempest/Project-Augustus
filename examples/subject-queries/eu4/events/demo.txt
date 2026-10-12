@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+country_event = {
+    id = subject.start
+    is_triggered_only = yes
+    immediate = {
+        if = { limit = { any_subject_country = { tag = BBB is_subject_of_type = test_vassal } } log = direct_vassal }
+        if = { limit = { any_subject_country = { is_subject_of_type = test_tributary } } log = direct_tributary }
+        if = { limit = { any_subject_country = { is_subject_of_type = test_union } } log = wrong } else = { log = indirect_excluded }
+        country_event = { id = subject.later days = 1 }
+    }
+    option = { name = accept log = first_choice }
+}
+
+country_event = {
+    id = subject.later
+    is_triggered_only = yes
+    trigger = { any_subject_country = { is_subject_of_type = test_vassal } }
+    immediate = {
+        capital_scope = { owner = { if = { limit = { NOT = { is_subject_of_type = test_vassal } } log = independent_owner } } }
+    }
+    option = { name = accept log = later_choice }
+}

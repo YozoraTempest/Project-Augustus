@@ -189,6 +189,10 @@ impl InitialWorld {
         self.world.set_politics(politics)
     }
 
+    pub fn set_subjects(&mut self, subjects: crate::Subjects) -> Result<(), Error> {
+        self.world.set_subjects(subjects)
+    }
+
     pub fn mark_target_absent(
         &mut self,
         current: EntityId,
