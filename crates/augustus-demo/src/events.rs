@@ -172,6 +172,7 @@ impl EventDemo {
                 let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_subject_type_ids(scene.subjects.types.clone())
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
+                    .with_government_form_ids(scene.governments.forms.keys().cloned().collect())
                     .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
                     .with_area_scopes(scene.area_scopes.clone())
                     .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
@@ -267,6 +268,7 @@ impl EventDemo {
                     .with_subject_type_ids(scene.subjects.types.clone())
                     .with_casus_belli_types(casus_belli.types)
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
+                    .with_government_form_ids(scene.governments.forms.keys().cloned().collect())
                     .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
                     .with_area_scopes(scene.area_scopes.clone())
                     .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
@@ -602,6 +604,7 @@ fn effect_labels(
                 effect_labels(otherwise, durations, descriptions);
             }
             Action::With { plan, .. }
+            | Action::ChangeGovernment { before: plan, .. }
             | Action::InScope { plan, .. }
             | Action::ForEach { plan, .. }
             | Action::ForEachOwnedProvince { plan, .. }

@@ -43,6 +43,7 @@ impl MissionDraft {
             .with_modifier_ids(world.modifiers().definitions.keys().cloned().collect())
             .with_metric_ids(world.metrics().definitions.keys().cloned().collect())
             .with_government_metric_ids(world.governments().metrics.keys().cloned().collect())
+            .with_government_form_ids(world.governments().forms.keys().cloned().collect())
             .with_area_scopes(areas.clone())
             .with_religious_school_groups(world.affiliations().0["religious_school"].groups.clone())
             .compile_missions(&documents)?;

@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+country_event={id=transition.start is_triggered_only=yes
+    immediate={change_government=monarchy change_government=republic}
+    option={name=continue change_government=monarchy country_event={id=transition.later days=1}}
+    after={log=after_first}}
+country_event={id=transition.later is_triggered_only=yes trigger={government=monarchy}
+    immediate={change_government=native change_government=native change_government=theocracy change_government=tribal}
+    option={name=finish} after={log=finished}}

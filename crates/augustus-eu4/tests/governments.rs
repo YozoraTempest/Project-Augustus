@@ -211,18 +211,20 @@ fn special_mechanics_and_unknown_flags_do_not_enable_monarchy_metrics() {
             "add_government_reform = special",
         );
         let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
-        assert!(
-            loaded
-                .country("AAA")
-                .unwrap()
-                .government
-                .unwrap()
-                .metrics
-                .as_ref()
-                .unwrap()
-                .is_empty(),
-            "{flags}"
-        );
+        let metrics = loaded
+            .country("AAA")
+            .unwrap()
+            .government
+            .unwrap()
+            .metrics
+            .as_ref()
+            .unwrap();
+        assert!(!metrics.contains_key("legitimacy"), "{flags}");
+        if flags == "has_devotion = yes" {
+            assert_eq!(metrics.get("devotion"), Some(&None));
+        } else {
+            assert!(metrics.is_empty(), "{flags}");
+        }
     }
     let temp = copy_fixture();
     append(
@@ -245,7 +247,7 @@ fn special_mechanics_and_unknown_flags_do_not_enable_monarchy_metrics() {
             .metrics
             .is_none()
     );
-    assert!(
+    assert_eq!(
         loaded
             .country("BBB")
             .unwrap()
@@ -254,7 +256,8 @@ fn special_mechanics_and_unknown_flags_do_not_enable_monarchy_metrics() {
             .metrics
             .as_ref()
             .unwrap()
-            .is_empty()
+            .get("republican_tradition"),
+        Some(&None)
     );
 }
 

@@ -49,6 +49,262 @@ fn metric(operation: NumericOperation, value: i64) -> Action {
     }
 }
 
+fn transition_world() -> World {
+    let mut world = world();
+    let mut governments = world.governments().clone();
+    governments.forms = [
+        (
+            "first_kind".into(),
+            augustus_core::GovernmentForm {
+                reforms: ["first".into()].into(),
+                metrics: [("authority".into(), Some(50_000))].into(),
+                ..Default::default()
+            },
+        ),
+        (
+            "second_kind".into(),
+            augustus_core::GovernmentForm {
+                reforms: ["second".into()].into(),
+                inactive_metrics: [("authority".into(), Some(100_000))].into(),
+                ..Default::default()
+            },
+        ),
+    ]
+    .into();
+    governments
+        .countries
+        .get_mut(&EntityId(0))
+        .unwrap()
+        .reforms
+        .as_mut()
+        .unwrap()
+        .insert("second".into());
+    world.set_governments(governments).unwrap();
+    world
+}
+
+fn change(kind: &str, before: augustus_core::Plan) -> Action {
+    Action::ChangeGovernment {
+        target: Target::Current,
+        kind: kind.into(),
+        before,
+    }
+}
+
+#[test]
+fn transitions_run_callbacks_on_old_state_and_same_form_preserves_reforms() {
+    let mut world = transition_world();
+    let before = vec![Action::If {
+        condition: Condition::All(vec![
+            Condition::GovernmentKind {
+                target: Target::Current,
+                kind: "first_kind".into(),
+            },
+            Condition::GovernmentReform {
+                target: Target::Current,
+                id: "second".into(),
+            },
+        ]),
+        then: vec![
+            Action::Emit("old state".into()),
+            metric(NumericOperation::Subtract, 3000),
+        ],
+        otherwise: vec![],
+    }];
+    world
+        .execute(EntityId(0), &[change("first_kind", before.clone())])
+        .unwrap();
+    assert_eq!(
+        world
+            .government_metric_value(EntityId(0), "authority")
+            .unwrap(),
+        72_125
+    );
+    assert!(
+        world
+            .government_reform_selected(EntityId(0), "second")
+            .unwrap()
+    );
+    world
+        .execute(EntityId(0), &[change("second_kind", before)])
+        .unwrap();
+    assert_eq!(
+        world
+            .events()
+            .iter()
+            .filter(|(_, _, text)| text == "old state")
+            .count(),
+        2
+    );
+    assert_eq!(world.government_kind(EntityId(0)).unwrap(), "second_kind");
+    assert!(
+        !world
+            .government_reform_selected(EntityId(0), "first")
+            .unwrap()
+    );
+    assert_eq!(
+        world
+            .government_metric_stored_value(EntityId(0), "authority")
+            .unwrap(),
+        100_000
+    );
+    assert_eq!(yield_value(&world).value_micros, Some(750_000));
+    world
+        .execute(EntityId(0), &[change("first_kind", vec![])])
+        .unwrap();
+    assert_eq!(
+        world
+            .government_metric_value(EntityId(0), "authority")
+            .unwrap(),
+        50_000
+    );
+    assert!(
+        !world.governments().countries[&EntityId(0)]
+            .inactive_metrics
+            .contains_key("authority")
+    );
+    assert_eq!(yield_value(&world).value_micros, Some(1_325_000));
+}
+
+#[test]
+fn transitioned_values_and_deferred_callbacks_survive_restore() {
+    let mut world = transition_world();
+    let mut governments = world.governments().clone();
+    governments
+        .forms
+        .get_mut("second_kind")
+        .unwrap()
+        .inactive_metrics
+        .clear();
+    world.set_governments(governments).unwrap();
+    world
+        .execute(
+            EntityId(0),
+            &[Action::Schedule {
+                delay: 2,
+                plan: vec![change(
+                    "second_kind",
+                    vec![metric(NumericOperation::Subtract, 3000)],
+                )],
+            }],
+        )
+        .unwrap();
+    let saved = world.save("transition").unwrap();
+    let mut restored = World::restore(&saved, "transition", world.schema()).unwrap();
+    world.advance_to(2).unwrap();
+    restored.advance_to(2).unwrap();
+    assert_eq!(world, restored);
+    assert_eq!(
+        world
+            .government_metric_stored_value(EntityId(0), "authority")
+            .unwrap(),
+        72_125
+    );
+    assert_eq!(
+        World::restore(
+            &world.save("transition").unwrap(),
+            "transition",
+            world.schema()
+        )
+        .unwrap(),
+        world
+    );
+}
+
+#[test]
+fn form_validation_checks_references_bounds_and_pending_dependencies() {
+    let mut world = transition_world();
+    for bad in ["missing_reform", "out_of_range", "duplicate_metric"] {
+        let before = world.clone();
+        let mut governments = world.governments().clone();
+        let form = governments.forms.get_mut("first_kind").unwrap();
+        match bad {
+            "missing_reform" => {
+                form.reforms.insert("missing".into());
+            }
+            "out_of_range" => {
+                form.metrics.insert("authority".into(), Some(100_001));
+            }
+            _ => {
+                form.inactive_metrics
+                    .insert("authority".into(), Some(100_000));
+            }
+        }
+        assert!(world.set_governments(governments).is_err());
+        assert_eq!(world, before);
+    }
+    world
+        .execute(
+            EntityId(0),
+            &[Action::Schedule {
+                delay: 1,
+                plan: vec![change("second_kind", vec![])],
+            }],
+        )
+        .unwrap();
+    let before = world.clone();
+    let mut governments = world.governments().clone();
+    governments.forms.remove("second_kind");
+    assert!(world.set_governments(governments).is_err());
+    assert_eq!(world, before);
+}
+
+#[test]
+fn callback_failure_preserves_prior_writes_but_does_not_install_form() {
+    let mut world = transition_world();
+    let error = world
+        .execute(
+            EntityId(0),
+            &[change(
+                "second_kind",
+                vec![
+                    metric(NumericOperation::Subtract, 3000),
+                    metric(NumericOperation::Divide { scale: 1000 }, 0),
+                ],
+            )],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("zero"));
+    assert_eq!(world.government_kind(EntityId(0)).unwrap(), "first_kind");
+    assert_eq!(
+        world
+            .government_metric_value(EntityId(0), "authority")
+            .unwrap(),
+        72_125
+    );
+    assert!(world.save("transition").is_err());
+    assert!(world.execute(EntityId(0), &[]).is_err());
+}
+
+#[test]
+fn transitions_share_instruction_budget_and_resolve_country_scope() {
+    let mut scoped = transition_world();
+    scoped
+        .execute(
+            EntityId(2),
+            &[Action::ChangeGovernment {
+                target: Target::Owner,
+                kind: "second_kind".into(),
+                before: vec![Action::Emit("owner callback".into())],
+            }],
+        )
+        .unwrap();
+    assert_eq!(scoped.events().last().unwrap().1, EntityId(0));
+    let mut world = transition_world();
+    let error = world
+        .execute(
+            EntityId(0),
+            &[change(
+                "second_kind",
+                vec![Action::Emit("budget".into()); 100_000],
+            )],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("instruction limit"));
+    assert_eq!(world.government_kind(EntityId(0)).unwrap(), "first_kind");
+    assert!(world.save("transition").is_err());
+}
+
 #[test]
 fn numeric_operations_clamp_each_step_and_recalculate_live_attributes() {
     let mut world = world();

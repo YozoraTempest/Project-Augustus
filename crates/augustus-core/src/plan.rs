@@ -294,6 +294,13 @@ pub enum Action {
         target: Target,
         plan: Plan,
     },
+    /// Execute the supplied callback in country scope before applying the form.
+    /// Requests for the current form still execute the callback.
+    ChangeGovernment {
+        target: Target,
+        kind: String,
+        before: Plan,
+    },
     Schedule {
         delay: u64,
         plan: Plan,
@@ -601,6 +608,14 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::ChangeGovernment {
+                    target,
+                    kind,
+                    before,
+                } => {
+                    let entity = self.target(current, *target)?;
+                    self.change_government(entity, kind, before, budget, depth)?;
+                }
                 Action::SetOwner { target, owner } => {
                     let province = self.target(current, *target)?;
                     let country = owner

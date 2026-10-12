@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use augustus_core::{
-    GovernmentMetric, GovernmentReform, GovernmentState, Governments, InitialWorld,
+    GovernmentForm, GovernmentMetric, GovernmentReform, GovernmentState, Governments, InitialWorld,
 };
 use jomini::text::ObjectReader;
 use serde::Serialize;
@@ -19,16 +19,21 @@ use crate::{
 
 type Reader<'a, 'b> = ObjectReader<'a, 'b, TextEncoding>;
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
-const FLAGS: [&str; 5] = [
+const FLAGS: [&str; 8] = [
     "monarchy",
     "republic",
     "nomad",
     "has_devotion",
     "has_meritocracy",
+    "religion",
+    "tribal",
+    "native_mechanic",
 ];
 
 #[derive(Debug, Default, Serialize)]
 pub struct GovernmentReport {
+    pub transition_forms: usize,
+    pub unavailable_transitions: BTreeMap<String, String>,
     pub government_definitions: usize,
     pub reform_definitions: usize,
     pub countries_with_selected_reforms: usize,
@@ -550,6 +555,21 @@ impl GovernmentDraft {
                 .collect(),
             ..Default::default()
         };
+        for (name, reform) in &self.reforms {
+            if !reform.flags.contains_key("native_mechanic") {
+                continue;
+            }
+            result
+                .reforms
+                .get_mut(name)
+                .expect("copied reform")
+                .features
+                .insert(
+                    "eu4/native_mechanic".into(),
+                    (!reform.uncertain_flags.contains("native_mechanic"))
+                        .then_some(reform.flags["native_mechanic"]),
+                );
+        }
         result.metrics.insert(
             "legitimacy".into(),
             GovernmentMetric {
@@ -561,6 +581,100 @@ impl GovernmentDraft {
                 unresolved_properties: attributes.static_unresolved_properties("legitimacy"),
             },
         );
+        // Initial values and scaling of these two metrics are separate from
+        // transition initialization. Their attribute effects remain unresolved.
+        for name in ["republican_tradition", "devotion"] {
+            result.metrics.insert(
+                name.into(),
+                GovernmentMetric {
+                    minimum_milli: 0,
+                    maximum_milli: 100_000,
+                    baseline_milli: 0,
+                    divisor_milli: 100_000,
+                    modifier: None,
+                    unresolved_properties: BTreeSet::new(),
+                },
+            );
+        }
+        for (kind, form) in &self.forms {
+            let profile = form
+                .base
+                .as_ref()
+                .and_then(|base| self.reforms.get(base).map(|reform| (base, reform)))
+                .filter(|(_, reform)| reform.uncertain_flags.is_empty())
+                .and_then(|(base, reform)| {
+                    let yes = |name: &str| reform.flags.get(name) == Some(&true);
+                    if yes("nomad") || yes("has_meritocracy") {
+                        return None;
+                    }
+                    let metric = match kind.as_str() {
+                        "monarchy"
+                            if yes("monarchy")
+                                && !yes("republic")
+                                && !yes("has_devotion")
+                                && !yes("native_mechanic") =>
+                        {
+                            Some("legitimacy")
+                        }
+                        "tribal"
+                            if yes("tribal")
+                                && yes("monarchy")
+                                && !yes("republic")
+                                && !yes("has_devotion")
+                                && !yes("native_mechanic") =>
+                        {
+                            Some("legitimacy")
+                        }
+                        "republic"
+                            if yes("republic")
+                                && !yes("monarchy")
+                                && !yes("has_devotion")
+                                && !yes("native_mechanic") =>
+                        {
+                            Some("republican_tradition")
+                        }
+                        "theocracy"
+                            if yes("religion")
+                                && yes("has_devotion")
+                                && !yes("monarchy")
+                                && !yes("republic")
+                                && !yes("native_mechanic") =>
+                        {
+                            Some("devotion")
+                        }
+                        "native"
+                            if yes("native_mechanic")
+                                && !yes("monarchy")
+                                && !yes("republic")
+                                && !yes("has_devotion") =>
+                        {
+                            None
+                        }
+                        _ => return None,
+                    };
+                    Some(GovernmentForm {
+                        reforms: [base.clone()].into(),
+                        metrics: metric
+                            .map(|name| (name.into(), Some(50_000)))
+                            .into_iter()
+                            .collect(),
+                        inactive_metrics: if metric == Some("legitimacy") {
+                            BTreeMap::new()
+                        } else {
+                            [("legitimacy".into(), Some(100_000))].into()
+                        },
+                    })
+                });
+            if let Some(profile) = profile {
+                result.forms.insert(kind.clone(), profile);
+            } else {
+                report.unavailable_transitions.insert(
+                    kind.clone(),
+                    "unverified or ambiguous basic reform classification".into(),
+                );
+            }
+        }
+        report.transition_forms = result.forms.len();
         for country in initial.countries() {
             let entity = initial
                 .country_entity(&country.id)
@@ -639,6 +753,10 @@ impl GovernmentDraft {
                                 report.countries_with_legitimacy += 1;
                             }
                             metrics.insert("legitimacy".into(), value);
+                        } else if flags.get("republic") == Some(&true) {
+                            metrics.insert("republican_tradition".into(), None);
+                        } else if flags.get("has_devotion") == Some(&true) {
+                            metrics.insert("devotion".into(), None);
                         }
                         state.metrics = Some(metrics);
                     }

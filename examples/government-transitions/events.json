@@ -1,0 +1,406 @@
+[
+  {
+    "id": "transition.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "ChangeGovernment": {
+          "target": "Current",
+          "kind": "monarchy",
+          "before": [
+            {
+              "If": {
+                "condition": {
+                  "GovernmentFeature": {
+                    "target": "Current",
+                    "name": "eu4/native_mechanic"
+                  }
+                },
+                "then": [
+                  {
+                    "Emit": "native"
+                  }
+                ],
+                "otherwise": [
+                  {
+                    "Emit": "ordinary"
+                  },
+                  {
+                    "If": {
+                      "condition": {
+                        "GovernmentMetricActive": {
+                          "target": "Current",
+                          "name": "legitimacy"
+                        }
+                      },
+                      "then": [
+                        {
+                          "UpdateNumeric": {
+                            "target": "Current",
+                            "slot": {
+                              "Government": "legitimacy"
+                            },
+                            "operation": "Add",
+                            "value": -3000
+                          }
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "ChangeGovernment": {
+          "target": "Current",
+          "kind": "republic",
+          "before": [
+            {
+              "If": {
+                "condition": {
+                  "GovernmentFeature": {
+                    "target": "Current",
+                    "name": "eu4/native_mechanic"
+                  }
+                },
+                "then": [
+                  {
+                    "Emit": "native"
+                  }
+                ],
+                "otherwise": [
+                  {
+                    "Emit": "ordinary"
+                  },
+                  {
+                    "If": {
+                      "condition": {
+                        "GovernmentMetricActive": {
+                          "target": "Current",
+                          "name": "legitimacy"
+                        }
+                      },
+                      "then": [
+                        {
+                          "UpdateNumeric": {
+                            "target": "Current",
+                            "slot": {
+                              "Government": "legitimacy"
+                            },
+                            "operation": "Add",
+                            "value": -3000
+                          }
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "ChangeGovernment": {
+              "target": "Current",
+              "kind": "monarchy",
+              "before": [
+                {
+                  "If": {
+                    "condition": {
+                      "GovernmentFeature": {
+                        "target": "Current",
+                        "name": "eu4/native_mechanic"
+                      }
+                    },
+                    "then": [
+                      {
+                        "Emit": "native"
+                      }
+                    ],
+                    "otherwise": [
+                      {
+                        "Emit": "ordinary"
+                      },
+                      {
+                        "If": {
+                          "condition": {
+                            "GovernmentMetricActive": {
+                              "target": "Current",
+                              "name": "legitimacy"
+                            }
+                          },
+                          "then": [
+                            {
+                              "UpdateNumeric": {
+                                "target": "Current",
+                                "slot": {
+                                  "Government": "legitimacy"
+                                },
+                                "operation": "Add",
+                                "value": -3000
+                              }
+                            }
+                          ],
+                          "otherwise": []
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TryEvent": {
+                    "event": "transition.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "after_first"
+      }
+    ]
+  },
+  {
+    "id": "transition.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "ChangeGovernment": {
+          "target": "Current",
+          "kind": "native",
+          "before": [
+            {
+              "If": {
+                "condition": {
+                  "GovernmentFeature": {
+                    "target": "Current",
+                    "name": "eu4/native_mechanic"
+                  }
+                },
+                "then": [
+                  {
+                    "Emit": "native"
+                  }
+                ],
+                "otherwise": [
+                  {
+                    "Emit": "ordinary"
+                  },
+                  {
+                    "If": {
+                      "condition": {
+                        "GovernmentMetricActive": {
+                          "target": "Current",
+                          "name": "legitimacy"
+                        }
+                      },
+                      "then": [
+                        {
+                          "UpdateNumeric": {
+                            "target": "Current",
+                            "slot": {
+                              "Government": "legitimacy"
+                            },
+                            "operation": "Add",
+                            "value": -3000
+                          }
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "ChangeGovernment": {
+          "target": "Current",
+          "kind": "native",
+          "before": [
+            {
+              "If": {
+                "condition": {
+                  "GovernmentFeature": {
+                    "target": "Current",
+                    "name": "eu4/native_mechanic"
+                  }
+                },
+                "then": [
+                  {
+                    "Emit": "native"
+                  }
+                ],
+                "otherwise": [
+                  {
+                    "Emit": "ordinary"
+                  },
+                  {
+                    "If": {
+                      "condition": {
+                        "GovernmentMetricActive": {
+                          "target": "Current",
+                          "name": "legitimacy"
+                        }
+                      },
+                      "then": [
+                        {
+                          "UpdateNumeric": {
+                            "target": "Current",
+                            "slot": {
+                              "Government": "legitimacy"
+                            },
+                            "operation": "Add",
+                            "value": -3000
+                          }
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "ChangeGovernment": {
+          "target": "Current",
+          "kind": "theocracy",
+          "before": [
+            {
+              "If": {
+                "condition": {
+                  "GovernmentFeature": {
+                    "target": "Current",
+                    "name": "eu4/native_mechanic"
+                  }
+                },
+                "then": [
+                  {
+                    "Emit": "native"
+                  }
+                ],
+                "otherwise": [
+                  {
+                    "Emit": "ordinary"
+                  },
+                  {
+                    "If": {
+                      "condition": {
+                        "GovernmentMetricActive": {
+                          "target": "Current",
+                          "name": "legitimacy"
+                        }
+                      },
+                      "then": [
+                        {
+                          "UpdateNumeric": {
+                            "target": "Current",
+                            "slot": {
+                              "Government": "legitimacy"
+                            },
+                            "operation": "Add",
+                            "value": -3000
+                          }
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "ChangeGovernment": {
+          "target": "Current",
+          "kind": "tribal",
+          "before": [
+            {
+              "If": {
+                "condition": {
+                  "GovernmentFeature": {
+                    "target": "Current",
+                    "name": "eu4/native_mechanic"
+                  }
+                },
+                "then": [
+                  {
+                    "Emit": "native"
+                  }
+                ],
+                "otherwise": [
+                  {
+                    "Emit": "ordinary"
+                  },
+                  {
+                    "If": {
+                      "condition": {
+                        "GovernmentMetricActive": {
+                          "target": "Current",
+                          "name": "legitimacy"
+                        }
+                      },
+                      "then": [
+                        {
+                          "UpdateNumeric": {
+                            "target": "Current",
+                            "slot": {
+                              "Government": "legitimacy"
+                            },
+                            "operation": "Add",
+                            "value": -3000
+                          }
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": [
+      {
+        "Emit": "finished"
+      }
+    ]
+  }
+]

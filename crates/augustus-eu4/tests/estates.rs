@@ -1902,9 +1902,17 @@ fn land_distribution_and_dated_history_generate_resumable_core_state() {
     assert_eq!(states["estate_guild"].loyalty_milli, Some(57_000));
     assert_eq!(
         loaded.country("BBB").unwrap().estates.unwrap()["estate_guild"].land_share_micros,
-        Some(0)
+        None
     );
-    assert_eq!(loaded.report.estates.initial_land_countries, 2);
+    // The republic's metric effects are not initialized by this fixture.
+    assert!(
+        loaded
+            .report
+            .estates
+            .unresolved_initialization
+            .contains_key("BBB")
+    );
+    assert_eq!(loaded.report.estates.initial_land_countries, 1);
     assert!(loaded.report.estates.pending_land_changes.is_empty());
     let saved = loaded.save().unwrap();
     let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();

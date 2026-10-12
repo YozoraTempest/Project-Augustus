@@ -995,6 +995,21 @@ pub(crate) fn validate_plan(
 ) -> Result<(), Error> {
     for action in plan {
         match action {
+            Action::ChangeGovernment { kind, before, .. } => {
+                governments.form_definition(kind)?;
+                validate_plan(
+                    before,
+                    schema,
+                    rule_count,
+                    events,
+                    completions,
+                    modifiers,
+                    governments,
+                    metrics,
+                    justifications,
+                    subjects,
+                )?;
+            }
             Action::SetOwner { owner, .. } => owner.validate()?,
             Action::ForEachOwnedProvince {
                 condition, plan, ..

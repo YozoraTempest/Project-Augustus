@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 1,
+      "values": {}
+    },
+    {
+      "name": "Port",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "governments": {
+    "forms": {
+      "monarchy": {
+        "reforms": [
+          "royal"
+        ],
+        "metrics": {
+          "legitimacy": 50000
+        }
+      },
+      "republic": {
+        "reforms": [
+          "civic"
+        ],
+        "metrics": {
+          "republican_tradition": 50000
+        },
+        "inactive_metrics": {
+          "legitimacy": 100000
+        }
+      },
+      "native": {
+        "reforms": [
+          "council"
+        ],
+        "metrics": {},
+        "inactive_metrics": {
+          "legitimacy": 100000
+        }
+      },
+      "theocracy": {
+        "reforms": [
+          "clergy"
+        ],
+        "metrics": {
+          "devotion": 50000
+        },
+        "inactive_metrics": {
+          "legitimacy": 100000
+        }
+      },
+      "tribal": {
+        "reforms": [
+          "chieftain"
+        ],
+        "metrics": {
+          "legitimacy": 50000
+        }
+      }
+    },
+    "reforms": {
+      "royal": {
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": []
+      },
+      "civic": {
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": []
+      },
+      "council": {
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": [],
+        "features": {
+          "eu4/native_mechanic": true
+        }
+      },
+      "clergy": {
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": []
+      },
+      "chieftain": {
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": []
+      },
+      "charter": {
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": []
+      }
+    },
+    "metrics": {
+      "legitimacy": {
+        "minimum_milli": 0,
+        "maximum_milli": 100000,
+        "baseline_milli": 0,
+        "divisor_milli": 100000,
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": []
+      },
+      "republican_tradition": {
+        "minimum_milli": 0,
+        "maximum_milli": 100000,
+        "baseline_milli": 0,
+        "divisor_milli": 100000,
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": []
+      },
+      "devotion": {
+        "minimum_milli": 0,
+        "maximum_milli": 100000,
+        "baseline_milli": 0,
+        "divisor_milli": 100000,
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": []
+      }
+    },
+    "countries": {
+      "0": {
+        "kind": "monarchy",
+        "reforms": [
+          "royal",
+          "charter"
+        ],
+        "metrics": {
+          "legitimacy": 73125
+        }
+      }
+    }
+  }
+}

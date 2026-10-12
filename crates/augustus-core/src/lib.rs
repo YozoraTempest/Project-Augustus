@@ -62,8 +62,8 @@ pub use event_choices::{
 };
 pub use event_pictures::{EventPictures, PictureVariant};
 pub use governments::{
-    GovernmentContribution, GovernmentEvaluation, GovernmentMetric, GovernmentReform,
-    GovernmentState, Governments,
+    GovernmentContribution, GovernmentEvaluation, GovernmentForm, GovernmentMetric,
+    GovernmentReform, GovernmentState, Governments,
 };
 pub use ideas::{
     IdeaContribution, IdeaDefinition, IdeaEffect, IdeaEvaluation, IdeaGroup, IdeaState, Ideas,

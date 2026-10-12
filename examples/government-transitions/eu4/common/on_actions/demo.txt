@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+on_government_change={log=ordinary add_legitimacy=-3}
+on_native_change_government={log=native}

@@ -43,6 +43,17 @@ pub struct GovernmentState {
     pub inactive_metrics: BTreeMap<String, Option<i64>>,
 }
 
+/// State installed when entering a different form. Metrics omitted here retain
+/// their last value as inactive; explicit inactive values replace that storage.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GovernmentForm {
+    pub reforms: BTreeSet<String>,
+    pub metrics: BTreeMap<String, Option<i64>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub inactive_metrics: BTreeMap<String, Option<i64>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GovernmentContribution {
     pub source: String,
@@ -62,6 +73,8 @@ pub struct GovernmentEvaluation {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Governments {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub forms: BTreeMap<String, GovernmentForm>,
     pub reforms: BTreeMap<String, GovernmentReform>,
     pub metrics: BTreeMap<String, GovernmentMetric>,
     pub countries: BTreeMap<EntityId, GovernmentState>,
@@ -99,7 +112,17 @@ impl Governments {
         Some(explicit.unwrap_or(false))
     }
     pub fn is_empty(&self) -> bool {
-        self.reforms.is_empty() && self.metrics.is_empty() && self.countries.is_empty()
+        self.forms.is_empty()
+            && self.reforms.is_empty()
+            && self.metrics.is_empty()
+            && self.countries.is_empty()
+    }
+
+    pub(crate) fn form_definition(&self, kind: &str) -> Result<&GovernmentForm, Error> {
+        validate_identifier(kind)?;
+        self.forms
+            .get(kind)
+            .ok_or_else(|| Error::Invalid(format!("unknown government form {kind}")))
     }
 
     pub fn declared_effects(&self, entity: EntityId) -> Result<GovernmentEvaluation, Error> {
@@ -266,6 +289,31 @@ impl Governments {
                 ));
             }
         }
+        for (kind, form) in &self.forms {
+            self.form_definition(kind)?;
+            for reform in &form.reforms {
+                self.reform_definition(reform)?;
+            }
+            for (name, value) in form.metrics.iter().chain(&form.inactive_metrics) {
+                let definition = self.metric_definition(name)?;
+                if value.is_some_and(|v| {
+                    !(definition.minimum_milli..=definition.maximum_milli).contains(&v)
+                }) {
+                    return Err(Error::Invalid(
+                        "government form metric outside bounds".into(),
+                    ));
+                }
+            }
+            if form
+                .metrics
+                .keys()
+                .any(|name| form.inactive_metrics.contains_key(name))
+            {
+                return Err(Error::Invalid(
+                    "government form metric is both active and inactive".into(),
+                ));
+            }
+        }
         for (&entity, state) in &self.countries {
             if world.entity(entity)?.kind != EntityKind::Country
                 || state.kind.as_ref().is_some_and(String::is_empty)
@@ -329,6 +377,45 @@ impl Governments {
 }
 
 impl World {
+    pub(crate) fn change_government(
+        &mut self,
+        entity: EntityId,
+        kind: &str,
+        before: &crate::Plan,
+        budget: &mut usize,
+        depth: usize,
+    ) -> Result<(), Error> {
+        // Validate the request before the callback can write anything.
+        self.governments.form_definition(kind)?;
+        self.government_kind(entity)?;
+        self.execute_inner(entity, before, budget, depth + 1)?;
+        // Callbacks may change the current state. Apply the outer request to the
+        // state that remains when the callback returns.
+        if self.government_kind(entity)? == kind {
+            return Ok(());
+        }
+        let form = self.governments.form_definition(kind)?.clone();
+        let state = self
+            .governments
+            .countries
+            .get_mut(&entity)
+            .expect("validated country");
+        let previous = state.metrics.as_ref().ok_or_else(|| {
+            Error::Invalid("unknown government metric selection during transition".into())
+        })?;
+        let mut inactive = state.inactive_metrics.clone();
+        inactive.extend(previous.iter().map(|(k, v)| (k.clone(), *v)));
+        inactive.extend(form.inactive_metrics);
+        for name in form.metrics.keys() {
+            inactive.remove(name);
+        }
+        state.kind = Some(kind.into());
+        state.reforms = Some(form.reforms);
+        state.metrics = Some(form.metrics);
+        state.inactive_metrics = inactive;
+        Ok(())
+    }
+
     pub fn government_kind(&self, entity: EntityId) -> Result<&str, Error> {
         self.government_country(entity)?
             .kind

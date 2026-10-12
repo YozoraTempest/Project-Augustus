@@ -31,6 +31,7 @@ struct Callback {
 
 struct Compiler {
     schema: Schema,
+    library: crate::ScriptLibrary,
     effects: Vec<Arc<TextDocument>>,
     effect_index: BTreeMap<String, Option<usize>>,
     triggers: BTreeMap<String, Condition>,
@@ -41,6 +42,7 @@ struct Compiler {
     modifier_ids: BTreeSet<String>,
     subject_type_ids: BTreeSet<String>,
     government_metric_ids: BTreeSet<String>,
+    government_form_ids: BTreeSet<String>,
     metric_ids: BTreeSet<String>,
     area_scopes: BTreeMap<String, Vec<u32>>,
     religious_school_groups: BTreeMap<String, Option<String>>,
@@ -77,9 +79,14 @@ impl Compiler {
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             equal(op, &fail)?;
             match name.as_str() {
-                "add_legitimacy" | "custom_tooltip" | "set_global_flag" | "clr_global_flag" => {
-                    let library = crate::ScriptLibrary::new();
-                    let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                "add_legitimacy" | "change_government" | "custom_tooltip" | "set_global_flag"
+                | "clr_global_flag" => {
+                    let compiled = crate::ScriptCompiler::new(&self.schema, &self.library, true)
+                        .with_government_form_ids(self.government_form_ids.clone())
+                        .with_modifier_ids(self.modifier_ids.clone())
+                        .with_mission_ids(self.mission_ids.clone())
+                        .with_casus_belli_types(self.casus_belli_types.clone())
+                        .with_religious_school_groups(self.religious_school_groups.clone())
                         .with_subject_type_ids(self.subject_type_ids.clone())
                         .with_hidden_descriptions(self.hidden_descriptions)
                         .with_government_metric_ids(self.government_metric_ids.clone())
@@ -164,8 +171,8 @@ impl Compiler {
                 name if self.area_scopes.contains_key(name)
                     || name.parse::<u32>().is_ok_and(|id| id > 0) =>
                 {
-                    let library = crate::ScriptLibrary::new();
-                    let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                    let compiled = crate::ScriptCompiler::new(&self.schema, &self.library, true)
+                        .with_government_form_ids(self.government_form_ids.clone())
                         .with_subject_type_ids(self.subject_type_ids.clone())
                         .with_metric_ids(self.metric_ids.clone())
                         .with_hidden_descriptions(self.hidden_descriptions)
@@ -206,8 +213,8 @@ impl Compiler {
                 | "subtract_variable"
                 | "multiply_variable"
                 | "divide_variable" => {
-                    let library = crate::ScriptLibrary::new();
-                    let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                    let compiled = crate::ScriptCompiler::new(&self.schema, &self.library, true)
+                        .with_government_form_ids(self.government_form_ids.clone())
                         .with_subject_type_ids(self.subject_type_ids.clone())
                         .with_hidden_descriptions(self.hidden_descriptions)
                         .with_government_metric_ids(self.government_metric_ids.clone())
@@ -426,6 +433,7 @@ impl EstateStartup {
         modifier_ids: BTreeSet<String>,
         subject_type_ids: BTreeSet<String>,
         government_metric_ids: BTreeSet<String>,
+        government_form_ids: BTreeSet<String>,
         metric_ids: BTreeSet<String>,
         area_scopes: BTreeMap<String, Vec<u32>>,
         religious_school_groups: BTreeMap<String, Option<String>>,
@@ -435,6 +443,7 @@ impl EstateStartup {
         let mut compiler = Compiler {
             hidden_descriptions: false,
             schema: schema.clone(),
+            library: crate::ScriptLibrary::from_root(root, files, ENCODING)?,
             effects: Vec::new(),
             effect_index: BTreeMap::new(),
             triggers: super::library(root, files, report)?,
@@ -445,6 +454,7 @@ impl EstateStartup {
             modifier_ids,
             subject_type_ids,
             government_metric_ids,
+            government_form_ids,
             metric_ids,
             area_scopes,
             religious_school_groups,
@@ -1068,6 +1078,7 @@ fn load_events(
         {
             let document = root.read_text(&file.relative_path, ENCODING)?;
             let compiled = crate::ScriptCompiler::new(&compiler.schema, &library, true)
+                .with_government_form_ids(compiler.government_form_ids.clone())
                 .with_subject_type_ids(compiler.subject_type_ids.clone())
                 .with_government_metric_ids(compiler.government_metric_ids.clone())
                 .with_metric_ids(compiler.metric_ids.clone())

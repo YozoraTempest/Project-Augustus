@@ -213,18 +213,18 @@ impl Condition {
                         }
                         Self::Marker(id)
                     }
-                    "legitimacy" if country => {
+                    "legitimacy" | "republican_tradition" | "devotion" if country => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
                         let compiled = crate::ScriptCompiler::new(&schema, &library, true)
-                            .with_government_metric_ids(["legitimacy".into()].into())
+                            .with_government_metric_ids([name.clone()].into())
                             .compile_scalar_condition_reader(
                                 parsed,
                                 &name,
-                                value
-                                    .read_string()
-                                    .map_err(|_| fail("expected scalar legitimacy threshold"))?,
+                                value.read_string().map_err(|_| {
+                                    fail("expected scalar government metric threshold")
+                                })?,
                                 at,
                                 augustus_core::EntityKind::Country,
                             );

@@ -1,0 +1,12 @@
+{
+  "transition.later": {
+    "All": [
+      {
+        "GovernmentKind": {
+          "target": "Current",
+          "kind": "monarchy"
+        }
+      }
+    ]
+  }
+}

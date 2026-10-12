@@ -117,6 +117,7 @@ pub struct ScriptLibrary {
     effects: BTreeMap<String, Field>,
     triggers: BTreeMap<String, Field>,
     ignored: Vec<(String, PathBuf, SourceLocation)>,
+    government_callbacks: BTreeMap<String, Field>,
 }
 
 impl ScriptLibrary {
@@ -135,6 +136,11 @@ impl ScriptLibrary {
             for (logical_path, _) in Self::files(content, kind)? {
                 library.add(&content.read_text(logical_path, encoding)?, triggers)?;
             }
+        }
+        for (path, _) in content.effective_files().filter(|(path, _)| {
+            crate::bootstrap::direct_txt(std::path::Path::new(path), "common/on_actions")
+        }) {
+            library.add_on_actions(&content.read_text(path, encoding)?)?;
         }
         Ok(library)
     }
@@ -167,6 +173,12 @@ impl ScriptLibrary {
             for (_, file) in selected {
                 library.add(&root.read_text(&file.relative_path, encoding)?, triggers)?;
             }
+        }
+        for file in files
+            .iter()
+            .filter(|file| crate::bootstrap::direct_txt(&file.relative_path, "common/on_actions"))
+        {
+            library.add_on_actions(&root.read_text(&file.relative_path, encoding)?)?;
         }
         Ok(library)
     }
@@ -207,6 +219,25 @@ impl ScriptLibrary {
     }
     pub fn add_triggers(&mut self, document: &TextDocument) -> Result<(), Error> {
         self.add(document, true)
+    }
+    /// Supply government callbacks from selected on_action files. Duplicate
+    /// declarations are unresolved rather than choosing an unverified winner.
+    pub fn add_on_actions(&mut self, document: &TextDocument) -> Result<(), Error> {
+        let parsed = document.parse()?;
+        for field in read_fields(&parsed, parsed.reader(), 0, true)? {
+            if !matches!(
+                field.name.as_str(),
+                "on_government_change" | "on_native_change_government"
+            ) {
+                continue;
+            }
+            let mut field = field;
+            if self.government_callbacks.contains_key(&field.name) {
+                field.value = Value::Unsupported("ambiguous government callback");
+            }
+            self.government_callbacks.insert(field.name.clone(), field);
+        }
+        Ok(())
     }
     pub fn ignored_definitions(&self) -> &[(String, PathBuf, SourceLocation)] {
         &self.ignored
@@ -263,6 +294,7 @@ pub struct ScriptCompiler<'a> {
     subject_type_ids: Option<BTreeSet<String>>,
     casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
     government_metric_ids: BTreeSet<String>,
+    government_form_ids: BTreeSet<String>,
     metric_ids: BTreeSet<String>,
     area_scopes: BTreeMap<String, Vec<u32>>,
     religious_school_groups: BTreeMap<String, Option<String>>,
@@ -284,6 +316,7 @@ impl<'a> ScriptCompiler<'a> {
             subject_type_ids: Some(BTreeSet::new()),
             casus_belli_types: BTreeMap::new(),
             government_metric_ids: BTreeSet::new(),
+            government_form_ids: BTreeSet::new(),
             metric_ids: BTreeSet::new(),
             area_scopes: BTreeMap::new(),
             religious_school_groups: BTreeMap::new(),
@@ -633,6 +666,26 @@ impl<'a> ScriptCompiler<'a> {
     pub fn with_government_metric_ids(mut self, ids: BTreeSet<String>) -> Self {
         self.government_metric_ids = ids;
         self
+    }
+
+    pub fn with_government_form_ids(mut self, ids: BTreeSet<String>) -> Self {
+        self.government_form_ids = ids;
+        self
+    }
+
+    fn government_callback(&mut self, name: &str) -> Result<Plan, Error> {
+        let Some(field) = self.library.government_callbacks.get(name).cloned() else {
+            return Ok(Vec::new());
+        };
+        let key = format!("on_action:{name}");
+        if self.stack.contains(&key) {
+            return Err(field.error("recursive government callback is unsupported"));
+        }
+        self.sources.push((field.path.clone(), field.location));
+        self.stack.push(key);
+        let result = self.effects(field.block()?, EntityKind::Country);
+        self.stack.pop();
+        result
     }
 
     pub fn with_religious_school_groups(
@@ -1216,16 +1269,46 @@ impl<'a> ScriptCompiler<'a> {
                         plan: self.effects(field.block()?, EntityKind::Province)?,
                     });
                 }
+                "change_government" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("government changes require country scope"));
+                    }
+                    let kind = field.scalar()?;
+                    if !self.government_form_ids.contains(kind) {
+                        return Err(field.error(format!(
+                            "unsupported or undeclared government transition {kind}"
+                        )));
+                    }
+                    let native = self.government_callback("on_native_change_government")?;
+                    let ordinary = self.government_callback("on_government_change")?;
+                    plan.push(Action::ChangeGovernment {
+                        target: Target::Current,
+                        kind: kind.into(),
+                        before: if native.is_empty() && ordinary.is_empty() {
+                            Vec::new()
+                        } else {
+                            vec![Action::If {
+                                condition: Condition::GovernmentFeature {
+                                    target: Target::Current,
+                                    name: "eu4/native_mechanic".into(),
+                                },
+                                then: native,
+                                otherwise: ordinary,
+                            }]
+                        },
+                    });
+                }
                 "add_legitimacy" => {
-                    self.government_metric(field, scope, "legitimacy")?;
+                    let name = field.name.strip_prefix("add_").expect("metric effect");
+                    self.government_metric(field, scope, name)?;
                     plan.push(Action::If {
                         condition: Condition::GovernmentMetricActive {
                             target: Target::Current,
-                            name: "legitimacy".into(),
+                            name: name.into(),
                         },
                         then: vec![Action::UpdateNumeric {
                             target: Target::Current,
-                            slot: augustus_core::NumericSlot::Government("legitimacy".into()),
+                            slot: augustus_core::NumericSlot::Government(name.into()),
                             operation: augustus_core::NumericOperation::Add,
                             value: decimal(field)?,
                         }],
@@ -1752,19 +1835,20 @@ impl<'a> ScriptCompiler<'a> {
                     government_condition(&field.name, field.scalar()?)
                         .map_err(|message| field.error(message))?
                 }
-                "legitimacy" => {
-                    self.government_metric(field, scope, "legitimacy")?;
+                "legitimacy" | "republican_tradition" | "devotion" => {
+                    let name = &field.name;
+                    self.government_metric(field, scope, name)?;
                     let value = decimal(field)?;
                     if !(0..=100_000).contains(&value) {
-                        return Err(field.error("legitimacy threshold must be between 0 and 100"));
+                        return Err(field.error(format!("{name} threshold must be between 0 and 100")));
                     }
                     let stored = Condition::GovernmentMetricStored {
                         target: Target::Current,
-                        name: "legitimacy".into(),
+                        name: name.clone(),
                     };
                     let compare = Condition::NumericCompare {
                         target: Target::Current,
-                        slot: augustus_core::NumericSlot::StoredGovernment("legitimacy".into()),
+                        slot: augustus_core::NumericSlot::StoredGovernment(name.clone()),
                         comparison: augustus_core::NumericComparison::AtLeast,
                         value,
                     };
@@ -2045,6 +2129,7 @@ fn simplify_event_calls(plan: &mut Plan, unconditional: &BTreeSet<String>) {
                 simplify_event_calls(otherwise, unconditional);
             }
             Action::With { plan, .. }
+            | Action::ChangeGovernment { before: plan, .. }
             | Action::InScope { plan, .. }
             | Action::ForEach { plan, .. }
             | Action::ForEachOwnedProvince { plan, .. }
@@ -2113,6 +2198,7 @@ pub(crate) fn event_references(plan: &[Action], references: &mut BTreeSet<String
                 event_references(otherwise, references);
             }
             Action::With { plan, .. }
+            | Action::ChangeGovernment { before: plan, .. }
             | Action::InScope { plan, .. }
             | Action::ForEach { plan, .. }
             | Action::ForEachOwnedProvince { plan, .. }

@@ -785,6 +785,13 @@ impl VanillaWorld {
                 .collect(),
             initial
                 .world()
+                .governments()
+                .forms
+                .keys()
+                .cloned()
+                .collect(),
+            initial
+                .world()
                 .metrics()
                 .definitions
                 .keys()
