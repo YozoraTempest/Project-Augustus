@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
+use rand::RngExt;
 use rand_chacha::rand_core::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -128,6 +129,24 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    /// Capture the owner's current ordered members, then filter each live state.
+    ForEachOwnedProvince {
+        country: Target,
+        condition: Condition,
+        plan: Plan,
+    },
+    /// Filter current owned members and execute one uniformly sampled body.
+    RandomOwnedProvince {
+        country: Target,
+        condition: Condition,
+        plan: Plan,
+    },
+    /// Update the owner edge. Systems using this primitive manage their own
+    /// dependent state; it does not perform a complete territorial transfer.
+    SetOwner {
+        target: Target,
+        owner: crate::EntityRef,
+    },
     /// Capture an ordered selection, then check each member's live condition
     /// immediately before its body. Every iteration shares the caller's budget.
     ForEach {
@@ -519,6 +538,29 @@ impl World {
         result
     }
 
+    fn execute_selected(
+        &mut self,
+        selected: impl IntoIterator<Item = Option<EntityId>>,
+        condition: &Condition,
+        plan: &[Action],
+        budget: &mut usize,
+        depth: usize,
+    ) -> Result<(), Error> {
+        for entity in selected {
+            if *budget == 0 {
+                return Err(Error::Invalid("instruction limit exceeded".into()));
+            }
+            *budget -= 1;
+            let Some(entity) = entity else {
+                continue;
+            };
+            if condition.evaluate(self, entity)? {
+                self.execute_inner(entity, plan, budget, depth + 1)?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn execute_inner(
         &mut self,
         current: EntityId,
@@ -536,6 +578,50 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::SetOwner { target, owner } => {
+                    let province = self.target(current, *target)?;
+                    let country = owner
+                        .resolve(self, current)?
+                        .ok_or_else(|| Error::Invalid("owner reference is absent".into()))?;
+                    self.set_owner(province, country)?;
+                }
+                Action::ForEachOwnedProvince {
+                    country,
+                    condition,
+                    plan,
+                } => {
+                    let country = self.target(current, *country)?;
+                    let selected = self.owned_provinces(country)?.to_vec();
+                    self.execute_selected(
+                        selected.into_iter().map(Some),
+                        condition,
+                        plan,
+                        budget,
+                        depth,
+                    )?;
+                }
+                Action::RandomOwnedProvince {
+                    country,
+                    condition,
+                    plan,
+                } => {
+                    let country = self.target(current, *country)?;
+                    let members = self.owned_provinces(country)?.to_vec();
+                    let mut selected = Vec::new();
+                    for province in members {
+                        if *budget == 0 {
+                            return Err(Error::Invalid("instruction limit exceeded".into()));
+                        }
+                        *budget -= 1;
+                        if condition.evaluate(self, province)? {
+                            selected.push(province);
+                        }
+                    }
+                    if !selected.is_empty() {
+                        let index = self.random.random_range(0..selected.len());
+                        self.execute_inner(selected[index], plan, budget, depth + 1)?;
+                    }
+                }
                 Action::ForEach {
                     selectors,
                     kind,
@@ -554,18 +640,7 @@ impl World {
                         }
                         selected.push(entity);
                     }
-                    for entity in selected {
-                        if *budget == 0 {
-                            return Err(Error::Invalid("instruction limit exceeded".into()));
-                        }
-                        *budget -= 1;
-                        let Some(entity) = entity else {
-                            continue;
-                        };
-                        if condition.evaluate(self, entity)? {
-                            self.execute_inner(entity, plan, budget, depth + 1)?;
-                        }
-                    }
+                    self.execute_selected(selected, condition, plan, budget, depth)?;
                 }
                 Action::GrantJustification {
                     issuer,

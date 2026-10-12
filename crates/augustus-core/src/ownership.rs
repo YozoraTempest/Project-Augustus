@@ -5,10 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{EntityId, EntityKind, Error, Target, World};
 
-/// Derived from owner edges and explicit absence declarations; never persisted.
+/// Members follow owner edges; acquisition order is retained by snapshots.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct OwnershipIndex {
-    members: BTreeMap<EntityId, BTreeSet<EntityId>>,
+    members: BTreeMap<EntityId, Vec<EntityId>>,
     unknown: usize,
 }
 
@@ -33,18 +33,67 @@ impl OwnershipIndex {
         }
         if let Some(previous) = previous {
             let members = self.members.get_mut(&previous).expect("indexed owner");
-            members.remove(&province);
+            members.retain(|&member| member != province);
             if members.is_empty() {
                 self.members.remove(&previous);
             }
         } else if unknown {
             self.resolve_absence();
         }
-        self.members.entry(country).or_default().insert(province);
+        self.members.entry(country).or_default().push(province);
+    }
+
+    pub(crate) fn order_overrides(&self) -> BTreeMap<EntityId, Vec<EntityId>> {
+        self.members
+            .iter()
+            .filter(|(_, members)| !members.windows(2).all(|pair| pair[0] < pair[1]))
+            .map(|(&country, members)| (country, members.clone()))
+            .collect()
+    }
+
+    pub(crate) fn restore_order(
+        &mut self,
+        overrides: BTreeMap<EntityId, Vec<EntityId>>,
+    ) -> Result<(), Error> {
+        for (country, order) in overrides {
+            let Some(members) = self.members.get_mut(&country) else {
+                return Err(Error::Invalid("invalid saved owned province order".into()));
+            };
+            let unique: BTreeSet<_> = order.iter().copied().collect();
+            if order.len() != members.len()
+                || unique.len() != order.len()
+                || unique != members.iter().copied().collect()
+            {
+                return Err(Error::Invalid("invalid saved owned province order".into()));
+            }
+            *members = order;
+        }
+        Ok(())
     }
 }
 
 impl World {
+    /// Current members in acquisition order. Complete owner data is required
+    /// because effect selection cannot safely omit an unknown member.
+    pub fn owned_provinces(&self, country: EntityId) -> Result<&[EntityId], Error> {
+        if self.entity(country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "province ownership query requires a country".into(),
+            ));
+        }
+        if self.ownership.unknown != 0 {
+            return Err(Error::Invalid(
+                "unknown province ownership prevents a member selection".into(),
+            ));
+        }
+        Ok(self
+            .ownership
+            .members
+            .get(&country)
+            .map(Vec::as_slice)
+            .unwrap_or_default())
+    }
+
     /// Positive ownership is known immediately; zero remains unknown when a
     /// province's owner has not been supplied or explicitly declared absent.
     pub fn has_owned_province(&self, country: EntityId) -> Result<bool, Error> {
@@ -98,11 +147,7 @@ impl World {
                 continue;
             }
             if let Some(country) = entity.owner {
-                index
-                    .members
-                    .entry(country)
-                    .or_default()
-                    .insert(EntityId(id));
+                index.members.entry(country).or_default().push(EntityId(id));
             } else if !self
                 .known_absent_targets()
                 .get(&EntityId(id))

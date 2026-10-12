@@ -122,6 +122,8 @@ struct Snapshot {
     content: String,
     schema: Schema,
     entities: Vec<Entity>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    owned_province_order: BTreeMap<EntityId, Vec<EntityId>>,
     day: u64,
     next_sequence: u64,
     tasks: Vec<Task>,
@@ -680,6 +682,7 @@ impl World {
             content: content.into(),
             schema: self.schema.clone(),
             entities: self.entities.clone(),
+            owned_province_order: self.ownership.order_overrides(),
             day: self.day,
             next_sequence: self.next_sequence,
             tasks: self.tasks.values().cloned().collect(),
@@ -779,6 +782,9 @@ impl World {
             markers: snapshot.markers,
         };
         world.rebuild_ownership();
+        world
+            .ownership
+            .restore_order(snapshot.owned_province_order)?;
         for (id, entity) in world.entities.iter().enumerate() {
             world
                 .entity_names
@@ -952,6 +958,34 @@ pub(crate) fn validate_plan(
 ) -> Result<(), Error> {
     for action in plan {
         match action {
+            Action::SetOwner { owner, .. } => owner.validate()?,
+            Action::ForEachOwnedProvince {
+                condition, plan, ..
+            }
+            | Action::RandomOwnedProvince {
+                condition, plan, ..
+            } => {
+                validate_condition(
+                    condition,
+                    schema,
+                    completions,
+                    modifiers,
+                    governments,
+                    metrics,
+                    justifications,
+                )?;
+                validate_plan(
+                    plan,
+                    schema,
+                    rule_count,
+                    events,
+                    completions,
+                    modifiers,
+                    governments,
+                    metrics,
+                    justifications,
+                )?;
+            }
             Action::ForEach {
                 selectors,
                 condition,

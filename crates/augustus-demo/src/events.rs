@@ -582,6 +582,8 @@ fn effect_labels(
             Action::With { plan, .. }
             | Action::InScope { plan, .. }
             | Action::ForEach { plan, .. }
+            | Action::ForEachOwnedProvince { plan, .. }
+            | Action::RandomOwnedProvince { plan, .. }
             | Action::Schedule { plan, .. }
             | Action::Preview { plan } => effect_labels(plan, durations, descriptions),
             _ => (),

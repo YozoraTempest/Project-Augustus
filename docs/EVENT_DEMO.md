@@ -198,7 +198,9 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 `exists` 支持字面国家标签和 `yes/no`，翻译为共享核心的领土查询。明确无领土、标签未登记与省份资料不完整分别处理；省份作用域的布尔写法不会隐式查询所有者。原生写法、命名目标块和跨输入保存恢复见 [国家领土条件演示](../examples/country-existence/README.md)。
 
-国家条件中的 `any_owned_province = { ... }` 在当前拥有省份上检查内部条件，翻译为共享核心 `AnyOwnedProvince`；空集合返回假。归属和省份状态变化后立即使用新值，未知归属不能被否定条件当作不存在。原生写法与跨输入读档见 [拥有省份查询](../examples/owned-provinces/README.md)。拥有省份的效果遍历与随机选择尚未支持。
+国家条件中的 `any_owned_province = { ... }` 在当前拥有省份上检查内部条件，翻译为共享核心 `AnyOwnedProvince`；空集合返回假。归属和省份状态变化后立即使用新值，未知归属不能被否定条件当作不存在。原生写法与跨输入读档见 [拥有省份查询](../examples/owned-provinces/README.md)。
+
+`every_owned_province` 与 `random_owned_province` 翻译为共享核心的拥有省份效果。前者进入时捕获取得顺序，逐项执行前读取筛选；后者筛选后执行一个随机成员。两者支持可选 `limit`、嵌套正文和延期调用，存档保留取得顺序与随机状态。用法及完整领土转移的限制见 [遍历与随机选择场景](../examples/owned-iteration/README.md)。
 
 选项可声明独立的 `trigger`，原生内容在可选的 `option_conditions.json` 中提供相同条件。待选查询按当前状态筛选选项，保留原始标识；没有可用选项时返回空列表。选项命令执行有效的原始标识，不重新检查显示条件。国家作用域的 `ai = yes/no` 读取明确的控制身份，未指定时报告未知。自制场景、跨输入读档和查询／命令的职责见 [条件选项演示](../examples/conditional-options/README.md)。
 

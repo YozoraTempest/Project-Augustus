@@ -16,4 +16,4 @@ cargo run --locked -p augustus-run --bin augustus-events -- \
 
 兼容层将国家作用域的 `any_owned_province = { ... }` 翻译为核心 `AnyOwnedProvince`，内部条件在各省份上求值；空块与 `always = yes` 都检查是否存在拥有省份。归属索引随 `set_owner` 更新，读档时由关系重建，不固定为开局列表。查询只读，不改变存档或随机状态。
 
-已知成员满足条件即可返回真；没有匹配时，只有归属资料完整才能确定为假。未知归属继续报错，否定条件不能将其当作不存在。`every_owned_province`、`random_owned_province` 和兼容脚本中的归属变更尚未支持。
+已知成员满足条件即可返回真；没有匹配时，只有归属资料完整才能确定为假。未知归属继续报错，否定条件不能将其当作不存在。拥有省份的效果遍历与随机选择见 [对应场景](../owned-iteration/README.md)，兼容脚本中的完整归属变更尚未支持。

@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Empty",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "3",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "1",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "2",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "4",
+      "kind": "Province",
+      "owner": 1,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "markers": {
+    "entities": {
+      "0": {},
+      "1": {},
+      "2": {}
+    }
+  },
+  "modifiers": {
+    "definitions": {
+      "brief": {
+        "values_micros": {
+          "local_tax_modifier": 125000
+        },
+        "flags": {}
+      }
+    },
+    "active": {}
+  }
+}

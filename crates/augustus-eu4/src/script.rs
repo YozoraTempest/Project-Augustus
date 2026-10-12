@@ -1106,6 +1106,38 @@ impl<'a> ScriptCompiler<'a> {
             let field = &fields[index];
             self.sources.push((field.path.clone(), field.location));
             match field.name.as_str() {
+                "every_owned_province" | "random_owned_province" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("owned province effects require country scope"));
+                    }
+                    let mut body = Vec::new();
+                    let mut limit = None;
+                    for part in field.block()? {
+                        if part.name == "limit" {
+                            if limit.is_some() {
+                                return Err(part.error("duplicate owned province limit"));
+                            }
+                            limit = Some(self.conditions(part.block()?, EntityKind::Province)?);
+                        } else {
+                            body.push(part.clone());
+                        }
+                    }
+                    let condition = limit.unwrap_or(Condition::Always(true));
+                    let body = self.effects(&body, EntityKind::Province)?;
+                    plan.push(if field.name == "every_owned_province" {
+                        Action::ForEachOwnedProvince {
+                            country: Target::Current,
+                            condition,
+                            plan: body,
+                        }
+                    } else {
+                        Action::RandomOwnedProvince {
+                            country: Target::Current,
+                            condition,
+                            plan: body,
+                        }
+                    });
+                }
                 "custom_tooltip" => plan.push(Action::Description {
                     key: localisation_key(field, "custom tooltip")?,
                     hidden: self.hidden_descriptions,
@@ -1947,6 +1979,8 @@ fn simplify_event_calls(plan: &mut Plan, unconditional: &BTreeSet<String>) {
             Action::With { plan, .. }
             | Action::InScope { plan, .. }
             | Action::ForEach { plan, .. }
+            | Action::ForEachOwnedProvince { plan, .. }
+            | Action::RandomOwnedProvince { plan, .. }
             | Action::Schedule { plan, .. }
             | Action::Preview { plan } => simplify_event_calls(plan, unconditional),
             _ => (),
@@ -2013,6 +2047,8 @@ pub(crate) fn event_references(plan: &[Action], references: &mut BTreeSet<String
             Action::With { plan, .. }
             | Action::InScope { plan, .. }
             | Action::ForEach { plan, .. }
+            | Action::ForEachOwnedProvince { plan, .. }
+            | Action::RandomOwnedProvince { plan, .. }
             | Action::Schedule { plan, .. }
             | Action::Preview { plan } => event_references(plan, references),
             _ => (),

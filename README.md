@@ -10,7 +10,7 @@ Project Augustus 是重新实现《欧陆风云 IV》（EU4）游戏引擎的开
 
 条件可以进入首都、所有者、职位和命名对象，读取共享世界中的地理成员关系；自制样本与操作见 [作用域条件演示](examples/scoped-conditions/README.md)。
 
-国家是否拥有领土也由共享核心查询，已登记标签与存活国家分别处理，见 [国家领土条件演示](examples/country-existence/README.md)。[拥有省份查询](examples/owned-provinces/README.md) 可进一步检查当前成员的条件，并在归属或省份状态变化后读取新结果。
+国家是否拥有领土也由共享核心查询，已登记标签与存活国家分别处理，见 [国家领土条件演示](examples/country-existence/README.md)。[拥有省份查询](examples/owned-provinces/README.md) 可进一步检查当前成员的条件，并在归属或省份状态变化后读取新结果。[遍历与随机选择](examples/owned-iteration/README.md) 共用核心计划，保留取得顺序、实时筛选和读档后的随机状态。
 
 项目也提供本地文件检查工具，用于读取目录、Mod 描述和文本，查询文件覆盖及定义来源。使用方法见 [EU4 文件工具](docs/EU4_CONTENT.md)。
 

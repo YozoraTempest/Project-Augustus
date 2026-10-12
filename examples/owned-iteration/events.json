@@ -1,0 +1,305 @@
+[
+  {
+    "id": "traversal.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "SetMarker": {
+          "target": "Current",
+          "name": "gate",
+          "present": true
+        }
+      },
+      {
+        "ForEachOwnedProvince": {
+          "country": "Current",
+          "condition": {
+            "All": [
+              {
+                "With": {
+                  "target": "Owner",
+                  "kind": "Country",
+                  "condition": {
+                    "All": [
+                      {
+                        "HasMarker": {
+                          "target": "Current",
+                          "name": "gate"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "plan": [
+            {
+              "Emit": "first_only"
+            },
+            {
+              "With": {
+                "target": "Owner",
+                "plan": [
+                  {
+                    "SetMarker": {
+                      "target": "Current",
+                      "name": "gate",
+                      "present": false
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "ForEachOwnedProvince": {
+          "country": "Current",
+          "condition": {
+            "Always": true
+          },
+          "plan": [
+            {
+              "Emit": "member"
+            }
+          ]
+        }
+      },
+      {
+        "RandomOwnedProvince": {
+          "country": "Current",
+          "condition": {
+            "All": [
+              {
+                "EntityNamed": {
+                  "target": "Current",
+                  "name": "2"
+                }
+              }
+            ]
+          },
+          "plan": [
+            {
+              "Emit": "selected"
+            }
+          ]
+        }
+      },
+      {
+        "RandomOwnedProvince": {
+          "country": "Current",
+          "condition": {
+            "All": [
+              {
+                "Always": false
+              }
+            ]
+          },
+          "plan": [
+            {
+              "Emit": "wrong"
+            }
+          ]
+        }
+      },
+      {
+        "ForEachOwnedProvince": {
+          "country": "Current",
+          "condition": {
+            "All": [
+              {
+                "EntityNamed": {
+                  "target": "Current",
+                  "name": "3"
+                }
+              }
+            ]
+          },
+          "plan": [
+            {
+              "With": {
+                "target": "Owner",
+                "plan": [
+                  {
+                    "ForEachOwnedProvince": {
+                      "country": "Current",
+                      "condition": {
+                        "All": [
+                          {
+                            "Any": [
+                              {
+                                "EntityNamed": {
+                                  "target": "Current",
+                                  "name": "1"
+                                }
+                              },
+                              {
+                                "EntityNamed": {
+                                  "target": "Current",
+                                  "name": "2"
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "plan": [
+                        {
+                          "Emit": "inner"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Emit": "outer"
+            }
+          ]
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "traversal.later"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Emit": "returned"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "ForEachOwnedProvince": {
+              "country": "Current",
+              "condition": {
+                "Always": true
+              },
+              "plan": [
+                {
+                  "Preview": {
+                    "plan": [
+                      {
+                        "Description": {
+                          "key": "visit_hint",
+                          "hidden": false
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "RandomOwnedProvince": {
+              "country": "Current",
+              "condition": {
+                "All": [
+                  {
+                    "EntityNamed": {
+                      "target": "Current",
+                      "name": "2"
+                    }
+                  }
+                ]
+              },
+              "plan": [
+                {
+                  "With": {
+                    "target": "Owner",
+                    "plan": [
+                      {
+                        "AttachModifier": {
+                          "target": "Current",
+                          "name": "brief",
+                          "duration": 2,
+                          "hidden": null,
+                          "renewal": "KeepLatestDated",
+                          "duration_label": "brief_duration"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "accepted"
+      }
+    ]
+  },
+  {
+    "id": "traversal.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "ForEachOwnedProvince": {
+          "country": "Current",
+          "condition": {
+            "Always": true
+          },
+          "plan": [
+            {
+              "Emit": "later"
+            }
+          ]
+        }
+      },
+      {
+        "RandomOwnedProvince": {
+          "country": "Current",
+          "condition": {
+            "All": [
+              {
+                "Any": [
+                  {
+                    "EntityNamed": {
+                      "target": "Current",
+                      "name": "1"
+                    }
+                  },
+                  {
+                    "EntityNamed": {
+                      "target": "Current",
+                      "name": "2"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "plan": [
+            {
+              "Emit": "picked"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

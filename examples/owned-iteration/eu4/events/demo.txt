@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+country_event = {
+    id = traversal.start
+    is_triggered_only = yes
+    immediate = {
+        set_country_flag = gate
+        every_owned_province = {
+            limit = { owner = { has_country_flag = gate } }
+            log = first_only
+            owner = { clr_country_flag = gate }
+        }
+        every_owned_province = { log = member }
+        random_owned_province = { limit = { province_id = 2 } log = selected }
+        random_owned_province = { limit = { always = no } log = wrong }
+        every_owned_province = {
+            limit = { province_id = 3 }
+            owner = {
+                every_owned_province = {
+                    limit = { OR = { province_id = 1 province_id = 2 } }
+                    log = inner
+                }
+            }
+            log = outer
+        }
+        country_event = { id = traversal.later days = 1 }
+        log = returned
+    }
+    option = {
+        name = continue
+        every_owned_province = { tooltip = { custom_tooltip = visit_hint } }
+        random_owned_province = {
+            limit = { province_id = 2 }
+            owner = { add_country_modifier = { name = brief duration = 2 desc = brief_duration } }
+        }
+    }
+    after = { log = accepted }
+}
+
+country_event = {
+    id = traversal.later
+    is_triggered_only = yes
+    immediate = {
+        every_owned_province = { log = later }
+        random_owned_province = {
+            limit = { OR = { province_id = 1 province_id = 2 } }
+            log = picked
+        }
+    }
+    option = { name = finish }
+}
