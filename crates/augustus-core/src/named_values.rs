@@ -22,6 +22,8 @@ pub enum NumericSlot {
     Field(FieldId),
     Named(String),
     Government(String),
+    /// Read active or retained inactive values; all writes use the active slot.
+    StoredGovernment(String),
     Metric(String),
 }
 
@@ -77,10 +79,21 @@ impl NumericSlot {
                 Err(Error::Invalid(format!("unknown field {}", field.0)))
             }
             Self::Named(name) => validate_name(name),
-            Self::Government(name) => governments.metric_definition(name).map(|_| ()),
+            Self::Government(name) | Self::StoredGovernment(name) => {
+                governments.metric_definition(name).map(|_| ())
+            }
             Self::Metric(name) => metrics.definition(name).map(|_| ()),
             Self::Field(_) => Ok(()),
         }
+    }
+
+    pub(crate) fn validate_write(&self) -> Result<(), Error> {
+        if matches!(self, Self::StoredGovernment(_)) {
+            return Err(Error::Invalid(
+                "stored government metric slots are read only".into(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -130,6 +143,9 @@ impl World {
         match slot {
             NumericSlot::Field(field) => self.value(entity, *field),
             NumericSlot::Government(name) => self.government_metric_value(entity, name),
+            NumericSlot::StoredGovernment(name) => {
+                self.government_metric_stored_value(entity, name)
+            }
             NumericSlot::Metric(name) => self.metrics().value(self, entity, name),
             NumericSlot::Named(name) => {
                 if let Some(value) = self
@@ -164,6 +180,7 @@ impl World {
         self.require_running()?;
         self.entity(entity)?;
         slot.validate(self.schema(), self.governments(), self.metrics())?;
+        slot.validate_write()?;
         if let NumericSlot::Government(name) = slot
             && !self.government_metric_active(entity, name)?
         {
@@ -193,6 +210,7 @@ impl World {
         let value =
             i64::try_from(value).map_err(|_| Error::Invalid("numeric state overflow".into()))?;
         match slot {
+            NumericSlot::StoredGovernment(_) => unreachable!("validated writable numeric slot"),
             NumericSlot::Field(field) => self.set(entity, *field, value),
             NumericSlot::Metric(name) => self.set_metric_value(entity, name, Some(value)),
             NumericSlot::Government(name) => {

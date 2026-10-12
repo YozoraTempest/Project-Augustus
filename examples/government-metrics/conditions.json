@@ -4,7 +4,7 @@
       {
         "All": [
           {
-            "GovernmentMetricActive": {
+            "GovernmentMetricStored": {
               "target": "Current",
               "name": "legitimacy"
             }
@@ -13,7 +13,7 @@
             "NumericCompare": {
               "target": "Current",
               "slot": {
-                "Government": "legitimacy"
+                "StoredGovernment": "legitimacy"
               },
               "comparison": "AtLeast",
               "value": 65125

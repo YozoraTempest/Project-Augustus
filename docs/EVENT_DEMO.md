@@ -134,9 +134,11 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/g
 
 日志依次为 `fraction`、`owner`、`after`、`delayed`，最终正统性为 `10.125`，查询中的千分位整数为 `10125`。场景通过 `governments` 提供指标定义与初始国家状态；空声明不会改变已有场景的内容标识。
 
-兼容写法支持国家作用域中的字面小数 `add_legitimacy` 和 `legitimacy`，精确到千分位。每次增减后限制在 0 到 100；不适用正统性的国家忽略该效果，阈值条件按零判断。未知适用状态或未知数值仍会报告错误。国家标识比较、动态参数、缩放效果及其他政体指标的兼容写法尚未支持。
+兼容写法支持国家作用域中的字面小数 `add_legitimacy` 和 `legitimacy`，精确到千分位。每次增减后限制在 0 到 100；不适用正统性的国家忽略该效果。阈值条件读取活动值或明确保存的停用值；已知不适用且没有保存值时，沿用零的兼容规则。未知选择或明确未知的数值仍会报告错误。国家标识比较、动态参数、缩放效果及其他政体指标的兼容写法尚未支持。
 
 原生计划使用 `NumericSlot::Government`、`UpdateNumeric`、`NumericCompare` 和 `GovernmentMetricActive`。指标必须先在 `Governments.metrics` 注册，并在国家状态中选为活动指标。原生直接读写不适用的指标会报告错误；`Set` 可以确定活动指标的未知值，其他运算要求已有值。属性和月结读取同一份实时状态，修改无需同步派生值缓存；保存待选事件和延期任务后，恢复不会重放修改。
+
+[停用指标场景](../examples/government-stored-values/README.md) 演示 `inactive_metrics`、`GovernmentMetricStored` 和只读数值槽 `StoredGovernment`。停用值可以被查询，不参与属性计算，也不能通过数值效果修改。正统性条件翻译已经更新，此前版本的正统性场景存档会因内容标识不同而被拒绝，需要重新创建。
 
 `examples/modifier-duration-text` 演示修正效果的期限说明：
 

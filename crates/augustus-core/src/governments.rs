@@ -38,6 +38,9 @@ pub struct GovernmentState {
     pub reforms: Option<BTreeSet<String>>,
     /// Only active metrics are listed. None means their selection is unknown.
     pub metrics: Option<BTreeMap<String, Option<i64>>>,
+    /// Explicitly retained inactive values do not contribute institutional effects.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub inactive_metrics: BTreeMap<String, Option<i64>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -286,6 +289,21 @@ impl Governments {
                     }
                 }
             }
+            for (name, value) in &state.inactive_metrics {
+                let definition = self.metric_definition(name)?;
+                if state.metrics.as_ref().is_some_and(|m| m.contains_key(name)) {
+                    return Err(Error::Invalid(
+                        "government metric is both active and inactive".into(),
+                    ));
+                }
+                if value.is_some_and(|v| {
+                    !(definition.minimum_milli..=definition.maximum_milli).contains(&v)
+                }) {
+                    return Err(Error::Invalid(
+                        "inactive government metric outside bounds".into(),
+                    ));
+                }
+            }
             self.declared_effects(entity)?;
         }
         for (&entity, formulas) in &world.attributes().formulas {
@@ -389,6 +407,44 @@ impl World {
             .ok_or_else(|| {
                 Error::Invalid(format!(
                     "unknown government metric value {name} for entity {}",
+                    entity.0
+                ))
+            })
+    }
+
+    /// Whether an active or explicitly retained inactive value is stored.
+    /// Presence does not imply that the stored value is known.
+    pub fn government_metric_stored(&self, entity: EntityId, name: &str) -> Result<bool, Error> {
+        self.governments().metric_definition(name)?;
+        let state = self.government_country(entity)?;
+        let active = state.metrics.as_ref().ok_or_else(|| {
+            Error::Invalid(format!(
+                "unknown government metric selection for entity {}",
+                entity.0
+            ))
+        })?;
+        Ok(active.contains_key(name) || state.inactive_metrics.contains_key(name))
+    }
+
+    /// Read a stored metric without changing its activity or applying its effects.
+    pub fn government_metric_stored_value(
+        &self,
+        entity: EntityId,
+        name: &str,
+    ) -> Result<i64, Error> {
+        self.government_metric_stored(entity, name)?;
+        let state = self.government_country(entity)?;
+        state
+            .metrics
+            .as_ref()
+            .expect("validated metric selection")
+            .get(name)
+            .or_else(|| state.inactive_metrics.get(name))
+            .copied()
+            .flatten()
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "unknown stored government metric {name} for entity {}",
                     entity.0
                 ))
             })

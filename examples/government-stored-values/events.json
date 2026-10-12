@@ -1,0 +1,238 @@
+[
+  {
+    "id": "stored.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": -1000000000
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": 7125
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricStored": {
+                      "target": "Current",
+                      "name": "legitimacy"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "StoredGovernment": "legitimacy"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 100000
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "retained"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "With": {
+                "target": "Owner",
+                "plan": [
+                  {
+                    "If": {
+                      "condition": {
+                        "All": [
+                          {
+                            "All": [
+                              {
+                                "GovernmentMetricStored": {
+                                  "target": "Current",
+                                  "name": "legitimacy"
+                                }
+                              },
+                              {
+                                "NumericCompare": {
+                                  "target": "Current",
+                                  "slot": {
+                                    "StoredGovernment": "legitimacy"
+                                  },
+                                  "comparison": "AtLeast",
+                                  "value": 100000
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "then": [
+                        {
+                          "Emit": "owner"
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TryEvent": {
+                    "event": "stored.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricStored": {
+                      "target": "Current",
+                      "name": "legitimacy"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "StoredGovernment": "legitimacy"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 100000
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "after"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "stored.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricStored": {
+                      "target": "Current",
+                      "name": "legitimacy"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "StoredGovernment": "legitimacy"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 100000
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "later"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

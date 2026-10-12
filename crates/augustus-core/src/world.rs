@@ -1026,6 +1026,7 @@ pub(crate) fn validate_plan(
                 slot, operation, ..
             } => {
                 slot.validate(schema, governments, metrics)?;
+                slot.validate_write()?;
                 operation.validate()?;
             }
             Action::RecordCompletion { id } => completions.identifier(id)?,
@@ -1215,7 +1216,8 @@ pub(crate) fn validate_condition(
         crate::Condition::GovernmentFeature { name, .. } => {
             crate::governments::validate_identifier(name)
         }
-        crate::Condition::GovernmentMetricActive { name, .. } => {
+        crate::Condition::GovernmentMetricActive { name, .. }
+        | crate::Condition::GovernmentMetricStored { name, .. } => {
             governments.metric_definition(name).map(|_| ())
         }
         crate::Condition::HasMarker { name, .. } => crate::markers::validate_name(name),

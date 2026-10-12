@@ -544,3 +544,247 @@ fn government_state_roundtrips_and_existing_empty_snapshots_remain_readable() {
     let _: Governments =
         serde_json::from_str(&serde_json::to_string(changed.governments()).unwrap()).unwrap();
 }
+
+#[test]
+fn retained_inactive_values_are_readable_without_effects_or_numeric_writes() {
+    let mut world = world();
+    let mut governments = world.governments().clone();
+    let state = governments.countries.get_mut(&EntityId(0)).unwrap();
+    state.metrics.as_mut().unwrap().clear();
+    state
+        .inactive_metrics
+        .insert("authority".into(), Some(100_000));
+    world.set_governments(governments).unwrap();
+    assert!(
+        !world
+            .government_metric_active(EntityId(0), "authority")
+            .unwrap()
+    );
+    assert!(
+        world
+            .government_metric_stored(EntityId(0), "authority")
+            .unwrap()
+    );
+    assert_eq!(
+        world
+            .government_metric_stored_value(EntityId(0), "authority")
+            .unwrap(),
+        100_000
+    );
+    assert_eq!(yield_value(&world).value_micros, Some(1_125_000));
+    assert!(
+        world
+            .government_metric_value(EntityId(0), "authority")
+            .is_err()
+    );
+    assert!(
+        Condition::NumericCompare {
+            target: Target::Owner,
+            slot: NumericSlot::StoredGovernment("authority".into()),
+            comparison: augustus_core::NumericComparison::AtLeast,
+            value: 100_000,
+        }
+        .evaluate(&world, EntityId(2))
+        .unwrap()
+    );
+    let before = world.clone();
+    for slot in [
+        NumericSlot::Government("authority".into()),
+        NumericSlot::StoredGovernment("authority".into()),
+    ] {
+        assert!(
+            world
+                .update_numeric(EntityId(0), &slot, NumericOperation::Set, 50_000)
+                .is_err()
+        );
+    }
+    assert_eq!(world, before);
+    let mut governments = world.governments().clone();
+    let state = governments.countries.get_mut(&EntityId(0)).unwrap();
+    let value = state.inactive_metrics.remove("authority").unwrap();
+    state
+        .metrics
+        .as_mut()
+        .unwrap()
+        .insert("authority".into(), value);
+    world.set_governments(governments).unwrap();
+    assert!(
+        world
+            .government_metric_active(EntityId(0), "authority")
+            .unwrap()
+    );
+    assert_eq!(
+        world
+            .government_metric_stored_value(EntityId(0), "authority")
+            .unwrap(),
+        100_000
+    );
+    assert_eq!(yield_value(&world).value_micros, Some(1_725_000));
+}
+
+#[test]
+fn stored_metric_presence_unknown_values_and_unknown_selection_are_distinct() {
+    let mut world = world();
+    let condition = Condition::GovernmentMetricStored {
+        target: Target::Current,
+        name: "authority".into(),
+    };
+    assert!(!condition.evaluate(&world, EntityId(1)).unwrap());
+    assert!(
+        world
+            .government_metric_stored_value(EntityId(1), "authority")
+            .is_err()
+    );
+    let mut governments = world.governments().clone();
+    governments
+        .countries
+        .get_mut(&EntityId(1))
+        .unwrap()
+        .inactive_metrics
+        .insert("authority".into(), None);
+    world.set_governments(governments).unwrap();
+    assert!(condition.evaluate(&world, EntityId(1)).unwrap());
+    assert!(
+        world
+            .government_metric_stored_value(EntityId(1), "authority")
+            .is_err()
+    );
+    assert!(
+        world
+            .government_metric_stored(EntityId(2), "authority")
+            .is_err()
+    );
+    assert!(
+        world
+            .government_metric_stored(EntityId(1), "missing")
+            .is_err()
+    );
+    let mut governments = world.governments().clone();
+    let state = governments.countries.get_mut(&EntityId(1)).unwrap();
+    state.metrics = None;
+    state
+        .inactive_metrics
+        .insert("authority".into(), Some(25_000));
+    world.set_governments(governments).unwrap();
+    assert!(condition.evaluate(&world, EntityId(1)).is_err());
+    assert!(
+        Condition::Not(Box::new(condition))
+            .evaluate(&world, EntityId(1))
+            .is_err()
+    );
+    assert!(
+        world
+            .government_metric_stored_value(EntityId(1), "authority")
+            .is_err()
+    );
+}
+
+#[test]
+fn retained_values_roundtrip_and_delayed_reads_keep_registry_dependencies() {
+    let mut world = world();
+    let mut governments = world.governments().clone();
+    let state = governments.countries.get_mut(&EntityId(0)).unwrap();
+    state.metrics.as_mut().unwrap().clear();
+    state
+        .inactive_metrics
+        .insert("authority".into(), Some(25_000));
+    world.set_governments(governments).unwrap();
+    world
+        .schedule(
+            EntityId(0),
+            1,
+            vec![Action::If {
+                condition: Condition::All(vec![
+                    Condition::GovernmentMetricStored {
+                        target: Target::Current,
+                        name: "authority".into(),
+                    },
+                    Condition::NumericCompare {
+                        target: Target::Current,
+                        slot: NumericSlot::StoredGovernment("authority".into()),
+                        comparison: augustus_core::NumericComparison::AtLeast,
+                        value: 75_125,
+                    },
+                ]),
+                then: vec![Action::Emit("retained".into())],
+                otherwise: vec![],
+            }],
+        )
+        .unwrap();
+    let saved = world.save("retained-government").unwrap();
+    let mut resumed = World::restore(&saved, "retained-government", world.schema()).unwrap();
+    assert_eq!(resumed.save("retained-government").unwrap(), saved);
+    let before = world.clone();
+    let mut bad = world.governments().clone();
+    bad.metrics.clear();
+    for state in bad.countries.values_mut() {
+        state.metrics.as_mut().unwrap().clear();
+        state.inactive_metrics.clear();
+    }
+    assert!(world.set_governments(bad).is_err());
+    assert_eq!(world, before);
+    for state in [&mut world, &mut resumed] {
+        let mut governments = state.governments().clone();
+        governments
+            .countries
+            .get_mut(&EntityId(0))
+            .unwrap()
+            .inactive_metrics
+            .insert("authority".into(), Some(75_125));
+        state.set_governments(governments).unwrap();
+        state.advance_to(1).unwrap();
+        assert_eq!(state.events().last().unwrap().2, "retained");
+    }
+    assert_eq!(world, resumed);
+    let mut bad: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    bad["governments"]["countries"]["0"]["inactive_metrics"]["authority"] =
+        serde_json::json!(100_001);
+    assert!(World::restore(&bad.to_string(), "retained-government", world.schema()).is_err());
+}
+
+#[test]
+fn invalid_inactive_values_and_read_only_plans_leave_the_world_unchanged() {
+    let mut world = world();
+    let before = world.clone();
+    assert!(
+        !world
+            .save("old-government")
+            .unwrap()
+            .contains("inactive_metrics")
+    );
+    for (entity, name, value) in [
+        (0, "authority", 10),
+        (1, "authority", -1),
+        (1, "authority", 100_001),
+        (1, "missing", 10),
+    ] {
+        let mut bad = world.governments().clone();
+        bad.countries
+            .get_mut(&EntityId(entity))
+            .unwrap()
+            .inactive_metrics
+            .insert(name.into(), Some(value));
+        assert!(world.set_governments(bad).is_err());
+        assert_eq!(world, before);
+    }
+    let plan = vec![Action::If {
+        condition: Condition::Always(false),
+        then: vec![Action::UpdateNumeric {
+            target: Target::Current,
+            slot: NumericSlot::StoredGovernment("authority".into()),
+            operation: NumericOperation::Set,
+            value: 1,
+        }],
+        otherwise: vec![],
+    }];
+    assert!(world.schedule(EntityId(0), 1, plan).is_err());
+    assert_eq!(world, before);
+    let saved = world.save("old-government").unwrap();
+    assert_eq!(
+        World::restore(&saved, "old-government", world.schema())
+            .unwrap()
+            .save("old-government")
+            .unwrap(),
+        saved
+    );
+}

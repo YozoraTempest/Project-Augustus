@@ -74,6 +74,10 @@ pub enum Condition {
         target: Target,
         name: String,
     },
+    GovernmentMetricStored {
+        target: Target,
+        name: String,
+    },
     HasMarker {
         target: Target,
         name: String,
@@ -408,6 +412,9 @@ impl Condition {
             }
             Self::GovernmentMetricActive { target, name } => {
                 world.government_metric_active(world.target(current, *target)?, name)
+            }
+            Self::GovernmentMetricStored { target, name } => {
+                world.government_metric_stored(world.target(current, *target)?, name)
             }
             Self::HasMarker { target, name } => {
                 world.has_marker(world.target(current, *target)?, name)

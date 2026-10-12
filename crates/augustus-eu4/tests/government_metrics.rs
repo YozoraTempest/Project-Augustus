@@ -275,3 +275,86 @@ fn incomplete_startup_discards_metric_changes_and_marks_active_values_unknown() 
             .unwrap()
     );
 }
+
+#[test]
+fn legacy_queries_read_retained_values_while_inactive_effects_remain_ignored() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    let script = document(
+        "add_legitimacy=-1000000 add_legitimacy=7.125 if={limit={legitimacy=100} log=retained} if={limit={legitimacy=0} log=nonnegative}",
+    );
+    let mut snapshots = Vec::new();
+    for optimise in [false, true] {
+        let mut world = world(schema.clone());
+        let mut governments = world.governments().clone();
+        governments
+            .countries
+            .get_mut(&EntityId(1))
+            .unwrap()
+            .inactive_metrics
+            .insert("legitimacy".into(), Some(100_000));
+        world.set_governments(governments).unwrap();
+        let plan = ScriptCompiler::new(&schema, &library, optimise)
+            .with_government_metric_ids(["legitimacy".into()].into())
+            .compile(&script, EntityKind::Country)
+            .unwrap()
+            .plan;
+        world.execute(EntityId(1), &plan).unwrap();
+        assert!(
+            !world
+                .government_metric_active(EntityId(1), "legitimacy")
+                .unwrap()
+        );
+        assert_eq!(
+            world
+                .government_metric_stored_value(EntityId(1), "legitimacy")
+                .unwrap(),
+            100_000
+        );
+        assert_eq!(
+            world
+                .events()
+                .iter()
+                .map(|e| e.2.as_str())
+                .collect::<Vec<_>>(),
+            ["retained", "nonnegative"]
+        );
+        let saved = world.save("retained-legitimacy").unwrap();
+        assert_eq!(
+            World::restore(&saved, "retained-legitimacy", &schema)
+                .unwrap()
+                .save("retained-legitimacy")
+                .unwrap(),
+            saved
+        );
+        snapshots.push(saved);
+    }
+    assert_eq!(snapshots[0], snapshots[1]);
+}
+
+#[test]
+fn unknown_retained_values_are_not_treated_as_zero_by_legacy_queries() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    for text in [
+        "if={limit={legitimacy=0} log=bad}",
+        "if={limit={NOT={legitimacy=100}} log=bad}",
+    ] {
+        let plan = ScriptCompiler::new(&schema, &library, true)
+            .with_government_metric_ids(["legitimacy".into()].into())
+            .compile(&document(text), EntityKind::Country)
+            .unwrap()
+            .plan;
+        let mut world = world(schema.clone());
+        let mut governments = world.governments().clone();
+        governments
+            .countries
+            .get_mut(&EntityId(1))
+            .unwrap()
+            .inactive_metrics
+            .insert("legitimacy".into(), None);
+        world.set_governments(governments).unwrap();
+        assert!(world.execute(EntityId(1), &plan).is_err());
+        assert!(world.events().is_empty());
+    }
+}

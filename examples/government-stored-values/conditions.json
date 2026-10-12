@@ -1,0 +1,50 @@
+{
+  "stored.start": {
+    "All": [
+      {
+        "All": [
+          {
+            "GovernmentMetricStored": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          {
+            "NumericCompare": {
+              "target": "Current",
+              "slot": {
+                "StoredGovernment": "legitimacy"
+              },
+              "comparison": "AtLeast",
+              "value": 100000
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "stored.later": {
+    "All": [
+      {
+        "All": [
+          {
+            "GovernmentMetricStored": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          {
+            "NumericCompare": {
+              "target": "Current",
+              "slot": {
+                "StoredGovernment": "legitimacy"
+              },
+              "comparison": "AtLeast",
+              "value": 100000
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

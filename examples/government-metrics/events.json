@@ -33,7 +33,7 @@
               {
                 "All": [
                   {
-                    "GovernmentMetricActive": {
+                    "GovernmentMetricStored": {
                       "target": "Current",
                       "name": "legitimacy"
                     }
@@ -42,7 +42,7 @@
                     "NumericCompare": {
                       "target": "Current",
                       "slot": {
-                        "Government": "legitimacy"
+                        "StoredGovernment": "legitimacy"
                       },
                       "comparison": "AtLeast",
                       "value": 75125
@@ -56,7 +56,7 @@
                     {
                       "All": [
                         {
-                          "GovernmentMetricActive": {
+                          "GovernmentMetricStored": {
                             "target": "Current",
                             "name": "legitimacy"
                           }
@@ -65,7 +65,7 @@
                           "NumericCompare": {
                             "target": "Current",
                             "slot": {
-                              "Government": "legitimacy"
+                              "StoredGovernment": "legitimacy"
                             },
                             "comparison": "AtLeast",
                             "value": 75126
@@ -239,7 +239,7 @@
                           {
                             "All": [
                               {
-                                "GovernmentMetricActive": {
+                                "GovernmentMetricStored": {
                                   "target": "Current",
                                   "name": "legitimacy"
                                 }
@@ -248,7 +248,7 @@
                                 "NumericCompare": {
                                   "target": "Current",
                                   "slot": {
-                                    "Government": "legitimacy"
+                                    "StoredGovernment": "legitimacy"
                                   },
                                   "comparison": "AtLeast",
                                   "value": 10375
@@ -262,7 +262,7 @@
                                 {
                                   "All": [
                                     {
-                                      "GovernmentMetricActive": {
+                                      "GovernmentMetricStored": {
                                         "target": "Current",
                                         "name": "legitimacy"
                                       }
@@ -271,7 +271,7 @@
                                       "NumericCompare": {
                                         "target": "Current",
                                         "slot": {
-                                          "Government": "legitimacy"
+                                          "StoredGovernment": "legitimacy"
                                         },
                                         "comparison": "AtLeast",
                                         "value": 10376
@@ -372,7 +372,7 @@
               {
                 "All": [
                   {
-                    "GovernmentMetricActive": {
+                    "GovernmentMetricStored": {
                       "target": "Current",
                       "name": "legitimacy"
                     }
@@ -381,7 +381,7 @@
                     "NumericCompare": {
                       "target": "Current",
                       "slot": {
-                        "Government": "legitimacy"
+                        "StoredGovernment": "legitimacy"
                       },
                       "comparison": "AtLeast",
                       "value": 65125
@@ -395,7 +395,7 @@
                     {
                       "All": [
                         {
-                          "GovernmentMetricActive": {
+                          "GovernmentMetricStored": {
                             "target": "Current",
                             "name": "legitimacy"
                           }
@@ -404,7 +404,7 @@
                           "NumericCompare": {
                             "target": "Current",
                             "slot": {
-                              "Government": "legitimacy"
+                              "StoredGovernment": "legitimacy"
                             },
                             "comparison": "AtLeast",
                             "value": 65126

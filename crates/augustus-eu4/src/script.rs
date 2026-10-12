@@ -1638,20 +1638,20 @@ impl<'a> ScriptCompiler<'a> {
                     if !(0..=100_000).contains(&value) {
                         return Err(field.error("legitimacy threshold must be between 0 and 100"));
                     }
-                    let active = Condition::GovernmentMetricActive {
+                    let stored = Condition::GovernmentMetricStored {
                         target: Target::Current,
                         name: "legitimacy".into(),
                     };
                     let compare = Condition::NumericCompare {
                         target: Target::Current,
-                        slot: augustus_core::NumericSlot::Government("legitimacy".into()),
+                        slot: augustus_core::NumericSlot::StoredGovernment("legitimacy".into()),
                         comparison: augustus_core::NumericComparison::AtLeast,
                         value,
                     };
                     if value == 0 {
-                        Condition::Any(vec![Condition::Not(Box::new(active)), compare])
+                        Condition::Any(vec![Condition::Not(Box::new(stored)), compare])
                     } else {
-                        Condition::All(vec![active, compare])
+                        Condition::All(vec![stored, compare])
                     }
                 }
                 "is_emperor" | "is_emperor_of_china" => {

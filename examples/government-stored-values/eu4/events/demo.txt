@@ -1,0 +1,8 @@
+country_event={id=stored.start is_triggered_only=yes trigger={legitimacy=100}
+ immediate={add_legitimacy=-1000000 add_legitimacy=7.125
+  if={limit={legitimacy=100} log=retained}
+  capital_scope={owner={if={limit={legitimacy=100} log=owner}}}}
+ option={name=continue country_event={id=stored.later days=1}}
+ after={if={limit={legitimacy=100} log=after}}}
+country_event={id=stored.later is_triggered_only=yes trigger={legitimacy=100}
+ immediate={if={limit={legitimacy=100} log=later}} option={name=finish}}
