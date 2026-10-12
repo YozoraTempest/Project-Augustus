@@ -285,14 +285,7 @@ impl EstateInitialization {
             }
             for (condition, amount) in &weight.conditions {
                 let mut pending = BTreeSet::new();
-                match condition.evaluate(
-                    initial,
-                    tag,
-                    history.filter(|h| !h.unknown_flags).map(|h| &h.flags),
-                    &mut pending,
-                    None,
-                    Some(lookup),
-                ) {
+                match condition.evaluate(initial, tag, &mut pending, None, Some(lookup)) {
                     Some(false) => (),
                     Some(true) => value = value.and_then(|v| v.checked_add(*amount)),
                     None => {

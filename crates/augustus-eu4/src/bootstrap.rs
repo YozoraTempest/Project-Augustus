@@ -93,6 +93,8 @@ pub struct ProvinceView<'a> {
 
 #[derive(Debug, Serialize)]
 pub struct CountryView<'a> {
+    pub flags: Option<&'a BTreeMap<String, bool>>,
+    pub flag_namespace_known: bool,
     pub estates: Option<&'a BTreeMap<String, augustus_core::EstateState>>,
     pub declared_estate_effects: augustus_core::EstateEvaluation,
     pub ideas: Option<&'a augustus_core::IdeaState>,
@@ -408,6 +410,7 @@ impl VanillaWorld {
         let mut governments = GovernmentDraft::load(&root, &files, &mut report.governments)?;
         let mut status_draft = CountryStatusDraft::load(&root, &files, &mut report.ideas)?;
         let mut estates = EstateDraft::load(&root, &files, &mut report.estates)?;
+        let mut markers = crate::country_markers::CountryMarkers::default();
         let mut ideas = IdeaDraft::load(&root, &files, &mut report.ideas)?;
         let mut setup = SetupDraft::load(&root, &files, &mut report.setup)?;
         let attribute_draft = AttributeDraft::load(&root, &files, &mut report.attributes)?;
@@ -462,6 +465,7 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
+                markers.history(&parsed, reader.clone(), &id)?;
                 status_draft.country_history(&parsed, reader.clone(), &id, &mut report.ideas)?;
                 estates.country_history(&parsed, reader.clone(), &id, &mut report.estates)?;
                 ideas.country_history(&parsed, reader.clone(), &id, &mut report.ideas)?;
@@ -549,6 +553,9 @@ impl VanillaWorld {
             provinces.into_values().collect(),
         )
         .map_err(|e| Error::caused_by(root.path(), e))?;
+        initial
+            .set_markers(markers.bind(&initial))
+            .map_err(|e| Error::caused_by(root.path(), e))?;
         let mut politics = politics::bind_people(&initial, political_drafts, date, &mut report)?;
         politics::load_diplomacy(&root, &files, &initial, date, &mut politics, &mut report)?;
         initial
@@ -587,7 +594,6 @@ impl VanillaWorld {
         initial
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
-        let estate_flags = estates.flags();
         let startup = crate::estates::EstateStartup::load(
             &root,
             &files,
@@ -628,7 +634,7 @@ impl VanillaWorld {
                     .collect(),
             ))
             .map_err(|e| Error::caused_by(root.path(), e))?;
-        startup.run(&mut initial, &estate_flags, &mut report.estates)?;
+        startup.run(&mut initial, &mut report.estates)?;
         report.countries = initial.countries().len();
         report.provinces = initial.provinces().len();
         for country in initial.countries() {
@@ -895,6 +901,19 @@ impl VanillaWorld {
                 .modifiers()
                 .declared_totals(self.initial.country_entity(id).expect("registered country"))
                 .expect("validated modifier totals"),
+            flags: self
+                .initial
+                .world()
+                .markers()
+                .entities
+                .get(&self.initial.country_entity(id).expect("registered country")),
+            flag_namespace_known: self
+                .initial
+                .world()
+                .marker_namespace_known(
+                    self.initial.country_entity(id).expect("registered country"),
+                )
+                .expect("registered country"),
         })
     }
 

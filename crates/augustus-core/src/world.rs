@@ -102,6 +102,7 @@ pub struct World {
     pub(crate) estates: crate::Estates,
     pub(crate) completions: crate::Completions,
     pub(crate) named_values: crate::NamedValues,
+    pub(crate) markers: crate::Markers,
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
@@ -153,6 +154,8 @@ struct Snapshot {
     completions: crate::Completions,
     #[serde(default, skip_serializing_if = "crate::NamedValues::is_empty")]
     named_values: crate::NamedValues,
+    #[serde(default, skip_serializing_if = "crate::Markers::is_empty")]
+    markers: crate::Markers,
     #[serde(
         default,
         skip_serializing_if = "crate::event_choices::EventQueue::is_empty"
@@ -198,6 +201,7 @@ impl World {
             estates: crate::Estates::default(),
             completions: crate::Completions::default(),
             named_values: crate::NamedValues::default(),
+            markers: crate::Markers::default(),
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
@@ -625,6 +629,7 @@ impl World {
             estates: self.estates.clone(),
             completions: self.completions.clone(),
             named_values: self.named_values.clone(),
+            markers: self.markers.clone(),
             event_queue: self.event_queue.clone(),
         })?)
     }
@@ -686,6 +691,7 @@ impl World {
             estates: snapshot.estates,
             completions: snapshot.completions,
             named_values: snapshot.named_values,
+            markers: snapshot.markers,
         };
         for rule in &world.rules {
             validate_plan(
@@ -732,6 +738,7 @@ impl World {
         world.estates.validate(&world)?;
         world.completions.validate(&world)?;
         world.named_values.validate(&world)?;
+        world.markers.validate(&world)?;
         world.attributes.validate(&world)?;
         if let Some(calendar) = &world.calendar {
             calendar.date(world.day)?;
@@ -827,6 +834,7 @@ pub(crate) fn validate_plan(
 ) -> Result<(), Error> {
     for action in plan {
         match action {
+            Action::SetMarker { name, .. } => crate::markers::validate_name(name)?,
             Action::AttachModifier { name, duration, .. } => {
                 modifiers.identifier(name)?;
                 if *duration == Some(0) {
@@ -931,6 +939,7 @@ pub(crate) fn validate_condition(
     modifiers: &Modifiers,
 ) -> Result<(), Error> {
     match condition {
+        crate::Condition::HasMarker { name, .. } => crate::markers::validate_name(name),
         crate::Condition::HasModifier { name, .. } => modifiers.identifier(name),
         crate::Condition::NumericCompare { slot, .. } => slot.validate(schema),
         crate::Condition::CompletionRecorded { id, .. } => completions.identifier(id),

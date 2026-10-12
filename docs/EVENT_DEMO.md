@@ -106,6 +106,19 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/m
 
 日志依次为 `before`、`owner`、`after`、`expired`。最后一条在第四天出现；到期条件读取已经清理的修正状态。查询的 `modifiers` 给出定义和附着记录，结束时没有活动修正。
 
+`examples/flag-lifecycle` 演示国家标记的设置、清除、作用域和延期查询。选项清除 `ready` 并设置 `chosen`，次日事件读取修改后的状态：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/flag-lifecycle --trigger flags.control --choose 0:0 --save flags_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/flag-lifecycle --input native --load flags_waiting.json --days 1 --choose 1:0
+```
+
+日志依次为 `before`、`owner`、`after`、`delayed`。最后一条在次日出现；结束时两国的标记空间均已知为空。查询的 `markers` 给出按实体保存的状态。
+
+国家作用域支持字面名称形式的 `set_country_flag`、`clr_country_flag` 和 `has_country_flag`，分别使用核心 `SetMarker` 和 `HasMarker`。重复设置保持一个标记，清除已知不存在的名称没有副作用。条件读取当前状态，选项和 `after` 的修改立即可见。动态名称、`@ROOT` 等作用域后缀、`had_country_flag` 时间条件，以及全局、省份、人物标记的兼容写法尚未支持；未知形式报告来源位置。
+
+原生场景通过 `markers.entities` 提供初始状态。空对象表示该实体的标记空间已知为空，未记录的名称查询为假；缺少实体条目或列入 `unknown_entities` 表示其他名称未知。明确写入 `true` 或 `false` 可以确定个别名称，同时保留其他名称未知。原生核心可以操作不同实体，状态随存档保存，恢复不会重放设置动作。
+
 ## 运行规则
 
 事件先执行 `immediate`，成功后保存当前实体和触发日期。等待期间的数值及实体关系保持实时更新；选择时执行选项效果，再执行 `after`，成功后移除对应记录。多个同类事件各有独立编号。读档不重复即时效果，重复选择、未知选项和错误实体类型会在写入前被拒绝。效果运行错误保留已经发生的写入并停止模拟，不能继续推进或保存。

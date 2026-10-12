@@ -284,6 +284,17 @@ impl<'a> ScriptCompiler<'a> {
         self
     }
 
+    fn country_flag_name(&self, field: &Field, scope: EntityKind) -> Result<String, Error> {
+        if scope != EntityKind::Country {
+            return Err(field.error("country flags require country scope"));
+        }
+        let name = field.scalar()?;
+        if !crate::country_markers::literal_name(name) {
+            return Err(field.error("country flag requires a literal name"));
+        }
+        Ok(name.into())
+    }
+
     fn mission_id(&self, field: &Field, scope: EntityKind) -> Result<String, Error> {
         if scope != EntityKind::Country {
             return Err(field.error("mission records require country scope"));
@@ -526,6 +537,14 @@ impl<'a> ScriptCompiler<'a> {
             let field = &fields[index];
             self.sources.push((field.path.clone(), field.location));
             match field.name.as_str() {
+                "set_country_flag" | "clr_country_flag" => {
+                    let name = self.country_flag_name(field, scope)?;
+                    plan.push(Action::SetMarker {
+                        target: Target::Current,
+                        name,
+                        present: field.name == "set_country_flag",
+                    });
+                }
                 "add_country_modifier" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("country modifiers require country scope"));
@@ -807,6 +826,10 @@ impl<'a> ScriptCompiler<'a> {
                     }
                 }
                 "always" => Condition::Always(boolean(field)?),
+                "has_country_flag" => Condition::HasMarker {
+                    target: Target::Current,
+                    name: self.country_flag_name(field, scope)?,
+                },
                 "has_dlc" => {
                     let expansion = field.scalar()?;
                     if !crate::is_known_dlc(expansion) {

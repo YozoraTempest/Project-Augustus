@@ -18,6 +18,7 @@ mod event_choices;
 mod governments;
 mod ideas;
 mod initial;
+mod markers;
 mod modifiers;
 mod named_values;
 mod plan;
@@ -59,6 +60,7 @@ pub use ideas::{
     IdeaContribution, IdeaDefinition, IdeaEffect, IdeaEvaluation, IdeaGroup, IdeaState, Ideas,
 };
 pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
+pub use markers::Markers;
 pub use modifiers::{ModifierDefinition, ModifierInstance, ModifierRenewal, Modifiers};
 pub use named_values::{NamedValues, NumericComparison, NumericOperation, NumericSlot};
 pub use plan::{Action, Condition, Plan, Target};

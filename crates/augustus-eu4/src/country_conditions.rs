@@ -21,6 +21,7 @@ pub(super) enum Condition {
     Office(String, bool),
     Completion(String),
     Modifier(String),
+    Marker(String),
     Numeric(augustus_core::Condition),
     Feature(String),
     Estate(String),
@@ -114,6 +115,15 @@ impl Condition {
                             return Err(fail("empty modifier name"));
                         }
                         Self::Modifier(id)
+                    }
+                    "has_country_flag" if country => {
+                        let id = value
+                            .read_string()
+                            .map_err(|_| fail("expected country flag name"))?;
+                        if id.is_empty() {
+                            return Err(fail("empty country flag name"));
+                        }
+                        Self::Marker(id)
                     }
                     "check_variable" | "is_variable_equal" => {
                         let schema =
@@ -257,7 +267,7 @@ impl Condition {
                     ),
                     "tag" | "TAG" | "primary_culture" | "culture_group" | "religion"
                     | "religion_group" | "government" | "technology_group" | "dynasty"
-                    | "has_reform" | "has_country_flag"
+                    | "has_reform"
                         if country =>
                     {
                         let text = value
@@ -315,12 +325,25 @@ impl Condition {
         &self,
         initial: &InitialWorld,
         tag: &str,
-        flags: Option<&BTreeSet<String>>,
         reasons: &mut BTreeSet<String>,
         province: Option<augustus_core::EntityId>,
         estates: EstateLookup<'_>,
     ) -> Option<bool> {
         match self {
+            Self::Marker(name) => {
+                if !crate::country_markers::literal_name(name) {
+                    reasons.insert("unsupported_country_flag_name".into());
+                    return None;
+                }
+                let entity = initial.country_entity(tag).expect("registered country");
+                match initial.world().has_marker(entity, name) {
+                    Ok(value) => Some(value),
+                    Err(_) => {
+                        reasons.insert("unknown_country_flags".into());
+                        None
+                    }
+                }
+            }
             Self::Modifier(name) => {
                 let entity = initial.country_entity(tag).expect("registered country");
                 if !initial.world().modifiers().definitions.contains_key(name) {
@@ -391,11 +414,11 @@ impl Condition {
             }
             Self::If(limit, body) => {
                 let mut pending = BTreeSet::new();
-                let limit = limit.evaluate(initial, tag, flags, &mut pending, province, estates);
+                let limit = limit.evaluate(initial, tag, &mut pending, province, estates);
                 if limit == Some(false) {
                     return Some(true);
                 }
-                let value = body.evaluate(initial, tag, flags, &mut pending, province, estates);
+                let value = body.evaluate(initial, tag, &mut pending, province, estates);
                 if value == Some(true) {
                     return Some(true);
                 }
@@ -423,7 +446,7 @@ impl Condition {
                 let mut unknown = false;
                 let mut pending = BTreeSet::new();
                 for child in children {
-                    match child.evaluate(initial, tag, flags, &mut pending, province, estates) {
+                    match child.evaluate(initial, tag, &mut pending, province, estates) {
                         Some(value) if value != all => {
                             return Some(if matches!(self, Self::None(_)) {
                                 false
@@ -452,7 +475,7 @@ impl Condition {
                 let mut pending = BTreeSet::new();
                 let mut unknown = false;
                 for child in children {
-                    match child.evaluate(initial, tag, flags, &mut pending, capital, estates) {
+                    match child.evaluate(initial, tag, &mut pending, capital, estates) {
                         Some(false) => return Some(false),
                         None => unknown = true,
                         _ => (),
@@ -546,14 +569,6 @@ impl Condition {
                             None
                         };
                     }
-                    "has_country_flag" => {
-                        return if let Some(flags) = flags {
-                            Some(flags.contains(expected))
-                        } else {
-                            reasons.insert("unknown_country_flags".into());
-                            None
-                        };
-                    }
                     _ => unreachable!(),
                 };
                 if actual.is_none() {
@@ -595,6 +610,7 @@ impl Condition {
             Self::Feature(id)
             | Self::Completion(id)
             | Self::Modifier(id)
+            | Self::Marker(id)
             | Self::Estate(id)
             | Self::EstatePrivilege(id)
             | Self::Region(id, _) => replace(id),

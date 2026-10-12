@@ -1,6 +1,49 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
+#[test]
+fn country_flags_share_live_choices_delays_and_cross_input_restore() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/flag-lifecycle");
+    let mut continuous = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(continuous.save().unwrap(), native.save().unwrap());
+    let pending = continuous.trigger("flags.control", 0).unwrap();
+    continuous
+        .choose(&augustus_core::EventChoice {
+            pending,
+            option: "0".into(),
+        })
+        .unwrap();
+    native.restore(&continuous.save().unwrap()).unwrap();
+    for demo in [&mut continuous, &mut native] {
+        assert!(
+            !demo
+                .world()
+                .has_marker(augustus_core::EntityId(1), "chosen")
+                .unwrap()
+        );
+        demo.advance(1).unwrap();
+        demo.choose(&augustus_core::EventChoice {
+            pending: augustus_core::PendingEventId(1),
+            option: "0".into(),
+        })
+        .unwrap();
+        assert!(demo.world().markers().entities[&augustus_core::EntityId(0)].is_empty());
+        assert_eq!(
+            demo.world()
+                .events()
+                .iter()
+                .map(|e| (e.0, e.2.as_str()))
+                .collect::<Vec<_>>(),
+            [(0, "before"), (0, "owner"), (0, "after"), (1, "delayed")]
+        );
+        assert!(demo.world().pending_events().is_empty());
+        assert_eq!(demo.world().pending_tasks(), 0);
+    }
+    assert_eq!(continuous.save().unwrap(), native.save().unwrap());
+}
+
 use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 

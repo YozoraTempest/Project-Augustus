@@ -793,6 +793,16 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             .unwrap(),
         )
         .unwrap();
+    native
+        .set_markers(augustus_core::Markers {
+            entities: [
+                (alpha, [("not_implemented".into(), true)].into()),
+                (beta, Default::default()),
+            ]
+            .into(),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(loaded.initial.world(), &native);
     let earlier = VanillaWorld::load(fixture(), "1435.1.1").unwrap();
     assert_eq!(

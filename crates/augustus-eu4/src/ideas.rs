@@ -51,8 +51,6 @@ impl PropertyDiagnostics for IdeaReport {
 
 #[derive(Default)]
 struct History {
-    flags: BTreeSet<String>,
-    unknown_flags: bool,
     unknown_selection: bool,
 }
 
@@ -217,27 +215,12 @@ impl IdeaDraft {
         report: &mut IdeaReport,
     ) -> Result<(), Error> {
         let history = self.histories.entry(tag.into()).or_default();
-        for (key, op, value) in reader.fields() {
+        for (key, _, value) in reader.fields() {
             let name = key.read_string();
             if dated_name(&name) {
                 continue;
             }
-            if matches!(name.as_str(), "set_country_flag" | "clr_country_flag") {
-                let at = parsed.field_location(&key);
-                let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
-                equal(op, &fail)?;
-                let flag = value
-                    .read_string()
-                    .map_err(|_| fail("expected country flag identifier"))?;
-                if flag.is_empty() {
-                    return Err(fail("empty country flag"));
-                }
-                if name == "set_country_flag" {
-                    history.flags.insert(flag);
-                } else {
-                    history.flags.remove(&flag);
-                }
-            } else if matches!(name.as_str(), "add_idea_group" | "swap_free_idea_group") {
+            if matches!(name.as_str(), "add_idea_group" | "swap_free_idea_group") {
                 history.unknown_selection = true;
                 report.unsupported(parsed, "history", &name, parsed.field_location(&key));
             } else if let Ok(children) = value.read_object() {
@@ -263,14 +246,7 @@ impl IdeaDraft {
                 } else {
                     for (id, condition) in &self.candidates {
                         let mut pending = BTreeSet::new();
-                        match condition.evaluate(
-                            initial,
-                            &country.id,
-                            (!history.unknown_flags).then_some(&history.flags),
-                            &mut pending,
-                            None,
-                            None,
-                        ) {
+                        match condition.evaluate(initial, &country.id, &mut pending, None, None) {
                             Some(false) => (),
                             Some(true) => {
                                 let progress = (date
@@ -336,7 +312,6 @@ fn scoped_history(
     }
     for (key, _, value) in reader.fields() {
         match key.read_string().as_str() {
-            "set_country_flag" | "clr_country_flag" => history.unknown_flags = true,
             "add_idea_group" | "swap_free_idea_group" => history.unknown_selection = true,
             _ => {
                 if let Ok(children) = value.read_object() {

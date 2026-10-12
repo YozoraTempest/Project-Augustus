@@ -71,6 +71,22 @@ impl Compiler {
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             equal(op, &fail)?;
             match name.as_str() {
+                "set_country_flag" | "clr_country_flag" => {
+                    let id = value
+                        .read_string()
+                        .map_err(|_| fail("expected country flag name"))?;
+                    if !crate::country_markers::literal_name(&id) {
+                        return Err(fail("country flag requires a literal name"));
+                    }
+                    result.push(Step::Metric(
+                        Action::SetMarker {
+                            target: augustus_core::Target::Current,
+                            name: id,
+                            present: name == "set_country_flag",
+                        },
+                        location,
+                    ));
+                }
                 "remove_country_modifier" => {
                     let id = value
                         .read_string()
@@ -535,7 +551,6 @@ impl EstateStartup {
     pub(crate) fn run(
         &self,
         initial: &mut InitialWorld,
-        flags: &BTreeMap<String, Option<BTreeSet<String>>>,
         report: &mut EstateReport,
     ) -> Result<(), Error> {
         let mut candidate = initial.clone();
@@ -606,15 +621,7 @@ impl EstateStartup {
             .collect();
         let mut budget = 100_000;
         let result = countries.iter().try_for_each(|tag| {
-            self.execute(
-                &self.steps,
-                &mut candidate,
-                tag,
-                flags,
-                &mut trace,
-                &mut budget,
-                0,
-            )
+            self.execute(&self.steps, &mut candidate, tag, &mut trace, &mut budget, 0)
         });
         match result {
             Ok(()) => {
@@ -625,6 +632,13 @@ impl EstateStartup {
             Err(pending) => {
                 report.pending_startup_effects.push(pending.source);
                 report.startup_unresolved.extend(pending.reasons);
+                let mut markers = initial.world().markers().clone();
+                for tag in &countries {
+                    markers.mark_unknown(initial.country_entity(tag).expect("registered country"));
+                }
+                initial
+                    .set_markers(markers)
+                    .map_err(|e| Error::caused_by("common/on_actions", e))?;
                 let mut modifiers = initial.world().modifiers().clone();
                 modifiers.unknown_entities.extend(
                     countries
@@ -674,7 +688,6 @@ impl EstateStartup {
         steps: &[Step],
         initial: &mut InitialWorld,
         tag: &str,
-        flags: &BTreeMap<String, Option<BTreeSet<String>>>,
         trace: &mut Vec<LoadedSource>,
         budget: &mut usize,
         depth: usize,
@@ -689,7 +702,7 @@ impl EstateStartup {
                 | Step::Scoped(_, _, at)
                 | Step::Pending(_, at) => at,
                 Step::Group(body) => {
-                    self.execute(body, initial, tag, flags, trace, budget, depth + 1)?;
+                    self.execute(body, initial, tag, trace, budget, depth + 1)?;
                     continue;
                 }
             };
@@ -716,7 +729,7 @@ impl EstateStartup {
                             format!("unsupported_privilege_initialization:{id}"),
                         ));
                     }
-                    if *granted && !self.condition(&callback.valid, initial, tag, flags, at)? {
+                    if *granted && !self.condition(&callback.valid, initial, tag, at)? {
                         return Err(Pending::new(
                             at,
                             format!("unvalidated_privilege_validity:{id}"),
@@ -756,7 +769,6 @@ impl EstateStartup {
                         },
                         initial,
                         tag,
-                        flags,
                         trace,
                         budget,
                         depth + 1,
@@ -795,12 +807,12 @@ impl EstateStartup {
                 Step::Branch(branches, otherwise, at) => {
                     let mut selected: &[Step] = otherwise.as_deref().unwrap_or(&[]);
                     for (condition, body) in branches {
-                        if self.condition(condition, initial, tag, flags, at)? {
+                        if self.condition(condition, initial, tag, at)? {
                             selected = body;
                             break;
                         }
                     }
-                    self.execute(selected, initial, tag, flags, trace, budget, depth + 1)?;
+                    self.execute(selected, initial, tag, trace, budget, depth + 1)?;
                 }
                 Step::Countries(condition, body, at) => {
                     let countries: Vec<_> = initial
@@ -810,8 +822,8 @@ impl EstateStartup {
                         .map(|c| c.id.clone())
                         .collect();
                     for tag in countries {
-                        if self.condition(condition, initial, &tag, flags, at)? {
-                            self.execute(body, initial, &tag, flags, trace, budget, depth + 1)?;
+                        if self.condition(condition, initial, &tag, at)? {
+                            self.execute(body, initial, &tag, trace, budget, depth + 1)?;
                         }
                     }
                 }
@@ -820,7 +832,7 @@ impl EstateStartup {
                         return Err(Pending::new(at, format!("unknown_country_scope:{tag}")));
                     }
                     if !initial.owned_provinces(tag).is_empty() {
-                        self.execute(body, initial, tag, flags, trace, budget, depth + 1)?;
+                        self.execute(body, initial, tag, trace, budget, depth + 1)?;
                     }
                 }
                 Step::Scoped(selector, body, at) => {
@@ -845,7 +857,7 @@ impl EstateStartup {
                             .find(|c| initial.country_entity(&c.id) == Some(entity))
                             .map(|c| c.id.clone())
                             .ok_or_else(|| Pending::new(at, "unbound startup scope entity"))?;
-                        self.execute(body, initial, &target, flags, trace, budget, depth + 1)?;
+                        self.execute(body, initial, &target, trace, budget, depth + 1)?;
                     }
                 }
                 Step::Pending(reason, at) => return Err(Pending::new(at, reason)),
@@ -860,7 +872,6 @@ impl EstateStartup {
         condition: &Condition,
         initial: &InitialWorld,
         tag: &str,
-        flags: &BTreeMap<String, Option<BTreeSet<String>>>,
         at: &LoadedSource,
     ) -> Result<bool, Pending> {
         let mut reasons = BTreeSet::new();
@@ -874,14 +885,7 @@ impl EstateStartup {
                 .and_then(|s| s.get(id))
                 .and_then(|s| s.active)
         };
-        let value = condition.evaluate(
-            initial,
-            tag,
-            flags.get(tag).and_then(Option::as_ref),
-            &mut reasons,
-            None,
-            Some(&lookup),
-        );
+        let value = condition.evaluate(initial, tag, &mut reasons, None, Some(&lookup));
         value.ok_or_else(|| {
             if reasons.is_empty() {
                 reasons.insert("unknown_startup_condition".into());

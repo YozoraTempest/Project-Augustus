@@ -32,6 +32,8 @@ struct Scene {
     named_values: augustus_core::NamedValues,
     #[serde(default, skip_serializing_if = "augustus_core::Modifiers::is_empty")]
     modifiers: augustus_core::Modifiers,
+    #[serde(default, skip_serializing_if = "augustus_core::Markers::is_empty")]
+    markers: augustus_core::Markers,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,6 +75,8 @@ pub struct EventView {
     pub named_values: augustus_core::NamedValues,
     #[serde(skip_serializing_if = "augustus_core::Modifiers::is_empty")]
     pub modifiers: augustus_core::Modifiers,
+    #[serde(skip_serializing_if = "augustus_core::Markers::is_empty")]
+    pub markers: augustus_core::Markers,
 }
 
 /// Self-authored scenario exercising the same core from two content formats.
@@ -229,6 +233,7 @@ impl EventDemo {
         }
         world.set_completions(scene.completions)?;
         world.set_named_values(scene.named_values)?;
+        world.set_markers(scene.markers)?;
         world.set_modifiers(scene.modifiers)?;
         world.set_event_catalog(catalog)?;
         Ok(Self { world, content })
@@ -346,6 +351,7 @@ impl EventDemo {
             completions: self.world.completions().clone(),
             named_values: self.world.named_values().clone(),
             modifiers: self.world.modifiers().clone(),
+            markers: self.world.markers().clone(),
         })
     }
 }

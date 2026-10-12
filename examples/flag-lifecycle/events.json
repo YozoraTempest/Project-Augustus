@@ -1,0 +1,23 @@
+[
+  {
+    "id": "flags.control", "scope": "Country",
+    "immediate": [
+      {"If": {"condition": {"All": [{"Not": {"All": [{"HasMarker": {"target": "Current", "name": "ready"}}]}}]}, "then": [{"Emit": "before"}], "otherwise": []}},
+      {"SetMarker": {"target": "Current", "name": "missing", "present": false}},
+      {"SetMarker": {"target": "Current", "name": "ready", "present": true}},
+      {"SetMarker": {"target": "Current", "name": "ready", "present": true}},
+      {"With": {"target": "Capital", "plan": [{"With": {"target": "Owner", "plan": [{"If": {"condition": {"All": [{"HasMarker": {"target": "Current", "name": "ready"}}]}, "then": [{"Emit": "owner"}], "otherwise": []}}]}}]}},
+      {"Schedule": {"delay": 1, "plan": [{"TryEvent": {"event": "flags.delayed"}}]}}
+    ],
+    "options": [{"id": "0", "effects": [
+      {"SetMarker": {"target": "Current", "name": "ready", "present": false}},
+      {"SetMarker": {"target": "Current", "name": "chosen", "present": true}}
+    ]}],
+    "after": [{"If": {"condition": {"All": [{"HasMarker": {"target": "Current", "name": "chosen"}}]}, "then": [{"Emit": "after"}], "otherwise": []}}]
+  },
+  {
+    "id": "flags.delayed", "scope": "Country",
+    "immediate": [{"If": {"condition": {"All": [{"Not": {"All": [{"HasMarker": {"target": "Current", "name": "ready"}}]}}, {"HasMarker": {"target": "Current", "name": "chosen"}}]}, "then": [{"Emit": "delayed"}], "otherwise": []}}],
+    "options": [{"id": "0", "effects": [{"SetMarker": {"target": "Current", "name": "chosen", "present": false}}]}], "after": []
+  }
+]

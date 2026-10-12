@@ -15,6 +15,10 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    HasMarker {
+        target: Target,
+        name: String,
+    },
     HasModifier {
         target: Target,
         name: String,
@@ -51,6 +55,11 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    SetMarker {
+        target: Target,
+        name: String,
+        present: bool,
+    },
     AttachModifier {
         target: Target,
         name: String,
@@ -152,6 +161,9 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::HasMarker { target, name } => {
+                world.has_marker(world.target(current, *target)?, name)
+            }
             Self::HasModifier { target, name } => {
                 world.has_modifier(world.target(current, *target)?, name)
             }
@@ -258,6 +270,14 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::SetMarker {
+                    target,
+                    name,
+                    present,
+                } => {
+                    let entity = self.target(current, *target)?;
+                    self.set_marker(entity, name, *present)?;
+                }
                 Action::AttachModifier {
                     target,
                     name,

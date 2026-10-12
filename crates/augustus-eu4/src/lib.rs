@@ -12,6 +12,7 @@ mod autonomy;
 mod bootstrap;
 mod content;
 mod country_conditions;
+mod country_markers;
 mod country_status;
 mod defines;
 mod definitions;

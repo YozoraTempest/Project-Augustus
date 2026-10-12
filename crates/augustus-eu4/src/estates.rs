@@ -71,8 +71,6 @@ impl PropertyDiagnostics for EstateReport {
 
 #[derive(Default)]
 struct History {
-    flags: BTreeSet<String>,
-    unknown_flags: bool,
     privileges: BTreeSet<String>,
     privilege_operations: BTreeSet<String>,
     revoked_privileges: BTreeSet<String>,
@@ -96,17 +94,6 @@ pub(super) struct EstateDraft {
 }
 
 impl EstateDraft {
-    pub(super) fn flags(&self) -> BTreeMap<String, Option<BTreeSet<String>>> {
-        self.histories
-            .iter()
-            .map(|(tag, history)| {
-                (
-                    tag.clone(),
-                    (!history.unknown_flags).then(|| history.flags.clone()),
-                )
-            })
-            .collect()
-    }
     pub(super) fn load(
         root: &ContentRoot,
         files: &[FileEntry],
@@ -373,10 +360,7 @@ impl EstateDraft {
             let at = parsed.field_location(&key);
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             match name.as_str() {
-                "set_country_flag"
-                | "clr_country_flag"
-                | "set_estate_privilege"
-                | "remove_estate_privilege" => {
+                "set_estate_privilege" | "remove_estate_privilege" => {
                     equal(op, &fail)?;
                     let id = value
                         .read_string()
@@ -385,12 +369,6 @@ impl EstateDraft {
                         return Err(fail("empty estate history identifier"));
                     }
                     match name.as_str() {
-                        "set_country_flag" => {
-                            history.flags.insert(id.clone());
-                        }
-                        "clr_country_flag" => {
-                            history.flags.remove(&id);
-                        }
                         "set_estate_privilege" => {
                             history.privileges.insert(id.clone());
                         }
@@ -572,14 +550,7 @@ impl EstateDraft {
         let value = self.conditions.get(id).and_then(|condition| {
             let lookup =
                 |id: &str| self.select(id, initial, tag, history, cache, &mut BTreeSet::new());
-            condition.evaluate(
-                initial,
-                tag,
-                history.filter(|h| !h.unknown_flags).map(|h| &h.flags),
-                reasons,
-                None,
-                Some(&lookup),
-            )
+            condition.evaluate(initial, tag, reasons, None, Some(&lookup))
         });
         cache.borrow_mut().visiting.remove(id);
         cache.borrow_mut().values.insert(id.into(), value);
@@ -641,7 +612,6 @@ fn scoped(reader: Reader<'_, '_>, history: &mut History, depth: usize) -> Result
     }
     for (key, _, value) in reader.fields() {
         match key.read_string().as_str() {
-            "set_country_flag" | "clr_country_flag" => history.unknown_flags = true,
             "set_estate_privilege" | "remove_estate_privilege" => history.unknown_privileges = true,
             "change_estate_land_share" => history.unknown_land = true,
             "add_estate_loyalty" => history.unknown_loyalty = true,

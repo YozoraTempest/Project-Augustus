@@ -234,6 +234,10 @@ impl InitialWorld {
         self.world.set_named_values(values)
     }
 
+    pub fn set_markers(&mut self, markers: crate::Markers) -> Result<(), Error> {
+        self.world.set_markers(markers)
+    }
+
     pub fn choose_event(&mut self, choice: &crate::EventChoice) -> Result<(), Error> {
         self.world.choose_event(choice)
     }
