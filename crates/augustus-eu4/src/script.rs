@@ -211,6 +211,7 @@ pub struct ScriptCompiler<'a> {
     global_scope_types: BTreeMap<String, EntityKind>,
     mission_ids: BTreeSet<String>,
     modifier_ids: BTreeSet<String>,
+    government_metric_ids: BTreeSet<String>,
 }
 
 impl<'a> ScriptCompiler<'a> {
@@ -225,6 +226,7 @@ impl<'a> ScriptCompiler<'a> {
             global_scope_types: BTreeMap::new(),
             mission_ids: BTreeSet::new(),
             modifier_ids: BTreeSet::new(),
+            government_metric_ids: BTreeSet::new(),
         }
     }
 
@@ -282,6 +284,59 @@ impl<'a> ScriptCompiler<'a> {
     pub fn with_modifier_ids(mut self, ids: BTreeSet<String>) -> Self {
         self.modifier_ids = ids;
         self
+    }
+
+    pub fn with_government_metric_ids(mut self, ids: BTreeSet<String>) -> Self {
+        self.government_metric_ids = ids;
+        self
+    }
+
+    fn government_metric(&self, field: &Field, scope: EntityKind, name: &str) -> Result<(), Error> {
+        if scope != EntityKind::Country {
+            return Err(field.error("government metrics require country scope"));
+        }
+        if !self.government_metric_ids.contains(name) {
+            return Err(field.error(format!("unregistered government metric {name}")));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn compile_scalar_effect_reader(
+        mut self,
+        parsed: &ParsedText<'_>,
+        name: &str,
+        value: String,
+        location: SourceLocation,
+        scope: EntityKind,
+    ) -> Result<Plan, Error> {
+        self.effects(
+            &[Field {
+                name: name.into(),
+                value: Value::Scalar(value),
+                path: parsed.source().into(),
+                location,
+            }],
+            scope,
+        )
+    }
+
+    pub(crate) fn compile_scalar_condition_reader(
+        mut self,
+        parsed: &ParsedText<'_>,
+        name: &str,
+        value: String,
+        location: SourceLocation,
+        scope: EntityKind,
+    ) -> Result<Condition, Error> {
+        self.conditions(
+            &[Field {
+                name: name.into(),
+                value: Value::Scalar(value),
+                path: parsed.source().into(),
+                location,
+            }],
+            scope,
+        )
     }
 
     fn country_flag_name(&self, field: &Field, scope: EntityKind) -> Result<String, Error> {
@@ -537,6 +592,22 @@ impl<'a> ScriptCompiler<'a> {
             let field = &fields[index];
             self.sources.push((field.path.clone(), field.location));
             match field.name.as_str() {
+                "add_legitimacy" => {
+                    self.government_metric(field, scope, "legitimacy")?;
+                    plan.push(Action::If {
+                        condition: Condition::GovernmentMetricActive {
+                            target: Target::Current,
+                            name: "legitimacy".into(),
+                        },
+                        then: vec![Action::UpdateNumeric {
+                            target: Target::Current,
+                            slot: augustus_core::NumericSlot::Government("legitimacy".into()),
+                            operation: augustus_core::NumericOperation::Add,
+                            value: decimal(field)?,
+                        }],
+                        otherwise: vec![],
+                    });
+                }
                 "set_country_flag" | "clr_country_flag" => {
                     let name = self.country_flag_name(field, scope)?;
                     plan.push(Action::SetMarker {
@@ -809,6 +880,28 @@ impl<'a> ScriptCompiler<'a> {
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "legitimacy" => {
+                    self.government_metric(field, scope, "legitimacy")?;
+                    let value = decimal(field)?;
+                    if !(0..=100_000).contains(&value) {
+                        return Err(field.error("legitimacy threshold must be between 0 and 100"));
+                    }
+                    let active = Condition::GovernmentMetricActive {
+                        target: Target::Current,
+                        name: "legitimacy".into(),
+                    };
+                    let compare = Condition::NumericCompare {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Government("legitimacy".into()),
+                        comparison: augustus_core::NumericComparison::AtLeast,
+                        value,
+                    };
+                    if value == 0 {
+                        Condition::Any(vec![Condition::Not(Box::new(active)), compare])
+                    } else {
+                        Condition::All(vec![active, compare])
+                    }
+                }
                 "is_emperor" | "is_emperor_of_china" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("office holder trigger requires country scope"));

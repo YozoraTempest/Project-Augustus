@@ -39,6 +39,7 @@ struct Compiler {
     startup_metadata: bool,
     mission_ids: BTreeSet<String>,
     modifier_ids: BTreeSet<String>,
+    government_metric_ids: BTreeSet<String>,
 }
 
 pub(crate) struct EstateStartup {
@@ -71,6 +72,30 @@ impl Compiler {
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             equal(op, &fail)?;
             match name.as_str() {
+                "add_legitimacy" => {
+                    let library = crate::ScriptLibrary::new();
+                    let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                        .with_government_metric_ids(self.government_metric_ids.clone())
+                        .compile_scalar_effect_reader(
+                            parsed,
+                            &name,
+                            value
+                                .read_string()
+                                .map_err(|_| fail("expected scalar government metric value"))?,
+                            at,
+                            EntityKind::Country,
+                        );
+                    match compiled {
+                        Ok(plan) => result.extend(
+                            plan.into_iter()
+                                .map(|action| Step::Metric(action, location.clone())),
+                        ),
+                        Err(error) => result.push(Step::Pending(
+                            format!("uncompiled_startup_effect:{error}"),
+                            source(parsed, error.location().unwrap_or(at)),
+                        )),
+                    }
+                }
                 "set_country_flag" | "clr_country_flag" => {
                     let id = value
                         .read_string()
@@ -129,6 +154,7 @@ impl Compiler {
                 | "divide_variable" => {
                     let library = crate::ScriptLibrary::new();
                     let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                        .with_government_metric_ids(self.government_metric_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())
                         .compile_effect_reader(
                             parsed,
@@ -336,6 +362,7 @@ impl EstateStartup {
         files: &[FileEntry],
         schema: &Schema,
         modifier_ids: BTreeSet<String>,
+        government_metric_ids: BTreeSet<String>,
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
         let mut compiler = Compiler {
@@ -348,6 +375,7 @@ impl EstateStartup {
             startup_metadata: false,
             mission_ids: crate::missions::identifiers(root, files)?,
             modifier_ids,
+            government_metric_ids,
         };
         for file in files
             .iter()
@@ -520,6 +548,7 @@ impl EstateStartup {
             references,
             &compiler.mission_ids,
             &compiler.modifier_ids,
+            &compiler.government_metric_ids,
         ) {
             Ok(events) => events,
             Err(error) => {
@@ -647,6 +676,24 @@ impl EstateStartup {
                 );
                 initial
                     .set_modifiers(modifiers)
+                    .map_err(|e| Error::caused_by("common/on_actions", e))?;
+                let mut governments = initial.world().governments().clone();
+                for entity in countries
+                    .iter()
+                    .filter_map(|tag| initial.country_entity(tag))
+                {
+                    if let Some(metrics) = governments
+                        .countries
+                        .get_mut(&entity)
+                        .and_then(|state| state.metrics.as_mut())
+                    {
+                        for value in metrics.values_mut() {
+                            *value = None;
+                        }
+                    }
+                }
+                initial
+                    .set_governments(governments)
                     .map_err(|e| Error::caused_by("common/on_actions", e))?;
                 let mut estates = initial.world().estates().clone();
                 for states in estates.countries.values_mut() {
@@ -928,6 +975,7 @@ fn load_events(
     mut needed: BTreeSet<String>,
     mission_ids: &BTreeSet<String>,
     modifier_ids: &BTreeSet<String>,
+    government_metric_ids: &BTreeSet<String>,
 ) -> Result<EventCatalog, Error> {
     if needed.is_empty() {
         return Ok(EventCatalog::default());
@@ -945,6 +993,7 @@ fn load_events(
         {
             let document = root.read_text(&file.relative_path, ENCODING)?;
             let compiled = crate::ScriptCompiler::new(schema, &library, true)
+                .with_government_metric_ids(government_metric_ids.clone())
                 .with_mission_ids(mission_ids.clone())
                 .with_modifier_ids(modifier_ids.clone())
                 .compile_selected_events(&document, &requested)?;

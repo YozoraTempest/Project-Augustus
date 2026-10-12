@@ -553,3 +553,75 @@ fn named_targets_rebind_across_events_and_cross_input_saved_tasks() {
     }
     assert_eq!(continuous.save().unwrap(), native.save().unwrap());
 }
+
+#[test]
+fn government_metric_events_preserve_live_queries_and_cross_input_restore() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/government-metrics");
+    let mut continuous = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(continuous.save().unwrap(), native.save().unwrap());
+    continuous.trigger("government.control", 0).unwrap();
+    assert_eq!(
+        continuous
+            .world()
+            .government_metric_value(augustus_core::EntityId(0), "legitimacy")
+            .unwrap(),
+        60_000
+    );
+    native.restore(&continuous.save().unwrap()).unwrap();
+    for demo in [&mut continuous, &mut native] {
+        demo.choose(&EventChoice {
+            pending: PendingEventId(0),
+            option: "0".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            demo.world()
+                .government_metric_value(augustus_core::EntityId(0), "legitimacy")
+                .unwrap(),
+            65_125
+        );
+        demo.advance(1).unwrap();
+        demo.choose(&EventChoice {
+            pending: PendingEventId(1),
+            option: "0".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            demo.world()
+                .government_metric_value(augustus_core::EntityId(0), "legitimacy")
+                .unwrap(),
+            10_125
+        );
+        assert_eq!(
+            demo.view()
+                .unwrap()
+                .log
+                .iter()
+                .map(|e| (e.0, e.2.as_str()))
+                .collect::<Vec<_>>(),
+            [(0, "fraction"), (0, "owner"), (0, "after"), (1, "delayed")]
+        );
+    }
+    assert_eq!(continuous.save().unwrap(), native.save().unwrap());
+    for input in [Input::Eu4, Input::Native] {
+        let mut inactive = EventDemo::from_directory(&root, input).unwrap();
+        inactive.trigger("government.control", 1).unwrap();
+        inactive
+            .choose(&EventChoice {
+                pending: PendingEventId(0),
+                option: "0".into(),
+            })
+            .unwrap();
+        inactive.advance(1).unwrap();
+        assert!(inactive.world().pending_events().is_empty());
+        assert!(
+            !inactive
+                .world()
+                .government_metric_active(augustus_core::EntityId(1), "legitimacy")
+                .unwrap()
+        );
+        assert!(inactive.view().unwrap().log.is_empty());
+    }
+}

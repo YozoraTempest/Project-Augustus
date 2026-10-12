@@ -34,6 +34,8 @@ struct Scene {
     modifiers: augustus_core::Modifiers,
     #[serde(default, skip_serializing_if = "augustus_core::Markers::is_empty")]
     markers: augustus_core::Markers,
+    #[serde(default, skip_serializing_if = "augustus_core::Governments::is_empty")]
+    governments: augustus_core::Governments,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -77,6 +79,8 @@ pub struct EventView {
     pub modifiers: augustus_core::Modifiers,
     #[serde(skip_serializing_if = "augustus_core::Markers::is_empty")]
     pub markers: augustus_core::Markers,
+    #[serde(skip_serializing_if = "augustus_core::Governments::is_empty")]
+    pub governments: augustus_core::Governments,
 }
 
 /// Self-authored scenario exercising the same core from two content formats.
@@ -103,6 +107,7 @@ impl EventDemo {
                     include_str!("../../../examples/events/eu4/common/scripted_effects/demo.txt"),
                 ))?;
                 let compiled = ScriptCompiler::new(&schema, &library, true)
+                    .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
                     .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
                     .with_mission_ids(scene.completions.identifiers.clone())
                     .with_global_scope_types(scene.global_scope_types.clone())
@@ -153,6 +158,7 @@ impl EventDemo {
                 let library = ScriptLibrary::from_content(&content, TextEncoding::Utf8)?;
                 let schema = Schema::new(scene.fields.clone())?;
                 let compiled = ScriptCompiler::new(&schema, &library, true)
+                    .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
                     .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
                     .with_mission_ids(scene.completions.identifiers.clone())
                     .with_global_scope_types(scene.global_scope_types.clone())
@@ -235,6 +241,7 @@ impl EventDemo {
         world.set_named_values(scene.named_values)?;
         world.set_markers(scene.markers)?;
         world.set_modifiers(scene.modifiers)?;
+        world.set_governments(scene.governments)?;
         world.set_event_catalog(catalog)?;
         Ok(Self { world, content })
     }
@@ -352,6 +359,7 @@ impl EventDemo {
             named_values: self.world.named_values().clone(),
             modifiers: self.world.modifiers().clone(),
             markers: self.world.markers().clone(),
+            governments: self.world.governments().clone(),
         })
     }
 }

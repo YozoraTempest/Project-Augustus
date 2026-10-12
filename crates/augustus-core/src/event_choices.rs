@@ -101,6 +101,7 @@ impl EventCatalog {
                 world.schema(),
                 world.completions(),
                 world.modifiers(),
+                world.governments(),
             )?;
         }
         for definition in self.definitions.values() {
@@ -115,6 +116,7 @@ impl EventCatalog {
                     self,
                     world.completions(),
                     world.modifiers(),
+                    world.governments(),
                 )?;
             }
         }

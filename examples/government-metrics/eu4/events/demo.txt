@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+country_event={id=government.control is_triggered_only=yes
+    immediate={
+        add_legitimacy=-24.875
+        if={limit={legitimacy=75.125 NOT={legitimacy=75.126}} log=fraction}
+        add_legitimacy=1000000 add_legitimacy=-1000000 add_legitimacy=10
+        add_legitimacy=0.125 add_legitimacy=0.125 add_legitimacy=0.125
+        capital_scope={owner={if={limit={legitimacy=10.375 NOT={legitimacy=10.376}} log=owner}}}
+        add_legitimacy=49.625 country_event={id=government.delayed days=1}
+    }
+    option={name=accept add_legitimacy=5.125}
+    after={if={limit={legitimacy=65.125 NOT={legitimacy=65.126}} log=after}}
+}
+country_event={id=government.delayed is_triggered_only=yes trigger={legitimacy=65.125}
+    immediate={add_legitimacy=-200 add_legitimacy=10.125}
+    option={name=accept} after={log=delayed}
+}

@@ -125,6 +125,29 @@ impl Condition {
                         }
                         Self::Marker(id)
                     }
+                    "legitimacy" if country => {
+                        let schema =
+                            augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
+                        let library = crate::ScriptLibrary::new();
+                        let compiled = crate::ScriptCompiler::new(&schema, &library, true)
+                            .with_government_metric_ids(["legitimacy".into()].into())
+                            .compile_scalar_condition_reader(
+                                parsed,
+                                &name,
+                                value
+                                    .read_string()
+                                    .map_err(|_| fail("expected scalar legitimacy threshold"))?,
+                                at,
+                                augustus_core::EntityKind::Country,
+                            );
+                        match compiled {
+                            Ok(condition) => Self::Numeric(condition),
+                            Err(error) => {
+                                report.unsupported(parsed, "trigger", &name, at);
+                                Self::Unknown(error.to_string())
+                            }
+                        }
+                    }
                     "check_variable" | "is_variable_equal" => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");

@@ -119,6 +119,19 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/f
 
 原生场景通过 `markers.entities` 提供初始状态。空对象表示该实体的标记空间已知为空，未记录的名称查询为假；缺少实体条目或列入 `unknown_entities` 表示其他名称未知。明确写入 `true` 或 `false` 可以确定个别名称，同时保留其他名称未知。原生核心可以操作不同实体，状态随存档保存，恢复不会重放设置动作。
 
+`examples/government-metrics` 演示正统性的增减、范围限制、实时条件和延期事件：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/government-metrics --trigger government.control --choose 0:0 --save government_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/government-metrics --input native --load government_waiting.json --days 1 --choose 1:0
+```
+
+日志依次为 `fraction`、`owner`、`after`、`delayed`，最终正统性为 `10.125`，查询中的千分位整数为 `10125`。场景通过 `governments` 提供指标定义与初始国家状态；空声明不会改变已有场景的内容标识。
+
+兼容写法支持国家作用域中的字面小数 `add_legitimacy` 和 `legitimacy`，精确到千分位。每次增减后限制在 0 到 100；不适用正统性的国家忽略该效果，阈值条件按零判断。未知适用状态或未知数值仍会报告错误。国家标识比较、动态参数、缩放效果及其他政体指标的兼容写法尚未支持。
+
+原生计划使用 `NumericSlot::Government`、`UpdateNumeric`、`NumericCompare` 和 `GovernmentMetricActive`。指标必须先在 `Governments.metrics` 注册，并在国家状态中选为活动指标。原生直接读写不适用的指标会报告错误；`Set` 可以确定活动指标的未知值，其他运算要求已有值。属性和月结读取同一份实时状态，修改无需同步派生值缓存；保存待选事件和延期任务后，恢复不会重放修改。
+
 ## 运行规则
 
 事件先执行 `immediate`，成功后保存当前实体和触发日期。等待期间的数值及实体关系保持实时更新；选择时执行选项效果，再执行 `after`，成功后移除对应记录。多个同类事件各有独立编号。读档不重复即时效果，重复选择、未知选项和错误实体类型会在写入前被拒绝。效果运行错误保留已经发生的写入并停止模拟，不能继续推进或保存。

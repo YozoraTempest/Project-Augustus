@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 2,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": 3,
+      "values": {}
+    },
+    {
+      "name": "Port",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Inland",
+      "kind": "Province",
+      "owner": 1,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "governments": {
+    "reforms": {},
+    "metrics": {
+      "legitimacy": {
+        "minimum_milli": 0,
+        "maximum_milli": 100000,
+        "baseline_milli": 50000,
+        "divisor_milli": 100000,
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": []
+      }
+    },
+    "countries": {
+      "0": {
+        "kind": "monarchy",
+        "reforms": [],
+        "metrics": {
+          "legitimacy": 100000
+        }
+      },
+      "1": {
+        "kind": "republic",
+        "reforms": [],
+        "metrics": {}
+      }
+    }
+  }
+}

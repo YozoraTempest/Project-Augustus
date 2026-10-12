@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_core::{EntityId, EntityKind, Governments, Schema, World};
+use augustus_core::{
+    Action, Condition, EntityId, EntityKind, Governments, NumericOperation, NumericSlot, Schema,
+    Target, World,
+};
 
 fn world() -> World {
     let mut world = World::new(Schema::new(["base"]).unwrap());
@@ -35,6 +38,278 @@ fn yield_value(world: &World) -> augustus_core::AttributeEvaluation {
         .attributes()
         .evaluate(world, EntityId(2), "yield")
         .unwrap()
+}
+
+fn metric(operation: NumericOperation, value: i64) -> Action {
+    Action::UpdateNumeric {
+        target: Target::Current,
+        slot: NumericSlot::Government("authority".into()),
+        operation,
+        value,
+    }
+}
+
+#[test]
+fn numeric_operations_clamp_each_step_and_recalculate_live_attributes() {
+    let mut world = world();
+    let slot = NumericSlot::Government("authority".into());
+    world
+        .execute(
+            EntityId(0),
+            &[
+                metric(NumericOperation::Add, 100_000),
+                metric(NumericOperation::Subtract, 50_000),
+            ],
+        )
+        .unwrap();
+    assert_eq!(world.numeric_value(EntityId(0), &slot).unwrap(), 50_000);
+    assert_eq!(yield_value(&world).value_micros, Some(1_325_000));
+    for (operation, value, expected) in [
+        (NumericOperation::Set, -1, 0),
+        (NumericOperation::Add, 75_125, 75_125),
+        (NumericOperation::Multiply { scale: 1000 }, 1250, 93_906),
+        (NumericOperation::Divide { scale: 1000 }, 1250, 75_124),
+        (NumericOperation::Add, i64::MAX, 100_000),
+        (NumericOperation::Multiply { scale: 1 }, i64::MAX, 100_000),
+        (NumericOperation::Subtract, i64::MAX, 0),
+    ] {
+        world
+            .update_numeric(EntityId(0), &slot, operation, value)
+            .unwrap();
+        assert_eq!(world.numeric_value(EntityId(0), &slot).unwrap(), expected);
+    }
+    let before = world.clone();
+    assert!(
+        world
+            .update_numeric(
+                EntityId(0),
+                &slot,
+                NumericOperation::Divide { scale: 1000 },
+                0
+            )
+            .is_err()
+    );
+    assert_eq!(world, before);
+}
+
+#[test]
+fn metric_selection_unknown_value_and_unknown_selection_are_distinct() {
+    let mut world = world();
+    let slot = NumericSlot::Government("authority".into());
+    assert!(
+        world
+            .government_metric_active(EntityId(0), "authority")
+            .unwrap()
+    );
+    assert!(
+        !world
+            .government_metric_active(EntityId(1), "authority")
+            .unwrap()
+    );
+    assert!(world.numeric_value(EntityId(1), &slot).is_err());
+    assert!(
+        world
+            .update_numeric(EntityId(1), &slot, NumericOperation::Set, 1)
+            .is_err()
+    );
+    assert!(
+        world
+            .government_metric_active(EntityId(2), "authority")
+            .is_err()
+    );
+    assert!(
+        world
+            .government_metric_active(EntityId(0), "unknown")
+            .is_err()
+    );
+    let mut governments = world.governments().clone();
+    governments
+        .countries
+        .get_mut(&EntityId(0))
+        .unwrap()
+        .metrics
+        .as_mut()
+        .unwrap()
+        .insert("authority".into(), None);
+    world.set_governments(governments).unwrap();
+    assert!(
+        world
+            .government_metric_active(EntityId(0), "authority")
+            .unwrap()
+    );
+    assert!(
+        world
+            .update_numeric(EntityId(0), &slot, NumericOperation::Add, 1)
+            .is_err()
+    );
+    world
+        .update_numeric(EntityId(0), &slot, NumericOperation::Set, 50_000)
+        .unwrap();
+    assert_eq!(yield_value(&world).value_micros, Some(1_325_000));
+    let mut governments = world.governments().clone();
+    governments.countries.get_mut(&EntityId(0)).unwrap().metrics = None;
+    world.set_governments(governments).unwrap();
+    let before = world.clone();
+    assert!(
+        world
+            .government_metric_active(EntityId(0), "authority")
+            .is_err()
+    );
+    assert!(
+        world
+            .update_numeric(EntityId(0), &slot, NumericOperation::Set, 1)
+            .is_err()
+    );
+    assert_eq!(world, before);
+}
+
+#[test]
+fn scheduled_metric_reads_are_live_after_save_and_catalog_replacement_is_checked() {
+    let mut world = world();
+    let plan = vec![Action::If {
+        condition: Condition::GovernmentMetricActive {
+            target: Target::Current,
+            name: "authority".into(),
+        },
+        then: vec![metric(NumericOperation::Subtract, 25_125)],
+        otherwise: vec![],
+    }];
+    world.schedule(EntityId(0), 1, plan.clone()).unwrap();
+    let before = world.clone();
+    let mut bad = world.governments().clone();
+    bad.metrics.clear();
+    for state in bad.countries.values_mut() {
+        state.metrics = Some(Default::default());
+    }
+    assert!(world.set_governments(bad.clone()).is_err());
+    assert_eq!(world, before);
+    let mut resumed = World::restore(
+        &world.save("numeric-government").unwrap(),
+        "numeric-government",
+        world.schema(),
+    )
+    .unwrap();
+    for world in [&mut world, &mut resumed] {
+        world.advance_to(1).unwrap();
+    }
+    assert_eq!(world, resumed);
+    assert_eq!(
+        world
+            .government_metric_value(EntityId(0), "authority")
+            .unwrap(),
+        50_000
+    );
+    world
+        .set_event_catalog(
+            augustus_core::EventCatalog::new(vec![augustus_core::EventDefinition {
+                id: "government".into(),
+                scope: EntityKind::Country,
+                immediate: plan,
+                options: vec![augustus_core::EventOption {
+                    id: "0".into(),
+                    effects: vec![],
+                }],
+                after: vec![],
+            }])
+            .unwrap(),
+        )
+        .unwrap();
+    let before = world.clone();
+    assert!(world.set_governments(bad).is_err());
+    assert_eq!(world, before);
+    let mut saved: serde_json::Value =
+        serde_json::from_str(&world.save("numeric-government").unwrap()).unwrap();
+    saved["governments"]["metrics"]
+        .as_object_mut()
+        .unwrap()
+        .clear();
+    saved["governments"]["countries"]["0"]["metrics"] = serde_json::json!({});
+    assert!(
+        World::restore_with_events(
+            &saved.to_string(),
+            "numeric-government",
+            world.schema(),
+            vec![],
+            world.event_catalog().clone()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn metric_contribution_overflow_rolls_back_before_write() {
+    let mut world = world();
+    let mut governments = world.governments().clone();
+    let definition = governments.metrics.get_mut("authority").unwrap();
+    definition.baseline_milli = 75_125;
+    definition.divisor_milli = 1;
+    definition
+        .modifier
+        .as_mut()
+        .unwrap()
+        .values_micros
+        .insert("other".into(), i64::MAX);
+    world.set_governments(governments).unwrap();
+    let before = world.clone();
+    assert!(
+        world
+            .update_numeric(
+                EntityId(0),
+                &NumericSlot::Government("authority".into()),
+                NumericOperation::Add,
+                2
+            )
+            .is_err()
+    );
+    assert_eq!(world, before);
+}
+
+#[test]
+fn due_metric_effects_feed_monthly_settlement_in_the_shared_world() {
+    use augustus_core::{Calendar, CountryResources, Taxation, WorldDate};
+    let mut world = world();
+    world
+        .set_calendar(Calendar {
+            start: WorldDate {
+                year: 1444,
+                month: 11,
+                day: 30,
+            },
+            month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+        })
+        .unwrap();
+    world
+        .set_country_resources(
+            [(
+                EntityId(0),
+                CountryResources {
+                    treasury_milli: Some(0),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    world
+        .set_taxation(Taxation::new("yield", [EntityId(0)].into()))
+        .unwrap();
+    world
+        .schedule(EntityId(0), 1, vec![metric(NumericOperation::Set, 50_000)])
+        .unwrap();
+    let saved = world.save("monthly-government").unwrap();
+    let mut resumed = World::restore(&saved, "monthly-government", world.schema()).unwrap();
+    for state in [&mut world, &mut resumed] {
+        state.advance_to(1).unwrap();
+        assert_eq!(yield_value(state).value_micros, Some(1_325_000));
+        assert_eq!(
+            state.country_resources()[&EntityId(0)].treasury_milli,
+            Some(110)
+        );
+    }
+    assert_eq!(
+        world.save("monthly-government").unwrap(),
+        resumed.save("monthly-government").unwrap()
+    );
 }
 
 #[test]

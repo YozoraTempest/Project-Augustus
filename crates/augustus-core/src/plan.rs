@@ -15,6 +15,10 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    GovernmentMetricActive {
+        target: Target,
+        name: String,
+    },
     HasMarker {
         target: Target,
         name: String,
@@ -161,6 +165,9 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::GovernmentMetricActive { target, name } => {
+                world.government_metric_active(world.target(current, *target)?, name)
+            }
             Self::HasMarker { target, name } => {
                 world.has_marker(world.target(current, *target)?, name)
             }

@@ -605,6 +605,13 @@ impl VanillaWorld {
                 .keys()
                 .cloned()
                 .collect(),
+            initial
+                .world()
+                .governments()
+                .metrics
+                .keys()
+                .cloned()
+                .collect(),
             &mut report.estates,
         )?;
         let estates = estates.bind(&initial, &mut report.estates)?;

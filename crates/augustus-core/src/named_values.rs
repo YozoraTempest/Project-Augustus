@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, Error, FieldId, Schema, World};
+use crate::{EntityId, Error, FieldId, Governments, Schema, World};
 
 /// Sparse numeric state. An empty entity entry declares a known, zero-filled namespace.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +21,7 @@ pub struct NamedValues {
 pub enum NumericSlot {
     Field(FieldId),
     Named(String),
+    Government(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,12 +65,13 @@ impl NamedValues {
 }
 
 impl NumericSlot {
-    pub(crate) fn validate(&self, schema: &Schema) -> Result<(), Error> {
+    pub(crate) fn validate(&self, schema: &Schema, governments: &Governments) -> Result<(), Error> {
         match self {
             Self::Field(field) if field.0 >= schema.fields().len() => {
                 Err(Error::Invalid(format!("unknown field {}", field.0)))
             }
             Self::Named(name) => validate_name(name),
+            Self::Government(name) => governments.metric_definition(name).map(|_| ()),
             Self::Field(_) => Ok(()),
         }
     }
@@ -83,7 +85,7 @@ impl NumericOperation {
         Ok(())
     }
 
-    fn apply(self, previous: i64, value: i64) -> Result<i64, Error> {
+    fn calculate(self, previous: i64, value: i64) -> Result<i128, Error> {
         self.validate()?;
         let result = match self {
             Self::Set => i128::from(value),
@@ -99,7 +101,7 @@ impl NumericOperation {
                 i128::from(previous) * i128::from(scale) / i128::from(value)
             }
         };
-        i64::try_from(result).map_err(|_| Error::Invalid("numeric state overflow".into()))
+        Ok(result)
     }
 }
 
@@ -117,9 +119,10 @@ impl World {
 
     pub fn numeric_value(&self, entity: EntityId, slot: &NumericSlot) -> Result<i64, Error> {
         self.entity(entity)?;
-        slot.validate(self.schema())?;
+        slot.validate(self.schema(), self.governments())?;
         match slot {
             NumericSlot::Field(field) => self.value(entity, *field),
+            NumericSlot::Government(name) => self.government_metric_value(entity, name),
             NumericSlot::Named(name) => {
                 if let Some(value) = self
                     .named_values
@@ -152,15 +155,50 @@ impl World {
     ) -> Result<(), Error> {
         self.require_running()?;
         self.entity(entity)?;
-        slot.validate(self.schema())?;
+        slot.validate(self.schema(), self.governments())?;
+        if let NumericSlot::Government(name) = slot
+            && !self.government_metric_active(entity, name)?
+        {
+            return Err(Error::Invalid(format!("inactive government metric {name}")));
+        }
         let previous = if operation == NumericOperation::Set {
             0
         } else {
             self.numeric_value(entity, slot)?
         };
-        let value = operation.apply(previous, value)?;
+        let value = operation.calculate(previous, value)?;
+        let value = if let NumericSlot::Government(name) = slot {
+            let definition = self.governments().metric_definition(name)?;
+            value.clamp(
+                i128::from(definition.minimum_milli),
+                i128::from(definition.maximum_milli),
+            )
+        } else {
+            value
+        };
+        let value =
+            i64::try_from(value).map_err(|_| Error::Invalid("numeric state overflow".into()))?;
         match slot {
             NumericSlot::Field(field) => self.set(entity, *field, value),
+            NumericSlot::Government(name) => {
+                let previous = self
+                    .governments
+                    .countries
+                    .get_mut(&entity)
+                    .and_then(|state| state.metrics.as_mut())
+                    .expect("validated metric selection")
+                    .insert(name.clone(), Some(value));
+                if let Err(error) = self.governments.declared_effects(entity) {
+                    self.governments
+                        .countries
+                        .get_mut(&entity)
+                        .and_then(|state| state.metrics.as_mut())
+                        .expect("validated metric selection")
+                        .insert(name.clone(), previous.expect("active metric"));
+                    return Err(error);
+                }
+                Ok(())
+            }
             NumericSlot::Named(name) => {
                 if !self.named_values.entities.contains_key(&entity) {
                     self.named_values.unknown_entities.insert(entity);

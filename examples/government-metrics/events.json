@@ -1,0 +1,493 @@
+[
+  {
+    "id": "government.control",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": -24875
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricActive": {
+                      "target": "Current",
+                      "name": "legitimacy"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "Government": "legitimacy"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 75125
+                    }
+                  }
+                ]
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "All": [
+                        {
+                          "GovernmentMetricActive": {
+                            "target": "Current",
+                            "name": "legitimacy"
+                          }
+                        },
+                        {
+                          "NumericCompare": {
+                            "target": "Current",
+                            "slot": {
+                              "Government": "legitimacy"
+                            },
+                            "comparison": "AtLeast",
+                            "value": 75126
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "fraction"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": 1000000000
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": -1000000000
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": 10000
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": 125
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": 125
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": 125
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "With": {
+                "target": "Owner",
+                "plan": [
+                  {
+                    "If": {
+                      "condition": {
+                        "All": [
+                          {
+                            "All": [
+                              {
+                                "GovernmentMetricActive": {
+                                  "target": "Current",
+                                  "name": "legitimacy"
+                                }
+                              },
+                              {
+                                "NumericCompare": {
+                                  "target": "Current",
+                                  "slot": {
+                                    "Government": "legitimacy"
+                                  },
+                                  "comparison": "AtLeast",
+                                  "value": 10375
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "Not": {
+                              "All": [
+                                {
+                                  "All": [
+                                    {
+                                      "GovernmentMetricActive": {
+                                        "target": "Current",
+                                        "name": "legitimacy"
+                                      }
+                                    },
+                                    {
+                                      "NumericCompare": {
+                                        "target": "Current",
+                                        "slot": {
+                                          "Government": "legitimacy"
+                                        },
+                                        "comparison": "AtLeast",
+                                        "value": 10376
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "then": [
+                        {
+                          "Emit": "owner"
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": 49625
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TryEvent": {
+                "event": "government.delayed"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "If": {
+              "condition": {
+                "GovernmentMetricActive": {
+                  "target": "Current",
+                  "name": "legitimacy"
+                }
+              },
+              "then": [
+                {
+                  "UpdateNumeric": {
+                    "target": "Current",
+                    "slot": {
+                      "Government": "legitimacy"
+                    },
+                    "operation": "Add",
+                    "value": 5125
+                  }
+                }
+              ],
+              "otherwise": []
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricActive": {
+                      "target": "Current",
+                      "name": "legitimacy"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "Government": "legitimacy"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 65125
+                    }
+                  }
+                ]
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "All": [
+                        {
+                          "GovernmentMetricActive": {
+                            "target": "Current",
+                            "name": "legitimacy"
+                          }
+                        },
+                        {
+                          "NumericCompare": {
+                            "target": "Current",
+                            "slot": {
+                              "Government": "legitimacy"
+                            },
+                            "comparison": "AtLeast",
+                            "value": 65126
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "after"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "government.delayed",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": -200000
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "legitimacy"
+                },
+                "operation": "Add",
+                "value": 10125
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": [
+      {
+        "Emit": "delayed"
+      }
+    ]
+  }
+]

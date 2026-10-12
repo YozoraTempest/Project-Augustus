@@ -1,0 +1,26 @@
+{
+  "government.delayed": {
+    "All": [
+      {
+        "All": [
+          {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "legitimacy"
+            }
+          },
+          {
+            "NumericCompare": {
+              "target": "Current",
+              "slot": {
+                "Government": "legitimacy"
+              },
+              "comparison": "AtLeast",
+              "value": 65125
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

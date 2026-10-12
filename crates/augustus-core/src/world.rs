@@ -97,7 +97,7 @@ pub struct World {
     attributes: Attributes,
     administration: Administration,
     affiliations: Affiliations,
-    governments: Governments,
+    pub(crate) governments: Governments,
     ideas: Ideas,
     pub(crate) estates: crate::Estates,
     pub(crate) completions: crate::Completions,
@@ -253,7 +253,15 @@ impl World {
     pub fn set_governments(&mut self, governments: Governments) -> Result<(), Error> {
         self.require_running()?;
         governments.validate(self)?;
-        self.governments = governments;
+        let previous = std::mem::replace(&mut self.governments, governments);
+        let validation = self
+            .event_catalog
+            .validate(self)
+            .and_then(|()| self.validate_event_content(&self.event_catalog));
+        if let Err(error) = validation {
+            self.governments = previous;
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -503,6 +511,7 @@ impl World {
             &self.event_catalog,
             &self.completions,
             &self.modifiers,
+            &self.governments,
         )?;
         if delay == 0 {
             return Err(Error::Invalid(
@@ -701,6 +710,7 @@ impl World {
                 &world.event_catalog,
                 &world.completions,
                 &world.modifiers,
+                &world.governments,
             )?;
         }
         world.event_catalog.validate(&world)?;
@@ -774,6 +784,7 @@ impl World {
                 &world.event_catalog,
                 &world.completions,
                 &world.modifiers,
+                &world.governments,
             )?;
             world.tasks.insert((task.day, task.sequence), task);
         }
@@ -808,6 +819,7 @@ impl World {
                 catalog,
                 &self.completions,
                 &self.modifiers,
+                &self.governments,
             )?;
         }
         for task in self.tasks.values() {
@@ -818,6 +830,7 @@ impl World {
                 catalog,
                 &self.completions,
                 &self.modifiers,
+                &self.governments,
             )?;
         }
         Ok(())
@@ -831,6 +844,7 @@ pub(crate) fn validate_plan(
     events: &crate::EventCatalog,
     completions: &crate::Completions,
     modifiers: &Modifiers,
+    governments: &Governments,
 ) -> Result<(), Error> {
     for action in plan {
         match action {
@@ -845,7 +859,7 @@ pub(crate) fn validate_plan(
             Action::UpdateNumeric {
                 slot, operation, ..
             } => {
-                slot.validate(schema)?;
+                slot.validate(schema, governments)?;
                 operation.validate()?;
             }
             Action::RecordCompletion { id } => completions.identifier(id)?,
@@ -860,7 +874,15 @@ pub(crate) fn validate_plan(
                 {
                     return Err(Error::Invalid("office scope requires country type".into()));
                 }
-                validate_plan(plan, schema, rule_count, events, completions, modifiers)?;
+                validate_plan(
+                    plan,
+                    schema,
+                    rule_count,
+                    events,
+                    completions,
+                    modifiers,
+                    governments,
+                )?;
             }
             Action::BindGlobalScope { name } | Action::ClearGlobalScope { name } => {
                 crate::scopes::validate_name(name)?;
@@ -887,8 +909,16 @@ pub(crate) fn validate_plan(
                 then,
                 otherwise,
             } => {
-                validate_condition(condition, schema, completions, modifiers)?;
-                validate_plan(then, schema, rule_count, events, completions, modifiers)?;
+                validate_condition(condition, schema, completions, modifiers, governments)?;
+                validate_plan(
+                    then,
+                    schema,
+                    rule_count,
+                    events,
+                    completions,
+                    modifiers,
+                    governments,
+                )?;
                 validate_plan(
                     otherwise,
                     schema,
@@ -896,10 +926,19 @@ pub(crate) fn validate_plan(
                     events,
                     completions,
                     modifiers,
+                    governments,
                 )?;
             }
             Action::RandomBranch { then, otherwise } => {
-                validate_plan(then, schema, rule_count, events, completions, modifiers)?;
+                validate_plan(
+                    then,
+                    schema,
+                    rule_count,
+                    events,
+                    completions,
+                    modifiers,
+                    governments,
+                )?;
                 validate_plan(
                     otherwise,
                     schema,
@@ -907,16 +946,31 @@ pub(crate) fn validate_plan(
                     events,
                     completions,
                     modifiers,
+                    governments,
                 )?;
             }
-            Action::With { plan, .. } => {
-                validate_plan(plan, schema, rule_count, events, completions, modifiers)?
-            }
+            Action::With { plan, .. } => validate_plan(
+                plan,
+                schema,
+                rule_count,
+                events,
+                completions,
+                modifiers,
+                governments,
+            )?,
             Action::Schedule { delay, plan } => {
                 if *delay == 0 {
                     return Err(Error::Invalid("invalid saved task delay".into()));
                 }
-                validate_plan(plan, schema, rule_count, events, completions, modifiers)?;
+                validate_plan(
+                    plan,
+                    schema,
+                    rule_count,
+                    events,
+                    completions,
+                    modifiers,
+                    governments,
+                )?;
             }
             Action::Accumulate { field, source, .. }
                 if field.0 >= schema.fields.len() || source.0 >= schema.fields.len() =>
@@ -937,11 +991,15 @@ pub(crate) fn validate_condition(
     schema: &Schema,
     completions: &crate::Completions,
     modifiers: &Modifiers,
+    governments: &Governments,
 ) -> Result<(), Error> {
     match condition {
+        crate::Condition::GovernmentMetricActive { name, .. } => {
+            governments.metric_definition(name).map(|_| ())
+        }
         crate::Condition::HasMarker { name, .. } => crate::markers::validate_name(name),
         crate::Condition::HasModifier { name, .. } => modifiers.identifier(name),
-        crate::Condition::NumericCompare { slot, .. } => slot.validate(schema),
+        crate::Condition::NumericCompare { slot, .. } => slot.validate(schema, governments),
         crate::Condition::CompletionRecorded { id, .. } => completions.identifier(id),
         crate::Condition::EntityNamed { name, .. } if name.is_empty() => {
             Err(Error::Invalid("empty entity condition name".into()))
@@ -955,12 +1013,12 @@ pub(crate) fn validate_condition(
         }
         crate::Condition::All(conditions) | crate::Condition::Any(conditions) => {
             for condition in conditions {
-                validate_condition(condition, schema, completions, modifiers)?;
+                validate_condition(condition, schema, completions, modifiers, governments)?;
             }
             Ok(())
         }
         crate::Condition::Not(condition) => {
-            validate_condition(condition, schema, completions, modifiers)
+            validate_condition(condition, schema, completions, modifiers, governments)
         }
         _ => Ok(()),
     }

@@ -65,6 +65,11 @@ pub struct Governments {
 }
 
 impl Governments {
+    pub(crate) fn metric_definition(&self, name: &str) -> Result<&GovernmentMetric, Error> {
+        self.metrics
+            .get(name)
+            .ok_or_else(|| Error::Invalid(format!("unknown government metric {name}")))
+    }
     pub fn feature(&self, entity: EntityId, name: &str) -> Option<bool> {
         let selected = self.countries.get(&entity)?.reforms.as_ref()?;
         let mut explicit = None;
@@ -292,5 +297,44 @@ impl Governments {
             }
         }
         Ok(())
+    }
+}
+
+impl World {
+    pub fn government_metric_active(&self, entity: EntityId, name: &str) -> Result<bool, Error> {
+        self.governments().metric_definition(name)?;
+        if self.entity(entity)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "government metrics require a country".into(),
+            ));
+        }
+        let metrics = self
+            .governments()
+            .countries
+            .get(&entity)
+            .and_then(|state| state.metrics.as_ref())
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "unknown government metric selection for entity {}",
+                    entity.0
+                ))
+            })?;
+        Ok(metrics.contains_key(name))
+    }
+
+    pub fn government_metric_value(&self, entity: EntityId, name: &str) -> Result<i64, Error> {
+        if !self.government_metric_active(entity, name)? {
+            return Err(Error::Invalid(format!("inactive government metric {name}")));
+        }
+        self.governments().countries[&entity]
+            .metrics
+            .as_ref()
+            .and_then(|metrics| metrics[name])
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "unknown government metric value {name} for entity {}",
+                    entity.0
+                ))
+            })
     }
 }
