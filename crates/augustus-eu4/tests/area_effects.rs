@@ -47,12 +47,14 @@ fn world() -> World {
                     modifier: None,
                     unresolved_properties: Default::default(),
                     below_baseline: None,
+                    growth_ceiling: false,
                 },
             )]
             .into(),
             entities: (1..=3)
                 .map(|id| (EntityId(id), [("devastation".into(), Some(0))].into()))
                 .collect(),
+            ceilings: Default::default(),
         })
         .unwrap();
     world

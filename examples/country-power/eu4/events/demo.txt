@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+namespace = power
+country_event = {
+    id = power.begin
+    is_triggered_only = yes
+    immediate = {
+        add_adm_power = 1
+        if = { limit = { adm_power = 1200 } log = excess_preserved }
+        add_dip_power = 100000
+        if = { limit = { dip_power = 999 } log = maximum }
+        add_mil_power = -100000
+        add_mil_power = 0.125
+        if = { limit = { mil_power = -100 } log = minimum }
+        country_event = { id = power.later days = 1 }
+    }
+    option = { name = continue add_adm_power = -250 add_mil_power = 150 }
+    after = { log = spent }
+}
+country_event = {
+    id = power.later
+    is_triggered_only = yes
+    immediate = {
+        add_adm_power = 100
+        add_dip_power = -1.999
+        if = { limit = { adm_power = 999 } log = refilled }
+    }
+    option = { name = continue }
+    after = { log = finished }
+}

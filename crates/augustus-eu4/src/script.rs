@@ -371,6 +371,15 @@ impl<'a> ScriptCompiler<'a> {
         Ok(())
     }
 
+    fn power_scope(&self, field: &Field, scope: EntityKind, name: &str) -> Result<(), Error> {
+        if scope != EntityKind::Country || !self.metric_ids.contains(name) {
+            return Err(field.error(format!(
+                "{name} requires country scope and a registered metric"
+            )));
+        }
+        Ok(())
+    }
+
     fn variable_slot(
         &self,
         field: &Field,
@@ -1241,6 +1250,16 @@ impl<'a> ScriptCompiler<'a> {
                         value: stability_integer(field)?,
                     });
                 }
+                "add_adm_power" | "add_dip_power" | "add_mil_power" => {
+                    let name = field.name.strip_prefix("add_").expect("power effect");
+                    self.power_scope(field, scope, name)?;
+                    plan.push(Action::UpdateNumeric {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Metric(name.into()),
+                        operation: augustus_core::NumericOperation::Add,
+                        value: script_integer(field, "monarch power")?,
+                    });
+                }
                 name if self.area_scopes.contains_key(name) => {
                     let members = self.area_scopes[name].clone();
                     if members.contains(&0) {
@@ -1733,6 +1752,15 @@ impl<'a> ScriptCompiler<'a> {
                         value: stability_integer(field)?,
                     }
                 }
+                "adm_power" | "dip_power" | "mil_power" => {
+                    self.power_scope(field, scope, &field.name)?;
+                    Condition::NumericCompare {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Metric(field.name.clone()),
+                        comparison: augustus_core::NumericComparison::AtLeast,
+                        value: script_integer(field, "monarch power")?,
+                    }
+                }
                 "province_id" => {
                     if scope != EntityKind::Province { return Err(field.error("province_id requires province scope")); }
                     let id = province_identifier(field.scalar()?)
@@ -2093,8 +2121,12 @@ fn localisation_key(field: &Field, purpose: &str) -> Result<String, Error> {
 
 /// Integer script operands discard fractional digits toward zero.
 fn stability_integer(field: &Field) -> Result<i64, Error> {
+    script_integer(field, "stability")
+}
+
+fn script_integer(field: &Field, purpose: &str) -> Result<i64, Error> {
     let value = decimal(field)? / 1000;
-    i32::try_from(value).map_err(|_| field.error("stability integer overflow"))?;
+    i32::try_from(value).map_err(|_| field.error(format!("{purpose} integer overflow")))?;
     Ok(value)
 }
 

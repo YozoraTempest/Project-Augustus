@@ -28,6 +28,7 @@ mod ideas;
 mod imperial_membership;
 mod load;
 mod missions;
+mod monarch_power;
 pub use missions::MissionReport;
 mod politics;
 mod province_metrics;

@@ -72,6 +72,7 @@ pub(super) fn bind(
                 modifier: positive.modifier,
                 unresolved_properties: positive.unresolved_properties,
                 below_baseline: Some(effect("negative_stability")),
+                growth_ceiling: false,
             },
         )]
         .into(),
@@ -97,5 +98,6 @@ pub(super) fn bind(
                 )
             })
             .collect(),
+        ceilings: BTreeMap::new(),
     }
 }

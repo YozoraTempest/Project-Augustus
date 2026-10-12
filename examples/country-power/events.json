@@ -1,0 +1,225 @@
+[
+  {
+    "id": "power.begin",
+    "scope": "Country",
+    "immediate": [
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "adm_power"
+          },
+          "operation": "Add",
+          "value": 1
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "adm_power"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 1200
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "excess_preserved"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "dip_power"
+          },
+          "operation": "Add",
+          "value": 100000
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "dip_power"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 999
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "maximum"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "mil_power"
+          },
+          "operation": "Add",
+          "value": -100000
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "mil_power"
+          },
+          "operation": "Add",
+          "value": 0
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "mil_power"
+                  },
+                  "comparison": "AtLeast",
+                  "value": -100
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "minimum"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "power.later"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "UpdateNumeric": {
+              "target": "Current",
+              "slot": {
+                "Metric": "adm_power"
+              },
+              "operation": "Add",
+              "value": -250
+            }
+          },
+          {
+            "UpdateNumeric": {
+              "target": "Current",
+              "slot": {
+                "Metric": "mil_power"
+              },
+              "operation": "Add",
+              "value": 150
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "spent"
+      }
+    ]
+  },
+  {
+    "id": "power.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "adm_power"
+          },
+          "operation": "Add",
+          "value": 100
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "dip_power"
+          },
+          "operation": "Add",
+          "value": -1
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "adm_power"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 999
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "refilled"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": [
+      {
+        "Emit": "finished"
+      }
+    ]
+  }
+]

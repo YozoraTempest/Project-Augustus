@@ -27,6 +27,25 @@ pub(super) fn optional_literal(
     section: &str,
     key: &str,
 ) -> Result<Option<(i64, LoadedSource)>, Error> {
+    optional_literal_with_sign(root, files, section, key, false)
+}
+
+pub(super) fn optional_signed_literal(
+    root: &ContentRoot,
+    files: &[FileEntry],
+    section: &str,
+    key: &str,
+) -> Result<Option<(i64, LoadedSource)>, Error> {
+    optional_literal_with_sign(root, files, section, key, true)
+}
+
+fn optional_literal_with_sign(
+    root: &ContentRoot,
+    files: &[FileEntry],
+    section: &str,
+    key: &str,
+    signed: bool,
+) -> Result<Option<(i64, LoadedSource)>, Error> {
     let encoding = TextEncoding::Windows1252;
     let doc = root.read_text("common/defines.lua", encoding)?;
     let text = encoding.decode(doc.bytes());
@@ -42,7 +61,7 @@ pub(super) fn optional_literal(
         } else if inside && clean == "}," {
             inside = false;
         }
-        if !clean.contains(key) {
+        if !contains_identifier(clean, key) {
             continue;
         }
         let at = SourceLocation {
@@ -66,9 +85,13 @@ pub(super) fn optional_literal(
             .strip_suffix(',')
             .unwrap_or(value.trim())
             .trim();
-        let value = micros(value)
-            .filter(|v| *v >= 0)
-            .ok_or_else(|| fail("expected nonnegative literal define"))?;
+        let value = micros(value).filter(|v| signed || *v >= 0).ok_or_else(|| {
+            fail(if signed {
+                "expected literal define"
+            } else {
+                "expected nonnegative literal define"
+            })
+        })?;
         amount = Some((
             value,
             LoadedSource {
@@ -88,7 +111,7 @@ pub(super) fn optional_literal(
         let text = encoding.decode(doc.bytes());
         for (index, line) in text.lines().enumerate() {
             let code = line.split_once("--").map_or(line, |(code, _)| code);
-            if code.contains(key) {
+            if contains_identifier(code, key) {
                 return Err(Error::message(
                     doc.source(),
                     format!("{key}: define override requires unsupported Lua evaluation"),
@@ -101,4 +124,9 @@ pub(super) fn optional_literal(
         }
     }
     Ok(amount)
+}
+
+fn contains_identifier(code: &str, key: &str) -> bool {
+    code.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .any(|identifier| identifier == key)
 }

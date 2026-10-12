@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "metrics": {
+    "definitions": {
+      "adm_power": {
+        "kind": "Country",
+        "minimum": -100,
+        "maximum": 9223372036854775807,
+        "baseline": 0,
+        "divisor": 1,
+        "modifier": null,
+        "unresolved_properties": [],
+        "growth_ceiling": true
+      },
+      "dip_power": {
+        "kind": "Country",
+        "minimum": -999,
+        "maximum": 9223372036854775807,
+        "baseline": 0,
+        "divisor": 1,
+        "modifier": null,
+        "unresolved_properties": [],
+        "growth_ceiling": true
+      },
+      "mil_power": {
+        "kind": "Country",
+        "minimum": -100,
+        "maximum": 9223372036854775807,
+        "baseline": 0,
+        "divisor": 1,
+        "modifier": null,
+        "unresolved_properties": [],
+        "growth_ceiling": true
+      }
+    },
+    "entities": {
+      "0": {
+        "adm_power": 1200,
+        "dip_power": 84,
+        "mil_power": 126
+      }
+    },
+    "ceilings": {
+      "0": {
+        "adm_power": 999,
+        "dip_power": 999,
+        "mil_power": 999
+      }
+    }
+  }
+}

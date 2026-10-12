@@ -64,7 +64,11 @@ impl Condition {
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
                         let compiler = crate::ScriptCompiler::new(&schema, &library, false)
-                            .with_metric_ids(["stability".into()].into())
+                            .with_metric_ids(
+                                ["stability", "adm_power", "dip_power", "mil_power"]
+                                    .map(String::from)
+                                    .into(),
+                            )
                             .with_unbound_subject_types();
                         let scope = if country {
                             augustus_core::EntityKind::Country
@@ -214,12 +218,23 @@ impl Condition {
                         }
                         Self::Marker(id)
                     }
-                    "legitimacy" | "republican_tradition" | "devotion" | "stability" if country => {
+                    "legitimacy"
+                    | "republican_tradition"
+                    | "devotion"
+                    | "stability"
+                    | "adm_power"
+                    | "dip_power"
+                    | "mil_power"
+                        if country =>
+                    {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
                         let compiler = crate::ScriptCompiler::new(&schema, &library, true);
-                        let compiler = if name == "stability" {
+                        let compiler = if matches!(
+                            name.as_str(),
+                            "stability" | "adm_power" | "dip_power" | "mil_power"
+                        ) {
                             compiler.with_metric_ids([name.clone()].into())
                         } else {
                             compiler.with_government_metric_ids([name.clone()].into())
@@ -341,7 +356,11 @@ impl Condition {
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
                         match crate::ScriptCompiler::new(&schema, &library, true)
-                            .with_metric_ids(["stability".into()].into())
+                            .with_metric_ids(
+                                ["stability", "adm_power", "dip_power", "mil_power"]
+                                    .map(String::from)
+                                    .into(),
+                            )
                             .compile_block_condition_reader(
                                 parsed,
                                 &name,

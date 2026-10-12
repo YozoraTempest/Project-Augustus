@@ -209,6 +209,8 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 ## 验证
 
+国家查询中的 `metrics` 提供行政、外交、军事点数，`metric_ceilings` 提供已知的增长上限。当前原版初始化规则尚未接入，这些值保留为未知；不能据此运行原版的完整开局。`setup` 报告列出 `POWER_MAX` 的基础值、声明来源及点数未知的国家。外交负值下限读取字面 `DEBT_LIMIT_DIP`；缺少声明时不猜测下限，额外 Lua 赋值仍需要尚未支持的 Lua 求值。自制场景用法见 [国家点数库存](../examples/country-power/README.md)。
+
 入口读取 `common/cb_types`，在 `casus_belli` 报告中列出定义来源、显式授予类型数量及尚未编译的保留条件。受支持的启动授予使用核心的有向记录；启动初始化未完成时清除部分写入并将库存标为未知。其他书签的历史授予尚未导入，同样不能判成已知没有记录。自动生成、宣战权限和战争目标尚未运行。自制样本及接口见 [宣战理由记录演示](../examples/justifications/README.md)。
 
 开局条件和事件中的 `exists` 复用核心领土关系。海域等非陆地省份，以及已完整读取历史且未指定所有者的省份，可明确标为无主；陆地历史缺失或包含尚未处理的嵌套所有权声明时保留未知，不能据此断言某国不存在。核心宣称不赋予领土；标签查询从已登记的国家实体读取当前关系。支持范围见 [国家领土条件演示](../examples/country-existence/README.md)。

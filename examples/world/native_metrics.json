@@ -40,6 +40,26 @@
         },
         "unresolved_properties": []
       }
+    },
+    "adm_power": {
+      "kind": "Country",
+      "minimum": -100,
+      "maximum": 9223372036854775807,
+      "baseline": 0,
+      "divisor": 1,
+      "modifier": null,
+      "unresolved_properties": [],
+      "growth_ceiling": true
+    },
+    "mil_power": {
+      "kind": "Country",
+      "minimum": -100,
+      "maximum": 9223372036854775807,
+      "baseline": 0,
+      "divisor": 1,
+      "modifier": null,
+      "unresolved_properties": [],
+      "growth_ceiling": true
     }
   },
   "entities": {
@@ -62,10 +82,24 @@
       "devastation": 0
     },
     "0": {
-      "stability": 0
+      "stability": 0,
+      "adm_power": null,
+      "mil_power": null
     },
     "1": {
-      "stability": 0
+      "stability": 0,
+      "adm_power": null,
+      "mil_power": null
+    }
+  },
+  "ceilings": {
+    "0": {
+      "adm_power": null,
+      "mil_power": null
+    },
+    "1": {
+      "adm_power": null,
+      "mil_power": null
     }
   }
 }

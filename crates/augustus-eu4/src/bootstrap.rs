@@ -98,6 +98,8 @@ pub struct ProvinceView<'a> {
 #[derive(Debug, Serialize)]
 pub struct CountryView<'a> {
     pub metrics: Option<&'a BTreeMap<String, Option<i64>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metric_ceilings: Option<&'a BTreeMap<String, Option<i64>>>,
     pub flags: Option<&'a BTreeMap<String, bool>>,
     pub flag_namespace_known: bool,
     pub estates: Option<&'a BTreeMap<String, augustus_core::EstateState>>,
@@ -772,6 +774,12 @@ impl VanillaWorld {
         );
         metrics.definitions.extend(country_metrics.definitions);
         metrics.entities.extend(country_metrics.entities);
+        let power = crate::monarch_power::bind(&root, &files, &initial, &mut report.setup)?;
+        metrics.definitions.extend(power.definitions);
+        for (entity, values) in power.entities {
+            metrics.entities.entry(entity).or_default().extend(values);
+        }
+        metrics.ceilings.extend(power.ceilings);
         initial
             .set_metrics(metrics)
             .map_err(|e| Error::caused_by("world metrics", e))?;
@@ -1113,6 +1121,10 @@ impl VanillaWorld {
                 .initial
                 .country_entity(id)
                 .and_then(|entity| self.initial.world().metrics().entities.get(&entity)),
+            metric_ceilings: self
+                .initial
+                .country_entity(id)
+                .and_then(|entity| self.initial.world().metrics().ceilings.get(&entity)),
             estates: self
                 .initial
                 .country_entity(id)

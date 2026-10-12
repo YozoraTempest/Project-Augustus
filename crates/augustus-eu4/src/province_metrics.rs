@@ -62,6 +62,7 @@ pub(super) fn bind(
                 modifier,
                 unresolved_properties,
                 below_baseline: None,
+                growth_ceiling: false,
             },
         )]
         .into_iter()
@@ -87,5 +88,6 @@ pub(super) fn bind(
                 )
             })
             .collect(),
+        ceilings: BTreeMap::new(),
     }
 }

@@ -192,7 +192,12 @@ impl World {
         {
             return Err(Error::Invalid(format!("inactive government metric {name}")));
         }
-        let previous = if operation == NumericOperation::Set {
+        let growth_ceiling = if let NumericSlot::Metric(name) = slot {
+            self.metrics().definition(name)?.growth_ceiling
+        } else {
+            false
+        };
+        let previous = if operation == NumericOperation::Set && !growth_ceiling {
             0
         } else {
             self.numeric_value(entity, slot)?
@@ -206,10 +211,17 @@ impl World {
             )
         } else if let NumericSlot::Metric(name) = slot {
             let definition = self.metrics().definition(name)?;
-            value.clamp(
+            let value = value.clamp(
                 i128::from(definition.minimum),
                 i128::from(definition.maximum),
-            )
+            );
+            if growth_ceiling && value > i128::from(previous) {
+                value.min(i128::from(
+                    previous.max(self.metrics().ceiling(self, entity, name)?),
+                ))
+            } else {
+                value
+            }
         } else {
             value
         };

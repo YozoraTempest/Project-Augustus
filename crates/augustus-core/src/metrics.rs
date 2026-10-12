@@ -28,6 +28,13 @@ pub struct MetricDefinition {
     /// When absent, the same effect applies on both sides of the baseline.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub below_baseline: Option<MetricEffect>,
+    /// A per-entity ceiling limits growth without discarding existing excess.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub growth_ceiling: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 impl MetricDefinition {
@@ -82,11 +89,13 @@ pub struct MetricEvaluation {
 pub struct Metrics {
     pub definitions: BTreeMap<String, MetricDefinition>,
     pub entities: BTreeMap<EntityId, BTreeMap<String, Option<i64>>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub ceilings: BTreeMap<EntityId, BTreeMap<String, Option<i64>>>,
 }
 
 impl Metrics {
     pub fn is_empty(&self) -> bool {
-        self.definitions.is_empty() && self.entities.is_empty()
+        self.definitions.is_empty() && self.entities.is_empty() && self.ceilings.is_empty()
     }
 
     pub(crate) fn definition(&self, name: &str) -> Result<&MetricDefinition, Error> {
@@ -107,6 +116,26 @@ impl Metrics {
             .ok_or_else(|| {
                 Error::Invalid(format!(
                     "metric state is unknown for entity {} and name {name}",
+                    entity.0
+                ))
+            })
+    }
+
+    pub fn ceiling(&self, world: &World, entity: EntityId, name: &str) -> Result<i64, Error> {
+        let definition = self.definition(name)?;
+        if !definition.growth_ceiling || world.entity(entity)?.kind != definition.kind {
+            return Err(Error::Invalid(
+                "metric has no growth ceiling in this scope".into(),
+            ));
+        }
+        self.ceilings
+            .get(&entity)
+            .and_then(|values| values.get(name))
+            .copied()
+            .flatten()
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "metric growth ceiling is unknown for entity {} and name {name}",
                     entity.0
                 ))
             })
@@ -209,6 +238,18 @@ impl Metrics {
                 definition.validate_value(value)?;
             }
         }
+        for (&entity, values) in &self.ceilings {
+            if values.is_empty() {
+                return Err(Error::Invalid("empty metric ceiling entry".into()));
+            }
+            for (name, &value) in values {
+                let definition = self.definition(name)?;
+                if !definition.growth_ceiling || world.entity(entity)?.kind != definition.kind {
+                    return Err(Error::Invalid("invalid metric growth ceiling scope".into()));
+                }
+                definition.validate_value(value)?;
+            }
+        }
         Ok(())
     }
 }
@@ -263,6 +304,29 @@ impl World {
         definition.validate_value(value)?;
         self.metrics
             .entities
+            .entry(entity)
+            .or_default()
+            .insert(name.into(), value);
+        Ok(())
+    }
+
+    /// Changing a growth ceiling leaves the authoritative quantity untouched.
+    pub fn set_metric_ceiling(
+        &mut self,
+        entity: EntityId,
+        name: &str,
+        value: Option<i64>,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        let definition = self.metrics.definition(name)?;
+        if !definition.growth_ceiling || self.entity(entity)?.kind != definition.kind {
+            return Err(Error::Invalid(
+                "metric has no growth ceiling in this scope".into(),
+            ));
+        }
+        definition.validate_value(value)?;
+        self.metrics
+            .ceilings
             .entry(entity)
             .or_default()
             .insert(name.into(), value);
