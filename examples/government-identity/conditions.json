@@ -1,0 +1,40 @@
+{
+  "identity.start": {
+    "All": [
+      {
+        "GovernmentKind": {
+          "target": "Current",
+          "kind": "civic"
+        }
+      },
+      {
+        "GovernmentReform": {
+          "target": "Current",
+          "id": "council"
+        }
+      },
+      {
+        "GovernmentFeature": {
+          "target": "Current",
+          "name": "assembly"
+        }
+      }
+    ]
+  },
+  "identity.later": {
+    "All": [
+      {
+        "GovernmentKind": {
+          "target": "Current",
+          "kind": "civic"
+        }
+      },
+      {
+        "GovernmentReform": {
+          "target": "Current",
+          "id": "council"
+        }
+      }
+    ]
+  }
+}

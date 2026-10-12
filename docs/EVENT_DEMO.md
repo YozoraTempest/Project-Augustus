@@ -6,6 +6,8 @@
 
 [地区效果场景](../examples/area-effects/README.md) 演示有序遍历、每轮筛选、省份数值对属性的影响和跨入口续跑。
 
+[政体查询场景](../examples/government-identity/README.md) 演示政体类型、已选改革、政府属性和跨入口续跑。事件与开局条件读取同一份核心状态。
+
 触发议会事件并查看待选项：
 
 ```sh

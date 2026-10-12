@@ -1,0 +1,151 @@
+[
+  {
+    "id": "identity.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "GovernmentKind": {
+                  "target": "Current",
+                  "kind": "civic"
+                }
+              },
+              {
+                "GovernmentReform": {
+                  "target": "Current",
+                  "id": "council"
+                }
+              },
+              {
+                "GovernmentFeature": {
+                  "target": "Current",
+                  "name": "assembly"
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "GovernmentKind": {
+                        "target": "Current",
+                        "kind": "royal"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "country"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "With": {
+                "target": "Owner",
+                "plan": [
+                  {
+                    "If": {
+                      "condition": {
+                        "All": [
+                          {
+                            "GovernmentKind": {
+                              "target": "Current",
+                              "kind": "civic"
+                            }
+                          },
+                          {
+                            "GovernmentReform": {
+                              "target": "Current",
+                              "id": "council"
+                            }
+                          },
+                          {
+                            "GovernmentFeature": {
+                              "target": "Current",
+                              "name": "assembly"
+                            }
+                          }
+                        ]
+                      },
+                      "then": [
+                        {
+                          "Emit": "owner"
+                        }
+                      ],
+                      "otherwise": []
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TryEvent": {
+                    "event": "identity.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "identity.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "GovernmentFeature": {
+                  "target": "Current",
+                  "name": "assembly"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "later"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

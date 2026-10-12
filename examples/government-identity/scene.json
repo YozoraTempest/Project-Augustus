@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 2,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Port",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "governments": {
+    "reforms": {
+      "council": {
+        "features": {
+          "assembly": true
+        },
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": []
+      },
+      "court": {
+        "features": {
+          "assembly": false
+        },
+        "modifier": {
+          "values_micros": {},
+          "flags": {}
+        },
+        "unresolved_properties": []
+      }
+    },
+    "metrics": {},
+    "countries": {
+      "0": {
+        "kind": "civic",
+        "reforms": [
+          "council"
+        ],
+        "metrics": null
+      },
+      "1": {
+        "kind": "royal",
+        "reforms": [
+          "court"
+        ],
+        "metrics": {}
+      }
+    }
+  }
+}

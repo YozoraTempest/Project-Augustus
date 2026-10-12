@@ -1206,6 +1206,15 @@ pub(crate) fn validate_condition(
         crate::Condition::AffiliationGroup {
             dimension, group, ..
         } => crate::affiliations::validate_condition(dimension, Some(group)),
+        crate::Condition::GovernmentKind { kind, .. } => {
+            crate::governments::validate_identifier(kind)
+        }
+        crate::Condition::GovernmentReform { id, .. } => {
+            governments.reform_definition(id).map(|_| ())
+        }
+        crate::Condition::GovernmentFeature { name, .. } => {
+            crate::governments::validate_identifier(name)
+        }
         crate::Condition::GovernmentMetricActive { name, .. } => {
             governments.metric_definition(name).map(|_| ())
         }

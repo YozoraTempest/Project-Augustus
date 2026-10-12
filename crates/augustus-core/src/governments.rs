@@ -65,6 +65,13 @@ pub struct Governments {
 }
 
 impl Governments {
+    pub(crate) fn reform_definition(&self, id: &str) -> Result<&GovernmentReform, Error> {
+        validate_identifier(id)?;
+        self.reforms
+            .get(id)
+            .ok_or_else(|| Error::Invalid(format!("unknown government reform {id}")))
+    }
+
     pub(crate) fn metric_definition(&self, name: &str) -> Result<&GovernmentMetric, Error> {
         self.metrics
             .get(name)
@@ -75,6 +82,9 @@ impl Governments {
         let mut explicit = None;
         for id in selected {
             let reform = self.reforms.get(id)?;
+            if reform.unresolved_properties.contains(name) {
+                return None;
+            }
             if let Some(value) = reform.features.get(name) {
                 let value = (*value)?;
                 if explicit.is_some_and(|old| old != value) {
@@ -301,6 +311,52 @@ impl Governments {
 }
 
 impl World {
+    pub fn government_kind(&self, entity: EntityId) -> Result<&str, Error> {
+        self.government_country(entity)?
+            .kind
+            .as_deref()
+            .ok_or_else(|| {
+                Error::Invalid(format!("unknown government kind for entity {}", entity.0))
+            })
+    }
+
+    pub fn government_reform_selected(&self, entity: EntityId, id: &str) -> Result<bool, Error> {
+        self.governments().reform_definition(id)?;
+        let reforms = self
+            .government_country(entity)?
+            .reforms
+            .as_ref()
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "unknown government reforms for entity {}",
+                    entity.0
+                ))
+            })?;
+        Ok(reforms.contains(id))
+    }
+
+    pub fn government_feature(&self, entity: EntityId, name: &str) -> Result<bool, Error> {
+        validate_identifier(name)?;
+        self.government_country(entity)?;
+        self.governments().feature(entity, name).ok_or_else(|| {
+            Error::Invalid(format!(
+                "unknown government feature {name} for entity {}",
+                entity.0
+            ))
+        })
+    }
+
+    fn government_country(&self, entity: EntityId) -> Result<&GovernmentState, Error> {
+        if self.entity(entity)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "government queries require a country".into(),
+            ));
+        }
+        self.governments().countries.get(&entity).ok_or_else(|| {
+            Error::Invalid(format!("unknown government state for entity {}", entity.0))
+        })
+    }
+
     pub fn government_metric_active(&self, entity: EntityId, name: &str) -> Result<bool, Error> {
         self.governments().metric_definition(name)?;
         if self.entity(entity)?.kind != EntityKind::Country {
@@ -336,5 +392,13 @@ impl World {
                     entity.0
                 ))
             })
+    }
+}
+
+pub(crate) fn validate_identifier(name: &str) -> Result<(), Error> {
+    if name.trim().is_empty() {
+        Err(Error::Invalid("empty government identifier".into()))
+    } else {
+        Ok(())
     }
 }

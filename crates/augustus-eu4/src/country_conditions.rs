@@ -25,7 +25,7 @@ pub(super) enum Condition {
     Numeric(augustus_core::Condition),
     Scoped(augustus_core::Condition),
     Control(augustus_core::CountryController),
-    Feature(String),
+    Institution(String, String),
     Estate(String),
     EstatePrivilege(String),
     If(Box<Self>, Box<Self>),
@@ -259,7 +259,8 @@ impl Condition {
                                 .map_err(|_| fail("expected nomad flag"))?,
                         )
                         .ok_or_else(|| fail("expected yes or no"))?;
-                        let feature = Self::Feature("nomad".into());
+                        let feature =
+                            Self::Institution("has_government_attribute".into(), "nomad".into());
                         if expected {
                             feature
                         } else {
@@ -360,14 +361,21 @@ impl Condition {
                         };
                         Self::Status(status.into(), expected)
                     }
-                    "has_government_attribute" if country => {
+                    "government" | "has_reform" | "has_government_attribute" if country => {
                         let id = value
                             .read_string()
-                            .map_err(|_| fail("expected government feature identifier"))?;
+                            .map_err(|_| fail("expected government identifier"))?;
                         if id.is_empty() {
-                            return Err(fail("empty government feature identifier"));
+                            return Err(fail("empty government identifier"));
                         }
-                        Self::Feature(id)
+                        if !id.contains('$')
+                            && let Err(message) = crate::script::government_condition(&name, &id)
+                        {
+                            report.unsupported(parsed, "trigger", &name, at);
+                            Self::Unknown(message.into())
+                        } else {
+                            Self::Institution(name, id)
+                        }
                     }
                     "always" => Self::Literal(
                         flag(
@@ -378,8 +386,7 @@ impl Condition {
                         .ok_or_else(|| fail("expected yes or no"))?,
                     ),
                     "tag" | "TAG" | "primary_culture" | "culture_group" | "religion"
-                    | "religion_group" | "government" | "technology_group" | "dynasty"
-                    | "has_reform"
+                    | "religion_group" | "technology_group" | "dynasty"
                         if country =>
                     {
                         let text = value
@@ -645,13 +652,21 @@ impl Condition {
                 }
                 result.map(|v| v == *expected)
             }
-            Self::Feature(name) => {
+            Self::Institution(name, value) => {
                 let entity = initial.country_entity(tag).expect("registered country");
-                let result = initial.world().governments().feature(entity, name);
-                if result.is_none() {
-                    reasons.insert(format!("unknown_government_feature:{name}"));
+                match crate::script::government_condition(name, value) {
+                    Ok(condition) => match condition.evaluate(initial.world(), entity) {
+                        Ok(value) => Some(value),
+                        Err(error) => {
+                            reasons.insert(format!("unknown_government_condition:{name}:{error}"));
+                            None
+                        }
+                    },
+                    Err(message) => {
+                        reasons.insert(format!("unknown_government_condition:{name}:{message}"));
+                        None
+                    }
                 }
-                result
             }
             Self::Match(name, expected) => {
                 let country = initial.country(tag).expect("registered country");
@@ -661,11 +676,6 @@ impl Condition {
                     "tag" => Some(tag),
                     "primary_culture" => country.primary_culture.as_deref(),
                     "religion" => country.religion.as_deref(),
-                    "government" => world
-                        .governments()
-                        .countries
-                        .get(&entity)
-                        .and_then(|g| g.kind.as_deref()),
                     "technology_group" => country.technology_group.as_deref(),
                     "dynasty" => world
                         .politics()
@@ -687,19 +697,6 @@ impl Condition {
                             .and_then(|m| m.as_ref())
                             .and_then(|m| world.affiliations().0[dimension].groups.get(m))
                             .and_then(|g| g.as_deref())
-                    }
-                    "has_reform" => {
-                        return if let Some(reforms) = world
-                            .governments()
-                            .countries
-                            .get(&entity)
-                            .and_then(|g| g.reforms.as_ref())
-                        {
-                            Some(reforms.contains(expected))
-                        } else {
-                            reasons.insert("unknown_reforms".into());
-                            None
-                        };
                     }
                     _ => unreachable!(),
                 };
@@ -739,9 +736,10 @@ impl Condition {
             }) => replace(name),
             Self::Numeric(_) => true,
             Self::Scoped(_) => true,
-            Self::Match(name, value) => replace(name) && replace(value),
-            Self::Feature(id)
-            | Self::Completion(id)
+            Self::Match(name, value) | Self::Institution(name, value) => {
+                replace(name) && replace(value)
+            }
+            Self::Completion(id)
             | Self::Modifier(id)
             | Self::Marker(id)
             | Self::Estate(id)

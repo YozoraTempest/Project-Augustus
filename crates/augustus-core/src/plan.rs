@@ -58,6 +58,18 @@ pub enum Condition {
         dimension: String,
         group: String,
     },
+    GovernmentKind {
+        target: Target,
+        kind: String,
+    },
+    GovernmentReform {
+        target: Target,
+        id: String,
+    },
+    GovernmentFeature {
+        target: Target,
+        name: String,
+    },
     GovernmentMetricActive {
         target: Target,
         name: String,
@@ -383,6 +395,16 @@ impl Condition {
                         ))
                     })?;
                 Ok(actual == group)
+            }
+            Self::GovernmentKind { target, kind } => {
+                crate::governments::validate_identifier(kind)?;
+                Ok(world.government_kind(world.target(current, *target)?)? == kind)
+            }
+            Self::GovernmentReform { target, id } => {
+                world.government_reform_selected(world.target(current, *target)?, id)
+            }
+            Self::GovernmentFeature { target, name } => {
+                world.government_feature(world.target(current, *target)?, name)
             }
             Self::GovernmentMetricActive { target, name } => {
                 world.government_metric_active(world.target(current, *target)?, name)

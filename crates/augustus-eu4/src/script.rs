@@ -1625,6 +1625,13 @@ impl<'a> ScriptCompiler<'a> {
                         Condition::AffiliationGroup { target: Target::Current, dimension: "religion".into(), group: value.into() }
                     }
                 }
+                "government" | "has_reform" | "has_government_attribute" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("government conditions require country scope"));
+                    }
+                    government_condition(&field.name, field.scalar()?)
+                        .map_err(|message| field.error(message))?
+                }
                 "legitimacy" => {
                     self.government_metric(field, scope, "legitimacy")?;
                     let value = decimal(field)?;
@@ -1923,6 +1930,48 @@ fn simplify_event_calls(plan: &mut Plan, unconditional: &BTreeSet<String>) {
             | Action::Preview { plan } => simplify_event_calls(plan, unconditional),
             _ => (),
         }
+    }
+}
+
+pub(crate) fn government_condition(name: &str, value: &str) -> Result<Condition, &'static str> {
+    if value.is_empty()
+        || !value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_')
+        || value.bytes().all(|c| c.is_ascii_digit())
+    {
+        return Err("government conditions require a literal identifier");
+    }
+    let target = Target::Current;
+    match name {
+        "government" => {
+            if matches!(value, "dictatorship" | "has_harem") {
+                return Err("special government aliases are unsupported");
+            }
+            if (value.len() == 3
+                && value
+                    .bytes()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()))
+                || ["root", "from", "prev", "this", "emperor"]
+                    .iter()
+                    .any(|v| value.eq_ignore_ascii_case(v))
+            {
+                return Err("dynamic government references are unsupported");
+            }
+            Ok(Condition::GovernmentKind {
+                target,
+                kind: value.into(),
+            })
+        }
+        "has_reform" => Ok(Condition::GovernmentReform {
+            target,
+            id: value.into(),
+        }),
+        "has_government_attribute" => Ok(Condition::GovernmentFeature {
+            target,
+            name: value.into(),
+        }),
+        _ => unreachable!("government trigger name"),
     }
 }
 

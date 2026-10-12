@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+country_event={
+    id=identity.start is_triggered_only=yes
+    trigger={government=civic has_reform=council has_government_attribute=assembly}
+    immediate={
+        if={limit={government=civic has_reform=council has_government_attribute=assembly NOT={government=royal}} log=country}
+        capital_scope={owner={if={limit={government=civic has_reform=council has_government_attribute=assembly} log=owner}}}
+    }
+    option={name=Continue country_event={id=identity.later days=1}}
+}
+country_event={
+    id=identity.later is_triggered_only=yes
+    trigger={government=civic has_reform=council}
+    immediate={if={limit={has_government_attribute=assembly} log=later}}
+    option={name=Continue}
+}
