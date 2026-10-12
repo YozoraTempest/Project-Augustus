@@ -15,6 +15,11 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    HasJustification {
+        issuer: crate::EntityRef,
+        target: crate::EntityRef,
+        name: Option<String>,
+    },
     HasOwnedProvince {
         target: Target,
     },
@@ -97,6 +102,17 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    GrantJustification {
+        issuer: crate::EntityRef,
+        target: crate::EntityRef,
+        name: String,
+        term: crate::GrantTerm,
+    },
+    RemoveJustification {
+        issuer: crate::EntityRef,
+        target: crate::EntityRef,
+        name: String,
+    },
     /// Localisation content for effect descriptions; no simulation side effects.
     Description {
         key: String,
@@ -221,6 +237,19 @@ pub type Plan = Vec<Action>;
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         match self {
+            Self::HasJustification {
+                issuer,
+                target,
+                name,
+            } => {
+                let (Some(issuer), Some(target)) = (
+                    issuer.resolve(world, current)?,
+                    target.resolve(world, current)?,
+                ) else {
+                    return Ok(false);
+                };
+                world.has_justification(issuer, target, name.as_deref())
+            }
             Self::HasOwnedProvince { target } => {
                 world.has_owned_province(world.target(current, *target)?)
             }
@@ -452,6 +481,31 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::GrantJustification {
+                    issuer,
+                    target,
+                    name,
+                    term,
+                } => {
+                    if let (Some(issuer), Some(target)) = (
+                        issuer.resolve(self, current)?,
+                        target.resolve(self, current)?,
+                    ) {
+                        self.grant_justification(issuer, target, name, *term)?;
+                    }
+                }
+                Action::RemoveJustification {
+                    issuer,
+                    target,
+                    name,
+                } => {
+                    if let (Some(issuer), Some(target)) = (
+                        issuer.resolve(self, current)?,
+                        target.resolve(self, current)?,
+                    ) {
+                        self.remove_justification(issuer, target, name)?;
+                    }
+                }
                 Action::Description { key, .. } => validate_description_key(key)?,
                 Action::Preview { .. } => (),
                 Action::SetMarker {

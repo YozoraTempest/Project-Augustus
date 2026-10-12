@@ -281,6 +281,7 @@ impl InitialWorld {
         )?;
         if restored.entities().len() != self.world.entities().len()
             || restored.completions().identifiers != self.world.completions().identifiers
+            || restored.justifications().definitions != self.world.justifications().definitions
             || restored.calendar() != self.world.calendar()
             || restored.monthly_system_id() != self.world.monthly_system_id()
             || restored
@@ -309,6 +310,9 @@ impl InitialWorld {
     }
     pub fn set_modifiers(&mut self, modifiers: Modifiers) -> Result<(), Error> {
         self.world.set_modifiers(modifiers)
+    }
+    pub fn set_justifications(&mut self, state: crate::Justifications) -> Result<(), Error> {
+        self.world.set_justifications(state)
     }
     pub fn set_country_resources(
         &mut self,

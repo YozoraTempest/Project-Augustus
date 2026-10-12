@@ -5,6 +5,29 @@ use serde::{Deserialize, Serialize};
 
 use crate::{EntityId, Error, World};
 
+/// An endpoint selected relative to the executing entity or by a live name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EntityRef {
+    Relative(crate::Target),
+    Selected(ScopeSelector),
+}
+
+impl EntityRef {
+    pub(crate) fn validate(&self) -> Result<(), Error> {
+        match self {
+            Self::Relative(_) => Ok(()),
+            Self::Selected(selector) => selector.validate(),
+        }
+    }
+
+    pub fn resolve(&self, world: &World, current: EntityId) -> Result<Option<EntityId>, Error> {
+        match self {
+            Self::Relative(target) => world.condition_target(current, *target),
+            Self::Selected(selector) => world.resolve_scope(selector),
+        }
+    }
+}
+
 /// A live reference resolved from authoritative world state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScopeSelector {

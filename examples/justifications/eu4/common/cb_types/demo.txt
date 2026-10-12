@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+restoration={is_triggered_only=yes months=2}
+honour={is_triggered_only=yes months=2}
+instant={is_triggered_only=yes months=0}
+council={is_triggered_only=yes}

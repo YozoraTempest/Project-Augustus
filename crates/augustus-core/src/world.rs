@@ -94,6 +94,7 @@ pub struct World {
     technology: Technology,
     pub(crate) modifiers: Modifiers,
     pub(crate) modifier_expirations: BTreeMap<u64, BTreeSet<(EntityId, String)>>,
+    pub(crate) justifications: crate::Justifications,
     pub(crate) country_resources: BTreeMap<EntityId, CountryResources>,
     calendar: Option<Calendar>,
     pub(crate) taxation: Option<Taxation>,
@@ -138,6 +139,8 @@ struct Snapshot {
     technology: Technology,
     #[serde(default, skip_serializing_if = "Modifiers::is_empty")]
     modifiers: Modifiers,
+    #[serde(default, skip_serializing_if = "crate::Justifications::is_empty")]
+    justifications: crate::Justifications,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     country_resources: BTreeMap<EntityId, CountryResources>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,6 +204,7 @@ impl World {
             technology: Technology::default(),
             modifiers: Modifiers::default(),
             modifier_expirations: BTreeMap::new(),
+            justifications: crate::Justifications::default(),
             country_resources: BTreeMap::new(),
             calendar: None,
             taxation: None,
@@ -538,6 +542,7 @@ impl World {
             &self.completions,
             &self.modifiers,
             &self.governments,
+            &self.justifications,
         )?;
         if delay == 0 {
             return Err(Error::Invalid(
@@ -609,12 +614,26 @@ impl World {
                 .modifier_expirations
                 .first_key_value()
                 .map(|(day, _)| *day);
-            let next = task_day.into_iter().chain(month).chain(expiration).min();
+            let grant_tick = if self.justifications.active.is_empty() {
+                None
+            } else {
+                Some(self.day.checked_add(1).ok_or(Error::Overflow)?)
+            };
+            let next = task_day
+                .into_iter()
+                .chain(month)
+                .chain(expiration)
+                .chain(grant_tick)
+                .min();
             let Some(next) = next.filter(|&next| next <= day) else {
                 break;
             };
             self.day = next;
             self.expire_modifiers(next);
+            if let Err(error) = self.maintain_justifications(false) {
+                self.failed = true;
+                return Err(error);
+            }
             while self
                 .tasks
                 .first_key_value()
@@ -622,6 +641,16 @@ impl World {
             {
                 let (_, task) = self.tasks.pop_first().expect("checked nonempty queue");
                 self.execute(task.current, &task.plan)?;
+            }
+            if !self.justifications.active.is_empty()
+                && self
+                    .calendar
+                    .as_ref()
+                    .map(|calendar| calendar.date(next))
+                    .transpose()?
+                    .is_some_and(|date| date.day == 1)
+            {
+                self.maintain_justifications(true)?;
             }
             if month == Some(next) {
                 let result = system.expect("selected monthly provider").settle(self);
@@ -654,6 +683,7 @@ impl World {
             economy: self.economy.clone(),
             technology: self.technology.clone(),
             modifiers: self.modifiers.clone(),
+            justifications: self.justifications.clone(),
             country_resources: self.country_resources.clone(),
             calendar: self.calendar.clone(),
             taxation: self.taxation.clone(),
@@ -720,6 +750,7 @@ impl World {
             technology: snapshot.technology,
             modifier_expirations: snapshot.modifiers.expiration_index(),
             modifiers: snapshot.modifiers,
+            justifications: snapshot.justifications,
             country_resources: snapshot.country_resources,
             calendar: snapshot.calendar,
             taxation: snapshot.taxation,
@@ -751,6 +782,7 @@ impl World {
                 &world.completions,
                 &world.modifiers,
                 &world.governments,
+                &world.justifications,
             )?;
         }
         world.event_catalog.validate(&world)?;
@@ -784,6 +816,7 @@ impl World {
         world.economy.validate(&world)?;
         world.technology.validate(&world)?;
         world.modifiers.validate(&world)?;
+        world.justifications.validate(&world)?;
         world.validate_resources(&world.country_resources)?;
         world.administration.validate(&world)?;
         world.affiliations.validate(&world)?;
@@ -829,6 +862,7 @@ impl World {
                 &world.completions,
                 &world.modifiers,
                 &world.governments,
+                &world.justifications,
             )?;
             world.tasks.insert((task.day, task.sequence), task);
         }
@@ -855,6 +889,7 @@ impl World {
         &self,
         catalog: &crate::EventCatalog,
     ) -> Result<(), Error> {
+        self.justifications.validate_definitions(self)?;
         for rule in &self.rules {
             validate_plan(
                 rule,
@@ -864,6 +899,7 @@ impl World {
                 &self.completions,
                 &self.modifiers,
                 &self.governments,
+                &self.justifications,
             )?;
         }
         for task in self.tasks.values() {
@@ -875,12 +911,14 @@ impl World {
                 &self.completions,
                 &self.modifiers,
                 &self.governments,
+                &self.justifications,
             )?;
         }
         Ok(())
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_plan(
     plan: &[Action],
     schema: &Schema,
@@ -889,6 +927,7 @@ pub(crate) fn validate_plan(
     completions: &crate::Completions,
     modifiers: &Modifiers,
     governments: &Governments,
+    justifications: &crate::Justifications,
 ) -> Result<(), Error> {
     for action in plan {
         match action {
@@ -896,6 +935,26 @@ pub(crate) fn validate_plan(
                 dimension, member, ..
             } => {
                 crate::affiliations::validate_condition(dimension, member.as_deref())?;
+            }
+            Action::GrantJustification {
+                issuer,
+                target,
+                name,
+                term,
+            } => {
+                issuer.validate()?;
+                target.validate()?;
+                justifications.identifier(name)?;
+                term.validate()?;
+            }
+            Action::RemoveJustification {
+                issuer,
+                target,
+                name,
+            } => {
+                issuer.validate()?;
+                target.validate()?;
+                justifications.identifier(name)?;
             }
             Action::Description { key, .. } => crate::plan::validate_description_key(key)?,
             Action::SetMarker { name, .. } => crate::markers::validate_name(name)?,
@@ -938,6 +997,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    justifications,
                 )?;
             }
             Action::BindGlobalScope { name } | Action::ClearGlobalScope { name } => {
@@ -965,7 +1025,14 @@ pub(crate) fn validate_plan(
                 then,
                 otherwise,
             } => {
-                validate_condition(condition, schema, completions, modifiers, governments)?;
+                validate_condition(
+                    condition,
+                    schema,
+                    completions,
+                    modifiers,
+                    governments,
+                    justifications,
+                )?;
                 validate_plan(
                     then,
                     schema,
@@ -974,6 +1041,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    justifications,
                 )?;
                 validate_plan(
                     otherwise,
@@ -983,6 +1051,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    justifications,
                 )?;
             }
             Action::RandomBranch { then, otherwise } => {
@@ -994,6 +1063,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    justifications,
                 )?;
                 validate_plan(
                     otherwise,
@@ -1003,6 +1073,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    justifications,
                 )?;
             }
             Action::With { plan, .. } | Action::Preview { plan } => validate_plan(
@@ -1013,6 +1084,7 @@ pub(crate) fn validate_plan(
                 completions,
                 modifiers,
                 governments,
+                justifications,
             )?,
             Action::Schedule { delay, plan } => {
                 if *delay == 0 {
@@ -1026,6 +1098,7 @@ pub(crate) fn validate_plan(
                     completions,
                     modifiers,
                     governments,
+                    justifications,
                 )?;
             }
             Action::Accumulate { field, source, .. }
@@ -1048,8 +1121,21 @@ pub(crate) fn validate_condition(
     completions: &crate::Completions,
     modifiers: &Modifiers,
     governments: &Governments,
+    justifications: &crate::Justifications,
 ) -> Result<(), Error> {
     match condition {
+        crate::Condition::HasJustification {
+            issuer,
+            target,
+            name,
+        } => {
+            issuer.validate()?;
+            target.validate()?;
+            if let Some(name) = name {
+                justifications.identifier(name)?;
+            }
+            Ok(())
+        }
         crate::Condition::AffiliationPresent { dimension, .. } => {
             crate::affiliations::validate_condition(dimension, None)
         }
@@ -1073,16 +1159,28 @@ pub(crate) fn validate_condition(
             "year condition requires a positive year".into(),
         )),
         crate::Condition::ScopeIsCurrent(selector) => selector.validate(),
-        crate::Condition::With { condition, .. } => {
-            validate_condition(condition, schema, completions, modifiers, governments)
-        }
+        crate::Condition::With { condition, .. } => validate_condition(
+            condition,
+            schema,
+            completions,
+            modifiers,
+            governments,
+            justifications,
+        ),
         crate::Condition::InScope {
             selector,
             condition,
             ..
         } => {
             selector.validate()?;
-            validate_condition(condition, schema, completions, modifiers, governments)
+            validate_condition(
+                condition,
+                schema,
+                completions,
+                modifiers,
+                governments,
+                justifications,
+            )
         }
         crate::Condition::GeographicMember { name, .. } if name.trim().is_empty() => Err(
             Error::Invalid("empty geographic condition identifier".into()),
@@ -1092,13 +1190,25 @@ pub(crate) fn validate_condition(
         }
         crate::Condition::All(conditions) | crate::Condition::Any(conditions) => {
             for condition in conditions {
-                validate_condition(condition, schema, completions, modifiers, governments)?;
+                validate_condition(
+                    condition,
+                    schema,
+                    completions,
+                    modifiers,
+                    governments,
+                    justifications,
+                )?;
             }
             Ok(())
         }
-        crate::Condition::Not(condition) => {
-            validate_condition(condition, schema, completions, modifiers, governments)
-        }
+        crate::Condition::Not(condition) => validate_condition(
+            condition,
+            schema,
+            completions,
+            modifiers,
+            governments,
+            justifications,
+        ),
         _ => Ok(()),
     }
 }

@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace=grounds
+country_event={id=grounds.start is_triggered_only=yes immediate={
+ add_casus_belli={type=restoration target=BBB months=3}
+ reverse_add_casus_belli={type=honour target=BBB}
+ add_casus_belli={type=instant target=BBB}
+ add_casus_belli={type=council target=BBB months=0}
+ log=granted
+ if={limit={has_casus_belli={type=restoration target=BBB}} log=direct}
+ if={limit={has_casus_belli_against=BBB} log=any}
+ country_event={id=grounds.boundary days=51}
+ country_event={id=grounds.later days=52}
+}
+ option={name=shorten add_casus_belli={type=restoration target=BBB months=1} log=shortened}
+ option={name=withdraw remove_casus_belli={type=restoration target=BBB} reverse_remove_casus_belli={type=honour target=BBB} log=withdrawn}
+}
+country_event={id=grounds.boundary is_triggered_only=yes immediate={
+ if={limit={has_casus_belli={type=restoration target=BBB}} log=boundary_present} else={log=boundary_absent}
+ if={limit={has_casus_belli={type=instant target=BBB}} log=instant_present} else={log=instant_absent}
+ if={limit={has_casus_belli={type=council target=BBB}} log=council_present} else={log=council_absent}
+}
+ option={name=present trigger={has_casus_belli={type=restoration target=BBB}} log=still_present}
+ option={name=expired trigger={NOT={has_casus_belli={type=restoration target=BBB}}} log=closed}
+}
+country_event={id=grounds.later is_triggered_only=yes immediate={
+ if={limit={has_casus_belli={type=restoration target=BBB}} log=later_present} else={log=later_absent}
+} option={name=acknowledge}}
+country_event={id=grounds.dormant is_triggered_only=yes immediate={
+ add_casus_belli={type=restoration target=CCC months=3}
+ if={limit={has_casus_belli={type=restoration target=CCC}} log=dormant_granted}
+ country_event={id=grounds.dormant_later days=1}
+} option={name=acknowledge}}
+country_event={id=grounds.dormant_later is_triggered_only=yes immediate={
+ if={limit={has_casus_belli={type=restoration target=CCC}} log=dormant_present} else={log=dormant_cleared}
+} option={name=acknowledge}}

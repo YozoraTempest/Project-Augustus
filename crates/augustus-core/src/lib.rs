@@ -19,6 +19,7 @@ mod event_choices;
 mod governments;
 mod ideas;
 mod initial;
+mod justifications;
 mod markers;
 mod modifiers;
 mod named_values;
@@ -63,13 +64,14 @@ pub use ideas::{
     IdeaContribution, IdeaDefinition, IdeaEffect, IdeaEvaluation, IdeaGroup, IdeaState, Ideas,
 };
 pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, WorldDate};
+pub use justifications::{GrantTerm, Justification, JustificationDefinition, Justifications};
 pub use markers::Markers;
 pub use modifiers::{ModifierDefinition, ModifierInstance, ModifierRenewal, Modifiers};
 pub use named_values::{NamedValues, NumericComparison, NumericOperation, NumericSlot};
 pub use plan::{Action, Condition, Plan, Target};
 pub use politics::{CountryPolitics, DiplomaticKind, DiplomaticRelation, PersonState, Politics};
 pub use resources::CountryResources;
-pub use scopes::ScopeSelector;
+pub use scopes::{EntityRef, ScopeSelector};
 pub use taxation::{MonthlySystem, MonthlyTax, MonthlyTaxAccount, TaxSettlement, Taxation};
 pub use technology::{Technology, TechnologyLevel};
 pub use world::{Entity, EntityId, EntityKind, FieldId, RuleId, Schema, World};

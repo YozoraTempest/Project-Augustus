@@ -1,0 +1,554 @@
+[
+  {
+    "id": "grounds.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "GrantJustification": {
+          "issuer": {
+            "Relative": "Current"
+          },
+          "target": {
+            "Selected": {
+              "Named": {
+                "kind": "Country",
+                "name": "BBB"
+              }
+            }
+          },
+          "name": "restoration",
+          "term": {
+            "Months": {
+              "count": 3,
+              "monthly": true
+            }
+          }
+        }
+      },
+      {
+        "GrantJustification": {
+          "issuer": {
+            "Selected": {
+              "Named": {
+                "kind": "Country",
+                "name": "BBB"
+              }
+            }
+          },
+          "target": {
+            "Relative": "Current"
+          },
+          "name": "honour",
+          "term": {
+            "Months": {
+              "count": 2,
+              "monthly": true
+            }
+          }
+        }
+      },
+      {
+        "GrantJustification": {
+          "issuer": {
+            "Relative": "Current"
+          },
+          "target": {
+            "Selected": {
+              "Named": {
+                "kind": "Country",
+                "name": "BBB"
+              }
+            }
+          },
+          "name": "instant",
+          "term": {
+            "Months": {
+              "count": 0,
+              "monthly": true
+            }
+          }
+        }
+      },
+      {
+        "GrantJustification": {
+          "issuer": {
+            "Relative": "Current"
+          },
+          "target": {
+            "Selected": {
+              "Named": {
+                "kind": "Country",
+                "name": "BBB"
+              }
+            }
+          },
+          "name": "council",
+          "term": {
+            "Months": {
+              "count": 12,
+              "monthly": true
+            }
+          }
+        }
+      },
+      {
+        "Emit": "granted"
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "HasJustification": {
+                  "issuer": {
+                    "Relative": "Current"
+                  },
+                  "target": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "BBB"
+                      }
+                    }
+                  },
+                  "name": "restoration"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "direct"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "HasJustification": {
+                  "issuer": {
+                    "Relative": "Current"
+                  },
+                  "target": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "BBB"
+                      }
+                    }
+                  },
+                  "name": null
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "any"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 51,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "grounds.boundary"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 52,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "grounds.later"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "GrantJustification": {
+              "issuer": {
+                "Relative": "Current"
+              },
+              "target": {
+                "Selected": {
+                  "Named": {
+                    "kind": "Country",
+                    "name": "BBB"
+                  }
+                }
+              },
+              "name": "restoration",
+              "term": {
+                "Months": {
+                  "count": 1,
+                  "monthly": true
+                }
+              }
+            }
+          },
+          {
+            "Emit": "shortened"
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": [
+          {
+            "RemoveJustification": {
+              "issuer": {
+                "Relative": "Current"
+              },
+              "target": {
+                "Selected": {
+                  "Named": {
+                    "kind": "Country",
+                    "name": "BBB"
+                  }
+                }
+              },
+              "name": "restoration"
+            }
+          },
+          {
+            "RemoveJustification": {
+              "issuer": {
+                "Selected": {
+                  "Named": {
+                    "kind": "Country",
+                    "name": "BBB"
+                  }
+                }
+              },
+              "target": {
+                "Relative": "Current"
+              },
+              "name": "honour"
+            }
+          },
+          {
+            "Emit": "withdrawn"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "grounds.boundary",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "HasJustification": {
+                  "issuer": {
+                    "Relative": "Current"
+                  },
+                  "target": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "BBB"
+                      }
+                    }
+                  },
+                  "name": "restoration"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "boundary_present"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "boundary_absent"
+            }
+          ]
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "HasJustification": {
+                  "issuer": {
+                    "Relative": "Current"
+                  },
+                  "target": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "BBB"
+                      }
+                    }
+                  },
+                  "name": "instant"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "instant_present"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "instant_absent"
+            }
+          ]
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "HasJustification": {
+                  "issuer": {
+                    "Relative": "Current"
+                  },
+                  "target": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "BBB"
+                      }
+                    }
+                  },
+                  "name": "council"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "council_present"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "council_absent"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "still_present"
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": [
+          {
+            "Emit": "closed"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "grounds.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "HasJustification": {
+                  "issuer": {
+                    "Relative": "Current"
+                  },
+                  "target": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "BBB"
+                      }
+                    }
+                  },
+                  "name": "restoration"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "later_present"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "later_absent"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "grounds.dormant",
+    "scope": "Country",
+    "immediate": [
+      {
+        "GrantJustification": {
+          "issuer": {
+            "Relative": "Current"
+          },
+          "target": {
+            "Selected": {
+              "Named": {
+                "kind": "Country",
+                "name": "CCC"
+              }
+            }
+          },
+          "name": "restoration",
+          "term": {
+            "Months": {
+              "count": 3,
+              "monthly": true
+            }
+          }
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "HasJustification": {
+                  "issuer": {
+                    "Relative": "Current"
+                  },
+                  "target": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "CCC"
+                      }
+                    }
+                  },
+                  "name": "restoration"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "dormant_granted"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "grounds.dormant_later"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "grounds.dormant_later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "HasJustification": {
+                  "issuer": {
+                    "Relative": "Current"
+                  },
+                  "target": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "CCC"
+                      }
+                    }
+                  },
+                  "name": "restoration"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "dormant_present"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "dormant_cleared"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

@@ -15,6 +15,24 @@ pub struct Calendar {
 }
 
 impl Calendar {
+    /// Add whole calendar months, retaining the day when the destination month
+    /// permits it, and using its last day otherwise.
+    pub fn after_months(&self, day: u64, months: u32) -> Result<u64, Error> {
+        let date = self.date(day)?;
+        let index = u64::try_from(date.year - 1).map_err(|_| Error::Overflow)? * 12
+            + u64::from(date.month - 1)
+            + u64::from(months);
+        let month = (index % 12) as u8 + 1;
+        let end = WorldDate {
+            year: i16::try_from(index / 12 + 1).map_err(|_| Error::Overflow)?,
+            month,
+            day: date.day.min(self.month_lengths[usize::from(month - 1)]),
+        };
+        self.ordinal(end)?
+            .checked_sub(self.ordinal(self.start)?)
+            .ok_or(Error::Overflow)
+    }
+
     fn ordinal(&self, date: WorldDate) -> Result<u64, Error> {
         if self.month_lengths.contains(&0)
             || date.year < 1

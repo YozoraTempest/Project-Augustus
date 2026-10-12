@@ -259,6 +259,7 @@ pub struct ScriptCompiler<'a> {
     global_scope_types: BTreeMap<String, EntityKind>,
     mission_ids: BTreeSet<String>,
     modifier_ids: BTreeSet<String>,
+    casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
     government_metric_ids: BTreeSet<String>,
     religious_school_groups: BTreeMap<String, Option<String>>,
     hidden_descriptions: bool,
@@ -276,6 +277,7 @@ impl<'a> ScriptCompiler<'a> {
             global_scope_types: BTreeMap::new(),
             mission_ids: BTreeSet::new(),
             modifier_ids: BTreeSet::new(),
+            casus_belli_types: BTreeMap::new(),
             government_metric_ids: BTreeSet::new(),
             religious_school_groups: BTreeMap::new(),
             hidden_descriptions: false,
@@ -341,6 +343,85 @@ impl<'a> ScriptCompiler<'a> {
     pub fn with_modifier_ids(mut self, ids: BTreeSet<String>) -> Self {
         self.modifier_ids = ids;
         self
+    }
+
+    pub fn with_casus_belli_types(
+        mut self,
+        types: BTreeMap<String, crate::CasusBelliType>,
+    ) -> Self {
+        self.casus_belli_types = types;
+        self
+    }
+
+    fn country_reference(&self, field: &Field) -> Result<augustus_core::EntityRef, Error> {
+        let value = field.scalar()?;
+        let selector = if value.len() == 3
+            && value
+                .bytes()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        {
+            ScopeSelector::Named {
+                kind: EntityKind::Country,
+                name: value.into(),
+            }
+        } else if value == "emperor" {
+            ScopeSelector::Office("imperial_emperor".into())
+        } else if let Some(name) = value.strip_prefix("event_target:") {
+            if self.global_scope_types.get(name) != Some(&EntityKind::Country) {
+                return Err(field.error("casus belli target requires a declared country reference"));
+            }
+            ScopeSelector::Global(name.into())
+        } else {
+            return Err(field.error("unsupported casus belli target reference"));
+        };
+        Ok(augustus_core::EntityRef::Selected(selector))
+    }
+
+    fn casus_belli_operands(
+        &mut self,
+        field: &Field,
+        scope: EntityKind,
+        duration: bool,
+    ) -> Result<(String, augustus_core::EntityRef, u32), Error> {
+        if scope != EntityKind::Country {
+            return Err(field.error("casus belli requires country scope"));
+        }
+        let mut name = None;
+        let mut target = None;
+        let mut months = None;
+        let mut seen = BTreeSet::new();
+        for part in field.block()? {
+            self.sources.push((part.path.clone(), part.location));
+            if !seen.insert(&part.name) {
+                return Err(part.error("duplicate casus belli parameter"));
+            }
+            match part.name.as_str() {
+                "type" => name = Some(part.scalar()?.to_owned()),
+                "target" => target = Some(self.country_reference(part)?),
+                "months" if duration => {
+                    months = Some(
+                        part.scalar()?
+                            .parse::<i32>()
+                            .map_err(|_| part.error("invalid casus belli duration"))?,
+                    )
+                }
+                _ => return Err(part.error("unsupported casus belli parameter")),
+            }
+        }
+        let name = name.ok_or_else(|| field.error("missing casus belli type"))?;
+        let data = self
+            .casus_belli_types
+            .get(&name)
+            .ok_or_else(|| field.error("undeclared casus belli type"))?;
+        let target = target.ok_or_else(|| field.error("missing casus belli target"))?;
+        Ok((
+            name,
+            target,
+            months
+                .filter(|v| *v > 0)
+                .map(|v| v as u32)
+                .unwrap_or(data.default_months),
+        ))
     }
 
     pub fn with_government_metric_ids(mut self, ids: BTreeSet<String>) -> Self {
@@ -837,6 +918,40 @@ impl<'a> ScriptCompiler<'a> {
                         duration_label,
                     });
                 }
+                "add_casus_belli"
+                | "reverse_add_casus_belli"
+                | "remove_casus_belli"
+                | "reverse_remove_casus_belli" => {
+                    let grant = matches!(
+                        field.name.as_str(),
+                        "add_casus_belli" | "reverse_add_casus_belli"
+                    );
+                    let (name, selected, months) =
+                        self.casus_belli_operands(field, scope, grant)?;
+                    let current = augustus_core::EntityRef::Relative(Target::Current);
+                    let (issuer, target) = if field.name.starts_with("reverse_") {
+                        (selected, current)
+                    } else {
+                        (current, selected)
+                    };
+                    plan.push(if grant {
+                        Action::GrantJustification {
+                            issuer,
+                            target,
+                            name,
+                            term: augustus_core::GrantTerm::Months {
+                                count: months,
+                                monthly: true,
+                            },
+                        }
+                    } else {
+                        Action::RemoveJustification {
+                            issuer,
+                            target,
+                            name,
+                        }
+                    });
+                }
                 "remove_country_modifier" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("country modifiers require country scope"));
@@ -1113,6 +1228,20 @@ impl<'a> ScriptCompiler<'a> {
                         controller: if boolean(field)? { augustus_core::CountryController::Ai }
                             else { augustus_core::CountryController::Human },
                     }
+                }
+                "has_casus_belli" => {
+                    let (name, target, _) = self.casus_belli_operands(field, scope, false)?;
+                    if !self.casus_belli_types[&name].triggered_only {
+                        return Err(field.error("automatic casus belli conditions are not implemented"));
+                    }
+                    Condition::HasJustification { issuer: augustus_core::EntityRef::Relative(Target::Current), target, name: Some(name) }
+                }
+                "has_casus_belli_against" => {
+                    if scope != EntityKind::Country { return Err(field.error("casus belli requires country scope")); }
+                    if self.casus_belli_types.is_empty() || self.casus_belli_types.values().any(|data| !data.triggered_only) {
+                        return Err(field.error("automatic casus belli conditions are not implemented"));
+                    }
+                    Condition::HasJustification { issuer: augustus_core::EntityRef::Relative(Target::Current), target: self.country_reference(field)?, name: None }
                 }
                 "exists" => {
                     let value = field.scalar()?;

@@ -1,0 +1,50 @@
+{
+  "grounds.boundary": {
+    "0": {
+      "All": [
+        {
+          "HasJustification": {
+            "issuer": {
+              "Relative": "Current"
+            },
+            "target": {
+              "Selected": {
+                "Named": {
+                  "kind": "Country",
+                  "name": "BBB"
+                }
+              }
+            },
+            "name": "restoration"
+          }
+        }
+      ]
+    },
+    "1": {
+      "All": [
+        {
+          "Not": {
+            "All": [
+              {
+                "HasJustification": {
+                  "issuer": {
+                    "Relative": "Current"
+                  },
+                  "target": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "BBB"
+                      }
+                    }
+                  },
+                  "name": "restoration"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

@@ -186,6 +186,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 ## 当前支持范围
 
+显式宣战理由支持正向及反向授予、按类型移除、重新授予和期限维护。兼容层从 `common/cb_types` 读取定义，将效果和受支持的保留条件翻译成核心记录与计划；自动生成和宣战权限尚未接入。原生写法、跨输入读档和月初查询顺序见 [宣战理由记录演示](../examples/justifications/README.md)。
+
 `exists` 支持字面国家标签和 `yes/no`，翻译为共享核心的领土查询。明确无领土、标签未登记与省份资料不完整分别处理；省份作用域的布尔写法不会隐式查询所有者。原生写法、命名目标块和跨输入保存恢复见 [国家领土条件演示](../examples/country-existence/README.md)。
 
 选项可声明独立的 `trigger`，原生内容在可选的 `option_conditions.json` 中提供相同条件。待选查询按当前状态筛选选项，保留原始标识；没有可用选项时返回空列表。选项命令执行有效的原始标识，不重新检查显示条件。国家作用域的 `ai = yes/no` 读取明确的控制身份，未指定时报告未知。自制场景、跨输入读档和查询／命令的职责见 [条件选项演示](../examples/conditional-options/README.md)。

@@ -75,6 +75,7 @@ pub struct BootstrapReport {
     pub ideas: IdeaReport,
     pub estates: EstateReport,
     pub religious_schools: crate::ReligiousSchoolReport,
+    pub casus_belli: crate::CasusBelliReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -250,6 +251,7 @@ impl VanillaWorld {
             ideas: IdeaReport::default(),
             estates: EstateReport::default(),
             religious_schools: crate::ReligiousSchoolReport::default(),
+            casus_belli: crate::CasusBelliReport::default(),
         };
         let mut provinces = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
@@ -654,6 +656,28 @@ impl VanillaWorld {
         initial
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        let casus_belli =
+            crate::CasusBelliTypes::from_root(&root, &files, initial.world().schema())?;
+        initial
+            .set_justifications(augustus_core::Justifications {
+                definitions: casus_belli.definitions(),
+                unknown_countries: if report.start_date
+                    == (WorldDate {
+                        year: 1444,
+                        month: 11,
+                        day: 11,
+                    }) {
+                    Default::default()
+                } else {
+                    initial
+                        .countries()
+                        .iter()
+                        .filter_map(|country| initial.country_entity(&country.id))
+                        .collect()
+                },
+                ..Default::default()
+            })
+            .map_err(|e| Error::caused_by("common/cb_types", e))?;
         let startup = crate::estates::EstateStartup::load(
             &root,
             &files,
@@ -675,8 +699,10 @@ impl VanillaWorld {
             initial.world().affiliations().0["religious_school"]
                 .groups
                 .clone(),
+            casus_belli.types,
             &mut report.estates,
         )?;
+        report.casus_belli = casus_belli.report;
         let estates = estates.bind(&initial, &mut report.estates)?;
         initial
             .set_estates(estates)

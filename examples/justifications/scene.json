@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "CCC",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "West",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "East",
+      "kind": "Province",
+      "owner": 1,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "calendar": {
+    "start": {
+      "year": 1444,
+      "month": 11,
+      "day": 11
+    },
+    "month_lengths": [
+      31,
+      28,
+      31,
+      30,
+      31,
+      30,
+      31,
+      31,
+      30,
+      31,
+      30,
+      31
+    ]
+  },
+  "justifications": {
+    "definitions": {
+      "restoration": {
+        "issuer": {
+          "HasOwnedProvince": {
+            "target": "Current"
+          }
+        },
+        "target": {
+          "HasOwnedProvince": {
+            "target": "Current"
+          }
+        }
+      },
+      "honour": {
+        "issuer": {
+          "HasOwnedProvince": {
+            "target": "Current"
+          }
+        },
+        "target": {
+          "HasOwnedProvince": {
+            "target": "Current"
+          }
+        }
+      },
+      "instant": {
+        "issuer": {
+          "HasOwnedProvince": {
+            "target": "Current"
+          }
+        },
+        "target": {
+          "HasOwnedProvince": {
+            "target": "Current"
+          }
+        }
+      },
+      "council": {
+        "issuer": {
+          "HasOwnedProvince": {
+            "target": "Current"
+          }
+        },
+        "target": {
+          "HasOwnedProvince": {
+            "target": "Current"
+          }
+        }
+      }
+    },
+    "active": {}
+  }
+}

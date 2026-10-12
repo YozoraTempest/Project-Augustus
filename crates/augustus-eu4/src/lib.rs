@@ -10,6 +10,7 @@ mod administration_validation;
 mod attributes;
 mod autonomy;
 mod bootstrap;
+mod casus_belli;
 mod content;
 mod country_conditions;
 mod country_markers;
@@ -40,6 +41,7 @@ pub use attributes::AttributeReport;
 pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView, VanillaWorld,
 };
+pub use casus_belli::{CasusBelliReport, CasusBelliType, CasusBelliTypes};
 pub use content::{ContentRoot, FileEntry};
 pub use definitions::{DefinitionIndex, DefinitionKind, DefinitionOrigin};
 pub use descriptor::ModDescriptor;

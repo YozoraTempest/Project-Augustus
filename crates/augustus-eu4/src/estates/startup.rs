@@ -41,6 +41,7 @@ struct Compiler {
     modifier_ids: BTreeSet<String>,
     government_metric_ids: BTreeSet<String>,
     religious_school_groups: BTreeMap<String, Option<String>>,
+    casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
     hidden_descriptions: bool,
 }
 
@@ -149,6 +150,10 @@ impl Compiler {
                     location,
                 )),
                 "country_event"
+                | "add_casus_belli"
+                | "reverse_add_casus_belli"
+                | "remove_casus_belli"
+                | "reverse_remove_casus_belli"
                 | "set_religious_school"
                 | "tooltip"
                 | "add_country_modifier"
@@ -164,6 +169,7 @@ impl Compiler {
                         .with_mission_ids(self.mission_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())
                         .with_religious_school_groups(self.religious_school_groups.clone())
+                        .with_casus_belli_types(self.casus_belli_types.clone())
                         .compile_effect_reader(
                             parsed,
                             &name,
@@ -365,6 +371,7 @@ impl Compiler {
 }
 
 impl EstateStartup {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn load(
         root: &ContentRoot,
         files: &[FileEntry],
@@ -372,6 +379,7 @@ impl EstateStartup {
         modifier_ids: BTreeSet<String>,
         government_metric_ids: BTreeSet<String>,
         religious_school_groups: BTreeMap<String, Option<String>>,
+        casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
         let mut compiler = Compiler {
@@ -387,6 +395,7 @@ impl EstateStartup {
             modifier_ids,
             government_metric_ids,
             religious_school_groups,
+            casus_belli_types,
         };
         for file in files
             .iter()
@@ -679,6 +688,20 @@ impl EstateStartup {
                 );
                 initial
                     .set_modifiers(modifiers)
+                    .map_err(|e| Error::caused_by("common/on_actions", e))?;
+                let mut justifications = initial.world().justifications().clone();
+                if !justifications.definitions.is_empty() {
+                    for entity in initial
+                        .countries()
+                        .iter()
+                        .filter_map(|country| initial.country_entity(&country.id))
+                    {
+                        justifications.active.remove(&entity);
+                        justifications.unknown_countries.insert(entity);
+                    }
+                }
+                initial
+                    .set_justifications(justifications)
                     .map_err(|e| Error::caused_by("common/on_actions", e))?;
                 let mut governments = initial.world().governments().clone();
                 for entity in countries
@@ -1010,6 +1033,7 @@ fn load_events(
                 .with_mission_ids(compiler.mission_ids.clone())
                 .with_modifier_ids(compiler.modifier_ids.clone())
                 .with_religious_school_groups(compiler.religious_school_groups.clone())
+                .with_casus_belli_types(compiler.casus_belli_types.clone())
                 .compile_selected_events(&document, &requested)?;
             for definition in compiled.definitions {
                 if !found.insert(definition.id.clone()) {

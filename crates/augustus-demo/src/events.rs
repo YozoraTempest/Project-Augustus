@@ -32,6 +32,11 @@ struct Scene {
     named_values: augustus_core::NamedValues,
     #[serde(default, skip_serializing_if = "augustus_core::Modifiers::is_empty")]
     modifiers: augustus_core::Modifiers,
+    #[serde(
+        default,
+        skip_serializing_if = "augustus_core::Justifications::is_empty"
+    )]
+    justifications: augustus_core::Justifications,
     #[serde(default, skip_serializing_if = "augustus_core::Markers::is_empty")]
     markers: augustus_core::Markers,
     #[serde(default, skip_serializing_if = "augustus_core::Governments::is_empty")]
@@ -98,6 +103,8 @@ pub struct EventView {
     pub named_values: augustus_core::NamedValues,
     #[serde(skip_serializing_if = "augustus_core::Modifiers::is_empty")]
     pub modifiers: augustus_core::Modifiers,
+    #[serde(skip_serializing_if = "augustus_core::Justifications::is_empty")]
+    pub justifications: augustus_core::Justifications,
     #[serde(skip_serializing_if = "augustus_core::Markers::is_empty")]
     pub markers: augustus_core::Markers,
     #[serde(skip_serializing_if = "augustus_core::Governments::is_empty")]
@@ -208,7 +215,19 @@ impl EventDemo {
                 )?)])?;
                 let library = ScriptLibrary::from_content(&content, TextEncoding::Utf8)?;
                 let schema = Schema::new(scene.fields.clone())?;
+                let casus_belli = augustus_eu4::CasusBelliTypes::from_content(
+                    &content,
+                    TextEncoding::Utf8,
+                    &schema,
+                    &library,
+                )?;
+                if casus_belli.definitions() != scene.justifications.definitions {
+                    return Err(Error::Invalid(
+                        "translated justification definitions do not match the scene".into(),
+                    ));
+                }
                 let compiled = ScriptCompiler::new(&schema, &library, true)
+                    .with_casus_belli_types(casus_belli.types)
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
                     .with_modifier_ids(scene.modifiers.definitions.keys().cloned().collect())
                     .with_religious_school_groups(
@@ -319,6 +338,7 @@ impl EventDemo {
         world.set_markers(scene.markers)?;
         world.set_modifiers(scene.modifiers)?;
         world.set_governments(scene.governments)?;
+        world.set_justifications(scene.justifications)?;
         world.set_affiliations(scene.affiliations)?;
         for (country, controller) in scene.country_controllers {
             world.set_country_controller(country, controller)?;
@@ -386,6 +406,7 @@ impl EventDemo {
         )?;
         if restored.entities().len() != self.world.entities().len()
             || restored.completions().identifiers != self.world.completions().identifiers
+            || restored.justifications().definitions != self.world.justifications().definitions
             || restored
                 .entities()
                 .iter()
@@ -479,6 +500,7 @@ impl EventDemo {
             completions: self.world.completions().clone(),
             named_values: self.world.named_values().clone(),
             modifiers: self.world.modifiers().clone(),
+            justifications: self.world.justifications().clone(),
             markers: self.world.markers().clone(),
             governments: self.world.governments().clone(),
             affiliations: self.world.affiliations().clone(),
