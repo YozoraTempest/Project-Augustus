@@ -46,6 +46,7 @@ fn world() -> World {
                     divisor: 100_000,
                     modifier: None,
                     unresolved_properties: Default::default(),
+                    below_baseline: None,
                 },
             )]
             .into(),
@@ -227,7 +228,7 @@ fn startup_rollback_and_unimplemented_history_never_publish_zero_as_known_state(
             .metrics()
             .entities
             .values()
-            .all(|values| values["devastation"].is_none())
+            .all(|values| values.values().all(Option::is_none))
     );
     fs::remove_file(temp.path().join("common/on_actions/test.txt")).unwrap();
     let path = temp.path().join("history/provinces/1 - North.txt");
@@ -265,7 +266,7 @@ fn startup_rollback_and_unimplemented_history_never_publish_zero_as_known_state(
             .metrics()
             .entities
             .values()
-            .all(|values| values["devastation"].is_none())
+            .all(|values| values.values().all(Option::is_none))
     );
     let path = temp.path().join("history/countries/AAA - Alpha.txt");
     let previous = fs::read_to_string(&path).unwrap();
@@ -277,7 +278,15 @@ fn startup_rollback_and_unimplemented_history_never_publish_zero_as_known_state(
             .world()
             .metrics()
             .entities
-            .values()
-            .all(|values| values["devastation"].is_none())
+            .iter()
+            .filter(
+                |(entity, _)| scoped.initial.world().entity(**entity).unwrap().kind
+                    == EntityKind::Province
+            )
+            .all(|(_, values)| values["devastation"].is_none())
+    );
+    assert_eq!(
+        scoped.country("AAA").unwrap().metrics.unwrap()["stability"],
+        Some(0)
     );
 }

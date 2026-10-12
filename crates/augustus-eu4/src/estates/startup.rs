@@ -79,8 +79,8 @@ impl Compiler {
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             equal(op, &fail)?;
             match name.as_str() {
-                "add_legitimacy" | "change_government" | "custom_tooltip" | "set_global_flag"
-                | "clr_global_flag" => {
+                "add_legitimacy" | "add_stability" | "change_government" | "custom_tooltip"
+                | "set_global_flag" | "clr_global_flag" => {
                     let compiled = crate::ScriptCompiler::new(&self.schema, &self.library, true)
                         .with_government_form_ids(self.government_form_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())

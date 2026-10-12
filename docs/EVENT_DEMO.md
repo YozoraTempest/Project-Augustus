@@ -1,5 +1,14 @@
 # 事件演示
 
+`examples/country-stability` 演示国家稳定度、正负修正和所属省份的税收属性。核心数值定义中的可选 `below_baseline` 指定低于基准值时的另一组效果；省略时，两侧继续使用同一组效果。EU4 输入把稳定度条件和效果转成同一核心操作，不需要第二套国家状态。
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/country-stability --trigger confidence.begin --choose 0:0 --save confidence-waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/country-stability --input native --load confidence-waiting.json --days 1 --choose 1:0
+```
+
+首次运行后稳定度为 −1，省份 `annual_tax` 为 `11100000`；继续一天后为 +1，属性为 `13500000`。属性用百万分位表示，场景的系数由自制内容声明。日志依次为 `minimum`、`maximum`、`negative`、`positive`、`finished`。该演示验证共享状态与事件执行，不包含稳定度购买、叛乱处理或完整经济模拟。
+
 这个自制场景不需要 EU4 安装。事件的即时效果、待选记录、选项效果和收尾效果由 Rust 核心执行；EU4 写法先编译成核心计划，原生 JSON 直接提供同一种计划。
 
 [条件图片场景](../examples/event-pictures/README.md) 演示即时效果后的选图、待选期间保持图片和跨入口读档；当前输出资源键，尚不渲染图片。

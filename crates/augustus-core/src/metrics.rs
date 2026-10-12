@@ -7,6 +7,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{EntityId, EntityKind, Error, ModifierDefinition, World};
 
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricEffect {
+    pub modifier: Option<ModifierDefinition>,
+    pub unresolved_properties: BTreeSet<String>,
+}
+
 /// Content chooses the integer unit, bounds and scaling of a physical quantity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -18,9 +25,21 @@ pub struct MetricDefinition {
     pub divisor: i64,
     pub modifier: Option<ModifierDefinition>,
     pub unresolved_properties: BTreeSet<String>,
+    /// When absent, the same effect applies on both sides of the baseline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub below_baseline: Option<MetricEffect>,
 }
 
 impl MetricDefinition {
+    fn effect(&self, value: i64) -> (Option<&ModifierDefinition>, &BTreeSet<String>) {
+        if value < self.baseline
+            && let Some(effect) = &self.below_baseline
+        {
+            return (effect.modifier.as_ref(), &effect.unresolved_properties);
+        }
+        (self.modifier.as_ref(), &self.unresolved_properties)
+    }
+
     fn scaled(&self, value: i64, coefficient: i64) -> Result<i64, Error> {
         i64::try_from(
             i128::from(coefficient) * (i128::from(value) - i128::from(self.baseline))
@@ -34,7 +53,7 @@ impl MetricDefinition {
             if !(self.minimum..=self.maximum).contains(&value) {
                 return Err(Error::Invalid("metric value outside content bounds".into()));
             }
-            if let Some(modifier) = &self.modifier {
+            if let Some(modifier) = self.effect(value).0 {
                 for &coefficient in modifier.values_micros.values() {
                     self.scaled(value, coefficient)?;
                 }
@@ -107,35 +126,53 @@ impl Metrics {
             .filter(|(_, definition)| definition.kind == kind)
         {
             let source = format!("metric:{name}");
-            if definition.unresolved_properties.contains(property) {
-                result
-                    .unresolved
-                    .insert(format!("{source}:unresolved:{property}"));
-            }
-            let Some(modifier) = &definition.modifier else {
-                continue;
-            };
-            if modifier.flags.contains_key(property) {
-                return Err(Error::Invalid(
-                    "metric attribute requires numeric property".into(),
-                ));
-            }
-            let Some(&coefficient) = modifier.values_micros.get(property) else {
-                continue;
-            };
-            match self
+            let value = self
                 .entities
                 .get(&entity)
                 .and_then(|values| values.get(name))
                 .copied()
-                .flatten()
-            {
-                Some(value) => result.contributions.push(MetricContribution {
-                    source,
-                    property: property.into(),
-                    micros: definition.scaled(value, coefficient)?,
-                }),
-                None => {
+                .flatten();
+            let effects = if let Some(value) = value {
+                [Some(definition.effect(value)), None]
+            } else {
+                [
+                    (definition.maximum >= definition.baseline
+                        || definition.below_baseline.is_none())
+                    .then_some((
+                        definition.modifier.as_ref(),
+                        &definition.unresolved_properties,
+                    )),
+                    definition
+                        .below_baseline
+                        .as_ref()
+                        .filter(|_| definition.minimum < definition.baseline)
+                        .map(|effect| (effect.modifier.as_ref(), &effect.unresolved_properties)),
+                ]
+            };
+            for (modifier, unresolved) in effects.into_iter().flatten() {
+                if unresolved.contains(property) {
+                    result
+                        .unresolved
+                        .insert(format!("{source}:unresolved:{property}"));
+                }
+                let Some(modifier) = modifier else {
+                    continue;
+                };
+                if modifier.flags.contains_key(property) {
+                    return Err(Error::Invalid(
+                        "metric attribute requires numeric property".into(),
+                    ));
+                }
+                let Some(&coefficient) = modifier.values_micros.get(property) else {
+                    continue;
+                };
+                if let Some(value) = value {
+                    result.contributions.push(MetricContribution {
+                        source: source.clone(),
+                        property: property.into(),
+                        micros: definition.scaled(value, coefficient)?,
+                    });
+                } else {
                     result.unresolved.insert(format!("{source}:unknown_value"));
                 }
             }
@@ -148,20 +185,12 @@ impl Metrics {
             if name.trim().is_empty()
                 || definition.minimum > definition.maximum
                 || definition.divisor <= 0
-                || definition
-                    .unresolved_properties
-                    .iter()
-                    .any(String::is_empty)
-                || definition.modifier.as_ref().is_some_and(|modifier| {
-                    modifier
-                        .values_micros
-                        .keys()
-                        .chain(modifier.flags.keys())
-                        .any(String::is_empty)
-                        || modifier
-                            .values_micros
-                            .keys()
-                            .any(|key| modifier.flags.contains_key(key))
+                || invalid_effect(
+                    definition.modifier.as_ref(),
+                    &definition.unresolved_properties,
+                )
+                || definition.below_baseline.as_ref().is_some_and(|effect| {
+                    invalid_effect(effect.modifier.as_ref(), &effect.unresolved_properties)
                 })
             {
                 return Err(Error::Invalid("invalid metric definition".into()));
@@ -182,6 +211,21 @@ impl Metrics {
         }
         Ok(())
     }
+}
+
+fn invalid_effect(modifier: Option<&ModifierDefinition>, unresolved: &BTreeSet<String>) -> bool {
+    unresolved.iter().any(String::is_empty)
+        || modifier.is_some_and(|modifier| {
+            modifier
+                .values_micros
+                .keys()
+                .chain(modifier.flags.keys())
+                .any(String::is_empty)
+                || modifier
+                    .values_micros
+                    .keys()
+                    .any(|key| modifier.flags.contains_key(key))
+        })
 }
 
 impl World {

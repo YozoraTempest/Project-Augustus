@@ -37,11 +37,17 @@ fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
     assert_eq!(tax.known_subtotal_micros, Some(2_337_500));
     assert_eq!(tax.value_micros, None);
     assert_eq!(
-        tax.steps[0].contributions[0].source,
-        "static:same_culture_group"
+        tax.steps[0]
+            .contributions
+            .iter()
+            .map(|effect| (effect.source.as_str(), effect.micros))
+            .collect::<Vec<_>>(),
+        [
+            ("metric:stability", 0),
+            ("static:same_culture_group", -150_000),
+            ("static:city", 250_000)
+        ]
     );
-    assert_eq!(tax.steps[0].contributions[0].micros, -150_000);
-    assert_eq!(tax.steps[0].contributions[1].source, "static:city");
     assert_eq!(
         north.attributes["manpower_contribution"].known_subtotal_micros,
         Some(831_250_000)

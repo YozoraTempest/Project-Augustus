@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 1,
+      "values": {}
+    },
+    {
+      "name": "Port",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "metrics": {
+    "definitions": {
+      "stability": {
+        "kind": "Country",
+        "minimum": -3,
+        "maximum": 3,
+        "baseline": 0,
+        "divisor": 1,
+        "modifier": {
+          "values_micros": {
+            "global_tax_modifier": 125000,
+            "global_manpower_modifier": 32000
+          },
+          "flags": {}
+        },
+        "unresolved_properties": [],
+        "below_baseline": {
+          "modifier": {
+            "values_micros": {
+              "global_tax_modifier": 75000,
+              "global_manpower_modifier": 21000
+            },
+            "flags": {}
+          },
+          "unresolved_properties": []
+        }
+      }
+    },
+    "entities": {
+      "0": {
+        "stability": 0
+      }
+    }
+  },
+  "attributes": {
+    "formulas": {
+      "1": {
+        "annual_tax": {
+          "base": {
+            "kind": "constant",
+            "micros": 12000000
+          },
+          "channels": [
+            {
+              "flat": [],
+              "rates": [
+                {
+                  "kind": "metrics",
+                  "target": "Owner",
+                  "property": "global_tax_modifier"
+                }
+              ]
+            }
+          ],
+          "minimum_micros": 0,
+          "maximum_micros": null,
+          "unresolved": []
+        }
+      }
+    },
+    "static_modifiers": {},
+    "building_modifiers": {},
+    "trade_good_modifiers": {}
+  }
+}

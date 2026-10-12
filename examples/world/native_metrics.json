@@ -13,6 +13,33 @@
         "flags": {}
       },
       "unresolved_properties": []
+    },
+    "stability": {
+      "kind": "Country",
+      "minimum": -3,
+      "maximum": 3,
+      "baseline": 0,
+      "divisor": 1,
+      "modifier": {
+        "values_micros": {
+          "global_tax_modifier": 125000,
+          "global_manpower_modifier": 32000,
+          "global_unrest": -1000000
+        },
+        "flags": {}
+      },
+      "unresolved_properties": [],
+      "below_baseline": {
+        "modifier": {
+          "values_micros": {
+            "global_tax_modifier": 75000,
+            "global_manpower_modifier": 21000,
+            "global_unrest": -2000000
+          },
+          "flags": {}
+        },
+        "unresolved_properties": []
+      }
     }
   },
   "entities": {
@@ -33,6 +60,12 @@
     },
     "7": {
       "devastation": 0
+    },
+    "0": {
+      "stability": 0
+    },
+    "1": {
+      "stability": 0
     }
   }
 }

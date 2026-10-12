@@ -335,6 +335,10 @@ impl AttributeDraft {
                             target: Target::Current,
                             property: local_rate.into(),
                         },
+                        AttributeTerm::Metrics {
+                            target: Target::Owner,
+                            property: global_rate.into(),
+                        },
                         AttributeTerm::Buildings {
                             property: local_rate.into(),
                         },

@@ -61,6 +61,7 @@ pub(super) fn bind(
                 divisor: 100_000,
                 modifier,
                 unresolved_properties,
+                below_baseline: None,
             },
         )]
         .into_iter()

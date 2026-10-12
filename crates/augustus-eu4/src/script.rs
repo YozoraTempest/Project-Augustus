@@ -364,6 +364,13 @@ impl<'a> ScriptCompiler<'a> {
         Ok(())
     }
 
+    fn stability_scope(&self, field: &Field, scope: EntityKind) -> Result<(), Error> {
+        if scope != EntityKind::Country || !self.metric_ids.contains("stability") {
+            return Err(field.error("stability requires country scope and a registered metric"));
+        }
+        Ok(())
+    }
+
     fn variable_slot(
         &self,
         field: &Field,
@@ -1225,6 +1232,15 @@ impl<'a> ScriptCompiler<'a> {
                         value: decimal(field)? / 1000 * 1000,
                     });
                 }
+                "add_stability" => {
+                    self.stability_scope(field, scope)?;
+                    plan.push(Action::UpdateNumeric {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Metric("stability".into()),
+                        operation: augustus_core::NumericOperation::Add,
+                        value: stability_integer(field)?,
+                    });
+                }
                 name if self.area_scopes.contains_key(name) => {
                     let members = self.area_scopes[name].clone();
                     if members.contains(&0) {
@@ -1708,6 +1724,15 @@ impl<'a> ScriptCompiler<'a> {
                         value: decimal(field)?,
                     }
                 }
+                "stability" => {
+                    self.stability_scope(field, scope)?;
+                    Condition::NumericCompare {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Metric("stability".into()),
+                        comparison: augustus_core::NumericComparison::AtLeast,
+                        value: stability_integer(field)?,
+                    }
+                }
                 "province_id" => {
                     if scope != EntityKind::Province { return Err(field.error("province_id requires province scope")); }
                     let id = province_identifier(field.scalar()?)
@@ -2064,6 +2089,13 @@ fn localisation_key(field: &Field, purpose: &str) -> Result<String, Error> {
         return Err(field.error(format!("{purpose} requires a literal localisation key")));
     }
     Ok(key.into())
+}
+
+/// Integer script operands discard fractional digits toward zero.
+fn stability_integer(field: &Field) -> Result<i64, Error> {
+    let value = decimal(field)? / 1000;
+    i32::try_from(value).map_err(|_| field.error("stability integer overflow"))?;
+    Ok(value)
 }
 
 /// Restricted literal decimals, exactly represented in thousandths. No float parsing.

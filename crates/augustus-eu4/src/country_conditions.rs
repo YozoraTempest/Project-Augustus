@@ -64,6 +64,7 @@ impl Condition {
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
                         let compiler = crate::ScriptCompiler::new(&schema, &library, false)
+                            .with_metric_ids(["stability".into()].into())
                             .with_unbound_subject_types();
                         let scope = if country {
                             augustus_core::EntityKind::Country
@@ -213,21 +214,25 @@ impl Condition {
                         }
                         Self::Marker(id)
                     }
-                    "legitimacy" | "republican_tradition" | "devotion" if country => {
+                    "legitimacy" | "republican_tradition" | "devotion" | "stability" if country => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
-                        let compiled = crate::ScriptCompiler::new(&schema, &library, true)
-                            .with_government_metric_ids([name.clone()].into())
-                            .compile_scalar_condition_reader(
-                                parsed,
-                                &name,
-                                value.read_string().map_err(|_| {
-                                    fail("expected scalar government metric threshold")
-                                })?,
-                                at,
-                                augustus_core::EntityKind::Country,
-                            );
+                        let compiler = crate::ScriptCompiler::new(&schema, &library, true);
+                        let compiler = if name == "stability" {
+                            compiler.with_metric_ids([name.clone()].into())
+                        } else {
+                            compiler.with_government_metric_ids([name.clone()].into())
+                        };
+                        let compiled = compiler.compile_scalar_condition_reader(
+                            parsed,
+                            &name,
+                            value
+                                .read_string()
+                                .map_err(|_| fail("expected scalar country metric threshold"))?,
+                            at,
+                            augustus_core::EntityKind::Country,
+                        );
                         match compiled {
                             Ok(condition) => Self::Numeric(condition),
                             Err(error) => {
@@ -336,6 +341,7 @@ impl Condition {
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
                         match crate::ScriptCompiler::new(&schema, &library, true)
+                            .with_metric_ids(["stability".into()].into())
                             .compile_block_condition_reader(
                                 parsed,
                                 &name,

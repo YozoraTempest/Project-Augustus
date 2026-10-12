@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+namespace = confidence
+country_event = {
+    id = confidence.begin
+    is_triggered_only = yes
+    immediate = {
+        add_stability = -100
+        add_stability = 0.125
+        add_stability = 0.875
+        if = { limit = { stability = -3.001 } log = minimum }
+        add_stability = 2.125
+        add_stability = 0.999
+        add_stability = 100
+        if = { limit = { stability = 3.001 } log = maximum }
+        country_event = { id = confidence.later days = 1 }
+    }
+    option = { name = continue add_stability = -4 }
+    after = { log = negative }
+}
+country_event = {
+    id = confidence.later
+    is_triggered_only = yes
+    immediate = {
+        add_stability = 2
+        if = { limit = { stability = 1.5 } log = positive }
+    }
+    option = { name = continue }
+    after = { log = finished }
+}

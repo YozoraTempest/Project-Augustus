@@ -14,6 +14,7 @@ mod casus_belli;
 mod content;
 mod country_conditions;
 mod country_markers;
+mod country_metrics;
 mod country_status;
 mod defines;
 mod definitions;

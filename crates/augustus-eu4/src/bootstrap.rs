@@ -97,6 +97,7 @@ pub struct ProvinceView<'a> {
 
 #[derive(Debug, Serialize)]
 pub struct CountryView<'a> {
+    pub metrics: Option<&'a BTreeMap<String, Option<i64>>>,
     pub flags: Option<&'a BTreeMap<String, bool>>,
     pub flag_namespace_known: bool,
     pub estates: Option<&'a BTreeMap<String, augustus_core::EstateState>>,
@@ -452,6 +453,8 @@ impl VanillaWorld {
             &mut report.religious_schools,
         )?;
         let mut country_histories = BTreeSet::new();
+        let mut country_metric_history_unknown = BTreeSet::new();
+        let mut country_metric_scoped_history_unknown = false;
         let mut province_histories = BTreeSet::new();
         let mut unresolved_ownership = BTreeSet::new();
         let mut history_groups: BTreeMap<String, Vec<&Path>> = BTreeMap::new();
@@ -526,6 +529,15 @@ impl VanillaWorld {
                 let (direct, scoped) =
                     crate::province_metrics::history_mutations(reader.clone(), 0);
                 metric_scoped_history_unknown |= direct || scoped;
+                let (direct, scoped) = crate::country_metrics::history_mutations(
+                    reader.clone(),
+                    &history_effect_names,
+                    0,
+                );
+                country_metric_scoped_history_unknown |= scoped;
+                if direct {
+                    country_metric_history_unknown.insert(id.clone());
+                }
                 religious_schools.country_history(
                     &parsed,
                     reader.clone(),
@@ -612,6 +624,12 @@ impl VanillaWorld {
                 if nested_owner(reader.clone(), 0) {
                     unresolved_ownership.insert(id);
                 }
+                let (direct, scoped) = crate::country_metrics::history_mutations(
+                    reader.clone(),
+                    &history_effect_names,
+                    0,
+                );
+                country_metric_scoped_history_unknown |= direct || scoped;
                 let (direct, scoped) =
                     crate::province_metrics::history_mutations(reader.clone(), 0);
                 metric_scoped_history_unknown |= scoped;
@@ -737,15 +755,26 @@ impl VanillaWorld {
             .set_affiliations(affiliations)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let area_scopes = administration.ordered_areas();
+        let mut metrics = crate::province_metrics::bind(
+            &initial,
+            &attribute_draft,
+            report.start_date,
+            &metric_history_unknown,
+            metric_scoped_history_unknown,
+        );
+        let country_metrics = crate::country_metrics::bind(
+            &initial,
+            &attribute_draft,
+            report.start_date,
+            &country_histories,
+            &country_metric_history_unknown,
+            country_metric_scoped_history_unknown,
+        );
+        metrics.definitions.extend(country_metrics.definitions);
+        metrics.entities.extend(country_metrics.entities);
         initial
-            .set_metrics(crate::province_metrics::bind(
-                &initial,
-                &attribute_draft,
-                report.start_date,
-                &metric_history_unknown,
-                metric_scoped_history_unknown,
-            ))
-            .map_err(|e| Error::caused_by("province metrics", e))?;
+            .set_metrics(metrics)
+            .map_err(|e| Error::caused_by("world metrics", e))?;
         let attributes = attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
         let administration = administration.bind(
             &initial,
@@ -1080,6 +1109,10 @@ impl VanillaWorld {
 
     pub fn country(&self, id: &str) -> Option<CountryView<'_>> {
         self.initial.country(id).map(|state| CountryView {
+            metrics: self
+                .initial
+                .country_entity(id)
+                .and_then(|entity| self.initial.world().metrics().entities.get(&entity)),
             estates: self
                 .initial
                 .country_entity(id)

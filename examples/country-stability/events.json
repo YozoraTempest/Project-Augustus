@@ -1,0 +1,201 @@
+[
+  {
+    "id": "confidence.begin",
+    "scope": "Country",
+    "immediate": [
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "stability"
+          },
+          "operation": "Add",
+          "value": -100
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "stability"
+          },
+          "operation": "Add",
+          "value": 0
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "stability"
+          },
+          "operation": "Add",
+          "value": 0
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "stability"
+                  },
+                  "comparison": "AtLeast",
+                  "value": -3
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "minimum"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "stability"
+          },
+          "operation": "Add",
+          "value": 2
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "stability"
+          },
+          "operation": "Add",
+          "value": 0
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "stability"
+          },
+          "operation": "Add",
+          "value": 100
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "stability"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 3
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "maximum"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "Schedule": {
+          "delay": 1,
+          "plan": [
+            {
+              "TriggerEvent": {
+                "event": "confidence.later"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "UpdateNumeric": {
+              "target": "Current",
+              "slot": {
+                "Metric": "stability"
+              },
+              "operation": "Add",
+              "value": -4
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "negative"
+      }
+    ]
+  },
+  {
+    "id": "confidence.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "stability"
+          },
+          "operation": "Add",
+          "value": 2
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "stability"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 1
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "positive"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": [
+      {
+        "Emit": "finished"
+      }
+    ]
+  }
+]
