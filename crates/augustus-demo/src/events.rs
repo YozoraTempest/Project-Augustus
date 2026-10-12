@@ -65,6 +65,9 @@ pub struct PendingChoiceView {
     /// Declared duration labels in each option; conditions are not evaluated here.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub modifier_duration_labels: BTreeMap<String, Vec<String>>,
+    /// Declared non-hidden description keys; conditions are not evaluated here.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub description_keys: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -340,25 +343,30 @@ impl EventDemo {
             .world
             .pending_events()
             .iter()
-            .map(|pending| PendingChoiceView {
-                id: pending.id,
-                event: pending.event.clone(),
-                current: pending.current,
-                day: pending.day,
-                options: self.world.event_catalog().definitions()[&pending.event]
-                    .options
-                    .iter()
-                    .map(|option| option.id.clone())
-                    .collect(),
-                modifier_duration_labels: self.world.event_catalog().definitions()[&pending.event]
-                    .options
-                    .iter()
-                    .filter_map(|option| {
-                        let mut labels = Vec::new();
-                        duration_labels(&option.effects, &mut labels);
-                        (!labels.is_empty()).then(|| (option.id.clone(), labels))
-                    })
-                    .collect(),
+            .map(|pending| {
+                let options = &self.world.event_catalog().definitions()[&pending.event].options;
+                let mut modifier_duration_labels = BTreeMap::new();
+                let mut description_keys = BTreeMap::new();
+                for option in options {
+                    let mut durations = Vec::new();
+                    let mut descriptions = Vec::new();
+                    effect_labels(&option.effects, &mut durations, &mut descriptions);
+                    if !durations.is_empty() {
+                        modifier_duration_labels.insert(option.id.clone(), durations);
+                    }
+                    if !descriptions.is_empty() {
+                        description_keys.insert(option.id.clone(), descriptions);
+                    }
+                }
+                PendingChoiceView {
+                    id: pending.id,
+                    event: pending.event.clone(),
+                    current: pending.current,
+                    day: pending.day,
+                    options: options.iter().map(|option| option.id.clone()).collect(),
+                    modifier_duration_labels,
+                    description_keys,
+                }
             })
             .collect();
         Ok(EventView {
@@ -376,25 +384,30 @@ impl EventDemo {
     }
 }
 
-fn duration_labels(plan: &[augustus_core::Action], labels: &mut Vec<String>) {
+fn effect_labels(
+    plan: &[augustus_core::Action],
+    durations: &mut Vec<String>,
+    descriptions: &mut Vec<String>,
+) {
     use augustus_core::Action;
     for action in plan {
         match action {
+            Action::Description { key, hidden: false } => descriptions.push(key.clone()),
             Action::AttachModifier {
                 duration_label: Some(label),
                 ..
-            } => labels.push(label.clone()),
+            } => durations.push(label.clone()),
             Action::If {
                 then, otherwise, ..
             }
             | Action::RandomBranch { then, otherwise } => {
-                duration_labels(then, labels);
-                duration_labels(otherwise, labels);
+                effect_labels(then, durations, descriptions);
+                effect_labels(otherwise, durations, descriptions);
             }
             Action::With { plan, .. }
             | Action::InScope { plan, .. }
             | Action::Schedule { plan, .. }
-            | Action::Preview { plan } => duration_labels(plan, labels),
+            | Action::Preview { plan } => effect_labels(plan, durations, descriptions),
             _ => (),
         }
     }

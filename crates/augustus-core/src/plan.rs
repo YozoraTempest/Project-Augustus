@@ -59,6 +59,12 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    /// Localisation content for effect descriptions; no simulation side effects.
+    Description {
+        key: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        hidden: bool,
+    },
     /// Describe effects without executing the body, resolving scopes, or drawing randomness.
     Preview {
         plan: Plan,
@@ -284,6 +290,7 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::Description { key, .. } => validate_description_key(key)?,
                 Action::Preview { .. } => (),
                 Action::SetMarker {
                     target,
@@ -426,4 +433,15 @@ impl World {
         }
         Ok(())
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+pub(crate) fn validate_description_key(key: &str) -> Result<(), Error> {
+    if key.trim().is_empty() {
+        return Err(Error::Invalid("empty description key".into()));
+    }
+    Ok(())
 }

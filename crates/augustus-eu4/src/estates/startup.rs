@@ -40,6 +40,7 @@ struct Compiler {
     mission_ids: BTreeSet<String>,
     modifier_ids: BTreeSet<String>,
     government_metric_ids: BTreeSet<String>,
+    hidden_descriptions: bool,
 }
 
 pub(crate) struct EstateStartup {
@@ -72,16 +73,17 @@ impl Compiler {
             let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
             equal(op, &fail)?;
             match name.as_str() {
-                "add_legitimacy" => {
+                "add_legitimacy" | "custom_tooltip" => {
                     let library = crate::ScriptLibrary::new();
                     let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                        .with_hidden_descriptions(self.hidden_descriptions)
                         .with_government_metric_ids(self.government_metric_ids.clone())
                         .compile_scalar_effect_reader(
                             parsed,
                             &name,
                             value
                                 .read_string()
-                                .map_err(|_| fail("expected scalar government metric value"))?,
+                                .map_err(|_| fail("expected scalar effect value"))?,
                             at,
                             EntityKind::Country,
                         );
@@ -155,6 +157,7 @@ impl Compiler {
                 | "divide_variable" => {
                     let library = crate::ScriptLibrary::new();
                     let compiled = crate::ScriptCompiler::new(&self.schema, &library, true)
+                        .with_hidden_descriptions(self.hidden_descriptions)
                         .with_government_metric_ids(self.government_metric_ids.clone())
                         .with_mission_ids(self.mission_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())
@@ -210,13 +213,13 @@ impl Compiler {
                     ));
                 }
                 "limit" if skip_limit => (),
-                "hidden_effect" => result.push(Step::Group(self.effects(
-                    parsed,
-                    block(&value, &fail)?,
-                    report,
-                    depth + 1,
-                    false,
-                )?)),
+                "hidden_effect" => {
+                    let body = block(&value, &fail)?;
+                    let previous = std::mem::replace(&mut self.hidden_descriptions, true);
+                    let compiled = self.effects(parsed, body, report, depth + 1, false);
+                    self.hidden_descriptions = previous;
+                    result.push(Step::Group(compiled?));
+                }
                 "add_estate_loyalty" | "change_estate_land_share" => {
                     let metric = HistoryMetric::parse(parsed, &name, block(&value, &fail)?, at)?;
                     result.push(Step::Metric(metric.action(), location));
@@ -368,6 +371,7 @@ impl EstateStartup {
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
         let mut compiler = Compiler {
+            hidden_descriptions: false,
             schema: schema.clone(),
             effects: Vec::new(),
             effect_index: BTreeMap::new(),

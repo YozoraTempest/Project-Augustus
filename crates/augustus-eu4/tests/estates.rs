@@ -648,6 +648,75 @@ fn startup_binds_preview_only_event_references_without_dispatch_and_rolls_back_i
 }
 
 #[test]
+fn startup_custom_descriptions_keep_hidden_context_without_changing_event_execution() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        r#"on_startup={if={limit={tag=AAA}
+        custom_tooltip=startup
+        hidden_effect={custom_tooltip=hidden tooltip={custom_tooltip=nested_hidden}}
+        country_event={id=text.control}
+    }}"#,
+    );
+    write(
+        temp.path(),
+        "events/text.txt",
+        r#"
+        country_event={id=text.control is_triggered_only=yes
+            immediate={custom_tooltip=first hidden_effect={custom_tooltip=internal} log=immediate}
+            option={name=accept custom_tooltip=choice hidden_effect={custom_tooltip=internal} country_event={id=text.later days=1}}
+            after={custom_tooltip=after log=after}}
+        country_event={id=text.later is_triggered_only=yes immediate={custom_tooltip=late log=later} option={name=accept}}
+    "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.pending_startup_effects.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    let immediate = &loaded.initial.world().event_catalog().definitions()["text.control"].immediate;
+    assert!(matches!(&immediate[0],Action::Description {key,hidden:false} if key=="first"));
+    assert!(matches!(&immediate[1],Action::Description {key,hidden:true} if key=="internal"));
+    let saved = loaded.save().unwrap();
+    let mut resumed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    resumed.restore(&saved).unwrap();
+    for state in [&mut loaded, &mut resumed] {
+        state
+            .initial
+            .choose_event(&augustus_core::EventChoice {
+                pending: augustus_core::PendingEventId(0),
+                option: "0".into(),
+            })
+            .unwrap();
+        state.advance(1).unwrap();
+        assert_eq!(
+            state
+                .initial
+                .world()
+                .events()
+                .iter()
+                .map(|e| e.2.as_str())
+                .collect::<Vec<_>>(),
+            ["immediate", "after", "later"]
+        );
+        assert_eq!(state.initial.world().pending_events().len(), 1);
+    }
+    assert_eq!(loaded.save().unwrap(), resumed.save().unwrap());
+    for value in ["\"\"", "\"[Root.GetName]\""] {
+        write(
+            temp.path(),
+            "common/on_actions/test.txt",
+            &format!("on_startup={{log=prefix hidden_effect={{custom_tooltip={value}}}}}"),
+        );
+        let blocked = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+        assert!(!blocked.report.estates.pending_startup_effects.is_empty());
+        assert!(blocked.initial.world().events().is_empty());
+    }
+}
+
+#[test]
 fn startup_event_conditions_read_loaded_country_identity_and_calendar() {
     let temp = startup_fixture();
     write(

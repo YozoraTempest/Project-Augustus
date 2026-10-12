@@ -212,6 +212,7 @@ pub struct ScriptCompiler<'a> {
     mission_ids: BTreeSet<String>,
     modifier_ids: BTreeSet<String>,
     government_metric_ids: BTreeSet<String>,
+    hidden_descriptions: bool,
 }
 
 impl<'a> ScriptCompiler<'a> {
@@ -227,7 +228,13 @@ impl<'a> ScriptCompiler<'a> {
             mission_ids: BTreeSet::new(),
             modifier_ids: BTreeSet::new(),
             government_metric_ids: BTreeSet::new(),
+            hidden_descriptions: false,
         }
+    }
+
+    pub(crate) fn with_hidden_descriptions(mut self, hidden: bool) -> Self {
+        self.hidden_descriptions = hidden;
+        self
     }
 
     /// Types come from selected content declarations, not current target values.
@@ -592,6 +599,10 @@ impl<'a> ScriptCompiler<'a> {
             let field = &fields[index];
             self.sources.push((field.path.clone(), field.location));
             match field.name.as_str() {
+                "custom_tooltip" => plan.push(Action::Description {
+                    key: localisation_key(field, "custom tooltip")?,
+                    hidden: self.hidden_descriptions,
+                }),
                 "add_legitimacy" => {
                     self.government_metric(field, scope, "legitimacy")?;
                     plan.push(Action::If {
@@ -643,13 +654,10 @@ impl<'a> ScriptCompiler<'a> {
                             }
                             "hidden" => hidden = Some(boolean(parameter)?),
                             "desc" => {
-                                let label = parameter.scalar()?;
-                                if label.trim().is_empty()
-                                    || label.chars().any(|c| matches!(c, '$' | '@' | '[' | ']'))
-                                {
-                                    return Err(parameter.error("modifier duration description requires a literal localisation key"));
-                                }
-                                duration_label = Some(label.into());
+                                duration_label = Some(localisation_key(
+                                    parameter,
+                                    "modifier duration description",
+                                )?);
                             }
                             _ => return Err(parameter.error("unsupported modifier parameter")),
                         }
@@ -686,7 +694,13 @@ impl<'a> ScriptCompiler<'a> {
                 "complete_mission" => plan.push(Action::RecordCompletion {
                     id: self.mission_id(field, scope)?,
                 }),
-                "hidden_effect" => plan.extend(self.effects(field.block()?, scope)?),
+                "hidden_effect" => {
+                    let body = field.block()?;
+                    let previous = std::mem::replace(&mut self.hidden_descriptions, true);
+                    let compiled = self.effects(body, scope);
+                    self.hidden_descriptions = previous;
+                    plan.extend(compiled?);
+                }
                 "tooltip" => plan.push(Action::Preview {
                     plan: self.effects(field.block()?, scope)?,
                 }),
@@ -1092,6 +1106,14 @@ fn variable(field: &Field) -> Result<(&str, i64), Error> {
         .find(|value| value.name == "value")
         .ok_or_else(|| field.error("missing variable value"))?;
     Ok((which.scalar()?, decimal(value)?))
+}
+
+fn localisation_key(field: &Field, purpose: &str) -> Result<String, Error> {
+    let key = field.scalar()?;
+    if key.trim().is_empty() || key.chars().any(|c| matches!(c, '$' | '@' | '[' | ']')) {
+        return Err(field.error(format!("{purpose} requires a literal localisation key")));
+    }
+    Ok(key.into())
 }
 
 /// Restricted literal decimals, exactly represented in thousandths. No float parsing.

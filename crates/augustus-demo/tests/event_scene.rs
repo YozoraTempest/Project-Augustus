@@ -48,6 +48,64 @@ use augustus_core::{EntityId, EventChoice, PendingEventId};
 use augustus_demo::{EventDemo, Input};
 
 #[test]
+fn custom_descriptions_share_keys_hidden_visibility_and_cross_input_restore() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/custom-descriptions");
+    let mut compatible = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+    compatible.trigger("text.control", 0).unwrap();
+    let saved = compatible.save().unwrap();
+    for _ in 0..3 {
+        let view = compatible.view().unwrap();
+        assert_eq!(view.entities[0].values["variable/phase"], 7000);
+        assert_eq!(
+            view.pending_events[0].description_keys["0"],
+            ["choice", "choice", "conditional", "otherwise"]
+        );
+        assert!(!view.pending_events[0].description_keys.contains_key("1"));
+    }
+    assert_eq!(saved, compatible.save().unwrap());
+    native.restore(&saved).unwrap();
+    for state in [&mut compatible, &mut native] {
+        state
+            .choose(&EventChoice {
+                pending: PendingEventId(0),
+                option: "0".into(),
+            })
+            .unwrap();
+        assert_eq!(
+            state.view().unwrap().entities[0].values["variable/phase"],
+            8000
+        );
+        assert_eq!(state.world().pending_tasks(), 1);
+    }
+    compatible.restore(&native.save().unwrap()).unwrap();
+    for state in [&mut compatible, &mut native] {
+        state.advance(1).unwrap();
+        assert_eq!(
+            state.view().unwrap().pending_events[0].description_keys["0"],
+            ["done"]
+        );
+        state
+            .choose(&EventChoice {
+                pending: PendingEventId(1),
+                option: "0".into(),
+            })
+            .unwrap();
+        assert_eq!(
+            state.world().events(),
+            &[
+                (0, EntityId(0), "selected".into()),
+                (1, EntityId(0), "later".into())
+            ]
+        );
+        assert!(state.world().pending_events().is_empty());
+    }
+    assert_eq!(compatible.save().unwrap(), native.save().unwrap());
+}
+
+#[test]
 fn effect_previews_share_content_and_restored_choices_without_simulation_side_effects() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/effect-previews");

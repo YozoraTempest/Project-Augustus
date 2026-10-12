@@ -848,6 +848,7 @@ pub(crate) fn validate_plan(
 ) -> Result<(), Error> {
     for action in plan {
         match action {
+            Action::Description { key, .. } => crate::plan::validate_description_key(key)?,
             Action::SetMarker { name, .. } => crate::markers::validate_name(name)?,
             Action::AttachModifier {
                 name,

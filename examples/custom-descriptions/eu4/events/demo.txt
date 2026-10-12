@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+country_event={id=text.control is_triggered_only=yes
+    immediate={
+        set_variable={which=phase value=7}
+        custom_tooltip=first
+        custom_tooltip=second
+        custom_tooltip=first
+        hidden_effect={custom_tooltip=internal}
+        tooltip={custom_tooltip=preview set_variable={which=phase value=99}}
+    }
+    option={name=accept
+        custom_tooltip=choice
+        hidden_effect={custom_tooltip=internal change_variable={which=phase value=1}}
+        custom_tooltip=choice
+        if={limit={check_variable={which=phase value=9}} custom_tooltip=conditional}
+        else={custom_tooltip=otherwise}
+        country_event={id=text.later days=1}
+    }
+    option={name=skip hidden_effect={custom_tooltip=internal}}
+    after={custom_tooltip=after log=selected}
+}
+country_event={id=text.later is_triggered_only=yes
+    immediate={custom_tooltip=late log=later}
+    option={name=accept custom_tooltip=done}
+}

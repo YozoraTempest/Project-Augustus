@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "fields": ["variable/phase"],
+  "entities": [{"name": "AAA", "kind": "Country", "owner": null, "capital": null, "values": {}}]
+}

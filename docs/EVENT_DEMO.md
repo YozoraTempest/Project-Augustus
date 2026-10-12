@@ -168,7 +168,21 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/e
 
 `tooltip = { ... }` 编译为核心 `Preview`。内部计划保留在事件内容或延期任务中，供描述生成使用；执行到这个节点时跳过整个内部计划，不改变数值、修正或标记，不切换作用域、不求值条件、不消耗随机数，也不安排或调用事件。示例中的预览声明变量增加 9、添加修正和触发事件，选择后只有实际的变量增加 1 与延期调用生效。
 
-内部语法、作用域和内容引用仍需有效，未知效果不会因位于预览中而被忽略。启动加载会登记预览引用的事件，但不会因此触发它们。原生内容可以直接使用 `{"Preview": {"plan": [...]}}`，与兼容输入共用执行和存档逻辑。程序可从 `World::event_catalog()` 读取完整计划；演示的期限说明查询也包含预览里直接声明的键，读取查询不会执行预览。当前没有实现自动效果描述、本地化渲染或 Godot 事件界面；`custom_tooltip` 和事件调用中的标量 `tooltip` 参数仍未支持。
+内部语法、作用域和内容引用仍需有效，未知效果不会因位于预览中而被忽略。启动加载会登记预览引用的事件，但不会因此触发它们。原生内容可以直接使用 `{"Preview": {"plan": [...]}}`，与兼容输入共用执行和存档逻辑。程序可从 `World::event_catalog()` 读取完整计划；演示的期限说明查询也包含预览里直接声明的键，读取查询不会执行预览。当前没有实现自动效果描述、本地化渲染或 Godot 事件界面；事件调用中的标量 `tooltip` 参数仍未支持。
+
+## 自定义提示
+
+`examples/custom-descriptions` 提供带重复提示、隐藏提示及条件提示的两种内容定义：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/custom-descriptions --trigger text.control --save text_pending.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/custom-descriptions --input native --load text_pending.json --choose 0:0 --save text_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/custom-descriptions --load text_waiting.json --days 1 --choose 1:0
+```
+
+`custom_tooltip = 字面本地化键` 翻译成 `Description`，保留原有顺序和重复项。它不修改模拟状态、不发出日志，也不消耗随机数。在 `hidden_effect` 中声明的提示标记为隐藏；预览容器里的提示仍保留，但预览内部的实际效果不会执行。国家和省份作用域都可声明提示，键必须非空；动态参数、作用域后缀、直接本地化表达式及对象写法尚未支持。
+
+原生写法为 `{"Description": {"key": "提示键"}}`；需要隐藏时添加 `"hidden": true`。提示随事件内容和保存的延期计划保留。待选查询的可选字段 `description_keys` 按选项收集非隐藏键，包含嵌套计划并保留重复项；查询不求值条件、不展开被调用事件，因此返回的是声明集合，不是当前条件下的最终显示文本。没有提示时省略字段，现有查询仍保持原格式。文本渲染与动态本地化尚未接入。
 
 ## 当前支持范围
 

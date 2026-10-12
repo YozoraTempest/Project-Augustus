@@ -1,0 +1,30 @@
+[
+  {
+    "id": "text.control", "scope": "Country",
+    "immediate": [
+      {"Set": {"target": "Current", "field": 0, "value": 7000}},
+      {"Description": {"key": "first"}},
+      {"Description": {"key": "second"}},
+      {"Description": {"key": "first"}},
+      {"Description": {"key": "internal", "hidden": true}},
+      {"Preview": {"plan": [{"Description": {"key": "preview"}}, {"Set": {"target": "Current", "field": 0, "value": 99000}}]}}
+    ],
+    "options": [
+      {"id": "0", "effects": [
+        {"Description": {"key": "choice"}},
+        {"Description": {"key": "internal", "hidden": true}},
+        {"Add": {"target": "Current", "field": 0, "value": 1000}},
+        {"Description": {"key": "choice"}},
+        {"If": {"condition": {"All": [{"AtLeast": {"target": "Current", "field": 0, "value": 9000}}]}, "then": [{"Description": {"key": "conditional"}}], "otherwise": [{"Description": {"key": "otherwise"}}]}},
+        {"Schedule": {"delay": 1, "plan": [{"TriggerEvent": {"event": "text.later"}}]}}
+      ]},
+      {"id": "1", "effects": [{"Description": {"key": "internal", "hidden": true}}]}
+    ],
+    "after": [{"Description": {"key": "after"}}, {"Emit": "selected"}]
+  },
+  {
+    "id": "text.later", "scope": "Country",
+    "immediate": [{"Description": {"key": "late"}}, {"Emit": "later"}],
+    "options": [{"id": "0", "effects": [{"Description": {"key": "done"}}]}], "after": []
+  }
+]
