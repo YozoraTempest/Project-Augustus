@@ -1,0 +1,15 @@
+{
+  "version": 1, "fields": ["unused"],
+  "entities": [
+    {"name": "AAA", "kind": "Country", "owner": null, "capital": 2, "values": {}},
+    {"name": "BBB", "kind": "Country", "owner": null, "capital": 3, "values": {}},
+    {"name": "Inside", "kind": "Province", "owner": 0, "capital": null, "values": {}},
+    {"name": "Outside", "kind": "Province", "owner": 1, "capital": null, "values": {}}
+  ],
+  "affiliations": {
+    "imperial_membership": {
+      "groups": {"hre": null}, "members": {"2": "hre"},
+      "absent_members": [3], "acceptance": {}
+    }
+  }
+}

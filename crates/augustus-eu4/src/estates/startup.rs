@@ -704,6 +704,11 @@ impl EstateStartup {
                 initial
                     .set_subjects(subjects)
                     .map_err(|e| Error::caused_by("common/on_actions", e))?;
+                let mut affiliations = initial.world().affiliations().clone();
+                crate::imperial_membership::mark_unknown(&mut affiliations);
+                initial
+                    .set_affiliations(affiliations)
+                    .map_err(|e| Error::caused_by("common/on_actions", e))?;
                 let mut modifiers = initial.world().modifiers().clone();
                 modifiers.unknown_entities.extend(
                     countries

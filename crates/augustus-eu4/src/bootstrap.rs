@@ -474,6 +474,7 @@ impl VanillaWorld {
         }
         let mut metric_scoped_history_unknown = false;
         let mut subject_history_unknown = false;
+        let mut imperial_history_unknown = false;
         let history_effect_names = politics::history_effect_names(&root, &files)?;
         for file in files
             .iter()
@@ -491,6 +492,7 @@ impl VanillaWorld {
             if history_groups[&id].len() > 1 {
                 global_markers.mark_unknown();
                 subject_history_unknown = true;
+                imperial_history_unknown = true;
                 continue;
             }
             country_histories.insert(id.clone());
@@ -512,6 +514,13 @@ impl VanillaWorld {
                     &parsed,
                     reader.clone(),
                     &history_effect_names,
+                    0,
+                )?;
+                imperial_history_unknown |= crate::imperial_membership::has_unapplied_mutation(
+                    &parsed,
+                    reader.clone(),
+                    &history_effect_names,
+                    false,
                     0,
                 )?;
                 let (direct, scoped) =
@@ -591,6 +600,13 @@ impl VanillaWorld {
                     &parsed,
                     reader.clone(),
                     &history_effect_names,
+                    0,
+                )?;
+                imperial_history_unknown |= crate::imperial_membership::has_unapplied_mutation(
+                    &parsed,
+                    reader.clone(),
+                    &history_effect_names,
+                    true,
                     0,
                 )?;
                 if nested_owner(reader.clone(), 0) {
@@ -683,6 +699,14 @@ impl VanillaWorld {
             .set_governments(governments)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let mut affiliations = administration.affiliations(&initial);
+        affiliations.0.insert(
+            crate::imperial_membership::DIMENSION.into(),
+            crate::imperial_membership::bind(
+                &initial,
+                &province_histories,
+                imperial_history_unknown,
+            ),
+        );
         affiliations.0.insert(
             "religious_school".into(),
             religious_schools.bind(&initial, &mut report.religious_schools),

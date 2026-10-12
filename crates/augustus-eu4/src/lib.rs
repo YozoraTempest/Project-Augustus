@@ -24,6 +24,7 @@ mod estates;
 mod geography;
 mod governments;
 mod ideas;
+mod imperial_membership;
 mod load;
 mod missions;
 pub use missions::MissionReport;

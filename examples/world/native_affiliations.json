@@ -12,6 +12,12 @@
     "members": {"0": "test_faith", "1": "test_faith", "2": "test_faith", "3": "test_faith", "4": null, "5": null, "6": null, "7": null},
     "acceptance": {}
   },
+  "imperial_membership": {
+    "groups": {"hre": null},
+    "members": {"4": null, "6": null, "7": null},
+    "absent_members": [2, 3, 5],
+    "acceptance": {}
+  },
   "religious_school": {
     "groups": {},
     "members": {},

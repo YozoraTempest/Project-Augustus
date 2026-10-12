@@ -1696,6 +1696,22 @@ impl<'a> ScriptCompiler<'a> {
                         _ => return Err(field.error("exists requires yes, no, or a literal three-character country identifier; dynamic operands are unsupported")),
                     }
                 }
+                "is_part_of_hre" => {
+                    let membership = Condition::AffiliationPresent {
+                        target: Target::Current,
+                        dimension: crate::imperial_membership::DIMENSION.into(),
+                    };
+                    let condition = if scope == EntityKind::Country {
+                        Condition::With {
+                            target: Target::Capital,
+                            kind: EntityKind::Province,
+                            condition: Box::new(membership),
+                        }
+                    } else {
+                        membership
+                    };
+                    if boolean(field)? { condition } else { Condition::Not(Box::new(condition)) }
+                }
                 "has_religious_school" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("religious school conditions require country scope"));

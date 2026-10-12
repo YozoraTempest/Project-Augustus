@@ -1,0 +1,18 @@
+{
+  "membership.later": {
+    "All": [
+      {
+        "With": {
+          "target": "Capital",
+          "kind": "Province",
+          "condition": {
+            "AffiliationPresent": {
+              "target": "Current",
+              "dimension": "imperial_membership"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

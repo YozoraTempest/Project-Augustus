@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+country_event = {
+    id = membership.start
+    is_triggered_only = yes
+    immediate = {
+        if = { limit = { is_part_of_hre = yes } log = country_member }
+        else = { log = country_outside }
+        capital_scope = {
+            if = { limit = { is_part_of_hre = yes } log = province_member }
+            else = { log = province_outside }
+        }
+    }
+    option = {
+        name = continue
+        country_event = { id = membership.later days = 1 }
+    }
+}
+
+country_event = {
+    id = membership.later
+    is_triggered_only = yes
+    trigger = { is_part_of_hre = yes }
+    immediate = { log = later_member }
+    option = { name = continue log = accepted }
+}

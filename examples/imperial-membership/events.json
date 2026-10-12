@@ -1,0 +1,109 @@
+[
+  {
+    "id": "membership.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "With": {
+                  "target": "Capital",
+                  "kind": "Province",
+                  "condition": {
+                    "AffiliationPresent": {
+                      "target": "Current",
+                      "dimension": "imperial_membership"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "country_member"
+            }
+          ],
+          "otherwise": [
+            {
+              "Emit": "country_outside"
+            }
+          ]
+        }
+      },
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "AffiliationPresent": {
+                        "target": "Current",
+                        "dimension": "imperial_membership"
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "province_member"
+                  }
+                ],
+                "otherwise": [
+                  {
+                    "Emit": "province_outside"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TryEvent": {
+                    "event": "membership.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "membership.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Emit": "later_member"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "accepted"
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

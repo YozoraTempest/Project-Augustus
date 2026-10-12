@@ -264,4 +264,6 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 命名作用域支持 `emperor = { ... }`、`save_global_event_target_as`、`clear_global_event_target`，以及已经声明类型的 `event_target:name = { ... }`。本入口仅处理全局目标；局部事件目标、动态目标名及完整原版目录中的类型推导尚未支持。原版启动入口也能使用皇帝作用域和全局国家目标，其他未支持效果仍会报告阻塞位置。
 
+`is_part_of_hre = yes/no` 支持省份与国家条件，国家条件读取当前首都的帝国归属。历史初始化、未知状态和跨输入保存示例见 [帝国归属查询](../examples/imperial-membership/README.md)。迁都及加入、退出帝国的兼容效果尚未接入。
+
 周期自动候选、其他 `on_action` 调度、MTTH、AI 权重、过期处理及完整 `ROOT`／`FROM`／`PREV` 上下文尚未支持。相关字段或不支持的效果会报告来源位置，整份输入编译失败。核心命令拒绝非法选择；原版某些异常选项编号会移除待选记录的行为不在本接口的支持范围内。完整原版战役事件和 Godot 事件界面仍未跑通。
