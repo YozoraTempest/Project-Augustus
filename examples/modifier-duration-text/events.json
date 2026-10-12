@@ -1,0 +1,75 @@
+[
+  {
+    "id": "description.control",
+    "scope": "Country",
+    "immediate": [
+      {
+        "AttachModifier": {
+          "target": "Current",
+          "name": "boost",
+          "duration": 2,
+          "hidden": null,
+          "renewal": "KeepLatestDated",
+          "duration_label": "council_duration"
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "AttachModifier": {
+              "target": "Current",
+              "name": "charter",
+              "duration": null,
+              "hidden": null,
+              "renewal": "KeepLatestDated",
+              "duration_label": "charter_duration"
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "description.renew"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "Emit": "chosen"
+      }
+    ]
+  },
+  {
+    "id": "description.renew",
+    "scope": "Country",
+    "immediate": [
+      {
+        "AttachModifier": {
+          "target": "Current",
+          "name": "boost",
+          "duration": 2,
+          "hidden": null,
+          "renewal": "KeepLatestDated",
+          "duration_label": "renewal_duration"
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

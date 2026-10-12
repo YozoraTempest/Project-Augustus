@@ -132,6 +132,15 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/g
 
 原生计划使用 `NumericSlot::Government`、`UpdateNumeric`、`NumericCompare` 和 `GovernmentMetricActive`。指标必须先在 `Governments.metrics` 注册，并在国家状态中选为活动指标。原生直接读写不适用的指标会报告错误；`Set` 可以确定活动指标的未知值，其他运算要求已有值。属性和月结读取同一份实时状态，修改无需同步派生值缓存；保存待选事件和延期任务后，恢复不会重放修改。
 
+`examples/modifier-duration-text` 演示修正效果的期限说明：
+
+```sh
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/modifier-duration-text --trigger description.control --choose 0:0 --save description_waiting.json
+cargo run --locked -p augustus-run --bin augustus-events -- --content examples/modifier-duration-text --input native --load description_waiting.json --days 1 --choose 1:0
+```
+
+`add_country_modifier` 中的字面本地化键 `desc` 翻译为 `AttachModifier.duration_label`，用于替换效果的期限说明；真实期限仍由 `duration` 决定。待选记录的可选查询字段 `modifier_duration_labels` 按选项给出其直接声明的键，包括嵌套计划，不预判条件是否满足，也不展开被调用事件。查询尚未解析本地化文本。说明保留在内容定义和保存的延期计划中，不写入活动修正，也不影响数值、续期或到期。消息参数与动态说明表达式尚未支持。
+
 ## 运行规则
 
 事件先执行 `immediate`，成功后保存当前实体和触发日期。等待期间的数值及实体关系保持实时更新；选择时执行选项效果，再执行 `after`，成功后移除对应记录。多个同类事件各有独立编号。读档不重复即时效果，重复选择、未知选项和错误实体类型会在写入前被拒绝。效果运行错误保留已经发生的写入并停止模拟，不能继续推进或保存。

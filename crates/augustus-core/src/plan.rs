@@ -70,6 +70,9 @@ pub enum Action {
         duration: Option<u64>,
         hidden: Option<bool>,
         renewal: crate::ModifierRenewal,
+        /// Localisation key for the effect's duration text; not attachment state.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration_label: Option<String>,
     },
     RemoveModifier {
         target: Target,
@@ -291,7 +294,9 @@ impl World {
                     duration,
                     hidden,
                     renewal,
+                    duration_label,
                 } => {
+                    crate::modifiers::validate_duration_label(duration_label.as_deref())?;
                     let entity = self.target(current, *target)?;
                     self.attach_modifier(entity, name, *duration, *hidden, *renewal)?;
                 }

@@ -5,6 +5,13 @@ use crate::{EntityId, Error, World};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+pub(crate) fn validate_duration_label(label: Option<&str>) -> Result<(), Error> {
+    if label.is_some_and(|value| value.trim().is_empty()) {
+        return Err(Error::Invalid("empty modifier duration label".into()));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModifierDefinition {

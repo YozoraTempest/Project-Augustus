@@ -625,3 +625,57 @@ fn government_metric_events_preserve_live_queries_and_cross_input_restore() {
         assert!(inactive.view().unwrap().log.is_empty());
     }
 }
+
+#[test]
+fn modifier_duration_labels_are_visible_on_pending_options_and_restore_across_inputs() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/modifier-duration-text");
+    let mut compatibility = EventDemo::from_directory(&root, Input::Eu4).unwrap();
+    let mut native = EventDemo::from_directory(&root, Input::Native).unwrap();
+    assert_eq!(compatibility.save().unwrap(), native.save().unwrap());
+    compatibility.trigger("description.control", 0).unwrap();
+    assert_eq!(
+        compatibility.view().unwrap().pending_events[0].modifier_duration_labels["0"],
+        ["charter_duration"]
+    );
+    native.restore(&compatibility.save().unwrap()).unwrap();
+    assert_eq!(
+        native.view().unwrap().pending_events[0].modifier_duration_labels["0"],
+        ["charter_duration"]
+    );
+    for demo in [&mut compatibility, &mut native] {
+        demo.choose(&EventChoice {
+            pending: PendingEventId(0),
+            option: "0".into(),
+        })
+        .unwrap();
+        demo.advance(1).unwrap();
+        demo.choose(&EventChoice {
+            pending: PendingEventId(1),
+            option: "0".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            demo.world().modifiers().active[&augustus_core::EntityId(0)]["boost"].expires_on,
+            Some(3)
+        );
+        demo.advance(2).unwrap();
+        assert!(
+            !demo
+                .world()
+                .has_modifier(augustus_core::EntityId(0), "boost")
+                .unwrap()
+        );
+        assert!(
+            demo.world()
+                .has_modifier(augustus_core::EntityId(0), "charter")
+                .unwrap()
+        );
+        assert!(
+            !serde_json::to_string(demo.world().modifiers())
+                .unwrap()
+                .contains("duration_label")
+        );
+    }
+    assert_eq!(compatibility.save().unwrap(), native.save().unwrap());
+}

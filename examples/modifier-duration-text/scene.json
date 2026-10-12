@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "modifiers": {
+    "definitions": {
+      "boost": {
+        "values_micros": {
+          "rate": 125000
+        },
+        "flags": {}
+      },
+      "charter": {
+        "values_micros": {
+          "rate": 125000
+        },
+        "flags": {}
+      }
+    },
+    "active": {}
+  }
+}

@@ -126,6 +126,7 @@ fn modifier_expiry_then_due_effects_precede_monthly_attribute_reads() {
                     duration: Some(20),
                     hidden: None,
                     renewal: augustus_core::ModifierRenewal::Replace,
+                    duration_label: None,
                 },
             ],
         )

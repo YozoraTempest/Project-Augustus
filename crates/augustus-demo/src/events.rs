@@ -62,6 +62,9 @@ pub struct PendingChoiceView {
     pub current: EntityId,
     pub day: u64,
     pub options: Vec<String>,
+    /// Declared duration labels in each option; conditions are not evaluated here.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub modifier_duration_labels: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -347,6 +350,15 @@ impl EventDemo {
                     .iter()
                     .map(|option| option.id.clone())
                     .collect(),
+                modifier_duration_labels: self.world.event_catalog().definitions()[&pending.event]
+                    .options
+                    .iter()
+                    .filter_map(|option| {
+                        let mut labels = Vec::new();
+                        duration_labels(&option.effects, &mut labels);
+                        (!labels.is_empty()).then(|| (option.id.clone(), labels))
+                    })
+                    .collect(),
             })
             .collect();
         Ok(EventView {
@@ -361,6 +373,29 @@ impl EventDemo {
             markers: self.world.markers().clone(),
             governments: self.world.governments().clone(),
         })
+    }
+}
+
+fn duration_labels(plan: &[augustus_core::Action], labels: &mut Vec<String>) {
+    use augustus_core::Action;
+    for action in plan {
+        match action {
+            Action::AttachModifier {
+                duration_label: Some(label),
+                ..
+            } => labels.push(label.clone()),
+            Action::If {
+                then, otherwise, ..
+            }
+            | Action::RandomBranch { then, otherwise } => {
+                duration_labels(then, labels);
+                duration_labels(otherwise, labels);
+            }
+            Action::With { plan, .. }
+            | Action::InScope { plan, .. }
+            | Action::Schedule { plan, .. } => duration_labels(plan, labels),
+            _ => (),
+        }
     }
 }
 

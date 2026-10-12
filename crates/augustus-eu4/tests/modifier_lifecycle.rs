@@ -124,7 +124,8 @@ fn zero_and_omitted_duration_normalize_to_one_day_and_unknown_literal_query_is_f
                 name: "boost".into(),
                 duration: Some(1),
                 hidden: None,
-                renewal: ModifierRenewal::KeepLatestDated
+                renewal: ModifierRenewal::KeepLatestDated,
+                duration_label: None,
             }]
         );
         let mut world = World::new(schema.clone());
@@ -156,7 +157,13 @@ fn malformed_and_unverified_modifier_forms_keep_source_locations() {
         "add_country_modifier={name=boost duration=variable}",
         "add_country_modifier={name=boost name=guard}",
         "add_country_modifier={name=boost hidden=yes hidden=no}",
-        "add_country_modifier={name=boost desc=unverified}",
+        "add_country_modifier={name=boost message=unverified}",
+        "add_country_modifier={name=boost desc={key=duration}}",
+        "add_country_modifier={name=boost desc=\"\"}",
+        "add_country_modifier={name=boost desc=$duration$}",
+        "add_country_modifier={name=boost desc=duration@ROOT}",
+        "add_country_modifier={name=boost desc=\"[Root.GetName]\"}",
+        "add_country_modifier={name=boost desc=one desc=two}",
         "add_country_modifier={duration=1}",
         "remove_country_modifier=missing",
         "capital_scope={add_country_modifier={name=boost duration=1}}",
@@ -173,5 +180,59 @@ fn malformed_and_unverified_modifier_forms_keep_source_locations() {
             error.path().to_string_lossy(),
             "self-authored-modifiers.txt"
         );
+    }
+}
+
+#[test]
+fn duration_description_is_retained_in_effect_content_and_not_in_attached_state() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    let text = document(
+        "add_country_modifier={name=boost duration=2 desc=council_duration} country_event={id=described.1}",
+    );
+    for optimise in [false, true] {
+        let compiler = || {
+            ScriptCompiler::new(&schema, &library, optimise)
+                .with_modifier_ids(definitions().definitions.keys().cloned().collect())
+        };
+        let plan = compiler().compile(&text, EntityKind::Country).unwrap().plan;
+        assert!(
+            matches!(&plan[0],Action::AttachModifier{duration_label:Some(label),..} if label=="council_duration")
+        );
+        let events=compiler().compile_events(&document("country_event={id=described.1 is_triggered_only=yes option={name=accept add_country_modifier={name=guard duration=-1 desc=charter_duration}}}")).unwrap();
+        let catalog = EventCatalog::new(events.definitions).unwrap();
+        let mut world = World::new(schema.clone());
+        world.add_entity("AAA", EntityKind::Country);
+        world.set_modifiers(definitions()).unwrap();
+        world.set_event_catalog(catalog.clone()).unwrap();
+        world.execute(EntityId(0), &plan).unwrap();
+        let mut restored = World::restore_with_events(
+            &world.save("descriptions").unwrap(),
+            "descriptions",
+            &schema,
+            vec![],
+            catalog,
+        )
+        .unwrap();
+        for state in [&mut world, &mut restored] {
+            state
+                .choose_event(&EventChoice {
+                    pending: PendingEventId(0),
+                    option: "0".into(),
+                })
+                .unwrap();
+            assert_eq!(
+                state.modifiers().active[&EntityId(0)]["boost"].expires_on,
+                Some(2)
+            );
+            assert_eq!(
+                state.modifiers().active[&EntityId(0)]["guard"].expires_on,
+                None
+            );
+            state.advance_to(2).unwrap();
+            assert!(!state.has_modifier(EntityId(0), "boost").unwrap());
+            assert!(state.has_modifier(EntityId(0), "guard").unwrap());
+        }
+        assert_eq!(world, restored);
     }
 }

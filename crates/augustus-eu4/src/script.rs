@@ -623,6 +623,7 @@ impl<'a> ScriptCompiler<'a> {
                     let mut name = None;
                     let mut duration = None;
                     let mut hidden = None;
+                    let mut duration_label = None;
                     let mut seen = BTreeSet::new();
                     for parameter in field.block()? {
                         if !seen.insert(&parameter.name) {
@@ -641,6 +642,15 @@ impl<'a> ScriptCompiler<'a> {
                                 duration = Some(value);
                             }
                             "hidden" => hidden = Some(boolean(parameter)?),
+                            "desc" => {
+                                let label = parameter.scalar()?;
+                                if label.trim().is_empty()
+                                    || label.chars().any(|c| matches!(c, '$' | '@' | '[' | ']'))
+                                {
+                                    return Err(parameter.error("modifier duration description requires a literal localisation key"));
+                                }
+                                duration_label = Some(label.into());
+                            }
                             _ => return Err(parameter.error("unsupported modifier parameter")),
                         }
                     }
@@ -657,6 +667,7 @@ impl<'a> ScriptCompiler<'a> {
                         },
                         hidden,
                         renewal: augustus_core::ModifierRenewal::KeepLatestDated,
+                        duration_label,
                     });
                 }
                 "remove_country_modifier" => {

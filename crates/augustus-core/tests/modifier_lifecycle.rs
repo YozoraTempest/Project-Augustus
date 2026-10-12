@@ -26,6 +26,7 @@ fn attach(name: &str, duration: Option<u64>, renewal: ModifierRenewal) -> Action
         duration,
         hidden: Some(true),
         renewal,
+        duration_label: None,
     }
 }
 
@@ -34,6 +35,52 @@ fn has(name: &str) -> Condition {
         target: Target::Current,
         name: name.into(),
     }
+}
+
+#[test]
+fn duration_labels_survive_delayed_plans_without_changing_attachment_or_expiration() {
+    let mut plain = world();
+    let mut labelled = world();
+    let mut action = attach("boost", Some(2), ModifierRenewal::KeepLatestDated);
+    plain
+        .execute(EntityId(0), std::slice::from_ref(&action))
+        .unwrap();
+    if let Action::AttachModifier { duration_label, .. } = &mut action {
+        *duration_label = Some("council_duration".into());
+    }
+    labelled
+        .execute(EntityId(0), std::slice::from_ref(&action))
+        .unwrap();
+    assert_eq!(plain, labelled);
+    labelled.schedule(EntityId(0), 1, vec![action]).unwrap();
+    let saved = labelled.save("duration-text").unwrap();
+    assert!(saved.contains("council_duration"));
+    let mut resumed = World::restore(&saved, "duration-text", labelled.schema()).unwrap();
+    for state in [&mut labelled, &mut resumed] {
+        state.advance_to(1).unwrap();
+        assert_eq!(
+            state.modifiers().active[&EntityId(0)]["boost"].expires_on,
+            Some(3)
+        );
+        assert!(
+            !serde_json::to_string(state.modifiers())
+                .unwrap()
+                .contains("council_duration")
+        );
+        state.advance_to(3).unwrap();
+        assert!(!state.has_modifier(EntityId(0), "boost").unwrap());
+    }
+    assert_eq!(labelled, resumed);
+    let before = resumed.clone();
+    let mut invalid = attach("boost", Some(2), ModifierRenewal::Replace);
+    if let Action::AttachModifier { duration_label, .. } = &mut invalid {
+        *duration_label = Some(" ".into());
+    }
+    assert!(resumed.schedule(EntityId(0), 1, vec![invalid]).is_err());
+    assert_eq!(resumed, before);
+    let mut broken: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    broken["tasks"][0]["plan"][0]["AttachModifier"]["duration_label"] = "".into();
+    assert!(World::restore(&broken.to_string(), "duration-text", labelled.schema()).is_err());
 }
 
 #[test]

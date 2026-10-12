@@ -849,7 +849,13 @@ pub(crate) fn validate_plan(
     for action in plan {
         match action {
             Action::SetMarker { name, .. } => crate::markers::validate_name(name)?,
-            Action::AttachModifier { name, duration, .. } => {
+            Action::AttachModifier {
+                name,
+                duration,
+                duration_label,
+                ..
+            } => {
+                crate::modifiers::validate_duration_label(duration_label.as_deref())?;
                 modifiers.identifier(name)?;
                 if *duration == Some(0) {
                     return Err(Error::Invalid("modifier duration must be positive".into()));

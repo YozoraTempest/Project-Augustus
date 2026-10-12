@@ -265,6 +265,7 @@ fn startup_modifier_state_drives_queries_attributes_choices_expiry_and_rollback(
                 duration: None,
                 hidden: None,
                 renewal: augustus_core::ModifierRenewal::Replace,
+                duration_label: None,
             }],
         )
         .unwrap();
@@ -291,7 +292,19 @@ fn startup_modifier_state_drives_queries_attributes_choices_expiry_and_rollback(
     write(
         temp.path(),
         "common/on_actions/test.txt",
-        "on_startup={if={limit={tag=AAA} add_country_modifier={name=sample_boost duration=4} add_country_modifier={name=sample_guard duration=-1 desc=unverified}}}",
+        "on_startup={if={limit={tag=AAA} add_country_modifier={name=sample_guard duration=-1 desc=charter_duration}}}",
+    );
+    let described = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(described.report.estates.startup_unresolved.is_empty());
+    let country = described.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        described.initial.world().modifiers().active[&country]["sample_guard"].expires_on,
+        None
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA} add_country_modifier={name=sample_boost duration=4} add_country_modifier={name=sample_guard duration=-1 message=unverified}}}",
     );
     let failed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     assert!(!failed.report.estates.startup_unresolved.is_empty());
