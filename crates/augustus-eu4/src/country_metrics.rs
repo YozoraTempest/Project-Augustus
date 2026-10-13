@@ -13,6 +13,20 @@ pub(super) fn history_mutations(
     scripted_effects: &BTreeSet<String>,
     depth: usize,
 ) -> (bool, bool) {
+    named_history_mutations(
+        reader,
+        scripted_effects,
+        depth,
+        &["stability", "add_stability"],
+    )
+}
+
+pub(super) fn named_history_mutations(
+    reader: jomini::text::ObjectReader<'_, '_, crate::TextEncoding>,
+    scripted_effects: &BTreeSet<String>,
+    depth: usize,
+    names: &[&str],
+) -> (bool, bool) {
     if depth > 64 {
         return (false, true);
     }
@@ -25,12 +39,13 @@ pub(super) fn history_mutations(
         {
             continue;
         }
-        if matches!(name.as_str(), "stability" | "add_stability") {
+        if names.contains(&name.as_str()) {
             direct = true;
         } else if scripted_effects.contains(&name) {
             scoped = true;
         } else if let Ok(block) = value.read_object() {
-            let (nested, deeper) = history_mutations(block, scripted_effects, depth + 1);
+            let (nested, deeper) =
+                named_history_mutations(block, scripted_effects, depth + 1, names);
             scoped |= nested || deeper;
         }
     }

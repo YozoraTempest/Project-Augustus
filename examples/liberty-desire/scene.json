@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "CCC",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "calendar": {
+    "start": {
+      "year": 1444,
+      "month": 11,
+      "day": 11
+    },
+    "month_lengths": [
+      31,
+      28,
+      31,
+      30,
+      31,
+      30,
+      31,
+      31,
+      30,
+      31,
+      30,
+      31
+    ]
+  },
+  "subjects": {
+    "types": [
+      "test_vassal"
+    ],
+    "known": true,
+    "counts": {
+      "0": 1,
+      "1": 0,
+      "2": 0
+    }
+  },
+  "politics": {
+    "relations": [
+      {
+        "kind": "subject",
+        "first": 0,
+        "second": 1,
+        "subject_type": "test_vassal"
+      }
+    ],
+    "countries": {},
+    "offices": {}
+  },
+  "metrics": {
+    "definitions": {
+      "temporary_liberty_desire": {
+        "kind": "Country",
+        "minimum": -1000000000,
+        "maximum": 1000000000,
+        "baseline": 0,
+        "divisor": 1000,
+        "modifier": {
+          "values_micros": {
+            "liberty_desire": 1000000
+          },
+          "flags": {}
+        },
+        "unresolved_properties": []
+      }
+    },
+    "entities": {
+      "0": {
+        "temporary_liberty_desire": 0
+      },
+      "1": {
+        "temporary_liberty_desire": 0
+      },
+      "2": {
+        "temporary_liberty_desire": 0
+      }
+    }
+  },
+  "attributes": {
+    "formulas": {
+      "1": {
+        "liberty_desire": {
+          "base": {
+            "kind": "constant",
+            "micros": 15000000
+          },
+          "channels": [
+            {
+              "flat": [
+                {
+                  "kind": "metrics",
+                  "target": "Current",
+                  "property": "liberty_desire"
+                }
+              ],
+              "rates": []
+            }
+          ],
+          "minimum_micros": 0,
+          "maximum_micros": 100000000,
+          "unresolved": []
+        }
+      }
+    },
+    "static_modifiers": {},
+    "building_modifiers": {},
+    "trade_good_modifiers": {}
+  },
+  "monthly_convergence": {
+    "rules": {
+      "0": {
+        "temporary_liberty_desire": {
+          "target_value": 0,
+          "step": 100,
+          "condition": {
+            "SubjectPresent": {
+              "target": "Current"
+            }
+          },
+          "reset_when_inactive": true
+        }
+      },
+      "1": {
+        "temporary_liberty_desire": {
+          "target_value": 0,
+          "step": 100,
+          "condition": {
+            "SubjectPresent": {
+              "target": "Current"
+            }
+          },
+          "reset_when_inactive": true
+        }
+      },
+      "2": {
+        "temporary_liberty_desire": {
+          "target_value": 0,
+          "step": 100,
+          "condition": {
+            "SubjectPresent": {
+              "target": "Current"
+            }
+          },
+          "reset_when_inactive": true
+        }
+      }
+    },
+    "settlement_count": 0,
+    "last_settlement": null
+  }
+}

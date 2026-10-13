@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace=ld
+country_event={id=ld.begin is_triggered_only=yes
+ immediate={BBB={add_liberty_desire=150 if={limit={liberty_desire=100 NOT={liberty_desire=100.001}} log=clipped}}}
+ option={name=continue BBB={add_liberty_desire=-50 if={limit={liberty_desire=100} log=retained}} country_event={id=ld.recover days=1}}}
+country_event={id=ld.recover is_triggered_only=yes
+ immediate={BBB={add_liberty_desire=-100 if={limit={liberty_desire=15 NOT={liberty_desire=15.001}} log=recovered}} CCC={add_liberty_desire=50 if={limit={is_subject=no liberty_desire=0 NOT={liberty_desire=0.001}} log=independent}}}
+ option={name=continue BBB={add_liberty_desire=0.5} country_event={id=ld.month days=20}}}
+country_event={id=ld.month is_triggered_only=yes
+ immediate={BBB={if={limit={liberty_desire=15.4 NOT={liberty_desire=15.401}} log=positive_month}}}
+ option={name=continue BBB={add_liberty_desire=-1} country_event={id=ld.end days=31}}}
+country_event={id=ld.end is_triggered_only=yes
+ immediate={BBB={if={limit={liberty_desire=14.5 NOT={liberty_desire=14.501}} log=negative_month}}}
+ option={name=done log=finished}}

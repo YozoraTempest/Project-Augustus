@@ -1,0 +1,30 @@
+{
+  "rules": {
+    "0": {
+      "temporary_liberty_desire": {
+        "target_value": 0,
+        "step": null,
+        "condition": {
+          "SubjectPresent": {
+            "target": "Current"
+          }
+        },
+        "reset_when_inactive": true
+      }
+    },
+    "1": {
+      "temporary_liberty_desire": {
+        "target_value": 0,
+        "step": null,
+        "condition": {
+          "SubjectPresent": {
+            "target": "Current"
+          }
+        },
+        "reset_when_inactive": true
+      }
+    }
+  },
+  "settlement_count": 0,
+  "last_settlement": null
+}

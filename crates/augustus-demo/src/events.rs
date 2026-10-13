@@ -72,6 +72,8 @@ struct Scene {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     monthly_accruals: Option<augustus_core::MonthlyAccruals>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    monthly_convergence: Option<augustus_core::MonthlyConvergence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     event_decisions: Option<augustus_core::WeightedEventDecisions>,
 }
 
@@ -121,6 +123,8 @@ pub struct EventView {
     pub queued_event_choices: Vec<EventChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub monthly_accruals: Option<augustus_core::MonthlyAccruals>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub monthly_convergence: Option<augustus_core::MonthlyConvergence>,
     #[serde(skip_serializing_if = "augustus_core::Subjects::is_empty")]
     pub subjects: augustus_core::Subjects,
     pub day: u64,
@@ -497,6 +501,7 @@ impl EventDemo {
         if let Some(accruals) = scene.monthly_accruals {
             world.set_monthly_accruals(accruals)?;
         }
+        world.set_monthly_convergence(scene.monthly_convergence)?;
         for (current, targets) in scene.known_absent_targets {
             if targets.is_empty() {
                 return Err(Error::Invalid(
@@ -660,6 +665,7 @@ impl EventDemo {
         Ok(EventView {
             queued_event_choices: self.world.queued_event_choices().to_vec(),
             monthly_accruals: self.world.monthly_accruals().cloned(),
+            monthly_convergence: self.world.monthly_convergence().cloned(),
             subjects: self.world.subjects().clone(),
             day: self.world.day(),
             pending_tasks: self.world.pending_tasks(),

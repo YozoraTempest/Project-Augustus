@@ -55,7 +55,7 @@ impl MetricDefinition {
         .map_err(|_| Error::Overflow)
     }
 
-    fn validate_value(&self, value: Option<i64>) -> Result<(), Error> {
+    pub(crate) fn validate_value(&self, value: Option<i64>) -> Result<(), Error> {
         if let Some(value) = value {
             if !(self.minimum..=self.maximum).contains(&value) {
                 return Err(Error::Invalid("metric value outside content bounds".into()));
@@ -286,6 +286,12 @@ impl World {
             .and_then(|()| {
                 self.monthly_accruals()
                     .map(|a| a.validate(self))
+                    .transpose()
+                    .map(|_| ())
+            })
+            .and_then(|()| {
+                self.monthly_convergence()
+                    .map(|state| state.validate(self))
                     .transpose()
                     .map(|_| ())
             })

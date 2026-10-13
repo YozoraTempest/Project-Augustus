@@ -61,6 +61,7 @@ impl Condition {
                 equal(op, &fail)?;
                 Ok(match name.as_str() {
                     "is_subject_of"
+                    | "is_subject"
                     | "is_subject_of_type"
                     | "any_subject_country"
                     | "is_core"
@@ -234,6 +235,7 @@ impl Condition {
                     | "republican_tradition"
                     | "devotion"
                     | "stability"
+                    | "liberty_desire"
                     | "adm_power"
                     | "dip_power"
                     | "mil_power"

@@ -60,6 +60,20 @@
       "modifier": null,
       "unresolved_properties": [],
       "growth_ceiling": true
+    },
+    "temporary_liberty_desire": {
+      "kind": "Country",
+      "minimum": -9223372036854775,
+      "maximum": 9223372036854775,
+      "baseline": 0,
+      "divisor": 1000,
+      "modifier": {
+        "values_micros": {
+          "liberty_desire": 1000000
+        },
+        "flags": {}
+      },
+      "unresolved_properties": []
     }
   },
   "entities": {
@@ -84,12 +98,14 @@
     "0": {
       "stability": 0,
       "adm_power": null,
-      "mil_power": null
+      "mil_power": null,
+      "temporary_liberty_desire": 0
     },
     "1": {
       "stability": 0,
       "adm_power": null,
-      "mil_power": null
+      "mil_power": null,
+      "temporary_liberty_desire": 0
     }
   },
   "ceilings": {

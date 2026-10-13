@@ -232,7 +232,7 @@ impl MonthlyAccruals {
     }
 }
 
-/// The standard executor prepares all balances before committing tax and accruals.
+/// The standard executor prepares all changes before committing monthly state.
 pub struct MonthlyEconomy;
 
 impl MonthlySystem for MonthlyEconomy {
@@ -241,10 +241,15 @@ impl MonthlySystem for MonthlyEconomy {
     }
 
     fn validate(&self, world: &World) -> Result<(), Error> {
-        world
-            .monthly_accruals()
-            .ok_or_else(|| Error::Invalid("missing accrual state".into()))?
-            .validate(world)?;
+        if world.monthly_accruals().is_none() && world.monthly_convergence().is_none() {
+            return Err(Error::Invalid("missing monthly metric state".into()));
+        }
+        if let Some(accruals) = world.monthly_accruals() {
+            accruals.validate(world)?;
+        }
+        if let Some(convergence) = world.monthly_convergence() {
+            convergence.validate(world)?;
+        }
         if let Some(taxation) = world.taxation() {
             taxation.validate(world)?;
         }
@@ -258,16 +263,30 @@ impl MonthlySystem for MonthlyEconomy {
             .transpose()?;
         let receipts = world
             .monthly_accruals()
-            .ok_or_else(|| Error::Invalid("missing accrual state".into()))?
-            .prepare(world)?;
+            .map(|accruals| accruals.prepare(world))
+            .transpose()?;
+        let convergence_receipts = world
+            .monthly_convergence()
+            .map(|convergence| convergence.prepare(world))
+            .transpose()?;
         if let Some(taxes) = taxes {
             let mut taxation = world.taxation.take().expect("prepared taxation");
             taxation.commit(world, taxes);
             world.taxation = Some(taxation);
         }
-        let mut accruals = world.monthly_accruals.take().expect("prepared accruals");
-        accruals.commit(world, receipts);
-        world.monthly_accruals = Some(accruals);
+        if let Some(receipts) = receipts {
+            let mut accruals = world.monthly_accruals.take().expect("prepared accruals");
+            accruals.commit(world, receipts);
+            world.monthly_accruals = Some(accruals);
+        }
+        if let Some(receipts) = convergence_receipts {
+            let mut convergence = world
+                .monthly_convergence
+                .take()
+                .expect("prepared convergence");
+            convergence.commit(world, receipts);
+            world.monthly_convergence = Some(convergence);
+        }
         Ok(())
     }
 }
@@ -289,6 +308,9 @@ impl World {
             ));
         }
         accruals.validate(self)?;
+        if let Some(convergence) = &self.monthly_convergence {
+            convergence.validate_accruals(&accruals)?;
+        }
         self.monthly_accruals = Some(accruals);
         self.monthly_system_id = Some(MonthlyEconomy.id().into());
         Ok(())

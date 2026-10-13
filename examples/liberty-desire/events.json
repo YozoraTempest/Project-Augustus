@@ -1,0 +1,822 @@
+[
+  {
+    "id": "ld.begin",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Metric": "temporary_liberty_desire"
+                },
+                "operation": "Add",
+                "value": 150000
+              }
+            },
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "Any": [
+                        {
+                          "All": [
+                            {
+                              "SubjectPresent": {
+                                "target": "Current"
+                              }
+                            },
+                            {
+                              "NumericCompare": {
+                                "target": "Current",
+                                "slot": {
+                                  "Attribute": {
+                                    "name": "liberty_desire",
+                                    "divisor": 1000
+                                  }
+                                },
+                                "comparison": "AtLeast",
+                                "value": 100000
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "All": [
+                            {
+                              "Not": {
+                                "SubjectPresent": {
+                                  "target": "Current"
+                                }
+                              }
+                            },
+                            {
+                              "Always": false
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "Not": {
+                        "All": [
+                          {
+                            "Any": [
+                              {
+                                "All": [
+                                  {
+                                    "SubjectPresent": {
+                                      "target": "Current"
+                                    }
+                                  },
+                                  {
+                                    "NumericCompare": {
+                                      "target": "Current",
+                                      "slot": {
+                                        "Attribute": {
+                                          "name": "liberty_desire",
+                                          "divisor": 1000
+                                        }
+                                      },
+                                      "comparison": "AtLeast",
+                                      "value": 100001
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "All": [
+                                  {
+                                    "Not": {
+                                      "SubjectPresent": {
+                                        "target": "Current"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "Always": false
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "clipped"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "InScope": {
+              "selector": {
+                "Named": {
+                  "kind": "Country",
+                  "name": "BBB"
+                }
+              },
+              "kind": "Country",
+              "plan": [
+                {
+                  "UpdateNumeric": {
+                    "target": "Current",
+                    "slot": {
+                      "Metric": "temporary_liberty_desire"
+                    },
+                    "operation": "Add",
+                    "value": -50000
+                  }
+                },
+                {
+                  "If": {
+                    "condition": {
+                      "All": [
+                        {
+                          "Any": [
+                            {
+                              "All": [
+                                {
+                                  "SubjectPresent": {
+                                    "target": "Current"
+                                  }
+                                },
+                                {
+                                  "NumericCompare": {
+                                    "target": "Current",
+                                    "slot": {
+                                      "Attribute": {
+                                        "name": "liberty_desire",
+                                        "divisor": 1000
+                                      }
+                                    },
+                                    "comparison": "AtLeast",
+                                    "value": 100000
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "All": [
+                                {
+                                  "Not": {
+                                    "SubjectPresent": {
+                                      "target": "Current"
+                                    }
+                                  }
+                                },
+                                {
+                                  "Always": false
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "then": [
+                      {
+                        "Emit": "retained"
+                      }
+                    ],
+                    "otherwise": []
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "ld.recover"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "ld.end",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "Any": [
+                        {
+                          "All": [
+                            {
+                              "SubjectPresent": {
+                                "target": "Current"
+                              }
+                            },
+                            {
+                              "NumericCompare": {
+                                "target": "Current",
+                                "slot": {
+                                  "Attribute": {
+                                    "name": "liberty_desire",
+                                    "divisor": 1000
+                                  }
+                                },
+                                "comparison": "AtLeast",
+                                "value": 14500
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "All": [
+                            {
+                              "Not": {
+                                "SubjectPresent": {
+                                  "target": "Current"
+                                }
+                              }
+                            },
+                            {
+                              "Always": false
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "Not": {
+                        "All": [
+                          {
+                            "Any": [
+                              {
+                                "All": [
+                                  {
+                                    "SubjectPresent": {
+                                      "target": "Current"
+                                    }
+                                  },
+                                  {
+                                    "NumericCompare": {
+                                      "target": "Current",
+                                      "slot": {
+                                        "Attribute": {
+                                          "name": "liberty_desire",
+                                          "divisor": 1000
+                                        }
+                                      },
+                                      "comparison": "AtLeast",
+                                      "value": 14501
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "All": [
+                                  {
+                                    "Not": {
+                                      "SubjectPresent": {
+                                        "target": "Current"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "Always": false
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "negative_month"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "finished"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "ld.month",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "Any": [
+                        {
+                          "All": [
+                            {
+                              "SubjectPresent": {
+                                "target": "Current"
+                              }
+                            },
+                            {
+                              "NumericCompare": {
+                                "target": "Current",
+                                "slot": {
+                                  "Attribute": {
+                                    "name": "liberty_desire",
+                                    "divisor": 1000
+                                  }
+                                },
+                                "comparison": "AtLeast",
+                                "value": 15400
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "All": [
+                            {
+                              "Not": {
+                                "SubjectPresent": {
+                                  "target": "Current"
+                                }
+                              }
+                            },
+                            {
+                              "Always": false
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "Not": {
+                        "All": [
+                          {
+                            "Any": [
+                              {
+                                "All": [
+                                  {
+                                    "SubjectPresent": {
+                                      "target": "Current"
+                                    }
+                                  },
+                                  {
+                                    "NumericCompare": {
+                                      "target": "Current",
+                                      "slot": {
+                                        "Attribute": {
+                                          "name": "liberty_desire",
+                                          "divisor": 1000
+                                        }
+                                      },
+                                      "comparison": "AtLeast",
+                                      "value": 15401
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "All": [
+                                  {
+                                    "Not": {
+                                      "SubjectPresent": {
+                                        "target": "Current"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "Always": false
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "positive_month"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "InScope": {
+              "selector": {
+                "Named": {
+                  "kind": "Country",
+                  "name": "BBB"
+                }
+              },
+              "kind": "Country",
+              "plan": [
+                {
+                  "UpdateNumeric": {
+                    "target": "Current",
+                    "slot": {
+                      "Metric": "temporary_liberty_desire"
+                    },
+                    "operation": "Add",
+                    "value": -1000
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 31,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "ld.end"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "ld.recover",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Metric": "temporary_liberty_desire"
+                },
+                "operation": "Add",
+                "value": -100000
+              }
+            },
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "Any": [
+                        {
+                          "All": [
+                            {
+                              "SubjectPresent": {
+                                "target": "Current"
+                              }
+                            },
+                            {
+                              "NumericCompare": {
+                                "target": "Current",
+                                "slot": {
+                                  "Attribute": {
+                                    "name": "liberty_desire",
+                                    "divisor": 1000
+                                  }
+                                },
+                                "comparison": "AtLeast",
+                                "value": 15000
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "All": [
+                            {
+                              "Not": {
+                                "SubjectPresent": {
+                                  "target": "Current"
+                                }
+                              }
+                            },
+                            {
+                              "Always": false
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "Not": {
+                        "All": [
+                          {
+                            "Any": [
+                              {
+                                "All": [
+                                  {
+                                    "SubjectPresent": {
+                                      "target": "Current"
+                                    }
+                                  },
+                                  {
+                                    "NumericCompare": {
+                                      "target": "Current",
+                                      "slot": {
+                                        "Attribute": {
+                                          "name": "liberty_desire",
+                                          "divisor": 1000
+                                        }
+                                      },
+                                      "comparison": "AtLeast",
+                                      "value": 15001
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "All": [
+                                  {
+                                    "Not": {
+                                      "SubjectPresent": {
+                                        "target": "Current"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "Always": false
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "recovered"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "CCC"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Metric": "temporary_liberty_desire"
+                },
+                "operation": "Add",
+                "value": 50000
+              }
+            },
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "Not": {
+                        "SubjectPresent": {
+                          "target": "Current"
+                        }
+                      }
+                    },
+                    {
+                      "Any": [
+                        {
+                          "All": [
+                            {
+                              "SubjectPresent": {
+                                "target": "Current"
+                              }
+                            },
+                            {
+                              "NumericCompare": {
+                                "target": "Current",
+                                "slot": {
+                                  "Attribute": {
+                                    "name": "liberty_desire",
+                                    "divisor": 1000
+                                  }
+                                },
+                                "comparison": "AtLeast",
+                                "value": 0
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "All": [
+                            {
+                              "Not": {
+                                "SubjectPresent": {
+                                  "target": "Current"
+                                }
+                              }
+                            },
+                            {
+                              "Always": true
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "Not": {
+                        "All": [
+                          {
+                            "Any": [
+                              {
+                                "All": [
+                                  {
+                                    "SubjectPresent": {
+                                      "target": "Current"
+                                    }
+                                  },
+                                  {
+                                    "NumericCompare": {
+                                      "target": "Current",
+                                      "slot": {
+                                        "Attribute": {
+                                          "name": "liberty_desire",
+                                          "divisor": 1000
+                                        }
+                                      },
+                                      "comparison": "AtLeast",
+                                      "value": 1
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "All": [
+                                  {
+                                    "Not": {
+                                      "SubjectPresent": {
+                                        "target": "Current"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "Always": false
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "independent"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "InScope": {
+              "selector": {
+                "Named": {
+                  "kind": "Country",
+                  "name": "BBB"
+                }
+              },
+              "kind": "Country",
+              "plan": [
+                {
+                  "UpdateNumeric": {
+                    "target": "Current",
+                    "slot": {
+                      "Metric": "temporary_liberty_desire"
+                    },
+                    "operation": "Add",
+                    "value": 500
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 20,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "ld.month"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

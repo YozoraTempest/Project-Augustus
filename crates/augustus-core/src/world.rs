@@ -106,6 +106,7 @@ pub struct World {
     calendar: Option<Calendar>,
     pub(crate) taxation: Option<Taxation>,
     pub(crate) monthly_accruals: Option<crate::MonthlyAccruals>,
+    pub(crate) monthly_convergence: Option<crate::MonthlyConvergence>,
     pub(crate) monthly_system_id: Option<String>,
     attributes: Attributes,
     pub(crate) administration: Arc<Administration>,
@@ -164,6 +165,8 @@ struct Snapshot {
     taxation: Option<Taxation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     monthly_accruals: Option<crate::MonthlyAccruals>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    monthly_convergence: Option<crate::MonthlyConvergence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     monthly_system_id: Option<String>,
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
@@ -234,6 +237,7 @@ impl World {
             calendar: None,
             taxation: None,
             monthly_accruals: None,
+            monthly_convergence: None,
             monthly_system_id: None,
             attributes: Attributes::default(),
             administration: Arc::default(),
@@ -449,6 +453,7 @@ impl World {
         system.validate(self)?;
         self.taxation = None;
         self.monthly_accruals = None;
+        self.monthly_convergence = None;
         self.monthly_system_id = Some(system.id().into());
         Ok(())
     }
@@ -478,7 +483,7 @@ impl World {
         taxation.validate(self)?;
         self.taxation = Some(taxation);
         self.monthly_system_id = Some(
-            if self.monthly_accruals.is_some() {
+            if self.monthly_accruals.is_some() || self.monthly_convergence.is_some() {
                 crate::MonthlyEconomy.id()
             } else {
                 MonthlyTax.id()
@@ -775,6 +780,7 @@ impl World {
             calendar: self.calendar.clone(),
             taxation: self.taxation.clone(),
             monthly_accruals: self.monthly_accruals.clone(),
+            monthly_convergence: self.monthly_convergence.clone(),
             monthly_system_id: self.monthly_system_id.clone(),
             attributes: self.attributes.clone(),
             administration: self.administration.as_ref().clone(),
@@ -848,6 +854,7 @@ impl World {
             calendar: snapshot.calendar,
             taxation: snapshot.taxation,
             monthly_accruals: snapshot.monthly_accruals,
+            monthly_convergence: snapshot.monthly_convergence,
             monthly_system_id: snapshot.monthly_system_id,
             attributes: snapshot.attributes,
             administration: Arc::new(snapshot.administration),
@@ -942,13 +949,22 @@ impl World {
         if let Some(accruals) = &world.monthly_accruals {
             accruals.validate(&world)?;
         }
+        if let Some(convergence) = &world.monthly_convergence {
+            convergence.validate(&world)?;
+        }
         match world.monthly_system_id() {
-            None if world.taxation.is_none() && world.monthly_accruals.is_none() => {}
-            Some(id) if id == crate::MonthlyEconomy.id() && world.monthly_accruals.is_some() => {}
+            None if world.taxation.is_none()
+                && world.monthly_accruals.is_none()
+                && world.monthly_convergence.is_none() => {}
+            Some(id)
+                if id == crate::MonthlyEconomy.id()
+                    && (world.monthly_accruals.is_some()
+                        || world.monthly_convergence.is_some()) => {}
             Some(id)
                 if !id.is_empty()
                     && world.calendar.is_some()
                     && world.monthly_accruals.is_none()
+                    && world.monthly_convergence.is_none()
                     && (world.taxation.is_some() == (id == MonthlyTax.id())) => {}
             _ => {
                 return Err(Error::Invalid(

@@ -26,6 +26,7 @@ mod geography;
 mod governments;
 mod ideas;
 mod imperial_membership;
+mod liberty_desire;
 mod load;
 mod missions;
 mod monarch_power;

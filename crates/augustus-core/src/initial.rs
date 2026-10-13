@@ -315,6 +315,13 @@ impl InitialWorld {
         self.world.set_monthly_accruals(accruals)
     }
 
+    pub fn set_monthly_convergence(
+        &mut self,
+        convergence: Option<crate::MonthlyConvergence>,
+    ) -> Result<(), Error> {
+        self.world.set_monthly_convergence(convergence)
+    }
+
     pub fn advance(&mut self, days: u64) -> Result<(), Error> {
         let day = self.world.day().checked_add(days).ok_or(Error::Overflow)?;
         let result = self.world.advance_to(day);

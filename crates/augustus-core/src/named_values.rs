@@ -41,8 +41,16 @@ pub enum NumericOperation {
     Set,
     Add,
     Subtract,
-    Multiply { scale: i64 },
-    Divide { scale: i64 },
+    Multiply {
+        scale: i64,
+    },
+    Divide {
+        scale: i64,
+    },
+    /// Move toward the supplied value without passing it, then apply slot bounds.
+    Approach {
+        step: i64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,13 +136,18 @@ impl NumericSlot {
 
 impl NumericOperation {
     pub(crate) fn validate(&self) -> Result<(), Error> {
+        if matches!(self, Self::Approach { step } if *step < 0) {
+            return Err(Error::Invalid(
+                "numeric approach step must be nonnegative".into(),
+            ));
+        }
         if matches!(self, Self::Multiply { scale } | Self::Divide { scale } if *scale <= 0) {
             return Err(Error::Invalid("numeric scale must be positive".into()));
         }
         Ok(())
     }
 
-    fn calculate(self, previous: i64, value: i64) -> Result<i128, Error> {
+    pub(crate) fn calculate(self, previous: i64, value: i64) -> Result<i128, Error> {
         self.validate()?;
         let result = match self {
             Self::Set => i128::from(value),
@@ -148,6 +161,11 @@ impl NumericOperation {
                     return Err(Error::Invalid("numeric division by zero".into()));
                 }
                 i128::from(previous) * i128::from(scale) / i128::from(value)
+            }
+            Self::Approach { step } => {
+                let previous = i128::from(previous);
+                let step = i128::from(step);
+                previous + (i128::from(value) - previous).clamp(-step, step)
             }
         };
         Ok(result)

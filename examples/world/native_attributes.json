@@ -20,6 +20,13 @@
   "trade_good_modifiers": {"grain": {"values_micros": {"local_manpower_modifier": 100000}, "flags": {}}, "cloth": {"values_micros": {"local_tax_modifier": 150000}, "flags": {}}, "gold": {"values_micros": {}, "flags": {}}},
   "formulas": {
     "0": {
+      "liberty_desire": {
+        "base": {"kind": "unknown", "reason": "liberty_desire:subject_type_and_dynamic_contributions"},
+        "channels": [{"flat": [{"kind": "metrics", "target": "Current", "property": "liberty_desire"}], "rates": []}],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": []
+      },
       "monthly_adm": {
         "base": {
           "kind": "unknown",
@@ -220,6 +227,13 @@
       }
     },
     "1": {
+      "liberty_desire": {
+        "base": {"kind": "unknown", "reason": "liberty_desire:subject_type_and_dynamic_contributions"},
+        "channels": [{"flat": [{"kind": "metrics", "target": "Current", "property": "liberty_desire"}], "rates": []}],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": []
+      },
       "monthly_adm": {
         "base": {
           "kind": "unknown",

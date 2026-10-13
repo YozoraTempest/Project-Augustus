@@ -457,6 +457,8 @@ impl VanillaWorld {
         let mut country_histories = BTreeSet::new();
         let mut country_metric_history_unknown = BTreeSet::new();
         let mut country_metric_scoped_history_unknown = false;
+        let mut liberty_history_unknown = BTreeSet::new();
+        let mut liberty_scoped_history_unknown = false;
         let mut province_histories = BTreeSet::new();
         let mut unresolved_ownership = BTreeSet::new();
         let mut history_groups: BTreeMap<String, Vec<&Path>> = BTreeMap::new();
@@ -539,6 +541,16 @@ impl VanillaWorld {
                 country_metric_scoped_history_unknown |= scoped;
                 if direct {
                     country_metric_history_unknown.insert(id.clone());
+                }
+                let (direct, scoped) = crate::country_metrics::named_history_mutations(
+                    reader.clone(),
+                    &history_effect_names,
+                    0,
+                    &["liberty_desire", "add_liberty_desire"],
+                );
+                liberty_scoped_history_unknown |= scoped;
+                if direct {
+                    liberty_history_unknown.insert(id.clone());
                 }
                 religious_schools.country_history(
                     &parsed,
@@ -635,6 +647,13 @@ impl VanillaWorld {
                     0,
                 );
                 country_metric_scoped_history_unknown |= direct || scoped;
+                let (direct, scoped) = crate::country_metrics::named_history_mutations(
+                    reader.clone(),
+                    &history_effect_names,
+                    0,
+                    &["liberty_desire", "add_liberty_desire"],
+                );
+                liberty_scoped_history_unknown |= direct || scoped;
                 let (direct, scoped) =
                     crate::province_metrics::history_mutations(reader.clone(), 0);
                 metric_scoped_history_unknown |= scoped;
@@ -779,6 +798,17 @@ impl VanillaWorld {
         );
         metrics.definitions.extend(country_metrics.definitions);
         metrics.entities.extend(country_metrics.entities);
+        let liberty_metrics = crate::liberty_desire::metrics(
+            &initial,
+            report.start_date,
+            &country_histories,
+            &liberty_history_unknown,
+            liberty_scoped_history_unknown,
+        );
+        metrics.definitions.extend(liberty_metrics.definitions);
+        for (entity, values) in liberty_metrics.entities {
+            metrics.entities.entry(entity).or_default().extend(values);
+        }
         let power = crate::monarch_power::bind(&root, &files, &initial, &mut report.setup)?;
         metrics.definitions.extend(power.definitions);
         for (entity, values) in power.entities {
@@ -792,6 +822,13 @@ impl VanillaWorld {
             attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
         let accruals =
             crate::power_income::bind(&root, &files, &initial, &mut attributes, &mut report.setup)?;
+        let convergence = crate::liberty_desire::bind(
+            &root,
+            &files,
+            &initial,
+            &mut attributes,
+            &mut report.setup,
+        )?;
         let administration = administration.bind(
             &initial,
             &province_histories,
@@ -904,6 +941,9 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by(root.path(), e))?;
         initial
             .set_monthly_accruals(accruals)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        initial
+            .set_monthly_convergence(Some(convergence))
             .map_err(|e| Error::caused_by(root.path(), e))?;
         if let Some(players) = players {
             for player in players {

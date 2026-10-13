@@ -83,6 +83,7 @@ impl Compiler {
                 | "add_republican_tradition"
                 | "add_devotion"
                 | "add_stability"
+                | "add_liberty_desire"
                 | "add_adm_power"
                 | "add_dip_power"
                 | "add_mil_power"

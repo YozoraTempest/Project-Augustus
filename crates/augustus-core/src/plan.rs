@@ -35,6 +35,9 @@ pub enum Condition {
         subject: crate::EntityRef,
         overlord: crate::EntityRef,
     },
+    SubjectPresent {
+        target: Target,
+    },
     HasOwnedProvince {
         target: Target,
     },
@@ -381,6 +384,9 @@ impl Condition {
                     return Ok(false);
                 }
                 world.is_subject_of(subject, overlord)
+            }
+            Self::SubjectPresent { target } => {
+                world.is_subject_country(world.target(current, *target)?)
             }
             Self::NationalFocus { target, skill } => {
                 Ok(world.national_focus(world.target(current, *target)?)?.skill == Some(*skill))

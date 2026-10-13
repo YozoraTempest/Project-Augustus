@@ -798,6 +798,14 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
         )
         .unwrap();
     native
+        .set_monthly_convergence(Some(
+            serde_json::from_str(include_str!(
+                "../../../examples/world/native_convergence.json"
+            ))
+            .unwrap(),
+        ))
+        .unwrap();
+    native
         .set_named_values(
             serde_json::from_str(
                 r#"{"entities":{"0":{},"1":{},"2":{},"3":{},"4":{},"5":{},"6":{},"7":{}}}"#,

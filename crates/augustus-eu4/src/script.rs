@@ -1464,6 +1464,25 @@ impl<'a> ScriptCompiler<'a> {
                         value: stability_integer(field)?,
                     });
                 }
+                "add_liberty_desire" => {
+                    if scope != EntityKind::Country
+                        || !self.metric_ids.contains("temporary_liberty_desire")
+                    {
+                        return Err(field.error("liberty desire requires country scope and a registered temporary metric"));
+                    }
+                    let value = decimal(field)?;
+                    if !(-1_000_000..=1_000_000).contains(&value) {
+                        return Err(field.error(
+                            "liberty desire effect requires a literal between -1000 and 1000",
+                        ));
+                    }
+                    plan.push(Action::UpdateNumeric {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Metric("temporary_liberty_desire".into()),
+                        operation: augustus_core::NumericOperation::Add,
+                        value,
+                    });
+                }
                 "add_adm_power" | "add_dip_power" | "add_mil_power" => {
                     let name = field.name.strip_prefix("add_").expect("power effect");
                     self.power_scope(field, scope, name)?;
@@ -2020,6 +2039,22 @@ impl<'a> ScriptCompiler<'a> {
                         comparison: augustus_core::NumericComparison::AtLeast,
                         value: stability_integer(field)?,
                     }
+                }
+                "is_subject" => {
+                    if scope != EntityKind::Country { return Err(field.error("subject query requires country scope")); }
+                    let condition=Condition::SubjectPresent {target:Target::Current};
+                    if boolean(field)? { condition } else {Condition::Not(Box::new(condition))}
+                }
+                "liberty_desire" => {
+                    if scope != EntityKind::Country { return Err(field.error("liberty desire query requires country scope")); }
+                    let threshold=decimal(field)?;
+                    Condition::Any(vec![
+                        Condition::All(vec![Condition::SubjectPresent {target:Target::Current},
+                            Condition::NumericCompare {target:Target::Current,
+                                slot:augustus_core::NumericSlot::Attribute {name:"liberty_desire".into(),divisor:1000},
+                                comparison:augustus_core::NumericComparison::AtLeast,value:threshold}]),
+                        Condition::All(vec![Condition::Not(Box::new(Condition::SubjectPresent {target:Target::Current})),Condition::Always(threshold<=0)])
+                    ])
                 }
                 "adm_power" | "dip_power" | "mil_power" => {
                     self.power_scope(field, scope, &field.name)?;

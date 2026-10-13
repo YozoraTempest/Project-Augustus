@@ -1,5 +1,7 @@
 # 事件演示
 
+[独立倾向场景](../examples/liberty-desire/README.md) 演示临时值、最终值限制、条件结算和跨入口读档。EU4 写法翻译为共享数值操作，原生内容通过 `monthly_convergence` 自行定义趋近目标和条件。
+
 [省份核心场景](../examples/province-cores/README.md) 演示完整核心、领土核心、增删和跨入口读档。`add_core`、`add_territorial_core`、`remove_core`、`is_core` 与 `is_territorial_core` 支持国家和省份两种作用域，参数可以是字面标识、类型匹配的 `ROOT` 或已声明类型的全局事件引用。核心与拥有权独立；修改核心后，行政分类和相关属性读取当前关系。未实现的动态参数会报告来源位置。
 
 [事件定位](../examples/event-locations/README.md) 演示事件与选项各自声明的省份位置、可用选项过滤及跨入口读档。EU4 入口支持固定省份编号的 `goto`。

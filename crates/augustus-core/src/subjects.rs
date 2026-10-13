@@ -148,6 +148,12 @@ impl World {
             }))
     }
 
+    /// Check whether a country currently has a direct incoming subject relation.
+    pub fn is_subject_country(&self, country: EntityId) -> Result<bool, Error> {
+        self.require_subject_country(country)?;
+        Ok(self.subject_index.incoming.contains_key(&country))
+    }
+
     /// Compare a direct incoming subject relation with the selected overlord.
     pub fn is_subject_of(&self, country: EntityId, overlord: EntityId) -> Result<bool, Error> {
         self.require_subject_country(country)?;
