@@ -520,7 +520,12 @@ impl World {
             .next_id
             .checked_add(1)
             .ok_or(Error::Overflow)?;
-        self.execute_inner(current, &definition.immediate, budget, depth)?;
+        self.execute_inner(
+            crate::ScopeContext::new(current),
+            &definition.immediate,
+            budget,
+            depth,
+        )?;
         let picture = catalog
             .pictures
             .get(event)
@@ -647,8 +652,18 @@ impl World {
             .iter()
             .find(|option| option.id == choice.option)
             .ok_or_else(|| Error::Invalid(format!("unknown event option {}", choice.option)))?;
-        self.execute_inner(current, &option.effects, budget, 0)?;
-        self.execute_inner(current, &definition.after, budget, 0)?;
+        self.execute_inner(
+            crate::ScopeContext::new(current),
+            &option.effects,
+            budget,
+            0,
+        )?;
+        self.execute_inner(
+            crate::ScopeContext::new(current),
+            &definition.after,
+            budget,
+            0,
+        )?;
         let completed = self
             .event_queue
             .pending

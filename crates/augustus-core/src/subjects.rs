@@ -148,14 +148,34 @@ impl World {
             }))
     }
 
+    /// Compare a direct incoming subject relation with the selected overlord.
+    pub fn is_subject_of(&self, country: EntityId, overlord: EntityId) -> Result<bool, Error> {
+        self.require_subject_country(country)?;
+        self.require_subject_country(overlord)?;
+        Ok(self
+            .subject_index
+            .incoming
+            .get(&country)
+            .is_some_and(|&index| self.politics.relations[index].first == overlord))
+    }
+
     pub fn any_subject_country(
         &self,
         country: EntityId,
         condition: &Condition,
     ) -> Result<bool, Error> {
+        self.any_subject_country_in_context(country, condition, crate::ScopeContext::new(country))
+    }
+
+    pub(crate) fn any_subject_country_in_context(
+        &self,
+        country: EntityId,
+        condition: &Condition,
+        context: crate::ScopeContext,
+    ) -> Result<bool, Error> {
         let members = self.subject_countries(country)?;
         for &member in members {
-            if condition.evaluate(self, member)? {
+            if condition.evaluate_in_context(self, context.with_current(member))? {
                 return Ok(true);
             }
         }

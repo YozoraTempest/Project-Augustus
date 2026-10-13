@@ -90,7 +90,7 @@ pub use politics::{
     RulerSkill, RulerSkillBounds,
 };
 pub use resources::CountryResources;
-pub use scopes::{EntityRef, ScopeSelector};
+pub use scopes::{EntityRef, ScopeContext, ScopeSelector};
 pub use subjects::Subjects;
 pub use taxation::{MonthlySystem, MonthlyTax, MonthlyTaxAccount, TaxSettlement, Taxation};
 pub use technology::{Technology, TechnologyLevel};

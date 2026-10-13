@@ -1,0 +1,22 @@
+{
+  "roots.start": {
+    "All": [
+      {
+        "InScope": {
+          "selector": "Root",
+          "kind": "Country",
+          "condition": {
+            "All": [
+              {
+                "EntityNamed": {
+                  "target": "Current",
+                  "name": "AAA"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

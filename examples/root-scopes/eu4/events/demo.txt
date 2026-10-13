@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+country_event={id=roots.start is_triggered_only=yes trigger={ROOT={tag=AAA}}
+ immediate={BBB={if={limit={is_subject_of=ROOT} ROOT={log=parent_nested}} country_event={id=roots.child} ROOT={log=parent_return} country_event={id=roots.later days=1}} capital_scope={province_event={id=roots.port}}}
+ option={name=continue ROOT={log=parent_option}}
+}
+country_event={id=roots.child is_triggered_only=yes immediate={ROOT={log=child_root}} option={name=continue trigger={ROOT={tag=BBB}} ROOT={log=child_option}}}
+province_event={id=roots.port is_triggered_only=yes immediate={owner={ROOT={log=province_root} if={limit={BBB={is_subject_of=ROOT}} log=wrong_projection}}} option={name=continue ROOT={log=province_option}}}
+country_event={id=roots.later is_triggered_only=yes immediate={ROOT={log=later_root}} option={name=continue ROOT={log=later_option}}}

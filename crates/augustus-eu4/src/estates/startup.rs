@@ -255,6 +255,13 @@ impl Compiler {
                         )),
                     }
                 }
+                "ROOT" | "root" => {
+                    result.push(Step::Scoped(
+                        ScopeSelector::Root,
+                        self.effects(parsed, block(&value, &fail)?, report, depth + 1, false)?,
+                        location,
+                    ));
+                }
                 "emperor" => {
                     let office = "imperial_emperor";
                     result.push(Step::Scoped(
@@ -693,7 +700,18 @@ impl EstateStartup {
         let result = countries
             .iter()
             .try_for_each(|tag| {
-                self.execute(&self.steps, &mut candidate, tag, &mut trace, &mut budget, 0)
+                let root = candidate
+                    .country_entity(tag)
+                    .expect("bound startup country");
+                self.execute(
+                    &self.steps,
+                    &mut candidate,
+                    tag,
+                    root,
+                    &mut trace,
+                    &mut budget,
+                    0,
+                )
             })
             .and_then(|()| {
                 candidate.process_event_commands().map_err(|error| Pending {
@@ -844,6 +862,7 @@ impl EstateStartup {
         steps: &[Step],
         initial: &mut InitialWorld,
         tag: &str,
+        root: augustus_core::EntityId,
         trace: &mut Vec<LoadedSource>,
         budget: &mut usize,
         depth: usize,
@@ -858,7 +877,7 @@ impl EstateStartup {
                 | Step::Scoped(_, _, at)
                 | Step::Pending(_, at) => at,
                 Step::Group(body) => {
-                    self.execute(body, initial, tag, trace, budget, depth + 1)?;
+                    self.execute(body, initial, tag, root, trace, budget, depth + 1)?;
                     continue;
                 }
             };
@@ -870,7 +889,13 @@ impl EstateStartup {
                 Step::Metric(action, at) => {
                     let entity = initial.country_entity(tag).expect("bound startup country");
                     initial
-                        .execute(entity, std::slice::from_ref(action))
+                        .execute_in_context(
+                            augustus_core::ScopeContext {
+                                current: entity,
+                                root,
+                            },
+                            std::slice::from_ref(action),
+                        )
                         .map_err(|e| Pending::new(at, e.to_string()))?;
                     trace.push(at.clone());
                 }
@@ -885,7 +910,7 @@ impl EstateStartup {
                             format!("unsupported_privilege_initialization:{id}"),
                         ));
                     }
-                    if *granted && !self.condition(&callback.valid, initial, tag, at)? {
+                    if *granted && !self.condition(&callback.valid, initial, tag, root, at)? {
                         return Err(Pending::new(
                             at,
                             format!("unvalidated_privilege_validity:{id}"),
@@ -925,6 +950,7 @@ impl EstateStartup {
                         },
                         initial,
                         tag,
+                        root,
                         trace,
                         budget,
                         depth + 1,
@@ -963,12 +989,12 @@ impl EstateStartup {
                 Step::Branch(branches, otherwise, at) => {
                     let mut selected: &[Step] = otherwise.as_deref().unwrap_or(&[]);
                     for (condition, body) in branches {
-                        if self.condition(condition, initial, tag, at)? {
+                        if self.condition(condition, initial, tag, root, at)? {
                             selected = body;
                             break;
                         }
                     }
-                    self.execute(selected, initial, tag, trace, budget, depth + 1)?;
+                    self.execute(selected, initial, tag, root, trace, budget, depth + 1)?;
                 }
                 Step::Countries(condition, body, at) => {
                     let countries: Vec<_> = initial
@@ -978,8 +1004,8 @@ impl EstateStartup {
                         .map(|c| c.id.clone())
                         .collect();
                     for tag in countries {
-                        if self.condition(condition, initial, &tag, at)? {
-                            self.execute(body, initial, &tag, trace, budget, depth + 1)?;
+                        if self.condition(condition, initial, &tag, root, at)? {
+                            self.execute(body, initial, &tag, root, trace, budget, depth + 1)?;
                         }
                     }
                 }
@@ -987,12 +1013,20 @@ impl EstateStartup {
                     if initial.country(tag).is_none() {
                         return Err(Pending::new(at, format!("unknown_country_scope:{tag}")));
                     }
-                    self.execute(body, initial, tag, trace, budget, depth + 1)?;
+                    self.execute(body, initial, tag, root, trace, budget, depth + 1)?;
                 }
                 Step::Scoped(selector, body, at) => {
                     if let Some(entity) = initial
                         .world()
-                        .resolve_scope(selector)
+                        .resolve_scope_in_context(
+                            selector,
+                            augustus_core::ScopeContext {
+                                current: initial
+                                    .country_entity(tag)
+                                    .expect("bound startup country"),
+                                root,
+                            },
+                        )
                         .map_err(|e| Pending::new(at, e.to_string()))?
                     {
                         let selected = initial
@@ -1011,7 +1045,7 @@ impl EstateStartup {
                             .find(|c| initial.country_entity(&c.id) == Some(entity))
                             .map(|c| c.id.clone())
                             .ok_or_else(|| Pending::new(at, "unbound startup scope entity"))?;
-                        self.execute(body, initial, &target, trace, budget, depth + 1)?;
+                        self.execute(body, initial, &target, root, trace, budget, depth + 1)?;
                     }
                 }
                 Step::Pending(reason, at) => return Err(Pending::new(at, reason)),
@@ -1026,6 +1060,7 @@ impl EstateStartup {
         condition: &Condition,
         initial: &InitialWorld,
         tag: &str,
+        root: augustus_core::EntityId,
         at: &LoadedSource,
     ) -> Result<bool, Pending> {
         let mut reasons = BTreeSet::new();
@@ -1039,7 +1074,8 @@ impl EstateStartup {
                 .and_then(|s| s.get(id))
                 .and_then(|s| s.active)
         };
-        let value = condition.evaluate(initial, tag, &mut reasons, None, Some(&lookup));
+        let value =
+            condition.evaluate_with_root(initial, tag, &mut reasons, None, Some(&lookup), root);
         value.ok_or_else(|| {
             if reasons.is_empty() {
                 reasons.insert("unknown_startup_condition".into());

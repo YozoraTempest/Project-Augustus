@@ -5,7 +5,7 @@ use rand::RngExt;
 use rand_chacha::rand_core::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, Error, FieldId, RuleId, World};
+use crate::{EntityId, EntityKind, Error, FieldId, RuleId, ScopeContext, World};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Target {
@@ -24,6 +24,10 @@ pub enum Condition {
         issuer: crate::EntityRef,
         target: crate::EntityRef,
         name: Option<String>,
+    },
+    SubjectOf {
+        subject: crate::EntityRef,
+        overlord: crate::EntityRef,
     },
     HasOwnedProvince {
         target: Target,
@@ -325,7 +329,28 @@ pub type Plan = Vec<Action>;
 
 impl Condition {
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
+        self.evaluate_in_context(world, crate::ScopeContext::new(current))
+    }
+
+    pub fn evaluate_in_context(
+        &self,
+        world: &World,
+        context: crate::ScopeContext,
+    ) -> Result<bool, Error> {
+        let current = context.current;
         match self {
+            Self::SubjectOf { subject, overlord } => {
+                let (Some(subject), Some(overlord)) = (
+                    subject.resolve_in_context(world, context)?,
+                    overlord.resolve_in_context(world, context)?,
+                ) else {
+                    return Ok(false);
+                };
+                if world.entity(overlord)?.kind != EntityKind::Country {
+                    return Ok(false);
+                }
+                world.is_subject_of(subject, overlord)
+            }
             Self::NationalFocus { target, skill } => {
                 Ok(world.national_focus(world.target(current, *target)?)?.skill == Some(*skill))
             }
@@ -335,8 +360,8 @@ impl Condition {
                 name,
             } => {
                 let (Some(issuer), Some(target)) = (
-                    issuer.resolve(world, current)?,
-                    target.resolve(world, current)?,
+                    issuer.resolve_in_context(world, context)?,
+                    target.resolve_in_context(world, context)?,
                 ) else {
                     return Ok(false);
                 };
@@ -345,12 +370,16 @@ impl Condition {
             Self::HasOwnedProvince { target } => {
                 world.has_owned_province(world.target(current, *target)?)
             }
-            Self::AnyOwnedProvince { target, condition } => {
-                world.any_owned_province(world.target(current, *target)?, condition)
-            }
-            Self::AnySubjectCountry { target, condition } => {
-                world.any_subject_country(world.target(current, *target)?, condition)
-            }
+            Self::AnyOwnedProvince { target, condition } => world.any_owned_province_in_context(
+                world.target(current, *target)?,
+                condition,
+                context,
+            ),
+            Self::AnySubjectCountry { target, condition } => world.any_subject_country_in_context(
+                world.target(current, *target)?,
+                condition,
+                context,
+            ),
             Self::SubjectType {
                 target,
                 subject_type,
@@ -368,14 +397,14 @@ impl Condition {
                         "condition scope has the wrong entity type".into(),
                     ));
                 }
-                condition.evaluate(world, selected)
+                condition.evaluate_in_context(world, context.with_current(selected))
             }
             Self::InScope {
                 selector,
                 kind,
                 condition,
             } => {
-                let Some(selected) = world.resolve_scope(selector)? else {
+                let Some(selected) = world.resolve_scope_in_context(selector, context)? else {
                     return Ok(false);
                 };
                 if world.entity(selected)?.kind != *kind {
@@ -383,7 +412,7 @@ impl Condition {
                         "condition scope has the wrong entity type".into(),
                     ));
                 }
-                condition.evaluate(world, selected)
+                condition.evaluate_in_context(world, context.with_current(selected))
             }
             Self::GeographicMember {
                 target,
@@ -532,7 +561,7 @@ impl Condition {
             }
             Self::ScopeIsCurrent(selector) => {
                 world.entity(current)?;
-                Ok(world.resolve_scope(selector)? == Some(current))
+                Ok(world.resolve_scope_in_context(selector, context)? == Some(current))
             }
             Self::Always(value) => Ok(*value),
             Self::AtLeast {
@@ -542,7 +571,7 @@ impl Condition {
             } => Ok(world.value(world.target(current, *target)?, *field)? >= *value),
             Self::All(conditions) => {
                 for condition in conditions {
-                    if !condition.evaluate(world, current)? {
+                    if !condition.evaluate_in_context(world, context)? {
                         return Ok(false);
                     }
                 }
@@ -550,13 +579,13 @@ impl Condition {
             }
             Self::Any(conditions) => {
                 for condition in conditions {
-                    if condition.evaluate(world, current)? {
+                    if condition.evaluate_in_context(world, context)? {
                         return Ok(true);
                     }
                 }
                 Ok(false)
             }
-            Self::Not(condition) => Ok(!condition.evaluate(world, current)?),
+            Self::Not(condition) => Ok(!condition.evaluate_in_context(world, context)?),
         }
     }
 }
@@ -568,16 +597,32 @@ impl World {
         self.execute_phases(current, &[plan])
     }
 
+    pub fn execute_in_context(
+        &mut self,
+        context: ScopeContext,
+        plan: &[Action],
+    ) -> Result<(), Error> {
+        self.execute_context_phases(context, &[plan])
+    }
+
     pub(crate) fn execute_phases(
         &mut self,
         current: EntityId,
+        phases: &[&[Action]],
+    ) -> Result<(), Error> {
+        self.execute_context_phases(ScopeContext::new(current), phases)
+    }
+
+    fn execute_context_phases(
+        &mut self,
+        context: ScopeContext,
         phases: &[&[Action]],
     ) -> Result<(), Error> {
         self.require_running()?;
         let mut budget = 100_000;
         let result = phases
             .iter()
-            .try_for_each(|plan| self.execute_inner(current, plan, &mut budget, 0));
+            .try_for_each(|plan| self.execute_inner(context, plan, &mut budget, 0));
         if result.is_err() {
             self.failed = true;
         }
@@ -586,6 +631,7 @@ impl World {
 
     fn execute_selected(
         &mut self,
+        context: ScopeContext,
         selected: impl IntoIterator<Item = Option<EntityId>>,
         condition: &Condition,
         plan: &[Action],
@@ -600,8 +646,9 @@ impl World {
             let Some(entity) = entity else {
                 continue;
             };
-            if condition.evaluate(self, entity)? {
-                self.execute_inner(entity, plan, budget, depth + 1)?;
+            let selected = context.with_current(entity);
+            if condition.evaluate_in_context(self, selected)? {
+                self.execute_inner(selected, plan, budget, depth + 1)?;
             }
         }
         Ok(())
@@ -609,7 +656,7 @@ impl World {
 
     pub(crate) fn execute_inner(
         &mut self,
-        current: EntityId,
+        context: ScopeContext,
         plan: &[Action],
         budget: &mut usize,
         depth: usize,
@@ -617,7 +664,8 @@ impl World {
         if depth >= 64 {
             return Err(Error::Invalid("plan call depth exceeded".into()));
         }
-        self.entity(current)?;
+        context.validate(self)?;
+        let current = context.current;
         for action in plan {
             if *budget == 0 {
                 return Err(Error::Invalid("plan instruction limit exceeded".into()));
@@ -635,7 +683,7 @@ impl World {
                 Action::SetOwner { target, owner } => {
                     let province = self.target(current, *target)?;
                     let country = owner
-                        .resolve(self, current)?
+                        .resolve_in_context(self, context)?
                         .ok_or_else(|| Error::Invalid("owner reference is absent".into()))?;
                     self.set_owner(province, country)?;
                 }
@@ -647,6 +695,7 @@ impl World {
                     let country = self.target(current, *country)?;
                     let selected = self.owned_provinces(country)?.to_vec();
                     self.execute_selected(
+                        context,
                         selected.into_iter().map(Some),
                         condition,
                         plan,
@@ -667,13 +716,18 @@ impl World {
                             return Err(Error::Invalid("instruction limit exceeded".into()));
                         }
                         *budget -= 1;
-                        if condition.evaluate(self, province)? {
+                        if condition.evaluate_in_context(self, context.with_current(province))? {
                             selected.push(province);
                         }
                     }
                     if !selected.is_empty() {
                         let index = self.random.random_range(0..selected.len());
-                        self.execute_inner(selected[index], plan, budget, depth + 1)?;
+                        self.execute_inner(
+                            context.with_current(selected[index]),
+                            plan,
+                            budget,
+                            depth + 1,
+                        )?;
                     }
                 }
                 Action::ForEach {
@@ -684,7 +738,7 @@ impl World {
                 } => {
                     let mut selected = Vec::with_capacity(selectors.len());
                     for selector in selectors {
-                        let entity = self.resolve_scope(selector)?;
+                        let entity = self.resolve_scope_in_context(selector, context)?;
                         if let Some(entity) = entity
                             && self.entity(entity)?.kind != *kind
                         {
@@ -694,7 +748,7 @@ impl World {
                         }
                         selected.push(entity);
                     }
-                    self.execute_selected(selected, condition, plan, budget, depth)?;
+                    self.execute_selected(context, selected, condition, plan, budget, depth)?;
                 }
                 Action::GrantJustification {
                     issuer,
@@ -703,8 +757,8 @@ impl World {
                     term,
                 } => {
                     if let (Some(issuer), Some(target)) = (
-                        issuer.resolve(self, current)?,
-                        target.resolve(self, current)?,
+                        issuer.resolve_in_context(self, context)?,
+                        target.resolve_in_context(self, context)?,
                     ) {
                         self.grant_justification(issuer, target, name, *term)?;
                     }
@@ -715,8 +769,8 @@ impl World {
                     name,
                 } => {
                     if let (Some(issuer), Some(target)) = (
-                        issuer.resolve(self, current)?,
-                        target.resolve(self, current)?,
+                        issuer.resolve_in_context(self, context)?,
+                        target.resolve_in_context(self, context)?,
                     ) {
                         self.remove_justification(issuer, target, name)?;
                     }
@@ -794,13 +848,18 @@ impl World {
                     kind,
                     plan,
                 } => {
-                    if let Some(selected) = self.resolve_scope(selector)? {
+                    if let Some(selected) = self.resolve_scope_in_context(selector, context)? {
                         if self.entity(selected)?.kind != *kind {
                             return Err(Error::Invalid(
                                 "named scope entity type does not match".into(),
                             ));
                         }
-                        self.execute_inner(selected, plan, budget, depth + 1)?;
+                        self.execute_inner(
+                            context.with_current(selected),
+                            plan,
+                            budget,
+                            depth + 1,
+                        )?;
                     }
                 }
                 Action::BindGlobalScope { name } => self.bind_global_scope(name, current)?,
@@ -828,7 +887,7 @@ impl World {
                     } else {
                         otherwise
                     };
-                    self.execute_inner(current, branch, budget, depth + 1)?;
+                    self.execute_inner(context, branch, budget, depth + 1)?;
                 }
                 Action::Accumulate {
                     target,
@@ -848,7 +907,7 @@ impl World {
                         .get(rule.0)
                         .ok_or_else(|| Error::Invalid(format!("unknown rule {}", rule.0)))?
                         .clone();
-                    self.execute_inner(current, &plan, budget, depth + 1)?;
+                    self.execute_inner(context, &plan, budget, depth + 1)?;
                 }
                 Action::Add {
                     target,
@@ -872,17 +931,22 @@ impl World {
                     then,
                     otherwise,
                 } => {
-                    let branch = if condition.evaluate(self, current)? {
+                    let branch = if condition.evaluate_in_context(self, context)? {
                         then
                     } else {
                         otherwise
                     };
-                    self.execute_inner(current, branch, budget, depth + 1)?;
+                    self.execute_inner(context, branch, budget, depth + 1)?;
                 }
-                Action::With { target, plan } => {
-                    self.execute_inner(self.target(current, *target)?, plan, budget, depth + 1)?
+                Action::With { target, plan } => self.execute_inner(
+                    context.with_current(self.target(current, *target)?),
+                    plan,
+                    budget,
+                    depth + 1,
+                )?,
+                Action::Schedule { delay, plan } => {
+                    self.schedule_in_context(context, *delay, plan.clone())?
                 }
-                Action::Schedule { delay, plan } => self.schedule(current, *delay, plan.clone())?,
                 Action::Emit(message) => self.emit(current, message.clone()),
             }
         }

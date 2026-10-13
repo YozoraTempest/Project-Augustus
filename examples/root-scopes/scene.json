@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 3,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": 4,
+      "values": {}
+    },
+    {
+      "name": "CCC",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "3",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "4",
+      "kind": "Province",
+      "owner": 1,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "markers": {
+    "entities": {
+      "0": {},
+      "1": {},
+      "2": {}
+    }
+  },
+  "known_absent_targets": {
+    "2": [
+      "Capital"
+    ]
+  },
+  "country_controllers": {
+    "0": "human",
+    "1": "human",
+    "2": "ai"
+  },
+  "politics": {
+    "countries": {},
+    "offices": {},
+    "relations": [
+      {
+        "kind": "subject",
+        "first": 0,
+        "second": 1,
+        "subject_type": "test_vassal"
+      }
+    ]
+  },
+  "subjects": {
+    "types": [
+      "test_vassal"
+    ],
+    "known": true
+  }
+}

@@ -300,6 +300,7 @@ pub struct ScriptCompiler<'a> {
     area_scopes: BTreeMap<String, Vec<u32>>,
     religious_school_groups: BTreeMap<String, Option<String>>,
     hidden_descriptions: bool,
+    root_scope: Option<EntityKind>,
 }
 
 impl<'a> ScriptCompiler<'a> {
@@ -322,12 +323,46 @@ impl<'a> ScriptCompiler<'a> {
             area_scopes: BTreeMap::new(),
             religious_school_groups: BTreeMap::new(),
             hidden_descriptions: false,
+            root_scope: None,
         }
     }
 
     pub(crate) fn with_hidden_descriptions(mut self, hidden: bool) -> Self {
         self.hidden_descriptions = hidden;
         self
+    }
+
+    pub(crate) fn with_root_scope(mut self, scope: EntityKind) -> Self {
+        self.root_scope = Some(scope);
+        self
+    }
+
+    fn root_kind(&self, field: &Field) -> Result<EntityKind, Error> {
+        self.root_scope
+            .ok_or_else(|| field.error("ROOT is unavailable in this callback context"))
+    }
+
+    fn subject_reference(&self, field: &Field) -> Result<augustus_core::EntityRef, Error> {
+        let value = field.scalar()?;
+        let selector = if value.eq_ignore_ascii_case("ROOT") {
+            self.root_kind(field)?;
+            ScopeSelector::Root
+        } else if country_identifier(value) {
+            ScopeSelector::Named {
+                kind: EntityKind::Country,
+                name: value.into(),
+            }
+        } else if value == "emperor" {
+            ScopeSelector::Office("imperial_emperor".into())
+        } else if let Some(name) = value.strip_prefix("event_target:") {
+            if !self.global_scope_types.contains_key(name) {
+                return Err(field.error("subject target requires a declared entity reference"));
+            }
+            ScopeSelector::Global(name.into())
+        } else {
+            return Err(field.error("unsupported subject target reference"));
+        };
+        Ok(augustus_core::EntityRef::Selected(selector))
     }
 
     /// Types come from selected content declarations, not current target values.
@@ -406,6 +441,7 @@ impl<'a> ScriptCompiler<'a> {
         location: SourceLocation,
         scope: EntityKind,
     ) -> Result<Condition, Error> {
+        self.root_scope.get_or_insert(scope);
         let Condition::All(mut conditions) = self.conditions(
             &[Field {
                 name: name.into(),
@@ -426,6 +462,7 @@ impl<'a> ScriptCompiler<'a> {
         mut self,
         documents: &[TextDocument],
     ) -> Result<augustus_core::Objectives, Error> {
+        self.root_scope = Some(EntityKind::Country);
         let mut groups = Vec::new();
         for document in documents {
             for mut group in self.compile_mission_groups(document)? {
@@ -696,7 +733,9 @@ impl<'a> ScriptCompiler<'a> {
         }
         self.sources.push((field.path.clone(), field.location));
         self.stack.push(key);
+        let root_scope = self.root_scope.take();
         let result = self.effects(field.block()?, EntityKind::Country);
+        self.root_scope = root_scope;
         self.stack.pop();
         result
     }
@@ -825,6 +864,7 @@ impl<'a> ScriptCompiler<'a> {
         location: SourceLocation,
         scope: EntityKind,
     ) -> Result<Plan, Error> {
+        self.root_scope.get_or_insert(scope);
         self.effects(
             &[Field {
                 name: name.into(),
@@ -844,6 +884,7 @@ impl<'a> ScriptCompiler<'a> {
         location: SourceLocation,
         scope: EntityKind,
     ) -> Result<Condition, Error> {
+        self.root_scope.get_or_insert(scope);
         self.conditions(
             &[Field {
                 name: name.into(),
@@ -890,6 +931,7 @@ impl<'a> ScriptCompiler<'a> {
         document: &TextDocument,
         scope: EntityKind,
     ) -> Result<CompiledScript, Error> {
+        self.root_scope.get_or_insert(scope);
         let parsed = document.parse()?;
         let fields = read_fields(&parsed, parsed.reader(), 0, false)?;
         let plan = self.effects(&fields, scope)?;
@@ -908,6 +950,7 @@ impl<'a> ScriptCompiler<'a> {
         location: SourceLocation,
         scope: EntityKind,
     ) -> Result<Plan, Error> {
+        self.root_scope.get_or_insert(scope);
         self.effects(
             &[Field {
                 name: name.into(),
@@ -1005,6 +1048,7 @@ impl<'a> ScriptCompiler<'a> {
                 options: Vec::new(),
                 after: Vec::new(),
             };
+            self.root_scope = Some(scope);
             let mut seen = std::collections::BTreeSet::new();
             let mut explicit = false;
             let mut condition = None;
@@ -1277,6 +1321,14 @@ impl<'a> ScriptCompiler<'a> {
             let field = &fields[index];
             self.sources.push((field.path.clone(), field.location));
             match field.name.as_str() {
+                "ROOT" | "root" => {
+                    let kind = self.root_kind(field)?;
+                    plan.push(Action::InScope {
+                        selector: ScopeSelector::Root,
+                        kind,
+                        plan: self.effects(field.block()?, kind)?,
+                    });
+                }
                 "every_owned_province" | "random_owned_province" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("owned province effects require country scope"));
@@ -1805,6 +1857,23 @@ impl<'a> ScriptCompiler<'a> {
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "ROOT" | "root" => {
+                    let kind = self.root_kind(field)?;
+                    Condition::InScope {
+                        selector: ScopeSelector::Root,
+                        kind,
+                        condition: Box::new(self.conditions(field.block()?, kind)?),
+                    }
+                }
+                "is_subject_of" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("subject queries require country scope"));
+                    }
+                    Condition::SubjectOf {
+                        subject: augustus_core::EntityRef::Relative(Target::Current),
+                        overlord: self.subject_reference(field)?,
+                    }
+                }
                 "num_of_subjects" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("subject count requires country scope"));

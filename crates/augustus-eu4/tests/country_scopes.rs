@@ -124,8 +124,6 @@ fn nested_country_bodies_are_checked_before_optimisation_and_numeric_scopes_keep
             "BBB={owner={log=invalid}}",
             "BBB={province_event={id=invalid}}",
             "if={limit={BBB={province_id=1}} log=invalid}",
-            "root={log=invalid}",
-            "ROOT={log=invalid}",
             "bbb={log=invalid}",
         ] {
             let error = ScriptCompiler::new(&schema, &library, optimise)

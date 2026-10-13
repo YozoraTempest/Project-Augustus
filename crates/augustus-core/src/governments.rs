@@ -401,7 +401,7 @@ impl World {
         // Validate the request before the callback can write anything.
         self.governments.form_definition(kind)?;
         self.government_kind(entity)?;
-        self.execute_inner(entity, before, budget, depth + 1)?;
+        self.execute_inner(crate::ScopeContext::new(entity), before, budget, depth + 1)?;
         // Callbacks may change the current state. Apply the outer request to the
         // state that remains when the callback returns.
         if self.government_kind(entity)? == kind {

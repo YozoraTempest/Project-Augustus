@@ -71,6 +71,8 @@ struct Task {
     day: u64,
     sequence: u64,
     current: EntityId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    root: Option<EntityId>,
     plan: Plan,
 }
 
@@ -582,8 +584,17 @@ impl World {
     }
 
     pub fn schedule(&mut self, current: EntityId, delay: u64, plan: Plan) -> Result<(), Error> {
+        self.schedule_in_context(crate::ScopeContext::new(current), delay, plan)
+    }
+
+    pub fn schedule_in_context(
+        &mut self,
+        context: crate::ScopeContext,
+        delay: u64,
+        plan: Plan,
+    ) -> Result<(), Error> {
         self.require_running()?;
-        self.entity(current)?;
+        context.validate(self)?;
         validate_plan(
             &plan,
             &self.schema,
@@ -609,7 +620,8 @@ impl World {
             Task {
                 day,
                 sequence,
-                current,
+                current: context.current,
+                root: (context.root != context.current).then_some(context.root),
                 plan,
             },
         );
@@ -696,7 +708,13 @@ impl World {
                 .is_some_and(|(key, _)| key.0 == next)
             {
                 let (_, task) = self.tasks.pop_first().expect("checked nonempty queue");
-                self.execute(task.current, &task.plan)?;
+                self.execute_in_context(
+                    crate::ScopeContext {
+                        current: task.current,
+                        root: task.root.unwrap_or(task.current),
+                    },
+                    &task.plan,
+                )?;
             }
             self.process_event_commands()?;
             if !self.justifications.active.is_empty()
@@ -940,6 +958,9 @@ impl World {
                 return Err(Error::Invalid("invalid saved task order".into()));
             }
             world.entity(task.current)?;
+            if let Some(root) = task.root {
+                world.entity(root)?;
+            }
             validate_plan(
                 &task.plan,
                 schema,
@@ -1332,6 +1353,10 @@ pub(crate) fn validate_condition(
     subjects: &crate::Subjects,
 ) -> Result<(), Error> {
     match condition {
+        crate::Condition::SubjectOf { subject, overlord } => {
+            subject.validate()?;
+            overlord.validate()
+        }
         crate::Condition::HasJustification {
             issuer,
             target,

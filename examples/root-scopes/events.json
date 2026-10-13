@@ -1,0 +1,266 @@
+[
+  {
+    "id": "roots.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "SubjectOf": {
+                        "subject": {
+                          "Relative": "Current"
+                        },
+                        "overlord": {
+                          "Selected": "Root"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "InScope": {
+                      "selector": "Root",
+                      "kind": "Country",
+                      "plan": [
+                        {
+                          "Emit": "parent_nested"
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "otherwise": []
+              }
+            },
+            {
+            "TriggerEvent": {
+                "event": "roots.child"
+              }
+            },
+            {
+              "InScope": {
+                "selector": "Root",
+                "kind": "Country",
+                "plan": [
+                  {
+                    "Emit": "parent_return"
+                  }
+                ]
+              }
+            },
+            {
+              "Schedule": {
+                "delay": 1,
+                "plan": [
+                  {
+                  "TriggerEvent": {
+                      "event": "roots.later"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "With": {
+          "target": "Capital",
+          "plan": [
+            {
+            "TriggerEvent": {
+                "event": "roots.port"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "InScope": {
+              "selector": "Root",
+              "kind": "Country",
+              "plan": [
+                {
+                  "Emit": "parent_option"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "roots.child",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": "Root",
+          "kind": "Country",
+          "plan": [
+            {
+              "Emit": "child_root"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "InScope": {
+              "selector": "Root",
+              "kind": "Country",
+              "plan": [
+                {
+                  "Emit": "child_option"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "roots.port",
+    "scope": "Province",
+    "immediate": [
+      {
+        "With": {
+          "target": "Owner",
+          "plan": [
+            {
+              "InScope": {
+                "selector": "Root",
+                "kind": "Province",
+                "plan": [
+                  {
+                    "Emit": "province_root"
+                  }
+                ]
+              }
+            },
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "InScope": {
+                        "selector": {
+                          "Named": {
+                            "kind": "Country",
+                            "name": "BBB"
+                          }
+                        },
+                        "kind": "Country",
+                        "condition": {
+                          "All": [
+                            {
+                              "SubjectOf": {
+                                "subject": {
+                                  "Relative": "Current"
+                                },
+                                "overlord": {
+                                  "Selected": "Root"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "wrong_projection"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "InScope": {
+              "selector": "Root",
+              "kind": "Province",
+              "plan": [
+                {
+                  "Emit": "province_option"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "roots.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": "Root",
+          "kind": "Country",
+          "plan": [
+            {
+              "Emit": "later_root"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "InScope": {
+              "selector": "Root",
+              "kind": "Country",
+              "plan": [
+                {
+                  "Emit": "later_option"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

@@ -245,6 +245,14 @@ impl InitialWorld {
         self.world.execute(current, plan)
     }
 
+    pub fn execute_in_context(
+        &mut self,
+        context: crate::ScopeContext,
+        plan: &[crate::Action],
+    ) -> Result<(), Error> {
+        self.world.execute_in_context(context, plan)
+    }
+
     pub fn set_event_catalog(&mut self, catalog: crate::EventCatalog) -> Result<(), Error> {
         self.world.set_event_catalog(catalog)
     }

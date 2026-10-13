@@ -1,0 +1,24 @@
+{
+  "roots.child": {
+    "0": {
+      "All": [
+        {
+          "InScope": {
+            "selector": "Root",
+            "kind": "Country",
+            "condition": {
+              "All": [
+                {
+                  "EntityNamed": {
+                    "target": "Current",
+                    "name": "BBB"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -120,6 +120,15 @@ impl World {
         country: EntityId,
         condition: &crate::Condition,
     ) -> Result<bool, Error> {
+        self.any_owned_province_in_context(country, condition, crate::ScopeContext::new(country))
+    }
+
+    pub(crate) fn any_owned_province_in_context(
+        &self,
+        country: EntityId,
+        condition: &crate::Condition,
+        context: crate::ScopeContext,
+    ) -> Result<bool, Error> {
         if self.entity(country)?.kind != EntityKind::Country {
             return Err(Error::Invalid(
                 "province ownership query requires a country".into(),
@@ -127,7 +136,7 @@ impl World {
         }
         if let Some(members) = self.ownership.members.get(&country) {
             for &province in members {
-                if condition.evaluate(self, province)? {
+                if condition.evaluate_in_context(self, context.with_current(province))? {
                     return Ok(true);
                 }
             }

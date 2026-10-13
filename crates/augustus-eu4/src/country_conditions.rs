@@ -59,11 +59,12 @@ impl Condition {
                 let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
                 equal(op, &fail)?;
                 Ok(match name.as_str() {
-                    "is_subject_of_type" | "any_subject_country" => {
+                    "is_subject_of" | "is_subject_of_type" | "any_subject_country" => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
                         let compiler = crate::ScriptCompiler::new(&schema, &library, false)
+                            .with_root_scope(augustus_core::EntityKind::Country)
                             .with_metric_ids(
                                 ["stability", "adm_power", "dip_power", "mil_power"]
                                     .map(String::from)
@@ -368,6 +369,7 @@ impl Condition {
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
                         match crate::ScriptCompiler::new(&schema, &library, true)
+                            .with_root_scope(augustus_core::EntityKind::Country)
                             .with_metric_ids(
                                 ["stability", "adm_power", "dip_power", "mil_power"]
                                     .map(String::from)
@@ -387,13 +389,15 @@ impl Condition {
                             }
                         }
                     }
-                    _ if crate::script::country_identifier(&name)
+                    _ if (crate::script::country_identifier(&name)
+                        || matches!(name.as_str(), "ROOT" | "root"))
                         && value.read_object().is_ok() =>
                     {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
                         match crate::ScriptCompiler::new(&schema, &library, true)
+                            .with_root_scope(augustus_core::EntityKind::Country)
                             .with_metric_ids(
                                 ["stability", "adm_power", "dip_power", "mil_power"]
                                     .map(String::from)
@@ -555,6 +559,25 @@ impl Condition {
         province: Option<augustus_core::EntityId>,
         estates: EstateLookup<'_>,
     ) -> Option<bool> {
+        self.evaluate_with_root(
+            initial,
+            tag,
+            reasons,
+            province,
+            estates,
+            initial.country_entity(tag).expect("registered country"),
+        )
+    }
+
+    pub(super) fn evaluate_with_root(
+        &self,
+        initial: &InitialWorld,
+        tag: &str,
+        reasons: &mut BTreeSet<String>,
+        province: Option<augustus_core::EntityId>,
+        estates: EstateLookup<'_>,
+        root: augustus_core::EntityId,
+    ) -> Option<bool> {
         match self {
             Self::Subject(condition) => {
                 let entity = province
@@ -562,8 +585,15 @@ impl Condition {
                 match initial
                     .world()
                     .validate_condition(condition)
-                    .and_then(|()| condition.evaluate(initial.world(), entity))
-                {
+                    .and_then(|()| {
+                        condition.evaluate_in_context(
+                            initial.world(),
+                            augustus_core::ScopeContext {
+                                current: entity,
+                                root,
+                            },
+                        )
+                    }) {
                     Ok(value) => Some(value),
                     Err(error) => {
                         reasons.insert(format!("unknown_subject_condition:{error}"));
@@ -616,7 +646,13 @@ impl Condition {
             Self::Numeric(condition) | Self::Scoped(condition) => {
                 let entity = province
                     .unwrap_or_else(|| initial.country_entity(tag).expect("registered country"));
-                match condition.evaluate(initial.world(), entity) {
+                match condition.evaluate_in_context(
+                    initial.world(),
+                    augustus_core::ScopeContext {
+                        current: entity,
+                        root,
+                    },
+                ) {
                     Ok(value) => Some(value),
                     Err(error) => {
                         let kind = if matches!(self, Self::Scoped(_)) {
@@ -675,11 +711,13 @@ impl Condition {
             }
             Self::If(limit, body) => {
                 let mut pending = BTreeSet::new();
-                let limit = limit.evaluate(initial, tag, &mut pending, province, estates);
+                let limit =
+                    limit.evaluate_with_root(initial, tag, &mut pending, province, estates, root);
                 if limit == Some(false) {
                     return Some(true);
                 }
-                let value = body.evaluate(initial, tag, &mut pending, province, estates);
+                let value =
+                    body.evaluate_with_root(initial, tag, &mut pending, province, estates, root);
                 if value == Some(true) {
                     return Some(true);
                 }
@@ -707,7 +745,14 @@ impl Condition {
                 let mut unknown = false;
                 let mut pending = BTreeSet::new();
                 for child in children {
-                    match child.evaluate(initial, tag, &mut pending, province, estates) {
+                    match child.evaluate_with_root(
+                        initial,
+                        tag,
+                        &mut pending,
+                        province,
+                        estates,
+                        root,
+                    ) {
                         Some(value) if value != all => {
                             return Some(if matches!(self, Self::None(_)) {
                                 false
@@ -736,7 +781,14 @@ impl Condition {
                 let mut pending = BTreeSet::new();
                 let mut unknown = false;
                 for child in children {
-                    match child.evaluate(initial, tag, &mut pending, capital, estates) {
+                    match child.evaluate_with_root(
+                        initial,
+                        tag,
+                        &mut pending,
+                        capital,
+                        estates,
+                        root,
+                    ) {
                         Some(false) => return Some(false),
                         None => unknown = true,
                         _ => (),

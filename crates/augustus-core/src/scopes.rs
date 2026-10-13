@@ -5,6 +5,32 @@ use serde::{Deserialize, Serialize};
 
 use crate::{EntityId, Error, World};
 
+/// Current selection and the entity that owns this execution or query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScopeContext {
+    pub current: EntityId,
+    pub root: EntityId,
+}
+
+impl ScopeContext {
+    pub fn new(current: EntityId) -> Self {
+        Self {
+            current,
+            root: current,
+        }
+    }
+
+    pub fn with_current(self, current: EntityId) -> Self {
+        Self { current, ..self }
+    }
+
+    pub(crate) fn validate(self, world: &World) -> Result<(), Error> {
+        world.entity(self.current)?;
+        world.entity(self.root)?;
+        Ok(())
+    }
+}
+
 /// An endpoint selected relative to the executing entity or by a live name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntityRef {
@@ -21,9 +47,17 @@ impl EntityRef {
     }
 
     pub fn resolve(&self, world: &World, current: EntityId) -> Result<Option<EntityId>, Error> {
+        self.resolve_in_context(world, ScopeContext::new(current))
+    }
+
+    pub fn resolve_in_context(
+        &self,
+        world: &World,
+        context: ScopeContext,
+    ) -> Result<Option<EntityId>, Error> {
         match self {
-            Self::Relative(target) => world.condition_target(current, *target),
-            Self::Selected(selector) => world.resolve_scope(selector),
+            Self::Relative(target) => world.condition_target(context.current, *target),
+            Self::Selected(selector) => world.resolve_scope_in_context(selector, context),
         }
     }
 }
@@ -31,6 +65,7 @@ impl EntityRef {
 /// A live reference resolved from authoritative world state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScopeSelector {
+    Root,
     Office(String),
     Global(String),
     Named {
@@ -41,8 +76,12 @@ pub enum ScopeSelector {
 
 impl ScopeSelector {
     pub(crate) fn validate(&self) -> Result<(), Error> {
-        let (Self::Office(name) | Self::Global(name) | Self::Named { name, .. }) = self;
-        validate_name(name)
+        match self {
+            Self::Root => Ok(()),
+            Self::Office(name) | Self::Global(name) | Self::Named { name, .. } => {
+                validate_name(name)
+            }
+        }
     }
 }
 
@@ -190,6 +229,11 @@ impl World {
             return Ok(Some(id));
         }
         let selected = match selector {
+            ScopeSelector::Root => {
+                return Err(Error::Invalid(
+                    "root selection requires an execution context".into(),
+                ));
+            }
             ScopeSelector::Office(name) => self.politics.offices.get(name),
             ScopeSelector::Global(name) => self.global_scopes.get(name),
             ScopeSelector::Named { .. } => unreachable!("named scope resolved above"),
@@ -198,6 +242,19 @@ impl World {
             self.entity(entity)?;
         }
         Ok(selected.copied())
+    }
+
+    pub fn resolve_scope_in_context(
+        &self,
+        selector: &ScopeSelector,
+        context: ScopeContext,
+    ) -> Result<Option<EntityId>, Error> {
+        if matches!(selector, ScopeSelector::Root) {
+            self.entity(context.root)?;
+            Ok(Some(context.root))
+        } else {
+            self.resolve_scope(selector)
+        }
     }
 
     pub fn global_scopes(&self) -> &std::collections::BTreeMap<String, EntityId> {
