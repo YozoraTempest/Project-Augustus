@@ -37,6 +37,45 @@ fn write(root: &Path, name: &str, text: &str) {
 }
 
 #[test]
+fn startup_retains_country_declaration_order_and_binds_events_inside_subject_iteration() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/country_tags/test.txt",
+        "BBB=\"countries/Beta.txt\" AAA=\"countries/Alpha.txt\"",
+    );
+    write(
+        temp.path(),
+        "common/on_actions/iteration.txt",
+        "on_startup={if={limit={tag=AAA} every_subject_country={limit={is_subject_of_type=test_vassal} country_event={id=subject_child}}}}",
+    );
+    write(
+        temp.path(),
+        "events/iteration.txt",
+        "country_event={id=subject_child is_triggered_only=yes trigger={ROOT={tag=BBB}} immediate={log=subject_child} option={name=continue}}",
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.startup_unresolved.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    let first = loaded.initial.country_entity("AAA").unwrap();
+    let second = loaded.initial.country_entity("BBB").unwrap();
+    assert_eq!(
+        loaded.initial.world().subject_country_order(),
+        [second, first]
+    );
+    assert_eq!(
+        loaded.initial.world().events().last().unwrap().2,
+        "subject_child"
+    );
+    let saved = loaded.save().unwrap();
+    loaded.restore(&saved).unwrap();
+    assert_eq!(loaded.save().unwrap(), saved);
+}
+
+#[test]
 fn count_thresholds_use_explicit_counts_instead_of_membership_in_both_modes() {
     let schema = Schema::new(["unused"]).unwrap();
     let library = ScriptLibrary::new();

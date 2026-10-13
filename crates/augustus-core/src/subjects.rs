@@ -63,6 +63,30 @@ pub(crate) struct SubjectIndex {
 }
 
 impl SubjectIndex {
+    pub(crate) fn apply_order(&mut self, order: &[EntityId]) -> Result<(), Error> {
+        if order.is_empty() {
+            return Ok(());
+        }
+        let ranks: BTreeMap<_, _> = order
+            .iter()
+            .enumerate()
+            .map(|(rank, &id)| (id, rank))
+            .collect();
+        if self
+            .members
+            .values()
+            .flatten()
+            .any(|id| !ranks.contains_key(id))
+        {
+            return Err(Error::Invalid(
+                "subject relation references a country outside the declared order".into(),
+            ));
+        }
+        for members in self.members.values_mut() {
+            members.sort_by_key(|id| ranks[id]);
+        }
+        Ok(())
+    }
     pub(crate) fn from_politics(politics: &Politics) -> Self {
         let mut result = Self::default();
         for (index, relation) in politics.relations.iter().enumerate() {
@@ -80,6 +104,42 @@ impl SubjectIndex {
 }
 
 impl World {
+    /// An optional priority for every country, independent of membership records.
+    /// Empty uses entity order. Explicit priorities must list every country once.
+    pub fn set_subject_country_order(&mut self, order: Vec<EntityId>) -> Result<(), Error> {
+        self.require_running()?;
+        let countries: Vec<_> = self
+            .entities()
+            .iter()
+            .enumerate()
+            .filter(|(_, entity)| entity.kind == EntityKind::Country)
+            .map(|(id, _)| EntityId(id))
+            .collect();
+        if !order.is_empty()
+            && (order.len() != countries.len()
+                || order.iter().copied().collect::<BTreeSet<_>>()
+                    != countries.iter().copied().collect())
+        {
+            return Err(Error::Invalid(
+                "subject country order must contain every country exactly once".into(),
+            ));
+        }
+        let order = if order == countries {
+            Vec::new()
+        } else {
+            order
+        };
+        let mut index = SubjectIndex::from_politics(&self.politics);
+        index.apply_order(&order)?;
+        self.subject_country_order = order;
+        self.subject_index = index;
+        Ok(())
+    }
+
+    pub fn subject_country_order(&self) -> &[EntityId] {
+        &self.subject_country_order
+    }
+
     pub fn subjects(&self) -> &Subjects {
         &self.subjects
     }

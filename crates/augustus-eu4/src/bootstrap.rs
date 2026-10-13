@@ -367,6 +367,7 @@ impl VanillaWorld {
             .collect();
         let files = root.files()?;
         let mut countries = BTreeMap::new();
+        let mut country_order = Vec::new();
         let mut country_sources = BTreeMap::new();
         for file in files
             .iter()
@@ -418,6 +419,7 @@ impl VanillaWorld {
                 if countries.insert(id.clone(), country).is_some() {
                     return Err(fail("duplicate country identifier"));
                 }
+                country_order.push(id.clone());
                 country_sources.insert(
                     id,
                     vec![
@@ -749,6 +751,13 @@ impl VanillaWorld {
                 known: subject_history_known,
                 counts: subject_counts,
             })
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        let subject_country_order = country_order
+            .iter()
+            .map(|id| initial.country_entity(id).expect("registered country"))
+            .collect();
+        initial
+            .set_subject_country_order(subject_country_order)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let economy = economy.bind(&initial, &province_histories, &mut report.economy)?;
         initial

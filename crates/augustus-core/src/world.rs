@@ -96,6 +96,7 @@ pub struct World {
     pub(crate) truce_expirations: crate::truces::TruceExpirations,
     pub(crate) subjects: crate::Subjects,
     pub(crate) subject_index: crate::subjects::SubjectIndex,
+    pub(crate) subject_country_order: Vec<EntityId>,
     pub(crate) country_controllers: BTreeMap<EntityId, crate::CountryController>,
     pub(crate) global_scopes: BTreeMap<String, EntityId>,
     pub(crate) known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
@@ -137,6 +138,8 @@ struct Snapshot {
     entities: Vec<Entity>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     owned_province_order: BTreeMap<EntityId, Vec<EntityId>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    subject_country_order: Vec<EntityId>,
     day: u64,
     next_sequence: u64,
     tasks: Vec<Task>,
@@ -234,6 +237,7 @@ impl World {
             truce_expirations: Default::default(),
             subjects: crate::Subjects::default(),
             subject_index: crate::subjects::SubjectIndex::default(),
+            subject_country_order: Vec::new(),
             country_controllers: BTreeMap::new(),
             global_scopes: BTreeMap::new(),
             known_absent_targets: BTreeMap::new(),
@@ -540,6 +544,9 @@ impl World {
         if kind == EntityKind::Province {
             Arc::make_mut(&mut self.ownership).add_province();
         }
+        if kind == EntityKind::Country && !self.subject_country_order.is_empty() {
+            self.subject_country_order.push(id);
+        }
         self.entities.push(Entity {
             name,
             kind,
@@ -800,6 +807,7 @@ impl World {
             schema: self.schema.clone(),
             entities: self.entities.clone(),
             owned_province_order: self.ownership.order_overrides(),
+            subject_country_order: self.subject_country_order.clone(),
             day: self.day,
             next_sequence: self.next_sequence,
             tasks: self.tasks.values().cloned().collect(),
@@ -884,6 +892,7 @@ impl World {
             truce_expirations: Default::default(),
             subjects: snapshot.subjects,
             subject_index: crate::subjects::SubjectIndex::default(),
+            subject_country_order: Vec::new(),
             country_controllers: snapshot.country_controllers,
             global_scopes: snapshot.global_scopes,
             known_absent_targets: snapshot.known_absent_targets,
@@ -914,6 +923,7 @@ impl World {
         };
         world.rebuild_ownership();
         world.subject_index = crate::subjects::SubjectIndex::from_politics(&world.politics);
+        world.set_subject_country_order(snapshot.subject_country_order)?;
         Arc::make_mut(&mut world.ownership).restore_order(snapshot.owned_province_order)?;
         for (id, entity) in world.entities.iter().enumerate() {
             world
@@ -1149,7 +1159,10 @@ pub(crate) fn validate_plan(
                 )?;
             }
             Action::SetOwner { owner, .. } => owner.validate()?,
-            Action::ForEachOwnedProvince {
+            Action::ForEachSubjectCountry {
+                condition, plan, ..
+            }
+            | Action::ForEachOwnedProvince {
                 condition, plan, ..
             }
             | Action::RandomOwnedProvince {

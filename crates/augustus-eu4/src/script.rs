@@ -1471,6 +1471,28 @@ impl<'a> ScriptCompiler<'a> {
                         plan: self.effects(field.block()?, kind)?,
                     });
                 }
+                "every_subject_country" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("subject effects require country scope"));
+                    }
+                    let mut body = Vec::new();
+                    let mut limit = None;
+                    for part in field.block()? {
+                        if part.name == "limit" {
+                            if limit.is_some() {
+                                return Err(part.error("duplicate subject limit"));
+                            }
+                            limit = Some(self.conditions(part.block()?, EntityKind::Country)?);
+                        } else {
+                            body.push(part.clone());
+                        }
+                    }
+                    plan.push(Action::ForEachSubjectCountry {
+                        country: Target::Current,
+                        condition: limit.unwrap_or(Condition::Always(true)),
+                        plan: self.effects(&body, EntityKind::Country)?,
+                    });
+                }
                 "every_owned_province" | "random_owned_province" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("owned province effects require country scope"));
@@ -2811,6 +2833,7 @@ fn simplify_event_calls(plan: &mut Plan, unconditional: &BTreeSet<String>) {
             | Action::InScope { plan, .. }
             | Action::ForEach { plan, .. }
             | Action::ForEachOwnedProvince { plan, .. }
+            | Action::ForEachSubjectCountry { plan, .. }
             | Action::RandomOwnedProvince { plan, .. }
             | Action::Schedule { plan, .. }
             | Action::Preview { plan } => simplify_event_calls(plan, unconditional),
@@ -2880,6 +2903,7 @@ pub(crate) fn event_references(plan: &[Action], references: &mut BTreeSet<String
             | Action::InScope { plan, .. }
             | Action::ForEach { plan, .. }
             | Action::ForEachOwnedProvince { plan, .. }
+            | Action::ForEachSubjectCountry { plan, .. }
             | Action::RandomOwnedProvince { plan, .. }
             | Action::Schedule { plan, .. }
             | Action::Preview { plan } => event_references(plan, references),

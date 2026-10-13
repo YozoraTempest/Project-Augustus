@@ -34,6 +34,8 @@ struct Scene {
     truce_months: Option<u32>,
     #[serde(default, skip_serializing_if = "augustus_core::Subjects::is_empty")]
     subjects: augustus_core::Subjects,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    subject_country_order: Vec<EntityId>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     global_scope_types: BTreeMap<String, EntityKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -507,6 +509,7 @@ impl EventDemo {
             world.set_politics(politics)?;
         }
         world.set_subjects(scene.subjects)?;
+        world.set_subject_country_order(scene.subject_country_order)?;
         world.set_truces(scene.truces)?;
         world.set_country_resources(scene.country_resources)?;
         world.set_completions(scene.completions)?;
@@ -748,6 +751,7 @@ fn effect_labels(
             | Action::InScope { plan, .. }
             | Action::ForEach { plan, .. }
             | Action::ForEachOwnedProvince { plan, .. }
+            | Action::ForEachSubjectCountry { plan, .. }
             | Action::RandomOwnedProvince { plan, .. }
             | Action::Schedule { plan, .. }
             | Action::Preview { plan } => effect_labels(plan, durations, descriptions),

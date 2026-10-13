@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "CCC",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "DDD",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "EEE",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "markers": {
+    "entities": {
+      "0": {},
+      "1": {},
+      "2": {},
+      "3": {},
+      "4": {}
+    }
+  },
+  "global_markers": {
+    "known": true,
+    "values": {}
+  },
+  "country_controllers": {
+    "0": "human",
+    "1": "human",
+    "2": "human",
+    "3": "human",
+    "4": "human"
+  },
+  "politics": {
+    "countries": {},
+    "offices": {},
+    "relations": [
+      {
+        "kind": "subject",
+        "first": 0,
+        "second": 1,
+        "subject_type": "test_vassal"
+      },
+      {
+        "kind": "subject",
+        "first": 0,
+        "second": 2,
+        "subject_type": "test_union"
+      },
+      {
+        "kind": "subject",
+        "first": 1,
+        "second": 3,
+        "subject_type": "test_union"
+      }
+    ]
+  },
+  "subjects": {
+    "types": [
+      "test_vassal",
+      "test_union"
+    ],
+    "known": true,
+    "counts": {
+      "0": 9
+    }
+  },
+  "subject_country_order": [
+    0,
+    2,
+    1,
+    3,
+    4
+  ],
+  "modifiers": {
+    "definitions": {
+      "brief": {
+        "values_micros": {},
+        "flags": {}
+      }
+    },
+    "active": {}
+  }
+}

@@ -314,6 +314,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 `add_republican_tradition`、`add_devotion` 使用共享政体指标的字面增减，查询可以读取保留的停用值，增减只作用于活动指标。跨类型进入时的数值规则由内容声明；普通共和国保留高于进入下限的传统，神权奉献值使用固定进入值。玩家、AI、延期与读档示例见 [共和传统与奉献值](../examples/republic-metrics/README.md)。原版开局初值、自然增长及完整属性缩放尚未接通。
 
+`every_subject_country` 进入时选择当前直属关系，按国家执行顺序逐项检查实时 `limit`，复用同一核心的作用域、预算与事件计划。兼容入口提供国家声明顺序，原生内容可以声明 `subject_country_order`；数量观察不参与生成成员。嵌套、延期、提示与交叉读档示例见 [直属属国遍历](../examples/subject-iteration/README.md)。完整关系创建、解除及数量刷新仍未接通。
+
 `is_triggered_only=yes` 事件可以包含不参与显式调用的 `mean_time_to_happen`。兼容层校验单一时间单位、因子和已支持条件，然后消除这份不参与执行的声明；不读取修正条件的运行时状态，不延后调用或安排自动重试。显式 `days` 参数继续使用原有延期计划。原生内容无需添加这份声明，用法和限制见 [显式事件与平均时间声明](../examples/event-timing/README.md)。
 
 周期自动候选、其他 `on_action` 调度、自然事件的MTTH概率、过期处理及完整 `ROOT`／`FROM`／`PREV` 上下文尚未支持。相关字段或不支持的效果会报告来源位置，整份输入编译失败。核心命令拒绝非法选择；原版某些异常选项编号会移除待选记录的行为不在本接口的支持范围内。完整原版战役事件和 Godot 事件界面仍未跑通。

@@ -352,7 +352,9 @@ impl World {
         for relation in previous.symmetric_difference(&current) {
             self.subjects.counts.remove(&relation.first);
         }
-        self.subject_index = crate::subjects::SubjectIndex::from_politics(&politics);
+        let mut index = crate::subjects::SubjectIndex::from_politics(&politics);
+        index.apply_order(&self.subject_country_order)?;
+        self.subject_index = index;
         self.politics = politics;
         Ok(())
     }

@@ -238,6 +238,7 @@ impl Compiler {
                 }
                 "country_event"
                 | "every_owned_province"
+                | "every_subject_country"
                 | "random_owned_province"
                 | "add_casus_belli"
                 | "reverse_add_casus_belli"

@@ -1,0 +1,187 @@
+[
+  {
+    "id": "subject_demo.1",
+    "scope": "Country",
+    "immediate": [
+      {
+        "ForEachSubjectCountry": {
+          "country": "Current",
+          "condition": {
+            "Always": true
+          },
+          "plan": [
+            {
+              "SetMarker": {
+                "target": "Current",
+                "name": "visited",
+                "present": true
+              }
+            },
+            {
+              "Emit": "all"
+            }
+          ]
+        }
+      },
+      {
+        "SetGlobalMarker": {
+          "name": "gate",
+          "present": true
+        }
+      },
+      {
+        "ForEachSubjectCountry": {
+          "country": "Current",
+          "condition": {
+            "All": [
+              {
+                "HasGlobalMarker": {
+                  "name": "gate"
+                }
+              }
+            ]
+          },
+          "plan": [
+            {
+              "SetGlobalMarker": {
+                "name": "gate",
+                "present": false
+              }
+            },
+            {
+              "Emit": "first"
+            }
+          ]
+        }
+      },
+      {
+        "ForEachSubjectCountry": {
+          "country": "Current",
+          "condition": {
+            "Always": true
+          },
+          "plan": [
+            {
+              "InScope": {
+                "selector": "Root",
+                "kind": "Country",
+                "plan": [
+                  {
+                    "ForEachSubjectCountry": {
+                      "country": "Current",
+                      "condition": {
+                        "All": [
+                          {
+                            "SubjectType": {
+                              "target": "Current",
+                              "subject_type": "test_union"
+                            }
+                          }
+                        ]
+                      },
+                      "plan": [
+                        {
+                          "Emit": "inner"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "Emit": "outer"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "ForEachSubjectCountry": {
+              "country": "Current",
+              "condition": {
+                "All": [
+                  {
+                    "SubjectType": {
+                      "target": "Current",
+                      "subject_type": "test_union"
+                    }
+                  }
+                ]
+              },
+              "plan": [
+                {
+                  "Description": {
+                    "key": "subject_group"
+                  }
+                },
+                {
+                  "AttachModifier": {
+                    "target": "Current",
+                    "name": "brief",
+                    "duration": 5,
+                    "hidden": null,
+                    "renewal": "KeepLatestDated",
+                    "duration_label": "subject_duration"
+                  }
+                },
+                {
+                  "Schedule": {
+                    "delay": 2,
+                    "plan": [
+                      {
+                        "TriggerEvent": {
+                          "event": "subject_demo.2"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "subject_demo.2",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": "Root",
+          "kind": "Country",
+          "plan": [
+            {
+              "Emit": "child"
+            }
+          ]
+        }
+      },
+      {
+        "SetMarker": {
+          "target": "Current",
+          "name": "child_started",
+          "present": true
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "chosen"
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

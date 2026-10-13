@@ -207,6 +207,10 @@ impl InitialWorld {
         self.world.set_subjects(subjects)
     }
 
+    pub fn set_subject_country_order(&mut self, order: Vec<EntityId>) -> Result<(), Error> {
+        self.world.set_subject_country_order(order)
+    }
+
     pub fn mark_target_absent(
         &mut self,
         current: EntityId,

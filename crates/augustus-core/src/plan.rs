@@ -184,6 +184,12 @@ pub enum Action {
         country: crate::EntityRef,
         core: Option<crate::CoreType>,
     },
+    /// Capture the current direct subjects in relation order, then filter live state.
+    ForEachSubjectCountry {
+        country: Target,
+        condition: Condition,
+        plan: Plan,
+    },
     /// Capture the owner's current ordered members, then filter each live state.
     ForEachOwnedProvince {
         country: Target,
@@ -806,6 +812,22 @@ impl World {
                         .resolve_in_context(self, context)?
                         .ok_or_else(|| Error::Invalid("owner reference is absent".into()))?;
                     self.set_owner(province, country)?;
+                }
+                Action::ForEachSubjectCountry {
+                    country,
+                    condition,
+                    plan,
+                } => {
+                    let country = self.target(current, *country)?;
+                    let selected = self.subject_countries(country)?.to_vec();
+                    self.execute_selected(
+                        context,
+                        selected.into_iter().map(Some),
+                        condition,
+                        plan,
+                        budget,
+                        depth,
+                    )?;
                 }
                 Action::ForEachOwnedProvince {
                     country,
