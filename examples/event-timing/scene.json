@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "fields": [
+    "variable/count"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "treasury_slot": {
+    "Resource": "Treasury"
+  }
+}

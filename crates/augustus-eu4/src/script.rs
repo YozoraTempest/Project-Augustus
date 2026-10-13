@@ -1147,6 +1147,7 @@ impl<'a> ScriptCompiler<'a> {
                         }
                     }
                     "fire_only_once" => once = boolean(part)?,
+                    "mean_time_to_happen" => self.validate_event_wait(part, scope)?,
                     "title" | "desc" => {
                         part.scalar()?;
                     }
@@ -1291,6 +1292,51 @@ impl<'a> ScriptCompiler<'a> {
             sources: std::mem::take(&mut self.sources),
             folded_branches: self.folded,
         })
+    }
+
+    /// Explicit calls do not evaluate mean-time declarations. Check their syntax
+    /// and references before eliminating them from the executable event content.
+    fn validate_event_wait(&mut self, field: &Field, scope: EntityKind) -> Result<(), Error> {
+        let mut units = BTreeSet::new();
+        for item in field.block()? {
+            self.sources.push((item.path.clone(), item.location));
+            match item.name.as_str() {
+                "days" | "months" | "years" => {
+                    if !units.insert(item.name.as_str()) {
+                        return Err(item.error("duplicate mean-time unit"));
+                    }
+                    item.scalar()?.parse::<u32>().map_err(|_| {
+                        item.error("mean-time unit requires a nonnegative literal integer")
+                    })?;
+                }
+                "modifier" => {
+                    let mut factor = None;
+                    let mut conditions = Vec::new();
+                    for part in item.block()? {
+                        if part.name == "factor" {
+                            if factor.is_some() {
+                                return Err(part.error("duplicate mean-time modifier factor"));
+                            }
+                            self.sources.push((part.path.clone(), part.location));
+                            factor = Some(crate::setup::micros(part.scalar()?).ok_or_else(|| {
+                                part.error("mean-time factor requires a literal decimal with at most six fractional digits")
+                            })?);
+                        } else {
+                            conditions.push(part.clone());
+                        }
+                    }
+                    if factor.is_none() {
+                        return Err(item.error("mean-time modifier requires factor"));
+                    }
+                    self.conditions(&conditions, scope)?;
+                }
+                _ => return Err(item.error(format!("unsupported mean-time field {}", item.name))),
+            }
+        }
+        if units.len() > 1 {
+            return Err(field.error("combined mean-time units are not supported"));
+        }
+        Ok(())
     }
 
     fn event_weight(

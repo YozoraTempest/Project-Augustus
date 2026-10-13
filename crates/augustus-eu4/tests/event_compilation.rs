@@ -163,7 +163,7 @@ fn unsupported_event_semantics_are_diagnostics_even_in_unselected_options() {
     let library = ScriptLibrary::new();
     for fragment in [
         "trigger={unsupported_trigger=yes}",
-        "mean_time_to_happen={months=10}",
+        "mean_time_to_happen={months=10 modifier={factor=1 unsupported_trigger=yes}}",
         "fire_only_once=invalid",
         "fire_only_once=yes fire_only_once=no",
         "hidden=yes",

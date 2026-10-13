@@ -1,0 +1,94 @@
+[
+  {
+    "id": "timing.1",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Add": {
+          "target": "Current",
+          "field": 0,
+          "value": 1000
+        }
+      },
+      {
+        "Emit": "called_1"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "timing.2",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Add": {
+          "target": "Current",
+          "field": 0,
+          "value": 1000
+        }
+      },
+      {
+        "Emit": "called_2"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "timing.3",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Add": {
+          "target": "Current",
+          "field": 0,
+          "value": 1000
+        }
+      },
+      {
+        "Emit": "called_3"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "timing.4",
+    "scope": "Country",
+    "immediate": [
+      {
+        "Add": {
+          "target": "Current",
+          "field": 0,
+          "value": 1000
+        }
+      },
+      {
+        "Emit": "called_4"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

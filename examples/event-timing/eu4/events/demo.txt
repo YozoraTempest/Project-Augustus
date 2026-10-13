@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace=timing
+country_event={id=timing.1  is_triggered_only=yes immediate={change_variable={which=count value=1} log=called_1} option={name=done}}
+country_event={id=timing.2 mean_time_to_happen={days=1} is_triggered_only=yes immediate={change_variable={which=count value=1} log=called_2} option={name=done}}
+country_event={id=timing.3 mean_time_to_happen={years=10000} is_triggered_only=yes immediate={change_variable={which=count value=1} log=called_3} option={name=done}}
+country_event={id=timing.4 mean_time_to_happen={months=10 modifier={factor=0 treasury=100}} is_triggered_only=yes immediate={change_variable={which=count value=1} log=called_4} option={name=done}}
