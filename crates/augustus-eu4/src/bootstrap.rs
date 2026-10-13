@@ -1041,6 +1041,13 @@ impl VanillaWorld {
                         .map_err(|e| Error::caused_by(root.path(), e))?,
                 );
             }
+            if !catalog.locations().is_empty() {
+                digest.update(b"\0event-locations\0");
+                digest.update(
+                    serde_json::to_vec(catalog.locations())
+                        .map_err(|e| Error::caused_by(root.path(), e))?,
+                );
+            }
         }
         let fingerprint: String = digest
             .finalize()

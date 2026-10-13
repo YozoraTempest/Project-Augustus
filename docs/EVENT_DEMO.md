@@ -1,5 +1,7 @@
 # 事件演示
 
+[事件定位](../examples/event-locations/README.md) 演示事件与选项各自声明的省份位置、可用选项过滤及跨入口读档。EU4 入口支持固定省份编号的 `goto`。
+
 [根作用域与宗属关系](../examples/root-scopes/README.md) 演示嵌套执行、事件接收对象、选项和延期事件的根对象，以及 `is_subject_of` 对共享关系表的实时查询。
 
 [国家作用域场景](../examples/country-scopes/README.md) 演示字面国家选择、无领土国家的旗标读写、实时条件和跨输入读档。启动入口与事件使用同一份国家状态；`exists` 单独查询领土。

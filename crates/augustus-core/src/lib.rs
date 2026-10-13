@@ -18,6 +18,7 @@ mod estate_initialization;
 mod estates;
 mod event_choices;
 mod event_decisions;
+mod event_locations;
 mod event_pictures;
 mod governments;
 mod ideas;
@@ -69,6 +70,7 @@ pub use event_decisions::{
     EmptyWeightChoice, EventDecisionSystem, EventOptionWeights, EventWeight, WeightModifier,
     WeightedEventDecisions,
 };
+pub use event_locations::EventLocations;
 pub use event_pictures::{EventPictures, PictureVariant};
 pub use governments::{
     GovernmentContribution, GovernmentEvaluation, GovernmentForm, GovernmentMetric,

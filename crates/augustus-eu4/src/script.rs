@@ -7,8 +7,8 @@ use std::{
 };
 
 use augustus_core::{
-    Action, Condition, EntityKind, EventDefinition, EventOption, EventPictures, FieldId,
-    PictureVariant, Plan, Schema, ScopeSelector, Target,
+    Action, Condition, EntityKind, EventDefinition, EventLocations, EventOption, EventPictures,
+    FieldId, PictureVariant, Plan, Schema, ScopeSelector, Target,
 };
 use jomini::{
     TextToken,
@@ -277,6 +277,7 @@ pub struct CompiledEvents {
     pub option_conditions: BTreeMap<String, BTreeMap<String, Condition>>,
     pub option_weights: augustus_core::EventOptionWeights,
     pub pictures: BTreeMap<String, EventPictures>,
+    pub locations: BTreeMap<String, EventLocations>,
     pub once_events: BTreeSet<String>,
     pub sources: Vec<(PathBuf, SourceLocation)>,
     pub folded_branches: usize,
@@ -1023,6 +1024,7 @@ impl<'a> ScriptCompiler<'a> {
         let mut option_conditions = BTreeMap::new();
         let mut option_weights = BTreeMap::new();
         let mut pictures = BTreeMap::new();
+        let mut locations = BTreeMap::new();
         let mut once_events = BTreeSet::new();
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
@@ -1056,6 +1058,7 @@ impl<'a> ScriptCompiler<'a> {
             let mut guarded_options = BTreeMap::new();
             let mut weighted_options = BTreeMap::new();
             let mut picture_variants = Vec::new();
+            let mut event_locations = EventLocations::default();
             for part in field.block()? {
                 self.sources.push((part.path.clone(), part.location));
                 if !matches!(part.name.as_str(), "option" | "picture") && !seen.insert(&part.name) {
@@ -1074,6 +1077,7 @@ impl<'a> ScriptCompiler<'a> {
                         part.scalar()?;
                     }
                     "picture" => picture_variants.push(self.event_picture(part, scope)?),
+                    "goto" => event_locations.event = Some(event_location(part)?),
                     "immediate" => definition.immediate = self.effects(part.block()?, scope)?,
                     "trigger" => condition = Some(self.conditions(part.block()?, scope)?),
                     "after" => definition.after = self.effects(part.block()?, scope)?,
@@ -1082,6 +1086,7 @@ impl<'a> ScriptCompiler<'a> {
                         let mut name = false;
                         let mut option_condition = None;
                         let mut weight = None;
+                        let mut location = None;
                         for item in part.block()? {
                             if item.name == "name" {
                                 if name || item.scalar()?.is_empty() {
@@ -1100,6 +1105,12 @@ impl<'a> ScriptCompiler<'a> {
                                     return Err(item.error("duplicate option ai_chance"));
                                 }
                                 weight = Some(self.event_weight(item, scope)?);
+                            } else if item.name == "goto" {
+                                if location.is_some() {
+                                    return Err(item.error("duplicate option goto"));
+                                }
+                                self.sources.push((item.path.clone(), item.location));
+                                location = Some(event_location(item)?);
                             } else {
                                 effects.push(item.clone());
                             }
@@ -1108,6 +1119,9 @@ impl<'a> ScriptCompiler<'a> {
                             return Err(part.error("option requires a scalar name"));
                         }
                         let id = definition.options.len().to_string();
+                        if let Some(location) = location {
+                            event_locations.options.insert(id.clone(), location);
+                        }
                         if let Some(condition) = option_condition {
                             guarded_options.insert(id.clone(), condition);
                         }
@@ -1139,6 +1153,13 @@ impl<'a> ScriptCompiler<'a> {
                 {
                     return Err(field.error("duplicate event picture identifier"));
                 }
+            }
+            if (event_locations.event.is_some() || !event_locations.options.is_empty())
+                && locations
+                    .insert(definition.id.clone(), event_locations)
+                    .is_some()
+            {
+                return Err(field.error("duplicate event location identifier"));
             }
             if let Some(condition) = condition
                 && conditions
@@ -1191,6 +1212,7 @@ impl<'a> ScriptCompiler<'a> {
             option_conditions,
             option_weights,
             pictures,
+            locations,
             once_events,
             sources: std::mem::take(&mut self.sources),
             folded_branches: self.folded,
@@ -2422,6 +2444,12 @@ fn province_identifier(name: &str) -> Option<u32> {
         return None;
     }
     name.parse().ok().filter(|id| *id > 0)
+}
+
+fn event_location(field: &Field) -> Result<String, Error> {
+    province_identifier(field.scalar()?)
+        .map(|id| id.to_string())
+        .ok_or_else(|| field.error("goto requires a positive literal province identifier; contextual locations are not supported"))
 }
 
 fn constant(condition: &Condition) -> Option<bool> {

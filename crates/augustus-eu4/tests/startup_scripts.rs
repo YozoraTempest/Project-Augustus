@@ -309,6 +309,48 @@ fn expanded_macro_changes_participate_in_the_content_guard() {
 }
 
 #[test]
+fn startup_locations_reach_the_catalog_and_participate_in_the_content_guard() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA} country_event={id=locations.start}}}",
+    );
+    let event = "country_event={id=locations.start is_triggered_only=yes goto=2 option={name=visit goto=1}}";
+    write(temp.path(), "events/locations.txt", event);
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    let world = loaded.initial.world();
+    let id = world.pending_events()[0].id;
+    let province = |name: &str| {
+        world
+            .resolve_scope(&augustus_core::ScopeSelector::Named {
+                kind: augustus_core::EntityKind::Province,
+                name: name.into(),
+            })
+            .unwrap()
+    };
+    assert_eq!(world.pending_event_location(id).unwrap(), province("2"));
+    assert_eq!(
+        world.pending_event_option_location(id, "0").unwrap(),
+        province("1")
+    );
+    let saved = loaded.save().unwrap();
+    let mut resumed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    resumed.restore(&saved).unwrap();
+    assert_eq!(resumed.save().unwrap(), saved);
+    write(
+        temp.path(),
+        "events/locations.txt",
+        &event.replace("goto=2", "goto=1"),
+    );
+    let mut changed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let before = changed.save().unwrap();
+    assert!(changed.restore(&saved).is_err());
+    assert_eq!(changed.save().unwrap(), before);
+}
+
+#[test]
 fn reached_macro_failures_keep_the_definition_source_and_roll_back_all_startup_writes() {
     for (definition, call, reason) in [
         (

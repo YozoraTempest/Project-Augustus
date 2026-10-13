@@ -35,6 +35,7 @@ pub struct EventCatalog {
     option_conditions: Arc<BTreeMap<String, BTreeMap<String, crate::Condition>>>,
     once_events: Arc<BTreeSet<String>>,
     pictures: Arc<BTreeMap<String, crate::EventPictures>>,
+    locations: Arc<BTreeMap<String, crate::EventLocations>>,
     weights: Arc<crate::EventOptionWeights>,
     decision_system: Option<crate::event_decisions::DecisionProvider>,
 }
@@ -64,6 +65,7 @@ impl EventCatalog {
             option_conditions: Arc::default(),
             once_events: Arc::default(),
             pictures: Arc::default(),
+            locations: Arc::default(),
             weights: Arc::default(),
             decision_system: None,
         })
@@ -181,7 +183,43 @@ impl EventCatalog {
         &self.pictures
     }
 
+    pub fn with_locations(
+        mut self,
+        locations: BTreeMap<String, crate::EventLocations>,
+    ) -> Result<Self, Error> {
+        for (event, locations) in &locations {
+            let definition = self.get(event)?;
+            if locations.names().next().is_none()
+                || locations.names().any(|name| name.trim().is_empty())
+            {
+                return Err(Error::Invalid(
+                    "empty event location definition or province name".into(),
+                ));
+            }
+            for option in locations.options.keys() {
+                if !definition.options.iter().any(|item| &item.id == option) {
+                    return Err(Error::Invalid(format!(
+                        "unknown option {option} for event {event}"
+                    )));
+                }
+            }
+        }
+        self.locations = Arc::new(locations);
+        Ok(self)
+    }
+
+    pub fn locations(&self) -> &BTreeMap<String, crate::EventLocations> {
+        &self.locations
+    }
+
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
+        for name in self
+            .locations
+            .values()
+            .flat_map(crate::EventLocations::names)
+        {
+            crate::EventLocations::resolve(world, name)?;
+        }
         for condition in self
             .conditions
             .values()
@@ -235,7 +273,7 @@ impl EventCatalog {
         Ok(())
     }
 
-    fn get(&self, id: &str) -> Result<&EventDefinition, Error> {
+    pub(crate) fn get(&self, id: &str) -> Result<&EventDefinition, Error> {
         self.definitions
             .get(id)
             .ok_or_else(|| Error::Invalid(format!("unknown event {id}")))

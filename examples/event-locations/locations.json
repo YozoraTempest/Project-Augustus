@@ -1,0 +1,14 @@
+{
+  "locations.visit": {
+    "event": "8",
+    "options": {
+      "0": "7",
+      "1": "8"
+    }
+  },
+  "locations.province": {
+    "options": {
+      "0": "8"
+    }
+  }
+}

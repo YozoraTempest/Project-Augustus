@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "fields": [
+    "treasury"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 1,
+      "values": {}
+    },
+    {
+      "name": "7",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "8",
+      "kind": "Province",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    }
+  ]
+}

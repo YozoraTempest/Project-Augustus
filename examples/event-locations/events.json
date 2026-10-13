@@ -1,0 +1,58 @@
+[
+  {
+    "id": "locations.visit",
+    "scope": "Country",
+    "immediate": [],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Add": {
+              "target": "Current",
+              "field": 0,
+              "value": 1000
+            }
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": []
+      },
+      {
+        "id": "2",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "locations.province",
+    "scope": "Province",
+    "immediate": [],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      },
+      {
+        "id": "1",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "locations.plain",
+    "scope": "Country",
+    "immediate": [],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

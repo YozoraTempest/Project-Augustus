@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace = locations
+country_event = {
+    id = locations.visit
+    is_triggered_only = yes
+    goto = 8
+    option = { name = visit goto = 7 add_treasury = 1 }
+    option = { name = unavailable trigger = { always = no } goto = 8 }
+    option = { name = stay }
+}
+province_event = {
+    id = locations.province
+    is_triggered_only = yes
+    option = { name = visit goto = 8 }
+    option = { name = stay }
+}
+country_event = {
+    id = locations.plain
+    is_triggered_only = yes
+    option = { name = stay }
+}
