@@ -1,0 +1,60 @@
+{
+  "scopes.later": {
+    "0": {
+      "All": [
+        {
+          "InScope": {
+            "selector": {
+              "Named": {
+                "kind": "Country",
+                "name": "CCC"
+              }
+            },
+            "kind": "Country",
+            "condition": {
+              "All": [
+                {
+                  "HasMarker": {
+                    "target": "Current",
+                    "name": "stored"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "1": {
+      "All": [
+        {
+          "Not": {
+            "All": [
+              {
+                "InScope": {
+                  "selector": {
+                    "Named": {
+                      "kind": "Country",
+                      "name": "CCC"
+                    }
+                  },
+                  "kind": "Country",
+                  "condition": {
+                    "All": [
+                      {
+                        "HasMarker": {
+                          "target": "Current",
+                          "name": "stored"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

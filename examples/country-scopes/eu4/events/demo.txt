@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+country_event={id=scopes.start is_triggered_only=yes
+ immediate={
+  CCC={set_country_flag=stored log=dormant_written}
+  BBB={set_variable={which=seen value=2} log=other_country}
+  if={limit={CCC={exists=no has_country_flag=stored} AAA={}} log=dormant_checked}
+  BBB={country_event={id=scopes.later days=1}}
+ }
+ option={name=continue BBB={change_variable={which=seen value=1} log=accepted}}
+}
+country_event={id=scopes.reset is_triggered_only=yes
+ immediate={CCC={clr_country_flag=stored log=cleared}}
+ option={name=continue}
+}
+country_event={id=scopes.later is_triggered_only=yes
+ trigger={BBB={tag=BBB exists=yes} CCC={exists=no}}
+ immediate={CCC={if={limit={has_country_flag=stored} log=still_stored} else={log=seen_cleared}}}
+ option={name=stored trigger={CCC={has_country_flag=stored}} log=stored}
+ option={name=cleared trigger={NOT={CCC={has_country_flag=stored}}} change_variable={which=seen value=2} log=done}
+}
+province_event={id=scopes.province is_triggered_only=yes
+ immediate={BBB={log=from_province}}
+ option={name=continue}
+}

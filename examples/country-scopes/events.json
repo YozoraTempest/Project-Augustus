@@ -1,0 +1,300 @@
+[
+  {
+    "id": "scopes.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "CCC"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "SetMarker": {
+                "target": "Current",
+                "name": "stored",
+                "present": true
+              }
+            },
+            {
+              "Emit": "dormant_written"
+            }
+          ]
+        }
+      },
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "Set": {
+                "target": "Current",
+                "field": 0,
+                "value": 2000
+              }
+            },
+            {
+              "Emit": "other_country"
+            }
+          ]
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "InScope": {
+                  "selector": {
+                    "Named": {
+                      "kind": "Country",
+                      "name": "CCC"
+                    }
+                  },
+                  "kind": "Country",
+                  "condition": {
+                    "All": [
+                      {
+                        "Not": {
+                          "HasOwnedProvince": {
+                            "target": "Current"
+                          }
+                        }
+                      },
+                      {
+                        "HasMarker": {
+                          "target": "Current",
+                          "name": "stored"
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "InScope": {
+                  "selector": {
+                    "Named": {
+                      "kind": "Country",
+                      "name": "AAA"
+                    }
+                  },
+                  "kind": "Country",
+                  "condition": {
+                    "All": []
+                  }
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "dormant_checked"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "Schedule": {
+                "delay": 1,
+                "plan": [
+                  {
+                    "TryEvent": {
+                      "event": "scopes.later"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "InScope": {
+              "selector": {
+                "Named": {
+                  "kind": "Country",
+                  "name": "BBB"
+                }
+              },
+              "kind": "Country",
+              "plan": [
+                {
+                  "Add": {
+                    "target": "Current",
+                    "field": 0,
+                    "value": 1000
+                  }
+                },
+                {
+                  "Emit": "accepted"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "scopes.reset",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "CCC"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "SetMarker": {
+                "target": "Current",
+                "name": "stored",
+                "present": false
+              }
+            },
+            {
+              "Emit": "cleared"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "scopes.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "CCC"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "HasMarker": {
+                        "target": "Current",
+                        "name": "stored"
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "still_stored"
+                  }
+                ],
+                "otherwise": [
+                  {
+                    "Emit": "seen_cleared"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "stored"
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": [
+          {
+            "Add": {
+              "target": "Current",
+              "field": 0,
+              "value": 2000
+            }
+          },
+          {
+            "Emit": "done"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "scopes.province",
+    "scope": "Province",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "Emit": "from_province"
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": []
+  }
+]

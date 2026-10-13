@@ -1,0 +1,54 @@
+{
+  "scopes.later": {
+    "All": [
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "condition": {
+            "All": [
+              {
+                "EntityNamed": {
+                  "target": "Current",
+                  "name": "BBB"
+                }
+              },
+              {
+                "HasOwnedProvince": {
+                  "target": "Current"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "CCC"
+            }
+          },
+          "kind": "Country",
+          "condition": {
+            "All": [
+              {
+                "Not": {
+                  "HasOwnedProvince": {
+                    "target": "Current"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

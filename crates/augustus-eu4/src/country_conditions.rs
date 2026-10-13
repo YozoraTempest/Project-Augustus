@@ -387,6 +387,37 @@ impl Condition {
                             }
                         }
                     }
+                    _ if crate::script::country_identifier(&name)
+                        && value.read_object().is_ok() =>
+                    {
+                        let schema =
+                            augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
+                        let library = crate::ScriptLibrary::new();
+                        match crate::ScriptCompiler::new(&schema, &library, true)
+                            .with_metric_ids(
+                                ["stability", "adm_power", "dip_power", "mil_power"]
+                                    .map(String::from)
+                                    .into(),
+                            )
+                            .with_unbound_subject_types()
+                            .compile_block_condition_reader(
+                                parsed,
+                                &name,
+                                block(&value, &fail)?,
+                                at,
+                                if country {
+                                    augustus_core::EntityKind::Country
+                                } else {
+                                    augustus_core::EntityKind::Province
+                                },
+                            ) {
+                            Ok(condition) => Self::Scoped(condition),
+                            Err(error) => {
+                                report.unsupported(parsed, "trigger", &name, at);
+                                Self::Unknown(error.to_string())
+                            }
+                        }
+                    }
                     "area" | "continent" if !country => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");

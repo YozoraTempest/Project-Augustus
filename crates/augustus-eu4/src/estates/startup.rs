@@ -383,12 +383,7 @@ impl Compiler {
                         location,
                     ));
                 }
-                _ if name.len() == 3
-                    && name
-                        .bytes()
-                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
-                    && value.read_object().is_ok() =>
-                {
+                _ if crate::script::country_identifier(&name) && value.read_object().is_ok() => {
                     result.push(Step::Country(
                         name,
                         self.effects(parsed, block(&value, &fail)?, report, depth + 1, false)?,
@@ -992,9 +987,7 @@ impl EstateStartup {
                     if initial.country(tag).is_none() {
                         return Err(Pending::new(at, format!("unknown_country_scope:{tag}")));
                     }
-                    if !initial.owned_provinces(tag).is_empty() {
-                        self.execute(body, initial, tag, trace, budget, depth + 1)?;
-                    }
+                    self.execute(body, initial, tag, trace, budget, depth + 1)?;
                 }
                 Step::Scoped(selector, body, at) => {
                     if let Some(entity) = initial

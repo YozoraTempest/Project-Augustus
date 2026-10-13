@@ -611,11 +611,7 @@ impl<'a> ScriptCompiler<'a> {
 
     fn country_reference(&self, field: &Field) -> Result<augustus_core::EntityRef, Error> {
         let value = field.scalar()?;
-        let selector = if value.len() == 3
-            && value
-                .bytes()
-                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-        {
+        let selector = if country_identifier(value) {
             ScopeSelector::Named {
                 kind: EntityKind::Country,
                 name: value.into(),
@@ -1417,6 +1413,16 @@ impl<'a> ScriptCompiler<'a> {
                         plan: self.effects(field.block()?, EntityKind::Province)?,
                     });
                 }
+                name if country_identifier(name) && matches!(&field.value, Value::Block(_)) => {
+                    plan.push(Action::InScope {
+                        selector: ScopeSelector::Named {
+                            kind: EntityKind::Country,
+                            name: name.into(),
+                        },
+                        kind: EntityKind::Country,
+                        plan: self.effects(field.block()?, EntityKind::Country)?,
+                    });
+                }
                 "change_government" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("government changes require country scope"));
@@ -1984,7 +1990,7 @@ impl<'a> ScriptCompiler<'a> {
                                 else { Condition::Always(false) };
                             if value == "yes" { condition } else { Condition::Not(Box::new(condition)) }
                         }
-                        tag if tag.len() == 3 && tag.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()) => {
+                        tag if country_identifier(tag) => {
                             Condition::InScope {
                                 selector: ScopeSelector::Named { kind: EntityKind::Country, name: tag.into() },
                                 kind: EntityKind::Country,
@@ -2117,11 +2123,7 @@ impl<'a> ScriptCompiler<'a> {
                         return Err(field.error("tag trigger requires country scope"));
                     }
                     let tag = field.scalar()?;
-                    if tag.len() != 3
-                        || !tag
-                            .bytes()
-                            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
-                    {
+                    if !country_identifier(tag) {
                         return Err(field.error(
                             "tag trigger requires a literal three-character country identifier",
                         ));
@@ -2213,6 +2215,11 @@ impl<'a> ScriptCompiler<'a> {
                         value: decimal(field)?,
                     }
                 }
+                name if country_identifier(name) && matches!(&field.value, Value::Block(_)) => Condition::InScope {
+                    selector: ScopeSelector::Named {kind: EntityKind::Country, name: name.into()},
+                    kind: EntityKind::Country,
+                    condition: Box::new(self.conditions(field.block()?, EntityKind::Country)?),
+                },
                 name if self.library.triggers.contains_key(name) => {
                     let positive = boolean(field)?;
                     let definition = self.library.triggers[name].clone();
@@ -2332,6 +2339,13 @@ fn decimal(field: &Field) -> Result<i64, Error> {
         })
         .ok_or_else(|| field.error("decimal overflow"))?;
     Ok(if negative { -value } else { value })
+}
+
+pub(crate) fn country_identifier(name: &str) -> bool {
+    name.len() == 3
+        && name
+            .bytes()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
 }
 
 fn province_identifier(name: &str) -> Option<u32> {
