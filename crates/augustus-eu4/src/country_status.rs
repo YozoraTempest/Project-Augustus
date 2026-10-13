@@ -8,7 +8,7 @@ use jomini::text::ObjectReader;
 
 use crate::bootstrap::{dated_name, direct_txt, equal, source};
 use crate::setup::{block, flag};
-use crate::{ContentRoot, Error, FileEntry, IdeaReport, ParsedText, TextEncoding};
+use crate::{ContentView, Error, FileEntry, IdeaReport, ParsedText, TextEncoding};
 
 #[derive(Default)]
 struct History {
@@ -25,7 +25,7 @@ pub(super) struct CountryStatusDraft {
 
 impl CountryStatusDraft {
     pub(super) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         report: &mut IdeaReport,
     ) -> Result<Self, Error> {

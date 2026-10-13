@@ -7,7 +7,7 @@ use std::{
 };
 
 use augustus_core::{EntityKind, ProvinceClass, Schema, World};
-use augustus_eu4::VanillaWorld;
+use augustus_eu4::{ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaWorld};
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world")
@@ -44,6 +44,34 @@ fn selected_idea(loaded: &VanillaWorld, tag: &str) -> Option<String> {
         .groups
         .as_ref()
         .and_then(|groups| groups.keys().next().cloned())
+}
+
+#[test]
+fn world_loader_reads_mod_files_through_resolved_content() {
+    let fixture = copy_fixture();
+    let mod_root = fixture.path().join("mod");
+    fs::create_dir_all(mod_root.join("common/ideas")).unwrap();
+    fs::write(mod_root.join("descriptor.mod"), "name=\"Test Mod\"").unwrap();
+    fs::write(
+        mod_root.join("common/ideas/99_mod.txt"),
+        "mod_group = { free = yes first_idea = {} }",
+    )
+    .unwrap();
+    let content = ContentSet::resolve(vec![
+        ContentSource::base(ContentRoot::open(fixture.path()).unwrap()),
+        ContentSource::mod_directory(&mod_root, TextEncoding::Windows1252).unwrap(),
+    ])
+    .unwrap();
+
+    let loaded = VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+    let source = &loaded.report.ideas.definition_sources["mod_group"];
+    assert!(source.path.starts_with(mod_root.canonicalize().unwrap()));
+    assert!(
+        content
+            .sources()
+            .iter()
+            .any(|source| source.name() == "Test Mod")
+    );
 }
 
 #[test]

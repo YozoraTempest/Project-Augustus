@@ -26,7 +26,9 @@ use crate::governments::{GovernmentDraft, GovernmentReport};
 use crate::ideas::{IdeaDraft, IdeaReport};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
 use crate::setup::{SetupDraft, SetupReport};
-use crate::{ContentRoot, Error, ParsedText, SourceLocation, TextEncoding};
+use crate::{
+    ContentRoot, ContentSet, ContentView, Error, ParsedText, SourceLocation, TextEncoding,
+};
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
 
@@ -158,15 +160,38 @@ impl VanillaWorld {
         Self::load_session(path, date, Some(players))
     }
 
+    /// Loads an initial world through the resolved EU4 virtual content order.
+    pub fn load_from_content(content: &ContentSet, date: &str) -> Result<Self, Error> {
+        Self::load_from_view(content, content.base_root(), date, None)
+    }
+
+    /// Loads an initial world from resolved content with an explicit human roster.
+    pub fn load_from_content_with_players(
+        content: &ContentSet,
+        date: &str,
+        players: &std::collections::BTreeSet<String>,
+    ) -> Result<Self, Error> {
+        Self::load_from_view(content, content.base_root(), date, Some(players))
+    }
+
     fn load_session(
         path: impl AsRef<Path>,
         date: &str,
         players: Option<&std::collections::BTreeSet<String>>,
     ) -> Result<Self, Error> {
         let root = ContentRoot::open(path)?;
+        Self::load_from_view(&root, &root, date, players)
+    }
+
+    fn load_from_view(
+        root: &impl ContentView,
+        metadata_root: &ContentRoot,
+        date: &str,
+        players: Option<&std::collections::BTreeSet<String>>,
+    ) -> Result<Self, Error> {
         let date = Date::parse(date).map_err(|e| Error::caused_by(root.path(), e))?;
-        let metadata_path = root.path().join("launcher-settings.json");
-        let metadata = root.read_text("launcher-settings.json", TextEncoding::Utf8)?;
+        let metadata_path = metadata_root.path().join("launcher-settings.json");
+        let metadata = metadata_root.read_text("launcher-settings.json", TextEncoding::Utf8)?;
         let metadata: serde_json::Value = serde_json::from_slice(metadata.bytes())
             .map_err(|e| Error::caused_by(&metadata_path, e))?;
         let version = metadata
@@ -502,7 +527,7 @@ impl VanillaWorld {
             if paths.len() > 1 {
                 report.ambiguous_country_histories.insert(
                     id.clone(),
-                    paths.iter().map(|p| root.path().join(p)).collect(),
+                    paths.iter().map(|p| root.physical_path(p)).collect(),
                 );
             }
         }
@@ -517,7 +542,7 @@ impl VanillaWorld {
             let id = history_id(&file.relative_path)?;
             let Some(country) = countries.get_mut(&id) else {
                 return Err(Error::message(
-                    root.path().join(&file.relative_path),
+                    root.physical_path(&file.relative_path),
                     format!("history references unknown country {id}"),
                 ));
             };
@@ -628,7 +653,7 @@ impl VanillaWorld {
                 })?;
             let Some(province) = provinces.get_mut(&id) else {
                 return Err(Error::message(
-                    root.path().join(&file.relative_path),
+                    root.physical_path(&file.relative_path),
                     format!("history references unknown province {id}"),
                 ));
             };

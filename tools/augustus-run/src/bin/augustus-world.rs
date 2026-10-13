@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_eu4::VanillaWorld;
+use augustus_eu4::{ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaWorld};
 use clap::Parser;
 use std::{path::PathBuf, process::ExitCode};
 
@@ -13,6 +13,12 @@ use std::{path::PathBuf, process::ExitCode};
 struct Cli {
     #[arg(long)]
     game_root: PathBuf,
+    /// Directory Mod containing descriptor.mod; repeat for every active Mod.
+    #[arg(long = "mod", value_name = "DIRECTORY")]
+    mods: Vec<PathBuf>,
+    /// EU4 user directory mounted above Mods and base game content.
+    #[arg(long, value_name = "DIRECTORY")]
+    user_directory: Option<PathBuf>,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
     /// Advance calendar days and execute supported monthly settlements.
@@ -52,14 +58,38 @@ struct Cli {
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let mut loaded = if cli.ai_only || !cli.player.is_empty() {
-        VanillaWorld::load_with_players(
-            cli.game_root,
-            &cli.date,
-            &cli.player.into_iter().collect(),
-        )?
+    let players = if cli.ai_only || !cli.player.is_empty() {
+        Some(
+            cli.player
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>(),
+        )
     } else {
-        VanillaWorld::load(cli.game_root, &cli.date)?
+        None
+    };
+    let mut loaded = if cli.mods.is_empty() && cli.user_directory.is_none() {
+        if let Some(players) = &players {
+            VanillaWorld::load_with_players(&cli.game_root, &cli.date, players)?
+        } else {
+            VanillaWorld::load(&cli.game_root, &cli.date)?
+        }
+    } else {
+        let mut sources = vec![ContentSource::base(ContentRoot::open(&cli.game_root)?)];
+        for root in &cli.mods {
+            sources.push(ContentSource::mod_directory(
+                root,
+                TextEncoding::Windows1252,
+            )?);
+        }
+        if let Some(root) = &cli.user_directory {
+            sources.push(ContentSource::user_directory(root)?);
+        }
+        let content = ContentSet::resolve(sources)?;
+        if let Some(players) = &players {
+            VanillaWorld::load_from_content_with_players(&content, &cli.date, players)?
+        } else {
+            VanillaWorld::load_from_content(&content, &cli.date)?
+        }
     };
     if let Some(path) = cli.load {
         loaded.restore(&std::fs::read_to_string(path)?)?;

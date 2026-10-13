@@ -13,7 +13,7 @@ use serde::Serialize;
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::setup::{PropertyDiagnostics, block, properties};
 use crate::{
-    ContentRoot, Error, FileEntry, LoadedSource, ParsedText, SetupReport, SourceLocation,
+    ContentView, Error, FileEntry, LoadedSource, ParsedText, SetupReport, SourceLocation,
     TextEncoding,
 };
 
@@ -85,7 +85,7 @@ pub(super) struct AttributeDraft {
 /// Reads only the selected literal in the base file's explicit NMilitary block.
 /// Expressions and assignments in additional define files require Lua support.
 fn manpower_define(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     report: &mut AttributeReport,
 ) -> Result<i64, Error> {
@@ -123,7 +123,7 @@ impl AttributeDraft {
             .unwrap_or_default()
     }
     pub(super) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         report: &mut AttributeReport,
     ) -> Result<Self, Error> {
@@ -500,7 +500,7 @@ impl AttributeDraft {
     }
 
     fn religions(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         attributes: &mut Attributes,
         report: &mut AttributeReport,
@@ -608,7 +608,7 @@ impl AttributeDraft {
     }
 
     fn religious_schools(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         attributes: &mut Attributes,
         report: &mut AttributeReport,

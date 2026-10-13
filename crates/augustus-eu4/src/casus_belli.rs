@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::setup::{block, flag};
 use crate::{
-    ContentRoot, ContentSet, Error, FileEntry, LoadedSource, ScriptCompiler, ScriptLibrary,
+    ContentSet, ContentView, Error, FileEntry, LoadedSource, ScriptCompiler, ScriptLibrary,
     TextDocument, TextEncoding,
 };
 
@@ -52,7 +52,7 @@ impl CasusBelliTypes {
     }
 
     pub(crate) fn from_root(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         schema: &Schema,
     ) -> Result<Self, Error> {

@@ -111,6 +111,7 @@ dependencies = [
  "augustus-eu4",
  "clap",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

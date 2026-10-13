@@ -6,12 +6,22 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{ContentRoot, Error, ModDescriptor, TextDocument, TextEncoding};
+use crate::{
+    ContentRoot, ContentView, Error, FileEntry, ModDescriptor, TextDocument, TextEncoding,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContentRole {
+    UserDirectory,
+    Mod,
+    Base,
+}
 
 /// An explicitly mounted directory and its optional mod descriptor.
 #[derive(Debug)]
 pub struct ContentSource {
     root: ContentRoot,
+    role: ContentRole,
     descriptor: Option<(PathBuf, ModDescriptor)>,
     replace_paths: BTreeSet<String>,
 }
@@ -20,9 +30,20 @@ impl ContentSource {
     pub fn base(root: ContentRoot) -> Self {
         Self {
             root,
+            role: ContentRole::Base,
             descriptor: None,
             replace_paths: BTreeSet::new(),
         }
+    }
+
+    /// Opens the user directory as the highest-priority content overlay.
+    pub fn user_directory(path: impl AsRef<Path>) -> Result<Self, Error> {
+        Ok(Self {
+            root: ContentRoot::open(path)?,
+            role: ContentRole::UserDirectory,
+            descriptor: None,
+            replace_paths: BTreeSet::new(),
+        })
     }
 
     /// Reads descriptor.mod inside the selected root; declared paths are not followed.
@@ -61,6 +82,7 @@ impl ContentSource {
         }
         Ok(Self {
             root,
+            role: ContentRole::Mod,
             descriptor: Some((document.source().to_path_buf(), descriptor)),
             replace_paths,
         })
@@ -71,7 +93,11 @@ impl ContentSource {
     }
 
     pub fn name(&self) -> &str {
-        self.descriptor().map_or("EU4 base", |item| &item.name)
+        match self.role {
+            ContentRole::UserDirectory => "EU4 user directory",
+            ContentRole::Base => "EU4 base",
+            ContentRole::Mod => &self.descriptor().expect("mods have descriptors").name,
+        }
     }
 
     pub fn descriptor(&self) -> Option<&ModDescriptor> {
@@ -113,24 +139,16 @@ pub struct FileCandidate {
 pub struct FileTrace {
     /// Slash-separated, ASCII case-insensitive lookup key.
     pub logical_path: String,
-    /// Candidates in the explicit source order, retaining their original spelling.
+    /// Candidates in resolved VFS priority order, retaining their original spelling.
     pub candidates: Vec<FileCandidate>,
 }
 
 impl FileTrace {
     pub fn effective(&self) -> Option<&FileOrigin> {
         self.candidates
-            .last()
-            .filter(|item| item.suppressed_by.is_none())
+            .iter()
+            .find(|item| item.suppressed_by.is_none())
             .map(|item| &item.origin)
-    }
-
-    fn suppress(&mut self, reason: Suppression) {
-        if let Some(candidate) = self.candidates.last_mut()
-            && candidate.suppressed_by.is_none()
-        {
-            candidate.suppressed_by = Some(reason);
-        }
     }
 }
 
@@ -142,23 +160,11 @@ pub struct ContentSet {
 }
 
 impl ContentSet {
-    /// The first source must be a base directory, followed by mods in caller order.
+    /// Orders supported directory sources by VFS priority; DLC archives are not represented here.
     pub fn resolve(sources: Vec<ContentSource>) -> Result<Self, Error> {
-        validate_sources(&sources)?;
+        let sources = order_sources(sources)?;
         let mut files = BTreeMap::<String, FileTrace>::new();
         for (source_index, source) in sources.iter().enumerate() {
-            for replacement in &source.replace_paths {
-                let prefix = format!("{replacement}/");
-                for (_, trace) in files
-                    .range_mut(prefix.clone()..)
-                    .take_while(|(path, _)| path.starts_with(&prefix))
-                {
-                    trace.suppress(Suppression::DirectoryReplacement {
-                        by_source: source_index,
-                        replace_path: replacement.clone(),
-                    });
-                }
-            }
             let mut seen = BTreeSet::new();
             for entry in source.root.files()? {
                 let physical_path = source.root.path().join(&entry.relative_path);
@@ -179,9 +185,6 @@ impl ContentSet {
                         logical_path,
                         candidates: Vec::new(),
                     });
-                trace.suppress(Suppression::FileOverride {
-                    by_source: source_index,
-                });
                 trace.candidates.push(FileCandidate {
                     origin: FileOrigin {
                         source_index,
@@ -191,6 +194,31 @@ impl ContentSet {
                     },
                     suppressed_by: None,
                 });
+            }
+        }
+        for trace in files.values_mut() {
+            let replacement = sources.iter().enumerate().find_map(|(index, source)| {
+                source
+                    .replace_paths
+                    .iter()
+                    .filter(|path| trace.logical_path.starts_with(&format!("{path}/")))
+                    .max_by_key(|path| path.len())
+                    .map(|path| (index, path.clone()))
+            });
+            let mut winner = None;
+            for candidate in &mut trace.candidates {
+                if let Some((by_source, replace_path)) = &replacement
+                    && candidate.origin.source_index > *by_source
+                {
+                    candidate.suppressed_by = Some(Suppression::DirectoryReplacement {
+                        by_source: *by_source,
+                        replace_path: replace_path.clone(),
+                    });
+                } else if let Some(by_source) = winner {
+                    candidate.suppressed_by = Some(Suppression::FileOverride { by_source });
+                } else {
+                    winner = Some(candidate.origin.source_index);
+                }
             }
         }
         Ok(Self { sources, files })
@@ -209,6 +237,14 @@ impl ContentSet {
         self.files
             .iter()
             .filter_map(|(path, trace)| trace.effective().map(|origin| (path.as_str(), origin)))
+    }
+
+    pub fn base_root(&self) -> &ContentRoot {
+        self.sources
+            .iter()
+            .find(|source| source.role == ContentRole::Base)
+            .expect("resolved content always has a base source")
+            .root()
     }
 
     pub fn trace(&self, path: &str) -> Result<Option<&FileTrace>, Error> {
@@ -230,66 +266,164 @@ impl ContentSet {
     }
 }
 
-fn validate_sources(sources: &[ContentSource]) -> Result<(), Error> {
-    let Some(base) = sources.first() else {
+impl ContentView for ContentSet {
+    fn path(&self) -> &Path {
+        self.base_root().path()
+    }
+
+    fn source_roots(&self) -> Vec<PathBuf> {
+        self.sources
+            .iter()
+            .map(|source| source.root.path().to_path_buf())
+            .collect()
+    }
+
+    fn files(&self) -> Result<Vec<FileEntry>, Error> {
+        Ok(self
+            .effective_files()
+            .map(|(_, origin)| FileEntry {
+                relative_path: origin.relative_path.clone(),
+                byte_size: origin.byte_size,
+            })
+            .collect())
+    }
+
+    fn read_text(
+        &self,
+        relative_path: impl AsRef<Path>,
+        encoding: TextEncoding,
+    ) -> Result<TextDocument, Error> {
+        let relative_path = relative_path.as_ref().to_str().ok_or_else(|| {
+            Error::message(relative_path.as_ref(), "content path is not valid UTF-8")
+        })?;
+        ContentSet::read_text(self, relative_path, encoding)
+    }
+
+    fn physical_path(&self, relative_path: &Path) -> PathBuf {
+        let fallback = || self.path().join(relative_path);
+        let Some(logical_path) = relative_path.to_str() else {
+            return fallback();
+        };
+        self.trace(logical_path)
+            .ok()
+            .flatten()
+            .and_then(FileTrace::effective)
+            .map_or_else(fallback, |origin| origin.physical_path.clone())
+    }
+}
+
+fn order_sources(mut sources: Vec<ContentSource>) -> Result<Vec<ContentSource>, Error> {
+    if sources.is_empty() {
         return Err(Error::message(
             "content sources",
             "a base directory is required",
         ));
-    };
-    if base.descriptor.is_some() {
-        return Err(Error::message(
-            base.root.path(),
-            "the first source must be a base directory",
-        ));
     }
-    let mut roots = BTreeSet::new();
-    let mut names = BTreeMap::new();
-    for (index, source) in sources.iter().enumerate() {
-        if !roots.insert(source.root.path()) {
+
+    let mut roots = BTreeSet::<PathBuf>::new();
+    let mut user_directory = None;
+    let mut base = None;
+    let mut mods = Vec::new();
+    for source in sources.drain(..) {
+        if !roots.insert(source.root.path().to_path_buf()) {
             return Err(Error::message(
                 source.root.path(),
                 "content directory was mounted more than once",
             ));
         }
-        if index == 0 {
-            continue;
+        match source.role {
+            ContentRole::UserDirectory => {
+                if user_directory.replace(source).is_some() {
+                    return Err(Error::message(
+                        "content sources",
+                        "only one user directory can be mounted",
+                    ));
+                }
+            }
+            ContentRole::Base => {
+                if base.replace(source).is_some() {
+                    return Err(Error::message(
+                        "content sources",
+                        "only one base directory can be mounted",
+                    ));
+                }
+            }
+            ContentRole::Mod => mods.push(source),
         }
-        let Some((path, descriptor)) = &source.descriptor else {
-            return Err(Error::message(
-                source.root.path(),
-                "only the first source can be a base directory",
-            ));
-        };
-        if names.insert(descriptor.name.as_str(), index).is_some() {
+    }
+
+    let Some(base) = base else {
+        return Err(Error::message(
+            "content sources",
+            "a base directory is required",
+        ));
+    };
+    let mut names = BTreeMap::new();
+    for (index, source) in mods.iter().enumerate() {
+        let descriptor = source.descriptor().expect("mods have descriptors");
+        if let Some((path, _)) = source
+            .descriptor
+            .as_ref()
+            .and_then(|(path, _)| names.insert(descriptor.name.clone(), (path.clone(), index)))
+        {
             return Err(Error::message(
                 path,
                 format!("duplicate mod name: {}", descriptor.name),
             ));
         }
     }
-    for (index, source) in sources.iter().enumerate().skip(1) {
-        if let Some((path, descriptor)) = &source.descriptor {
+
+    let name_indices = names
+        .iter()
+        .map(|(name, (_, index))| (name.as_str(), *index))
+        .collect::<BTreeMap<_, _>>();
+    let mut priorities = vec![-1000_i64; mods.len()];
+    let mut converged = mods.is_empty();
+    for _ in 0..=mods.len() {
+        let mut changed = false;
+        for (current_index, source) in mods.iter().enumerate() {
+            let descriptor = source.descriptor().expect("mods have descriptors");
             for dependency in &descriptor.dependencies {
-                let Some(&dependency_index) = names.get(dependency.as_str()) else {
-                    return Err(Error::message(
-                        path,
-                        format!("missing mod dependency: {dependency}"),
-                    ));
+                let Some(&dependency_index) = name_indices.get(dependency.as_str()) else {
+                    continue;
                 };
-                if dependency_index >= index {
-                    return Err(Error::message(
-                        path,
-                        format!(
-                            "mod dependency must precede {}: {dependency}",
-                            descriptor.name
-                        ),
-                    ));
+                if priorities[dependency_index] <= priorities[current_index] {
+                    priorities[dependency_index] = priorities[current_index] + 1;
+                    changed = true;
                 }
             }
         }
+        if !changed {
+            converged = true;
+            break;
+        }
     }
-    Ok(())
+    if !converged {
+        return Err(Error::message(
+            "content sources",
+            "cyclic mod dependencies do not produce a stable priority order",
+        ));
+    }
+
+    let mut ordered = mods.into_iter().zip(priorities).collect::<Vec<_>>();
+    ordered.sort_by(
+        |(left_source, left_priority), (right_source, right_priority)| {
+            right_priority.cmp(left_priority).then_with(|| {
+                right_source
+                    .name()
+                    .as_bytes()
+                    .cmp(left_source.name().as_bytes())
+            })
+        },
+    );
+
+    let mut result = Vec::with_capacity(ordered.len() + 2);
+    if let Some(user_directory) = user_directory {
+        result.push(user_directory);
+    }
+    result.extend(ordered.into_iter().map(|(source, _)| source));
+    result.push(base);
+    Ok(result)
 }
 
 fn normalize_path(path: &str) -> Result<String, &'static str> {

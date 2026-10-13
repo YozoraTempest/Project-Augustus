@@ -4,7 +4,7 @@
 use super::{Condition, ENCODING, EstateReport, History, Reader};
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::setup::{block, micros};
-use crate::{ContentRoot, Error, FileEntry, LoadedSource, ParsedText, SourceLocation};
+use crate::{ContentView, Error, FileEntry, LoadedSource, ParsedText, SourceLocation};
 use augustus_core::{EstateLandRules, EstatePrivilege, EstateState, InitialWorld};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -189,7 +189,7 @@ impl EstateInitialization {
 
     pub(super) fn load_rules(
         &mut self,
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         report: &mut EstateReport,
     ) -> Result<(), Error> {

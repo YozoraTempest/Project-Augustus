@@ -5,11 +5,11 @@ use std::collections::BTreeMap;
 
 use augustus_core::{EntityKind, InitialWorld, MetricDefinition, Metrics};
 
-use crate::{ContentRoot, Error, FileEntry, SetupReport};
+use crate::{ContentView, Error, FileEntry, SetupReport};
 
 /// Declare stocks without inventing initialization or unresolved country caps.
 pub(super) fn bind(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     initial: &InitialWorld,
     report: &mut SetupReport,

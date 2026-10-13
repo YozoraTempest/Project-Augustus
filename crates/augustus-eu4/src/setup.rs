@@ -3,7 +3,7 @@
 
 use crate::bootstrap::{dated_name, direct_txt, equal, nonnegative_milli, source};
 use crate::{
-    ContentRoot, Error, FileEntry, LoadedSource, ParsedText, SourceLocation, TextEncoding,
+    ContentView, Error, FileEntry, LoadedSource, ParsedText, SourceLocation, TextEncoding,
 };
 use augustus_core::{
     CountryResources, InitialWorld, ModifierDefinition, ModifierInstance, Modifiers, Technology,
@@ -227,7 +227,7 @@ pub(super) fn properties(
 
 impl SetupDraft {
     pub(super) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         report: &mut SetupReport,
     ) -> Result<Self, Error> {

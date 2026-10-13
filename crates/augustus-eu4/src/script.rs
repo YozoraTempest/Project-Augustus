@@ -16,7 +16,7 @@ use jomini::{
 };
 
 use crate::{
-    ContentRoot, ContentSet, DefinitionKind, Error, FileEntry, ParsedText, SourceLocation,
+    ContentSet, ContentView, DefinitionKind, Error, FileEntry, ParsedText, SourceLocation,
     TextDocument, TextEncoding,
 };
 
@@ -146,7 +146,7 @@ impl ScriptLibrary {
     }
 
     pub(crate) fn from_root(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         encoding: TextEncoding,
     ) -> Result<Self, Error> {

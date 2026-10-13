@@ -21,6 +21,49 @@ pub struct FileEntry {
     pub byte_size: u64,
 }
 
+/// Read-only view of logical game files with their physical source paths.
+pub trait ContentView {
+    fn path(&self) -> &Path;
+
+    fn source_roots(&self) -> Vec<PathBuf>;
+
+    fn files(&self) -> Result<Vec<FileEntry>, Error>;
+
+    fn read_text(
+        &self,
+        relative_path: impl AsRef<Path>,
+        encoding: TextEncoding,
+    ) -> Result<TextDocument, Error>;
+
+    fn physical_path(&self, relative_path: &Path) -> PathBuf;
+}
+
+impl<T: ContentView + ?Sized> ContentView for &T {
+    fn path(&self) -> &Path {
+        (**self).path()
+    }
+
+    fn source_roots(&self) -> Vec<PathBuf> {
+        (**self).source_roots()
+    }
+
+    fn files(&self) -> Result<Vec<FileEntry>, Error> {
+        (**self).files()
+    }
+
+    fn read_text(
+        &self,
+        relative_path: impl AsRef<Path>,
+        encoding: TextEncoding,
+    ) -> Result<TextDocument, Error> {
+        (**self).read_text(relative_path, encoding)
+    }
+
+    fn physical_path(&self, relative_path: &Path) -> PathBuf {
+        (**self).physical_path(relative_path)
+    }
+}
+
 impl ContentRoot {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref();
@@ -95,5 +138,31 @@ impl ContentRoot {
             ));
         }
         TextDocument::read(resolved, encoding)
+    }
+}
+
+impl ContentView for ContentRoot {
+    fn path(&self) -> &Path {
+        ContentRoot::path(self)
+    }
+
+    fn source_roots(&self) -> Vec<PathBuf> {
+        vec![self.path().to_path_buf()]
+    }
+
+    fn files(&self) -> Result<Vec<FileEntry>, Error> {
+        ContentRoot::files(self)
+    }
+
+    fn read_text(
+        &self,
+        relative_path: impl AsRef<Path>,
+        encoding: TextEncoding,
+    ) -> Result<TextDocument, Error> {
+        ContentRoot::read_text(self, relative_path, encoding)
+    }
+
+    fn physical_path(&self, relative_path: &Path) -> PathBuf {
+        self.path().join(relative_path)
     }
 }

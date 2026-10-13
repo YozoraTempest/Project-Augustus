@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::setup::block;
-use crate::{ContentRoot, Error, FileEntry, LoadedSource, ParsedText, TextEncoding};
+use crate::{ContentView, Error, FileEntry, LoadedSource, ParsedText, TextEncoding};
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
 
@@ -38,7 +38,7 @@ pub(super) struct ReligiousSchoolsDraft {
 
 impl ReligiousSchoolsDraft {
     pub(super) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         report: &mut ReligiousSchoolReport,
     ) -> Result<Self, Error> {

@@ -7,7 +7,7 @@ use augustus_core::{Completions, Condition, InitialWorld, Objectives, World};
 use serde::Serialize;
 
 use crate::bootstrap::{direct_txt, equal};
-use crate::{ContentRoot, Error, FileEntry, ScriptCompiler, ScriptLibrary, TextEncoding};
+use crate::{ContentView, Error, FileEntry, ScriptCompiler, ScriptLibrary, TextEncoding};
 
 #[derive(Debug, Default, Serialize)]
 pub struct MissionReport {
@@ -25,7 +25,7 @@ pub(crate) struct MissionDraft {
 
 impl MissionDraft {
     pub(crate) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         world: &World,
         areas: &BTreeMap<String, Vec<u32>>,
@@ -48,9 +48,11 @@ impl MissionDraft {
             .with_religious_school_groups(world.affiliations().0["religious_school"].groups.clone())
             .compile_missions(&documents)?;
         // Persistent conditions use content paths, independent of the player's installation.
-        let prefix = format!("{}{}", root.path().display(), std::path::MAIN_SEPARATOR);
-        for group in &mut objectives.groups {
-            relative_reasons(&mut group.condition, &prefix);
+        for source_root in root.source_roots() {
+            let prefix = format!("{}{}", source_root.display(), std::path::MAIN_SEPARATOR);
+            for group in &mut objectives.groups {
+                relative_reasons(&mut group.condition, &prefix);
+            }
         }
         Ok(Self { ids, objectives })
     }
@@ -133,7 +135,7 @@ fn relative_reasons(condition: &mut Condition, prefix: &str) {
 
 /// Index names only. Tree eligibility, rewards and series selection are separate.
 pub(crate) fn identifiers(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
 ) -> Result<BTreeSet<String>, Error> {
     let mut identifiers = BTreeSet::new();

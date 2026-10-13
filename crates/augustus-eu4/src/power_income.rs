@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use crate::{ContentRoot, Error, FileEntry, SetupReport};
+use crate::{ContentView, Error, FileEntry, SetupReport};
 use augustus_core::{
     AccrualRule, AttributeBase, AttributeChannel, AttributeFormula, AttributeTerm, Attributes,
     InitialWorld, MonthlyAccruals, RulerSkill, Target,
@@ -9,7 +9,7 @@ use augustus_core::{
 
 /// Bind verified sources while keeping unimplemented producers explicit.
 pub(super) fn bind(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     initial: &InitialWorld,
     attributes: &mut Attributes,

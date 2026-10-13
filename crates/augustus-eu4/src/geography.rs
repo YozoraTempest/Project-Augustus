@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::bootstrap::{equal, source};
 use crate::setup::block;
-use crate::{AdministrationReport, ContentRoot, Error, ParsedText, TextEncoding};
+use crate::{AdministrationReport, ContentView, Error, ParsedText, TextEncoding};
 
 type Groups = BTreeMap<String, BTreeSet<String>>;
 
@@ -18,7 +18,7 @@ pub(super) struct GeographicGroups {
 
 impl GeographicGroups {
     pub(super) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         map: &ParsedText<'_>,
         report: &mut AdministrationReport,
     ) -> Result<Self, Error> {

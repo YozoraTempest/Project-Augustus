@@ -4,25 +4,25 @@
 use jomini::Encoding;
 
 use crate::setup::micros;
-use crate::{ContentRoot, Error, FileEntry, LoadedSource, SourceLocation, TextEncoding};
+use crate::{ContentView, Error, FileEntry, LoadedSource, SourceLocation, TextEncoding};
 
 /// Selected base-file literals only; additional assignments need Lua evaluation.
 pub(super) fn literal(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     section: &str,
     key: &str,
 ) -> Result<(i64, LoadedSource), Error> {
     optional_literal(root, files, section, key)?.ok_or_else(|| {
         Error::message(
-            root.path().join("common/defines.lua"),
+            root.physical_path(std::path::Path::new("common/defines.lua")),
             format!("missing literal define {key}"),
         )
     })
 }
 
 pub(super) fn optional_literal(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     section: &str,
     key: &str,
@@ -31,7 +31,7 @@ pub(super) fn optional_literal(
 }
 
 pub(super) fn optional_signed_literal(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     section: &str,
     key: &str,
@@ -40,7 +40,7 @@ pub(super) fn optional_signed_literal(
 }
 
 fn optional_literal_with_sign(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     section: &str,
     key: &str,

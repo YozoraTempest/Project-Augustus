@@ -5,7 +5,7 @@ use super::initialization::HistoryMetric;
 use super::{Condition, ENCODING, EstateReport, Reader};
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::setup::{PropertyDiagnostics, block, micros};
-use crate::{ContentRoot, Error, FileEntry, LoadedSource, ParsedText, TextDocument};
+use crate::{ContentView, Error, FileEntry, LoadedSource, ParsedText, TextDocument};
 use augustus_core::{Action, EntityKind, EventCatalog, InitialWorld, Schema, ScopeSelector};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -515,7 +515,7 @@ impl EstateStartup {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         schema: &Schema,
         modifier_ids: BTreeSet<String>,
@@ -1187,7 +1187,7 @@ fn collect_references(steps: &[Step], references: &mut BTreeSet<String>) {
 }
 
 fn load_events(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     mut needed: BTreeSet<String>,
     compiler: &Compiler,

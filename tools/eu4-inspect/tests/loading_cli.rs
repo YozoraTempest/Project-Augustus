@@ -44,6 +44,40 @@ fn resolved_parse_reports_provenance_and_parses_the_winner() {
 }
 
 #[test]
+fn user_directory_overlays_mod_and_base_files() {
+    let fixture = tempfile::tempdir().unwrap();
+    let base = fixture.path().join("base");
+    let pack = fixture.path().join("pack");
+    let user = fixture.path().join("user");
+    write(&base, "common/defines.lua", "from_base = true");
+    write(&pack, "descriptor.mod", "name=Pack");
+    write(&pack, "common/defines.lua", "from_mod = true");
+    write(&user, "common/defines.lua", "from_user = true");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_eu4-inspect"))
+        .arg("resolve")
+        .arg(&base)
+        .arg("--mod")
+        .arg(&pack)
+        .arg("--user-directory")
+        .arg(&user)
+        .args(["--file", "common/defines.lua", "--parse"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("Effective source: EU4 user directory"));
+    assert!(report.contains("overridden by file from EU4 user directory"));
+    assert!(report.contains("from_user = true"));
+    assert!(!report.contains("from_mod = true"));
+    assert!(!report.contains("from_base = true"));
+}
+
+#[test]
 fn definition_query_lists_duplicates_without_claiming_a_winner() {
     let fixture = tempfile::tempdir().unwrap();
     write(
@@ -80,7 +114,7 @@ fn definition_query_lists_duplicates_without_claiming_a_winner() {
 }
 
 #[test]
-fn invalid_dependencies_fail_and_parse_requires_a_file() {
+fn missing_dependencies_are_ignored_cycles_fail_and_parse_requires_a_file() {
     let fixture = tempfile::tempdir().unwrap();
     let base = fixture.path().join("base");
     fs::create_dir(&base).unwrap();
@@ -97,11 +131,24 @@ fn invalid_dependencies_fail_and_parse_requires_a_file() {
         .arg(&pack)
         .output()
         .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    write(&pack, "descriptor.mod", "name=Pack dependencies={ Pack }");
+    let output = Command::new(env!("CARGO_BIN_EXE_eu4-inspect"))
+        .arg("resolve")
+        .arg(&base)
+        .arg("--mod")
+        .arg(&pack)
+        .output()
+        .unwrap();
     assert!(!output.status.success());
     assert!(
         String::from_utf8(output.stderr)
             .unwrap()
-            .contains("missing mod dependency: Missing")
+            .contains("cyclic mod dependencies")
     );
     let output = Command::new(env!("CARGO_BIN_EXE_eu4-inspect"))
         .arg("resolve")

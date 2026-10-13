@@ -14,7 +14,7 @@ use crate::autonomy::constant_condition;
 use crate::bootstrap::{dated_name, direct_txt, equal, nonnegative_milli, source};
 use crate::setup::{PropertyDiagnostics, block, properties};
 use crate::{
-    ContentRoot, Error, FileEntry, LoadedSource, ParsedText, SourceLocation, TextEncoding,
+    ContentView, Error, FileEntry, LoadedSource, ParsedText, SourceLocation, TextEncoding,
 };
 
 type Reader<'a, 'b> = ObjectReader<'a, 'b, TextEncoding>;
@@ -99,7 +99,7 @@ pub(super) struct GovernmentDraft {
 
 impl GovernmentDraft {
     pub(super) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         report: &mut GovernmentReport,
     ) -> Result<Self, Error> {

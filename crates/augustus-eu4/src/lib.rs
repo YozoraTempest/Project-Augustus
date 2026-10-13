@@ -52,7 +52,7 @@ pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView, VanillaWorld,
 };
 pub use casus_belli::{CasusBelliReport, CasusBelliType, CasusBelliTypes};
-pub use content::{ContentRoot, FileEntry};
+pub use content::{ContentRoot, ContentView, FileEntry};
 pub use definitions::{DefinitionIndex, DefinitionKind, DefinitionOrigin};
 pub use descriptor::ModDescriptor;
 pub use diagnostic::{Error, SourceLocation};

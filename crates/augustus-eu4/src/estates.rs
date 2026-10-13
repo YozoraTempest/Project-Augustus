@@ -17,7 +17,7 @@ use crate::bootstrap::{dated_name, direct_txt, equal, source};
 use crate::country_conditions::Condition;
 use crate::setup::{PropertyDiagnostics, block, properties};
 use crate::{
-    ContentRoot, Error, FileEntry, LoadedSource, ParsedText, SourceLocation, TextEncoding,
+    ContentView, Error, FileEntry, LoadedSource, ParsedText, SourceLocation, TextEncoding,
 };
 
 mod initialization;
@@ -96,7 +96,7 @@ pub(super) struct EstateDraft {
 
 impl EstateDraft {
     pub(super) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
@@ -626,7 +626,7 @@ fn scoped(reader: Reader<'_, '_>, history: &mut History, depth: usize) -> Result
 }
 
 fn library(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     report: &mut EstateReport,
 ) -> Result<BTreeMap<String, Condition>, Error> {

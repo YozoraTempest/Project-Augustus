@@ -12,7 +12,7 @@ use jomini::{TextToken, text::ObjectReader};
 use crate::administration::AdministrationReport;
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::setup::block;
-use crate::{ContentRoot, Error, FileEntry, LoadedSource, ParsedText, TextEncoding};
+use crate::{ContentView, Error, FileEntry, LoadedSource, ParsedText, TextEncoding};
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
 type Reader<'a, 'b> = ObjectReader<'a, 'b, TextEncoding>;
@@ -66,7 +66,7 @@ fn integer(text: &str, maximum: u8, fail: &impl Fn(&str) -> Error) -> Result<u8,
 }
 
 pub(super) fn groups(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     directory: &str,
     report: &mut AdministrationReport,
@@ -170,7 +170,7 @@ impl AutonomyDraft {
     }
 
     pub(super) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         map: &ParsedText<'_>,
         report: &mut AdministrationReport,

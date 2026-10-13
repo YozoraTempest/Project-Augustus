@@ -16,7 +16,7 @@ use serde::Serialize;
 
 use crate::bootstrap::{equal, source};
 use crate::setup::micros;
-use crate::{ContentRoot, Error, FileEntry, LoadedSource, ParsedText, TextEncoding};
+use crate::{ContentView, Error, FileEntry, LoadedSource, ParsedText, TextEncoding};
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
 
@@ -70,7 +70,7 @@ impl AdministrationDraft {
     }
 
     pub(super) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         map: &ParsedText<'_>,
         report: &mut AdministrationReport,
@@ -110,7 +110,7 @@ impl AdministrationDraft {
         let filename = value
             .read_string()
             .map_err(|_| fail("expected area filename"))?;
-        // ContentRoot applies traversal checks to the combined relative path.
+        // ContentView applies traversal checks to the combined relative path.
         let doc = root.read_text(std::path::Path::new("map").join(filename), ENCODING)?;
         let parsed = doc.parse()?;
         for (key, op, value) in parsed.reader().fields() {

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use crate::{ContentRoot, Error, FileEntry, SetupReport};
+use crate::{ContentView, Error, FileEntry, SetupReport};
 
 pub(super) fn bind(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     report: &mut SetupReport,
 ) -> Result<(), Error> {

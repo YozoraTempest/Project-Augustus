@@ -9,7 +9,7 @@ use augustus_core::{
     MonthlyConvergence, Target, WorldDate,
 };
 
-use crate::{ContentRoot, Error, FileEntry, SetupReport};
+use crate::{ContentView, Error, FileEntry, SetupReport};
 
 pub(super) fn metrics(
     initial: &InitialWorld,
@@ -66,7 +66,7 @@ pub(super) fn metrics(
 }
 
 pub(super) fn bind(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     initial: &InitialWorld,
     attributes: &mut Attributes,

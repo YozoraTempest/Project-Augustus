@@ -12,7 +12,7 @@ use serde::Serialize;
 use crate::bootstrap::{dated_name, direct_txt, equal, source};
 use crate::setup::{PropertyDiagnostics, block, flag, properties};
 use crate::{
-    ContentRoot, Error, FileEntry, LoadedSource, ParsedText, SourceLocation, TextEncoding,
+    ContentView, Error, FileEntry, LoadedSource, ParsedText, SourceLocation, TextEncoding,
 };
 
 use crate::country_conditions::Condition;
@@ -86,7 +86,7 @@ fn effect(
 
 impl IdeaDraft {
     pub(super) fn load(
-        root: &ContentRoot,
+        root: &impl ContentView,
         files: &[FileEntry],
         report: &mut IdeaReport,
     ) -> Result<Self, Error> {

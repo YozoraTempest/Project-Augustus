@@ -4,7 +4,7 @@
 use crate::bootstrap::{
     BootstrapReport, LoadedSource, direct_txt, equal, history_blocks, nonnegative_milli, source,
 };
-use crate::{ContentRoot, Error, FileEntry, ParsedText, SourceLocation, TextEncoding};
+use crate::{ContentView, Error, FileEntry, ParsedText, SourceLocation, TextEncoding};
 use augustus_core::{
     CountryPolitics, DiplomaticKind, DiplomaticRelation, EntityId, InitialWorld, PersonState,
     Politics, WorldDate,
@@ -48,7 +48,7 @@ pub(super) fn label(date: Date) -> WorldDate {
 }
 
 pub(super) fn ruler_skill_bounds(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     report: &mut crate::SetupReport,
 ) -> Result<Option<augustus_core::RulerSkillBounds>, Error> {
@@ -297,7 +297,7 @@ pub(super) fn bind_people(
 }
 
 pub(super) fn load_diplomacy(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
     initial: &InitialWorld,
     date: Date,
@@ -542,7 +542,7 @@ pub(super) fn has_subject_mutation(
 }
 
 pub(super) fn history_effect_names(
-    root: &ContentRoot,
+    root: &impl ContentView,
     files: &[FileEntry],
 ) -> Result<BTreeSet<String>, Error> {
     let mut names = BTreeSet::new();

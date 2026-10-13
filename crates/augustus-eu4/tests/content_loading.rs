@@ -33,7 +33,7 @@ fn mod_source(root: &Path) -> ContentSource {
 }
 
 #[test]
-fn explicit_order_preserves_override_chain_and_reads_only_the_selected_file() {
+fn dependencies_and_source_priority_choose_the_first_matching_file() {
     let fixture = tempfile::tempdir().unwrap();
     let vanilla = directory(fixture.path(), "base");
     let pack = directory(fixture.path(), "pack");
@@ -45,30 +45,39 @@ fn explicit_order_preserves_override_chain_and_reads_only_the_selected_file() {
     write(&patch, "common/buildings/example.txt", "new={ cost=3 }");
     let content =
         ContentSet::resolve(vec![base(&vanilla), mod_source(&pack), mod_source(&patch)]).unwrap();
+    assert_eq!(
+        content
+            .sources()
+            .iter()
+            .map(ContentSource::name)
+            .collect::<Vec<_>>(),
+        ["Pack", "Patch", "EU4 base"]
+    );
     let trace = content
         .trace("common/buildings/example.txt")
         .unwrap()
         .unwrap();
     assert_eq!(trace.candidates.len(), 3);
-    assert_eq!(
-        trace.candidates[0].suppressed_by,
-        Some(Suppression::FileOverride { by_source: 1 })
-    );
+    assert_eq!(trace.candidates[0].origin.source_index, 0);
     assert_eq!(
         trace.candidates[1].suppressed_by,
-        Some(Suppression::FileOverride { by_source: 2 })
+        Some(Suppression::FileOverride { by_source: 0 })
     );
-    assert_eq!(trace.effective().unwrap().source_index, 2);
+    assert_eq!(
+        trace.candidates[2].suppressed_by,
+        Some(Suppression::FileOverride { by_source: 0 })
+    );
+    assert_eq!(trace.effective().unwrap().source_index, 0);
     let document = content
         .read_text("common/buildings/example.txt", TextEncoding::Utf8)
         .unwrap();
-    assert_eq!(document.parse().unwrap().root_fields()[0].name, "new");
+    assert_eq!(document.parse().unwrap().root_fields()[0].name, "middle");
     assert_eq!(document.source(), trace.effective().unwrap().physical_path);
     assert_eq!(
         fs::read(vanilla.join("common/buildings/example.txt")).unwrap(),
         b"old={ cost=1 }"
     );
-    fs::remove_file(patch.join("common/buildings/example.txt")).unwrap();
+    fs::remove_file(pack.join("common/buildings/example.txt")).unwrap();
     assert!(
         content
             .read_text("common/buildings/example.txt", TextEncoding::Utf8)
@@ -96,7 +105,7 @@ fn empty_directory_replacement_hides_lower_files_without_a_fallback() {
         assert_eq!(
             trace.candidates[0].suppressed_by,
             Some(Suppression::DirectoryReplacement {
-                by_source: 1,
+                by_source: 0,
                 replace_path: "events".into(),
             })
         );
@@ -111,7 +120,7 @@ fn empty_directory_replacement_hides_lower_files_without_a_fallback() {
             .is_some()
     );
     assert_eq!(
-        content.sources()[1]
+        content.sources()[0]
             .descriptor()
             .unwrap()
             .replace_paths
@@ -121,33 +130,52 @@ fn empty_directory_replacement_hides_lower_files_without_a_fallback() {
 }
 
 #[test]
-fn replacement_keeps_own_files_and_allows_later_mods_to_add_or_override() {
+fn replacement_keeps_higher_priority_files_and_cuts_lower_priority_sources() {
     let fixture = tempfile::tempdir().unwrap();
     let vanilla = directory(fixture.path(), "base");
     let pack = directory(fixture.path(), "pack");
-    let patch = directory(fixture.path(), "patch");
+    let overlay = directory(fixture.path(), "overlay");
+    let fallback = directory(fixture.path(), "fallback");
     write(
         &pack,
         "descriptor.mod",
-        r#"name=Pack replace_path="COMMON/BUILDINGS/""#,
+        r#"name="Middle Pack" replace_path="COMMON/BUILDINGS/""#,
     );
-    write(&patch, "descriptor.mod", "name=Patch dependencies={ Pack }");
+    write(&overlay, "descriptor.mod", "name=\"Z Overlay\"");
+    write(&fallback, "descriptor.mod", "name=\"A Fallback\"");
     write(&vanilla, "common/buildings/same.txt", "base={}");
     write(&pack, "common/buildings/same.txt", "pack={}");
-    write(&patch, "common/buildings/same.txt", "patch={}");
-    write(&patch, "common/buildings/extra.txt", "extra={}");
-    let content =
-        ContentSet::resolve(vec![base(&vanilla), mod_source(&pack), mod_source(&patch)]).unwrap();
+    write(&overlay, "common/buildings/same.txt", "overlay={}");
+    write(&overlay, "common/buildings/extra.txt", "extra={}");
+    write(&pack, "common/buildings/pack_only.txt", "pack_only={}");
+    write(&fallback, "common/buildings/same.txt", "fallback={}");
+    write(
+        &fallback,
+        "common/buildings/lower_only.txt",
+        "lower_only={}",
+    );
+    let content = ContentSet::resolve(vec![
+        base(&vanilla),
+        mod_source(&pack),
+        mod_source(&fallback),
+        mod_source(&overlay),
+    ])
+    .unwrap();
     let trace = content.trace("common/buildings/same.txt").unwrap().unwrap();
-    assert!(matches!(
-        trace.candidates[0].suppressed_by,
-        Some(Suppression::DirectoryReplacement { by_source: 1, .. })
-    ));
+    assert_eq!(trace.candidates[0].origin.source_index, 0);
+    assert_eq!(trace.effective().unwrap().source_index, 0);
     assert_eq!(
         trace.candidates[1].suppressed_by,
-        Some(Suppression::FileOverride { by_source: 2 })
+        Some(Suppression::FileOverride { by_source: 0 })
     );
-    assert_eq!(trace.effective().unwrap().source_index, 2);
+    assert!(matches!(
+        trace.candidates[2].suppressed_by,
+        Some(Suppression::DirectoryReplacement { by_source: 1, .. })
+    ));
+    assert!(matches!(
+        trace.candidates[3].suppressed_by,
+        Some(Suppression::DirectoryReplacement { by_source: 1, .. })
+    ));
     assert_eq!(
         content
             .trace("common/buildings/extra.txt")
@@ -156,12 +184,30 @@ fn replacement_keeps_own_files_and_allows_later_mods_to_add_or_override() {
             .effective()
             .unwrap()
             .source_index,
-        2
+        0
+    );
+    assert_eq!(
+        content
+            .trace("common/buildings/pack_only.txt")
+            .unwrap()
+            .unwrap()
+            .effective()
+            .unwrap()
+            .source_index,
+        1
+    );
+    assert!(
+        content
+            .trace("common/buildings/lower_only.txt")
+            .unwrap()
+            .unwrap()
+            .effective()
+            .is_none()
     );
 }
 
 #[test]
-fn later_directory_replacement_removes_an_earlier_mod_as_well_as_the_base() {
+fn directory_replacement_removes_lower_priority_mods_and_base() {
     let fixture = tempfile::tempdir().unwrap();
     let vanilla = directory(fixture.path(), "base");
     let pack = directory(fixture.path(), "pack");
@@ -170,7 +216,7 @@ fn later_directory_replacement_removes_an_earlier_mod_as_well_as_the_base() {
     write(
         &patch,
         "descriptor.mod",
-        "name=Patch dependencies={ Pack } replace_path=events",
+        "name=\"Z Patch\" replace_path=events",
     );
     write(&vanilla, "events/example.txt", "base={}");
     write(&pack, "events/example.txt", "pack={}");
@@ -179,12 +225,19 @@ fn later_directory_replacement_removes_an_earlier_mod_as_well_as_the_base() {
     let trace = content.trace("events/example.txt").unwrap().unwrap();
     assert_eq!(
         trace.candidates[0].suppressed_by,
-        Some(Suppression::FileOverride { by_source: 1 })
+        Some(Suppression::DirectoryReplacement {
+            by_source: 0,
+            replace_path: "events".into(),
+        })
     );
-    assert!(matches!(
+    assert_eq!(trace.candidates[1].origin.source_index, 2);
+    assert_eq!(
         trace.candidates[1].suppressed_by,
-        Some(Suppression::DirectoryReplacement { by_source: 2, .. })
-    ));
+        Some(Suppression::DirectoryReplacement {
+            by_source: 0,
+            replace_path: "events".into(),
+        })
+    );
     assert!(trace.effective().is_none());
 }
 
@@ -214,25 +267,77 @@ fn file_lookup_normalizes_separators_and_ascii_case_but_keeps_physical_spelling(
 }
 
 #[test]
-fn dependencies_and_source_identity_are_validated_without_reordering() {
+fn dependencies_reorder_mods_and_source_identity_is_validated() {
     let fixture = tempfile::tempdir().unwrap();
     let vanilla = directory(fixture.path(), "base");
     let pack = directory(fixture.path(), "pack");
     let patch = directory(fixture.path(), "patch");
     write(&pack, "descriptor.mod", "name=Pack");
     write(&patch, "descriptor.mod", "name=Patch dependencies={ Pack }");
-    let missing = ContentSet::resolve(vec![base(&vanilla), mod_source(&patch)]).unwrap_err();
-    assert!(missing.to_string().contains("missing mod dependency: Pack"));
-    assert_eq!(
-        missing.path(),
-        fs::canonicalize(patch.join("descriptor.mod")).unwrap()
+    let unresolved = directory(fixture.path(), "unresolved");
+    write(
+        &unresolved,
+        "descriptor.mod",
+        "name=Unresolved dependencies={ Absent }",
     );
-    let order = ContentSet::resolve(vec![base(&vanilla), mod_source(&patch), mod_source(&pack)])
-        .unwrap_err();
-    assert!(order.to_string().contains("must precede Patch: Pack"));
+    assert!(ContentSet::resolve(vec![base(&vanilla), mod_source(&unresolved)]).is_ok());
+    let order =
+        ContentSet::resolve(vec![base(&vanilla), mod_source(&patch), mod_source(&pack)]).unwrap();
+    assert_eq!(
+        order
+            .sources()
+            .iter()
+            .map(ContentSource::name)
+            .collect::<Vec<_>>(),
+        ["Pack", "Patch", "EU4 base"]
+    );
+    write(&patch, "descriptor.mod", "name=Patch");
+    let name_order =
+        ContentSet::resolve(vec![base(&vanilla), mod_source(&patch), mod_source(&pack)]).unwrap();
+    assert_eq!(
+        name_order
+            .sources()
+            .iter()
+            .map(ContentSource::name)
+            .collect::<Vec<_>>(),
+        ["Patch", "Pack", "EU4 base"]
+    );
+    let root_mod = directory(fixture.path(), "root-mod");
+    let middle_mod = directory(fixture.path(), "middle-mod");
+    let dependency_mod = directory(fixture.path(), "dependency-mod");
+    write(
+        &root_mod,
+        "descriptor.mod",
+        "name=\"Z Root\" dependencies={ \"A Middle\" }",
+    );
+    write(
+        &middle_mod,
+        "descriptor.mod",
+        "name=\"A Middle\" dependencies={ \"M Base\" }",
+    );
+    write(&dependency_mod, "descriptor.mod", "name=\"M Base\"");
+    let dependency_chain = ContentSet::resolve(vec![
+        base(&vanilla),
+        mod_source(&root_mod),
+        mod_source(&middle_mod),
+        mod_source(&dependency_mod),
+    ])
+    .unwrap();
+    assert_eq!(
+        dependency_chain
+            .sources()
+            .iter()
+            .map(ContentSource::name)
+            .collect::<Vec<_>>(),
+        ["M Base", "A Middle", "Z Root", "EU4 base"]
+    );
+    write(&patch, "descriptor.mod", "name=Patch dependencies={ Pack }");
     write(&pack, "descriptor.mod", "name=Pack dependencies={ Patch }");
     assert!(
-        ContentSet::resolve(vec![base(&vanilla), mod_source(&pack), mod_source(&patch)]).is_err()
+        ContentSet::resolve(vec![base(&vanilla), mod_source(&pack), mod_source(&patch)])
+            .unwrap_err()
+            .to_string()
+            .contains("cyclic mod dependencies")
     );
     write(&pack, "descriptor.mod", "name=Pack dependencies={ Pack }");
     assert!(ContentSet::resolve(vec![base(&vanilla), mod_source(&pack)]).is_err());
@@ -253,6 +358,37 @@ fn dependencies_and_source_identity_are_validated_without_reordering() {
     assert!(ContentSet::resolve(vec![]).is_err());
     assert!(ContentSet::resolve(vec![mod_source(&pack)]).is_err());
     assert!(ContentSet::resolve(vec![base(&vanilla), base(&pack)]).is_err());
+}
+
+#[test]
+fn user_directory_precedes_mods_and_base_content() {
+    let fixture = tempfile::tempdir().unwrap();
+    let user = directory(fixture.path(), "user");
+    let vanilla = directory(fixture.path(), "base");
+    let pack = directory(fixture.path(), "pack");
+    write(&pack, "descriptor.mod", "name=Pack");
+    write(&user, "common/defines.lua", "from_user = true");
+    write(&pack, "common/defines.lua", "from_mod = true");
+    write(&vanilla, "common/defines.lua", "from_base = true");
+
+    let content = ContentSet::resolve(vec![
+        base(&vanilla),
+        mod_source(&pack),
+        ContentSource::user_directory(&user).unwrap(),
+    ])
+    .unwrap();
+    assert_eq!(
+        content
+            .sources()
+            .iter()
+            .map(ContentSource::name)
+            .collect::<Vec<_>>(),
+        ["EU4 user directory", "Pack", "EU4 base"]
+    );
+    let document = content
+        .read_text("common/defines.lua", TextEncoding::Utf8)
+        .unwrap();
+    assert_eq!(document.parse().unwrap().root_fields()[0].name, "from_user");
 }
 
 #[test]
@@ -331,7 +467,7 @@ fn definitions_track_all_duplicates_but_only_from_effective_files() {
             .iter()
             .map(|origin| origin.source_index)
             .collect::<Vec<_>>(),
-        [0, 1, 1]
+        [1, 0, 0]
     );
     assert_eq!(origins[1].location, SourceLocation { line: 2, column: 1 });
     assert_eq!(origins[1].field_index, 1);
