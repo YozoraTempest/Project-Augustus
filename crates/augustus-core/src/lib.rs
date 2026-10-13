@@ -39,6 +39,7 @@ mod scopes;
 mod subjects;
 mod taxation;
 mod technology;
+mod truces;
 mod world;
 
 pub use accruals::{
@@ -101,6 +102,7 @@ pub use scopes::{EntityRef, ScopeContext, ScopeSelector};
 pub use subjects::Subjects;
 pub use taxation::{MonthlySystem, MonthlyTax, MonthlyTaxAccount, TaxSettlement, Taxation};
 pub use technology::{Technology, TechnologyLevel};
+pub use truces::{Truce, Truces};
 pub use world::{Entity, EntityId, EntityKind, FieldId, RuleId, Schema, World};
 
 #[derive(Debug, thiserror::Error)]

@@ -24,6 +24,10 @@ struct Scene {
     offices: BTreeMap<String, EntityId>,
     #[serde(default, skip_serializing_if = "augustus_core::Politics::is_empty")]
     politics: augustus_core::Politics,
+    #[serde(default, skip_serializing_if = "augustus_core::Truces::is_empty")]
+    truces: augustus_core::Truces,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    truce_months: Option<u32>,
     #[serde(default, skip_serializing_if = "augustus_core::Subjects::is_empty")]
     subjects: augustus_core::Subjects,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -119,6 +123,8 @@ pub struct PendingChoiceView {
 
 #[derive(Debug, Serialize)]
 pub struct EventView {
+    #[serde(skip_serializing_if = "augustus_core::Truces::is_empty")]
+    pub truces: augustus_core::Truces,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub queued_event_choices: Vec<EventChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -197,6 +203,7 @@ impl EventDemo {
                 ))?;
                 let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_subject_type_ids(scene.subjects.types.clone())
+                    .with_truce_months(scene.truce_months)
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
                     .with_government_form_ids(scene.governments.forms.keys().cloned().collect())
                     .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
@@ -316,6 +323,7 @@ impl EventDemo {
                 }
                 let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_subject_type_ids(scene.subjects.types.clone())
+                    .with_truce_months(scene.truce_months)
                     .with_casus_belli_types(casus_belli.types)
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
                     .with_government_form_ids(scene.governments.forms.keys().cloned().collect())
@@ -483,6 +491,7 @@ impl EventDemo {
             world.set_politics(politics)?;
         }
         world.set_subjects(scene.subjects)?;
+        world.set_truces(scene.truces)?;
         world.set_completions(scene.completions)?;
         world.set_named_values(scene.named_values)?;
         world.set_markers(scene.markers)?;
@@ -663,6 +672,7 @@ impl EventDemo {
             })
             .collect::<Result<Vec<_>, augustus_core::Error>>()?;
         Ok(EventView {
+            truces: self.world.truces().clone(),
             queued_event_choices: self.world.queued_event_choices().to_vec(),
             monthly_accruals: self.world.monthly_accruals().cloned(),
             monthly_convergence: self.world.monthly_convergence().cloned(),

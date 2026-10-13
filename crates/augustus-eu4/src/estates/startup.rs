@@ -44,6 +44,7 @@ struct Compiler {
     government_metric_ids: BTreeSet<String>,
     government_form_ids: BTreeSet<String>,
     metric_ids: BTreeSet<String>,
+    truce_months: Option<u32>,
     area_scopes: BTreeMap<String, Vec<u32>>,
     religious_school_groups: BTreeMap<String, Option<String>>,
     casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
@@ -84,6 +85,7 @@ impl Compiler {
                 | "add_devotion"
                 | "add_stability"
                 | "add_liberty_desire"
+                | "add_truce_with"
                 | "add_adm_power"
                 | "add_dip_power"
                 | "add_mil_power"
@@ -108,6 +110,7 @@ impl Compiler {
                         .with_hidden_descriptions(self.hidden_descriptions)
                         .with_government_metric_ids(self.government_metric_ids.clone())
                         .with_metric_ids(self.metric_ids.clone())
+                        .with_truce_months(self.truce_months)
                         .with_area_scopes(self.area_scopes.clone())
                         .compile_scalar_effect_reader(
                             parsed,
@@ -192,6 +195,7 @@ impl Compiler {
                         .with_government_form_ids(self.government_form_ids.clone())
                         .with_subject_type_ids(self.subject_type_ids.clone())
                         .with_metric_ids(self.metric_ids.clone())
+                        .with_truce_months(self.truce_months)
                         .with_hidden_descriptions(self.hidden_descriptions)
                         .with_area_scopes(self.area_scopes.clone())
                         .with_government_metric_ids(self.government_metric_ids.clone())
@@ -238,6 +242,7 @@ impl Compiler {
                         .with_hidden_descriptions(self.hidden_descriptions)
                         .with_government_metric_ids(self.government_metric_ids.clone())
                         .with_metric_ids(self.metric_ids.clone())
+                        .with_truce_months(self.truce_months)
                         .with_area_scopes(self.area_scopes.clone())
                         .with_mission_ids(self.mission_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())
@@ -456,6 +461,7 @@ impl EstateStartup {
         government_metric_ids: BTreeSet<String>,
         government_form_ids: BTreeSet<String>,
         metric_ids: BTreeSet<String>,
+        truce_months: Option<u32>,
         area_scopes: BTreeMap<String, Vec<u32>>,
         religious_school_groups: BTreeMap<String, Option<String>>,
         casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
@@ -477,6 +483,7 @@ impl EstateStartup {
             government_metric_ids,
             government_form_ids,
             metric_ids,
+            truce_months,
             area_scopes,
             religious_school_groups,
             casus_belli_types,
@@ -1159,6 +1166,7 @@ fn load_events(
                 .with_subject_type_ids(compiler.subject_type_ids.clone())
                 .with_government_metric_ids(compiler.government_metric_ids.clone())
                 .with_metric_ids(compiler.metric_ids.clone())
+                .with_truce_months(compiler.truce_months)
                 .with_area_scopes(compiler.area_scopes.clone())
                 .with_mission_ids(compiler.mission_ids.clone())
                 .with_modifier_ids(compiler.modifier_ids.clone())

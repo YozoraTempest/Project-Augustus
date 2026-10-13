@@ -62,6 +62,8 @@ impl Condition {
                 Ok(match name.as_str() {
                     "is_subject_of"
                     | "is_subject"
+                    | "truce_with"
+                    | "has_truce"
                     | "is_subject_of_type"
                     | "any_subject_country"
                     | "is_core"

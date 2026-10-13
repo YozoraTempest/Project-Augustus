@@ -92,6 +92,8 @@ pub struct World {
     pub(crate) event_catalog: crate::EventCatalog,
     pub(crate) event_queue: crate::event_choices::EventQueue,
     pub(crate) politics: Politics,
+    pub(crate) truces: crate::Truces,
+    pub(crate) truce_expirations: crate::truces::TruceExpirations,
     pub(crate) subjects: crate::Subjects,
     pub(crate) subject_index: crate::subjects::SubjectIndex,
     pub(crate) country_controllers: BTreeMap<EntityId, crate::CountryController>,
@@ -141,6 +143,8 @@ struct Snapshot {
     random: ChaCha8Rng,
     #[serde(default, skip_serializing_if = "Politics::is_empty")]
     politics: Politics,
+    #[serde(default, skip_serializing_if = "crate::Truces::is_empty")]
+    truces: crate::Truces,
     #[serde(default, skip_serializing_if = "crate::Subjects::is_empty")]
     subjects: crate::Subjects,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -223,6 +227,8 @@ impl World {
             event_catalog: crate::EventCatalog::default(),
             event_queue: crate::event_choices::EventQueue::default(),
             politics: Politics::default(),
+            truces: crate::Truces::default(),
+            truce_expirations: Default::default(),
             subjects: crate::Subjects::default(),
             subject_index: crate::subjects::SubjectIndex::default(),
             country_controllers: BTreeMap::new(),
@@ -466,7 +472,14 @@ impl World {
             ));
         }
         calendar.date(0)?;
-        self.calendar = Some(calendar);
+        let previous = self.calendar.replace(calendar);
+        match self.truces.validate(self) {
+            Ok(index) => self.truce_expirations = index,
+            Err(error) => {
+                self.calendar = previous;
+                return Err(error);
+            }
+        }
         Ok(())
     }
 
@@ -696,6 +709,10 @@ impl World {
                 .modifier_expirations
                 .first_key_value()
                 .map(|(day, _)| *day);
+            let truce_retirement = self
+                .truce_expirations
+                .first_key_value()
+                .map(|(&day, _)| day);
             let grant_tick = if self.justifications.active.is_empty() {
                 None
             } else {
@@ -705,6 +722,7 @@ impl World {
                 .into_iter()
                 .chain(month)
                 .chain(expiration)
+                .chain(truce_retirement)
                 .chain(grant_tick)
                 .min();
             let Some(next) = next.filter(|&next| next <= day) else {
@@ -712,6 +730,7 @@ impl World {
             };
             self.day = next;
             self.expire_modifiers(next);
+            self.retire_truces(next, false);
             if let Err(error) = self.maintain_justifications(false) {
                 self.failed = true;
                 return Err(error);
@@ -731,6 +750,7 @@ impl World {
                 )?;
             }
             self.process_event_commands()?;
+            self.retire_truces(next, true);
             if !self.justifications.active.is_empty()
                 && self
                     .calendar
@@ -768,6 +788,7 @@ impl World {
             events: self.events.clone(),
             random: self.random.clone(),
             politics: self.politics.clone(),
+            truces: self.truces.clone(),
             subjects: self.subjects.clone(),
             country_controllers: self.country_controllers.clone(),
             global_scopes: self.global_scopes.clone(),
@@ -840,6 +861,8 @@ impl World {
             rules,
             random: snapshot.random,
             politics: snapshot.politics,
+            truces: snapshot.truces,
+            truce_expirations: Default::default(),
             subjects: snapshot.subjects,
             subject_index: crate::subjects::SubjectIndex::default(),
             country_controllers: snapshot.country_controllers,
@@ -894,6 +917,7 @@ impl World {
             )?;
         }
         world.event_catalog.validate(&world)?;
+        world.truce_expirations = world.truces.validate(&world)?;
         world.event_queue.validate(&world)?;
         world.validate_absent_targets()?;
         for &country in world.country_controllers.keys() {
@@ -1176,6 +1200,19 @@ pub(crate) fn validate_plan(
                 justifications.identifier(name)?;
                 term.validate()?;
             }
+            Action::GrantTruce {
+                first,
+                second,
+                term,
+            } => {
+                first.validate()?;
+                second.validate()?;
+                term.validate()?;
+            }
+            Action::ClearTruce { first, second } => {
+                first.validate()?;
+                second.validate()?;
+            }
             Action::RemoveJustification {
                 issuer,
                 target,
@@ -1391,6 +1428,10 @@ pub(crate) fn validate_condition(
         crate::Condition::SubjectOf { subject, overlord } => {
             subject.validate()?;
             overlord.validate()
+        }
+        crate::Condition::TruceWith { first, second } => {
+            first.validate()?;
+            second.validate()
         }
         crate::Condition::HasJustification {
             issuer,

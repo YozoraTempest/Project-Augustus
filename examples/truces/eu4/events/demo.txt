@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace=tr
+country_event={id=tr.begin is_triggered_only=yes
+ immediate={add_truce_with=BBB add_truce_with=ROOT BBB={if={limit={truce_with=ROOT has_truce=yes} log=symmetric}}}
+ option={name=continue country_event={id=tr.anniversary days=365}}}
+country_event={id=tr.anniversary is_triggered_only=yes
+ immediate={if={limit={truce_with=BBB} log=anniversary}}
+ option={name=continue country_event={id=tr.boundary days=31}}}
+country_event={id=tr.boundary is_triggered_only=yes
+ immediate={if={limit={truce_with=BBB} log=before_cleanup}}
+ option={name=continue country_event={id=tr.after days=1}}}
+country_event={id=tr.after is_triggered_only=yes
+ immediate={if={limit={NOT={truce_with=BBB} has_truce=no} log=expired}}
+ option={name=done log=finished}}

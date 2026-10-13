@@ -16,6 +16,13 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    TruceWith {
+        first: crate::EntityRef,
+        second: crate::EntityRef,
+    },
+    TrucePresent {
+        target: Target,
+    },
     ProvinceCore {
         province: crate::EntityRef,
         country: crate::EntityRef,
@@ -157,6 +164,15 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    GrantTruce {
+        first: crate::EntityRef,
+        second: crate::EntityRef,
+        term: crate::GrantTerm,
+    },
+    ClearTruce {
+        first: crate::EntityRef,
+        second: crate::EntityRef,
+    },
     SetProvinceCore {
         province: crate::EntityRef,
         country: crate::EntityRef,
@@ -353,6 +369,16 @@ impl Condition {
     ) -> Result<bool, Error> {
         let current = context.current;
         match self {
+            Self::TruceWith { first, second } => {
+                let (Some(first), Some(second)) = (
+                    first.resolve_in_context(world, context)?,
+                    second.resolve_in_context(world, context)?,
+                ) else {
+                    return Ok(false);
+                };
+                world.truce_with(first, second)
+            }
+            Self::TrucePresent { target } => world.has_truce(world.target(current, *target)?),
             Self::ProvinceCore {
                 province,
                 country,
@@ -709,6 +735,26 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::GrantTruce {
+                    first,
+                    second,
+                    term,
+                } => {
+                    if let (Some(first), Some(second)) = (
+                        first.resolve_in_context(self, context)?,
+                        second.resolve_in_context(self, context)?,
+                    ) {
+                        self.grant_truce(first, second, *term)?;
+                    }
+                }
+                Action::ClearTruce { first, second } => {
+                    if let (Some(first), Some(second)) = (
+                        first.resolve_in_context(self, context)?,
+                        second.resolve_in_context(self, context)?,
+                    ) {
+                        self.clear_truce(first, second)?;
+                    }
+                }
                 Action::SetProvinceCore {
                     province,
                     country,

@@ -25,6 +25,7 @@ pub struct SetupReport {
     pub monarch_power_income_defines: BTreeMap<String, i64>,
     pub ruler_skill_bounds: Option<augustus_core::RulerSkillBounds>,
     pub monarch_power_base_maximum: Option<i64>,
+    pub truce_months: Option<u32>,
     pub unknown_monarch_power_countries: Vec<String>,
     pub technology_groups: usize,
     pub technology_levels: usize,

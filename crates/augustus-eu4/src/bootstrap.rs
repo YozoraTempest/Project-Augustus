@@ -871,6 +871,7 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by("common/cb_types", e))?;
         let missions =
             crate::missions::MissionDraft::load(&root, &files, initial.world(), &area_scopes)?;
+        crate::truces::bind(&root, &files, &mut report.setup)?;
         let startup = crate::estates::EstateStartup::load(
             &root,
             &files,
@@ -904,6 +905,7 @@ impl VanillaWorld {
                 .keys()
                 .cloned()
                 .collect(),
+            report.setup.truce_months,
             area_scopes,
             initial.world().affiliations().0["religious_school"]
                 .groups

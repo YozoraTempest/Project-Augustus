@@ -298,6 +298,7 @@ pub struct ScriptCompiler<'a> {
     government_metric_ids: BTreeSet<String>,
     government_form_ids: BTreeSet<String>,
     metric_ids: BTreeSet<String>,
+    truce_months: Option<u32>,
     area_scopes: BTreeMap<String, Vec<u32>>,
     religious_school_groups: BTreeMap<String, Option<String>>,
     hidden_descriptions: bool,
@@ -321,6 +322,7 @@ impl<'a> ScriptCompiler<'a> {
             government_metric_ids: BTreeSet::new(),
             government_form_ids: BTreeSet::new(),
             metric_ids: BTreeSet::new(),
+            truce_months: None,
             area_scopes: BTreeMap::new(),
             religious_school_groups: BTreeMap::new(),
             hidden_descriptions: false,
@@ -374,6 +376,11 @@ impl<'a> ScriptCompiler<'a> {
 
     pub fn with_metric_ids(mut self, ids: BTreeSet<String>) -> Self {
         self.metric_ids = ids;
+        self
+    }
+
+    pub fn with_truce_months(mut self, months: Option<u32>) -> Self {
+        self.truce_months = months;
         self
     }
 
@@ -705,13 +712,24 @@ impl<'a> ScriptCompiler<'a> {
             ScopeSelector::Office("imperial_emperor".into())
         } else if let Some(name) = value.strip_prefix("event_target:") {
             if self.global_scope_types.get(name) != Some(&EntityKind::Country) {
-                return Err(field.error("casus belli target requires a declared country reference"));
+                return Err(field.error("target requires a declared country reference"));
             }
             ScopeSelector::Global(name.into())
         } else {
-            return Err(field.error("unsupported casus belli target reference"));
+            return Err(field.error("unsupported country target reference"));
         };
         Ok(augustus_core::EntityRef::Selected(selector))
+    }
+
+    fn truce_reference(&self, field: &Field) -> Result<augustus_core::EntityRef, Error> {
+        if field.scalar()?.eq_ignore_ascii_case("ROOT") {
+            if self.root_kind(field)? != EntityKind::Country {
+                return Err(field.error("truce target ROOT requires country type"));
+            }
+            Ok(augustus_core::EntityRef::Selected(ScopeSelector::Root))
+        } else {
+            self.country_reference(field)
+        }
     }
 
     fn casus_belli_operands(
@@ -1446,6 +1464,23 @@ impl<'a> ScriptCompiler<'a> {
                         },
                     });
                 }
+                "add_truce_with" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("truce effect requires country scope"));
+                    }
+                    let second = self.truce_reference(field)?;
+                    let count = self
+                        .truce_months
+                        .ok_or_else(|| field.error("default truce duration is unknown"))?;
+                    plan.push(Action::GrantTruce {
+                        first: augustus_core::EntityRef::Relative(Target::Current),
+                        second,
+                        term: augustus_core::GrantTerm::Months {
+                            count,
+                            monthly: true,
+                        },
+                    });
+                }
                 "add_devastation" => {
                     self.devastation_scope(field, scope)?;
                     plan.push(Action::UpdateNumeric {
@@ -2044,6 +2079,15 @@ impl<'a> ScriptCompiler<'a> {
                     if scope != EntityKind::Country { return Err(field.error("subject query requires country scope")); }
                     let condition=Condition::SubjectPresent {target:Target::Current};
                     if boolean(field)? { condition } else {Condition::Not(Box::new(condition))}
+                }
+                "truce_with" => {
+                    if scope != EntityKind::Country { return Err(field.error("truce query requires country scope")); }
+                    Condition::TruceWith { first: augustus_core::EntityRef::Relative(Target::Current), second:self.truce_reference(field)? }
+                }
+                "has_truce" => {
+                    if scope != EntityKind::Country { return Err(field.error("truce presence query requires country scope")); }
+                    let condition=Condition::TrucePresent {target:Target::Current};
+                    if boolean(field)? {condition} else {Condition::Not(Box::new(condition))}
                 }
                 "liberty_desire" => {
                     if scope != EntityKind::Country { return Err(field.error("liberty desire query requires country scope")); }

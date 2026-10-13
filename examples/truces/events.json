@@ -1,0 +1,276 @@
+[
+  {
+    "id": "tr.after",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "TruceWith": {
+                        "first": {
+                          "Relative": "Current"
+                        },
+                        "second": {
+                          "Selected": {
+                            "Named": {
+                              "kind": "Country",
+                              "name": "BBB"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "Not": {
+                  "TrucePresent": {
+                    "target": "Current"
+                  }
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "expired"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "finished"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "tr.anniversary",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "TruceWith": {
+                  "first": {
+                    "Relative": "Current"
+                  },
+                  "second": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "BBB"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "anniversary"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Schedule": {
+              "delay": 31,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "tr.boundary"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "tr.begin",
+    "scope": "Country",
+    "immediate": [
+      {
+        "GrantTruce": {
+          "first": {
+            "Relative": "Current"
+          },
+          "second": {
+            "Selected": {
+              "Named": {
+                "kind": "Country",
+                "name": "BBB"
+              }
+            }
+          },
+          "term": {
+            "Months": {
+              "count": 12,
+              "monthly": true
+            }
+          }
+        }
+      },
+      {
+        "GrantTruce": {
+          "first": {
+            "Relative": "Current"
+          },
+          "second": {
+            "Selected": "Root"
+          },
+          "term": {
+            "Months": {
+              "count": 12,
+              "monthly": true
+            }
+          }
+        }
+      },
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "TruceWith": {
+                        "first": {
+                          "Relative": "Current"
+                        },
+                        "second": {
+                          "Selected": "Root"
+                        }
+                      }
+                    },
+                    {
+                      "TrucePresent": {
+                        "target": "Current"
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "symmetric"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Schedule": {
+              "delay": 365,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "tr.anniversary"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "tr.boundary",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "TruceWith": {
+                  "first": {
+                    "Relative": "Current"
+                  },
+                  "second": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "BBB"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "before_cleanup"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "tr.after"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]
