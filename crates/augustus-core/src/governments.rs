@@ -79,6 +79,9 @@ pub struct GovernmentEvaluation {
 pub struct Governments {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub forms: BTreeMap<String, GovernmentForm>,
+    /// Reform membership by government and reform level; None marks ambiguous content.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub reform_levels: BTreeMap<String, BTreeMap<String, Option<String>>>,
     pub reforms: BTreeMap<String, GovernmentReform>,
     pub metrics: BTreeMap<String, GovernmentMetric>,
     pub countries: BTreeMap<EntityId, GovernmentState>,
@@ -117,6 +120,7 @@ impl Governments {
     }
     pub fn is_empty(&self) -> bool {
         self.forms.is_empty()
+            && self.reform_levels.is_empty()
             && self.reforms.is_empty()
             && self.metrics.is_empty()
             && self.countries.is_empty()
@@ -275,6 +279,15 @@ impl Governments {
                 return Err(Error::Invalid("invalid unresolved reform property".into()));
             }
         }
+        for (kind, levels) in &self.reform_levels {
+            validate_identifier(kind)?;
+            for (reform, level) in levels {
+                validate_identifier(reform)?;
+                if let Some(level) = level {
+                    validate_identifier(level)?;
+                }
+            }
+        }
         for (name, metric) in &self.metrics {
             if let Some(modifier) = &metric.modifier {
                 definition(name, modifier)?;
@@ -390,6 +403,68 @@ impl Governments {
 }
 
 impl World {
+    pub(crate) fn add_government_reform(
+        &mut self,
+        entity: EntityId,
+        id: &str,
+    ) -> Result<(), Error> {
+        self.governments.reform_definition(id)?;
+        let kind = self.government_kind(entity)?.to_owned();
+        let levels = self.governments.reform_levels.get(&kind).ok_or_else(|| {
+            Error::Invalid(format!("unknown reform levels for government {kind}"))
+        })?;
+        let level = match levels.get(id) {
+            Some(Some(level)) => Some(level.clone()),
+            Some(None) => {
+                return Err(Error::Invalid(format!(
+                    "ambiguous reform level for {id} under government {kind}"
+                )));
+            }
+            None => None,
+        };
+        let replaced = level.as_ref().map(|level| {
+            levels
+                .iter()
+                .filter(|(_, candidate)| candidate.as_ref() == Some(level))
+                .map(|(candidate, _)| candidate.clone())
+                .collect::<BTreeSet<_>>()
+        });
+        let state = self
+            .governments
+            .countries
+            .get_mut(&entity)
+            .ok_or_else(|| Error::Invalid("unknown government state".into()))?;
+        let reforms = state
+            .reforms
+            .as_mut()
+            .ok_or_else(|| Error::Invalid("unknown government reforms".into()))?;
+        if let Some(replaced) = replaced {
+            reforms.retain(|selected| !replaced.contains(selected));
+        }
+        reforms.insert(id.into());
+        Ok(())
+    }
+
+    pub(crate) fn remove_government_reform(
+        &mut self,
+        entity: EntityId,
+        id: &str,
+    ) -> Result<(), Error> {
+        self.governments.reform_definition(id)?;
+        self.government_kind(entity)?;
+        let state = self
+            .governments
+            .countries
+            .get_mut(&entity)
+            .ok_or_else(|| Error::Invalid("unknown government state".into()))?;
+        let reforms = state
+            .reforms
+            .as_mut()
+            .ok_or_else(|| Error::Invalid("unknown government reforms".into()))?;
+        reforms.remove(id);
+        Ok(())
+    }
+
     pub(crate) fn change_government(
         &mut self,
         entity: EntityId,

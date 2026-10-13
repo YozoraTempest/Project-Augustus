@@ -49,6 +49,8 @@ pub struct ProvinceState {
     pub name: String,
     pub color: [u8; 3],
     pub class: ProvinceClass,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_port: Option<bool>,
     pub owner: Option<String>,
     pub controller: Option<String>,
     pub cores: Vec<String>,
@@ -159,6 +161,9 @@ impl InitialWorld {
         }
         for province in &provinces {
             let entity = world.add_entity(province.id.to_string(), EntityKind::Province);
+            if let Some(has_port) = province.has_port {
+                world.set_province_has_port(entity, has_port)?;
+            }
             for (index, value) in [
                 province.tax_milli,
                 province.production_milli,

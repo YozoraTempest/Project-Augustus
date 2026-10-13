@@ -14,6 +14,89 @@ fn document(text: &str) -> TextDocument {
     )
 }
 
+#[test]
+fn reform_effects_compile_as_country_state_actions() {
+    let schema = Schema::new(["base"]).unwrap();
+    let library = ScriptLibrary::new();
+    let compiled = ScriptCompiler::new(&schema, &library, true)
+        .compile(
+            &document("add_government_reform = test_charter remove_government_reform = old_reform"),
+            EntityKind::Country,
+        )
+        .unwrap();
+    assert_eq!(
+        compiled.plan,
+        vec![
+            augustus_core::Action::AddGovernmentReform {
+                target: augustus_core::Target::Current,
+                id: "test_charter".into(),
+            },
+            augustus_core::Action::RemoveGovernmentReform {
+                target: augustus_core::Target::Current,
+                id: "old_reform".into(),
+            },
+        ]
+    );
+    assert!(
+        ScriptCompiler::new(&schema, &library, true)
+            .compile(
+                &document("add_government_reform = test_charter"),
+                EntityKind::Province
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn startup_reform_add_replaces_the_selected_reform_and_updates_state() {
+    let temp = fixture();
+    let reforms_path = temp
+        .path()
+        .join("common/government_reforms/test_governments.txt");
+    let mut reforms = fs::read_to_string(&reforms_path).unwrap();
+    reforms.push_str("\nnew_reform = { modifiers = { test_new_reform_effect = 0.5 } }\n");
+    write(
+        temp.path(),
+        "common/government_reforms/test_governments.txt",
+        &reforms,
+    );
+    write(
+        temp.path(),
+        "common/governments/test_governments.txt",
+        "monarchy = { basic_reform = test_court reform_levels = { first = { reforms = { test_charter new_reform } } } } republic = { basic_reform = test_council }",
+    );
+    write(
+        temp.path(),
+        "common/on_actions/reform.txt",
+        "on_startup = { if = { limit = { tag = AAA } add_government_reform = new_reform } }",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let world = loaded.initial.world();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    assert!(
+        !world
+            .government_reform_selected(alpha, "test_charter")
+            .unwrap(),
+        "events: {:?}; unresolved: {:?}",
+        world.events(),
+        loaded.report.estates.startup_unresolved
+    );
+    assert!(
+        world
+            .government_reform_selected(alpha, "new_reform")
+            .unwrap()
+    );
+    assert_eq!(
+        world
+            .governments()
+            .declared_effects(alpha)
+            .unwrap()
+            .known_totals_micros["test_new_reform_effect"],
+        500_000
+    );
+}
+
 fn fixture() -> tempfile::TempDir {
     let temp = tempfile::tempdir().unwrap();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");

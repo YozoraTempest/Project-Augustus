@@ -14,9 +14,10 @@ fn world() -> World {
     world.set_owner(EntityId(2), EntityId(0)).unwrap();
     world.set_governments(serde_json::from_str(r#"{
         "reforms": {
-            "first": {"modifier":{"values_micros":{"yield":125000},"flags":{}},"unresolved_properties":[]},
-            "second": {"modifier":{"values_micros":{"yield":-250000},"flags":{}},"unresolved_properties":[]}
+            "first": {"features":{"first_feature":true},"modifier":{"values_micros":{"yield":125000},"flags":{}},"unresolved_properties":[]},
+            "second": {"features":{"second_feature":true},"modifier":{"values_micros":{"yield":-250000},"flags":{}},"unresolved_properties":[]}
         },
+        "reform_levels": {"first_kind":{"first":"council","second":"council"}},
         "metrics": {"authority":{"minimum_milli":0,"maximum_milli":100000,"baseline_milli":25000,"divisor_milli":50000,
             "modifier":{"values_micros":{"yield":400000,"other":-750000},"flags":{}},"unresolved_properties":[]}},
         "countries": {
@@ -38,6 +39,90 @@ fn yield_value(world: &World) -> augustus_core::AttributeEvaluation {
         .attributes()
         .evaluate(world, EntityId(2), "yield")
         .unwrap()
+}
+
+#[test]
+fn runtime_reform_add_replaces_its_level_and_remove_recomputes_effects() {
+    let mut world = world();
+    assert!(
+        world
+            .government_feature(EntityId(0), "first_feature")
+            .unwrap()
+    );
+    assert_eq!(
+        world
+            .governments()
+            .declared_effects(EntityId(0))
+            .unwrap()
+            .known_totals_micros["yield"],
+        526_000
+    );
+
+    world
+        .execute(
+            EntityId(0),
+            &[Action::AddGovernmentReform {
+                target: Target::Current,
+                id: "second".into(),
+            }],
+        )
+        .unwrap();
+    assert!(
+        !world
+            .government_reform_selected(EntityId(0), "first")
+            .unwrap()
+    );
+    assert!(
+        world
+            .government_reform_selected(EntityId(0), "second")
+            .unwrap()
+    );
+    assert!(
+        !world
+            .government_feature(EntityId(0), "first_feature")
+            .unwrap()
+    );
+    assert!(
+        world
+            .government_feature(EntityId(0), "second_feature")
+            .unwrap()
+    );
+    assert_eq!(
+        world
+            .governments()
+            .declared_effects(EntityId(0))
+            .unwrap()
+            .known_totals_micros["yield"],
+        151_000
+    );
+
+    world
+        .execute(
+            EntityId(0),
+            &[Action::RemoveGovernmentReform {
+                target: Target::Current,
+                id: "second".into(),
+            }],
+        )
+        .unwrap();
+    assert!(
+        !world
+            .government_reform_selected(EntityId(0), "second")
+            .unwrap()
+    );
+    assert!(
+        !world
+            .government_feature(EntityId(0), "second_feature")
+            .unwrap()
+    );
+    assert_eq!(
+        world
+            .governments()
+            .declared_effects(EntityId(0))
+            .unwrap()
+            .known_totals_micros["yield"],
+        401_000
+    );
 }
 
 fn metric(operation: NumericOperation, value: i64) -> Action {

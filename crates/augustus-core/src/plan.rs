@@ -35,6 +35,7 @@ pub enum Condition {
         /// None matches either known type; a typed query rejects an unknown type.
         core: Option<crate::CoreType>,
     },
+    ProvinceHasPort,
     NationalFocus {
         target: Target,
         skill: crate::RulerSkill,
@@ -360,6 +361,14 @@ pub enum Action {
         kind: String,
         before: Plan,
     },
+    AddGovernmentReform {
+        target: Target,
+        id: String,
+    },
+    RemoveGovernmentReform {
+        target: Target,
+        id: String,
+    },
     Schedule {
         delay: u64,
         plan: Plan,
@@ -430,6 +439,7 @@ impl Condition {
                     (Some(actual), Some(expected)) => Ok(actual == *expected),
                 }
             }
+            Self::ProvinceHasPort => world.province_has_port(current),
             Self::SubjectOf { subject, overlord } => {
                 let (Some(subject), Some(overlord)) = (
                     subject.resolve_in_context(world, context)?,
@@ -805,6 +815,12 @@ impl World {
                 } => {
                     let entity = self.target(current, *target)?;
                     self.change_government(entity, kind, before, budget, depth)?;
+                }
+                Action::AddGovernmentReform { target, id } => {
+                    self.add_government_reform(self.target(current, *target)?, id)?;
+                }
+                Action::RemoveGovernmentReform { target, id } => {
+                    self.remove_government_reform(self.target(current, *target)?, id)?;
                 }
                 Action::SetOwner { target, owner } => {
                     let province = self.target(current, *target)?;

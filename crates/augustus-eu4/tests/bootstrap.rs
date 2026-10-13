@@ -607,8 +607,11 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
     let beta = native.add_entity("BBB", EntityKind::Country);
     let north = native.add_entity("1", EntityKind::Province);
     let east = native.add_entity("2", EntityKind::Province);
+    native.set_province_has_port(north, false).unwrap();
+    native.set_province_has_port(east, true).unwrap();
     for id in 3..=6 {
-        native.add_entity(id.to_string(), EntityKind::Province);
+        let province = native.add_entity(id.to_string(), EntityKind::Province);
+        native.set_province_has_port(province, false).unwrap();
     }
     native.set_owner(north, beta).unwrap();
     native.set_owner(east, alpha).unwrap();

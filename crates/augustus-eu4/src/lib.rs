@@ -35,6 +35,7 @@ mod prestige;
 mod truces;
 pub use missions::MissionReport;
 mod politics;
+mod province_map;
 mod province_metrics;
 mod religious_schools;
 mod script;

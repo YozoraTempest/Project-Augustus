@@ -66,6 +66,8 @@ pub struct Entity {
     pub kind: EntityKind,
     pub owner: Option<EntityId>,
     pub capital: Option<EntityId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub province_has_port: Option<bool>,
     values: Vec<i64>,
 }
 
@@ -552,6 +554,7 @@ impl World {
             kind,
             owner: None,
             capital: None,
+            province_has_port: None,
             values: vec![0; self.schema.fields.len()],
         });
         id
@@ -598,6 +601,28 @@ impl World {
         self.entities
             .get(id.0)
             .ok_or_else(|| Error::Invalid(format!("unknown entity {}", id.0)))
+    }
+
+    pub fn province_has_port(&self, province: EntityId) -> Result<bool, Error> {
+        let entity = self.entity(province)?;
+        if entity.kind != EntityKind::Province {
+            return Err(Error::Invalid("port query requires a province".into()));
+        }
+        entity.province_has_port.ok_or_else(|| {
+            Error::Invalid(format!("unknown port presence for province {}", province.0))
+        })
+    }
+
+    pub fn set_province_has_port(
+        &mut self,
+        province: EntityId,
+        has_port: bool,
+    ) -> Result<(), Error> {
+        if self.entity(province)?.kind != EntityKind::Province {
+            return Err(Error::Invalid("port property requires a province".into()));
+        }
+        self.entities[province.0].province_has_port = Some(has_port);
+        Ok(())
     }
 
     pub fn target(&self, current: EntityId, target: Target) -> Result<EntityId, Error> {
@@ -1157,6 +1182,9 @@ pub(crate) fn validate_plan(
                     justifications,
                     subjects,
                 )?;
+            }
+            Action::AddGovernmentReform { id, .. } | Action::RemoveGovernmentReform { id, .. } => {
+                governments.reform_definition(id)?;
             }
             Action::SetOwner { owner, .. } => owner.validate()?,
             Action::ForEachSubjectCountry {

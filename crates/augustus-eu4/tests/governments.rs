@@ -426,6 +426,10 @@ fn later_reforms_replace_the_previous_selection_at_the_same_level() {
         "1440.1.1 = { add_government_reform = replacement add_government_reform = other } 1450.1.1 = { remove_government_reform = replacement }",
     );
     let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let reform_levels = &loaded.initial.world().governments().reform_levels["monarchy"];
+    assert_eq!(reform_levels["test_charter"].as_deref(), Some("first"));
+    assert_eq!(reform_levels["replacement"].as_deref(), Some("first"));
+    assert_eq!(reform_levels["other"].as_deref(), Some("second"));
     let country = loaded.country("AAA").unwrap();
     assert_eq!(
         country

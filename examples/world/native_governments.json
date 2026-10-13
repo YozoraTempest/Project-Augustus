@@ -101,5 +101,9 @@
         "legitimacy": 100000
       }
     }
+  },
+  "reform_levels": {
+    "monarchy": {},
+    "republic": {}
   }
 }

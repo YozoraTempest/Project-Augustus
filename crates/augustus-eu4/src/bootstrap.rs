@@ -260,6 +260,7 @@ impl VanillaWorld {
             missions: crate::MissionReport::default(),
         };
         let mut provinces = BTreeMap::new();
+        let mut province_ids_by_color = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
         let definitions = root.read_text(&definition_file, ENCODING)?;
         let mut csv = csv::ReaderBuilder::new()
@@ -315,11 +316,15 @@ impl VanillaWorld {
             } else {
                 ProvinceClass::Land
             };
+            if class != ProvinceClass::Unused && province_ids_by_color.insert(color, id).is_some() {
+                return Err(fail("duplicate map color"));
+            }
             let province = ProvinceState {
                 id,
                 name,
                 color,
                 class,
+                has_port: None,
                 owner: None,
                 controller: None,
                 cores: Vec::new(),
@@ -365,6 +370,26 @@ impl VanillaWorld {
             .filter(|p| p.class == ProvinceClass::Unused)
             .map(|p| p.id)
             .collect();
+        let force_coastal = ids(&map_parsed, map.clone(), "force_coastal")?;
+        for id in &force_coastal {
+            if !provinces.contains_key(id) {
+                return Err(Error::message(
+                    map_document.source(),
+                    format!("coastal map category references unknown province {id}"),
+                ));
+            }
+        }
+        for (id, has_port) in crate::province_map::port_presence(
+            &pixels,
+            &province_ids_by_color,
+            &provinces,
+            &force_coastal,
+        ) {
+            provinces
+                .get_mut(&id)
+                .expect("port derivation preserves province identifiers")
+                .has_port = has_port;
+        }
         let files = root.files()?;
         let mut countries = BTreeMap::new();
         let mut country_order = Vec::new();

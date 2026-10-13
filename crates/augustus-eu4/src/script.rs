@@ -1738,6 +1738,27 @@ impl<'a> ScriptCompiler<'a> {
                         },
                     });
                 }
+                "add_government_reform" | "remove_government_reform" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("government reform effects require country scope"));
+                    }
+                    let id = field.scalar()?;
+                    if !crate::country_markers::literal_name(id) {
+                        return Err(field.error("government reform requires a literal identifier"));
+                    }
+                    let action = if field.name == "add_government_reform" {
+                        Action::AddGovernmentReform {
+                            target: Target::Current,
+                            id: id.into(),
+                        }
+                    } else {
+                        Action::RemoveGovernmentReform {
+                            target: Target::Current,
+                            id: id.into(),
+                        }
+                    };
+                    plan.push(action);
+                }
                 "add_legitimacy" | "add_republican_tradition" | "add_devotion" => {
                     let name = field.name.strip_prefix("add_").expect("metric effect");
                     self.government_metric(field, scope, name)?;
@@ -2292,6 +2313,13 @@ impl<'a> ScriptCompiler<'a> {
                     let id = province_identifier(field.scalar()?)
                         .ok_or_else(|| field.error("province_id requires a positive literal identifier"))?;
                     Condition::EntityNamed {target: Target::Current, name: id.to_string()}
+                }
+                "has_port" => {
+                    if scope != EntityKind::Province {
+                        return Err(field.error("has_port requires province scope"));
+                    }
+                    let condition = Condition::ProvinceHasPort;
+                    if boolean(field)? { condition } else { Condition::Not(Box::new(condition)) }
                 }
                 name if province_identifier(name).is_some() => Condition::InScope {
                     selector: ScopeSelector::Named {kind: EntityKind::Province,

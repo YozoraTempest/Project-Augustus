@@ -70,7 +70,8 @@ impl Condition {
                     | "is_subject_of_type"
                     | "any_subject_country"
                     | "is_core"
-                    | "is_territorial_core" => {
+                    | "is_territorial_core"
+                    | "has_port" => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
@@ -119,6 +120,8 @@ impl Condition {
                             Ok(condition) => {
                                 if matches!(name.as_str(), "is_core" | "is_territorial_core") {
                                     Self::ProvinceCore(condition)
+                                } else if name == "has_port" {
+                                    Self::Scoped(condition)
                                 } else {
                                     Self::Subject(condition)
                                 }
@@ -958,5 +961,32 @@ impl Condition {
         if !complete {
             *self = Self::Unknown("unbound_script_parameter".into());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{TextDocument, TextEncoding};
+
+    #[test]
+    fn province_conditions_share_the_core_port_query() {
+        let document = TextDocument::from_bytes(
+            "self-authored-port-condition.txt",
+            b"has_port = yes".to_vec(),
+            TextEncoding::Utf8,
+        );
+        let parsed = document.parse().unwrap();
+        let mut report = crate::estates::EstateReport::default();
+        let conditions =
+            Condition::compile(&parsed, parsed.reader(), &mut report, 0, false, None, false)
+                .unwrap();
+
+        assert!(matches!(
+            conditions.as_slice(),
+            [Condition::Scoped(augustus_core::Condition::All(conditions))]
+                if matches!(conditions.as_slice(), [augustus_core::Condition::ProvinceHasPort])
+        ));
+        assert!(!report.unsupported_fields.contains_key("trigger:has_port"));
     }
 }

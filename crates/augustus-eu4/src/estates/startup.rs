@@ -99,6 +99,8 @@ impl Compiler {
                 | "add_dip_power"
                 | "add_mil_power"
                 | "change_government"
+                | "add_government_reform"
+                | "remove_government_reform"
                 | "custom_tooltip"
                 | "set_global_flag"
                 | "clr_global_flag"

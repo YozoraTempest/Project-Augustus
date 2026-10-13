@@ -548,6 +548,11 @@ impl GovernmentDraft {
         report: &mut GovernmentReport,
     ) -> Governments {
         let mut result = Governments {
+            reform_levels: self
+                .forms
+                .iter()
+                .map(|(kind, form)| (kind.clone(), form.levels.clone()))
+                .collect(),
             reforms: self
                 .reforms
                 .iter()
