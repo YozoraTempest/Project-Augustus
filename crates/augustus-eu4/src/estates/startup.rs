@@ -93,6 +93,7 @@ impl Compiler {
                 | "add_liberty_desire"
                 | "add_truce_with"
                 | "add_manpower"
+                | "add_treasury"
                 | "add_adm_power"
                 | "add_dip_power"
                 | "add_mil_power"
@@ -118,6 +119,9 @@ impl Compiler {
                         .with_government_metric_ids(self.government_metric_ids.clone())
                         .with_metric_ids(self.metric_ids.clone())
                         .with_truce_months(self.truce_months)
+                        .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
+                            augustus_core::CountryResource::Treasury,
+                        )))
                         .with_area_scopes(self.area_scopes.clone())
                         .compile_scalar_effect_reader(
                             parsed,
@@ -203,6 +207,9 @@ impl Compiler {
                         .with_subject_type_ids(self.subject_type_ids.clone())
                         .with_metric_ids(self.metric_ids.clone())
                         .with_truce_months(self.truce_months)
+                        .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
+                            augustus_core::CountryResource::Treasury,
+                        )))
                         .with_hidden_descriptions(self.hidden_descriptions)
                         .with_area_scopes(self.area_scopes.clone())
                         .with_government_metric_ids(self.government_metric_ids.clone())
@@ -250,6 +257,9 @@ impl Compiler {
                         .with_government_metric_ids(self.government_metric_ids.clone())
                         .with_metric_ids(self.metric_ids.clone())
                         .with_truce_months(self.truce_months)
+                        .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
+                            augustus_core::CountryResource::Treasury,
+                        )))
                         .with_area_scopes(self.area_scopes.clone())
                         .with_mission_ids(self.mission_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())
@@ -1215,6 +1225,9 @@ fn load_events(
                 .with_government_metric_ids(compiler.government_metric_ids.clone())
                 .with_metric_ids(compiler.metric_ids.clone())
                 .with_truce_months(compiler.truce_months)
+                .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
+                    augustus_core::CountryResource::Treasury,
+                )))
                 .with_area_scopes(compiler.area_scopes.clone())
                 .with_mission_ids(compiler.mission_ids.clone())
                 .with_modifier_ids(compiler.modifier_ids.clone())

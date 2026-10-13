@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "treasury_slot": {
+    "Resource": "Treasury"
+  },
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Port",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "global_scope_types": {
+    "account": "Country"
+  },
+  "calendar": {
+    "start": {
+      "year": 1444,
+      "month": 11,
+      "day": 11
+    },
+    "month_lengths": [
+      31,
+      28,
+      31,
+      30,
+      31,
+      30,
+      31,
+      31,
+      30,
+      31,
+      30,
+      31
+    ]
+  },
+  "country_resources": {
+    "0": {
+      "treasury_milli": 999,
+      "manpower_milli": 5000,
+      "mercantilism_milli": null
+    },
+    "1": {
+      "treasury_milli": 500,
+      "manpower_milli": 0,
+      "mercantilism_milli": null
+    }
+  },
+  "attributes": {
+    "formulas": {
+      "2": {
+        "annual_tax": {
+          "base": {
+            "kind": "constant",
+            "micros": 12000000
+          },
+          "channels": [],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        }
+      }
+    },
+    "static_modifiers": {},
+    "building_modifiers": {},
+    "trade_good_modifiers": {}
+  },
+  "taxation": {
+    "annual_attribute": "annual_tax",
+    "countries": [
+      0
+    ],
+    "settlement_count": 0,
+    "last_settlement": null
+  }
+}

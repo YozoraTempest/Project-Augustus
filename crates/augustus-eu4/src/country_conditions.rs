@@ -65,6 +65,7 @@ impl Condition {
                     | "truce_with"
                     | "has_truce"
                     | "manpower"
+                    | "treasury"
                     | "is_subject_of_type"
                     | "any_subject_country"
                     | "is_core"
@@ -73,6 +74,9 @@ impl Condition {
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
                         let compiler = crate::ScriptCompiler::new(&schema, &library, false)
+                            .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
+                                augustus_core::CountryResource::Treasury,
+                            )))
                             .with_root_scope(augustus_core::EntityKind::Country)
                             .with_metric_ids(
                                 ["stability", "adm_power", "dip_power", "mil_power"]

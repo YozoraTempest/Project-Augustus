@@ -16,6 +16,12 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    NumericCompareEntities {
+        first: crate::EntityRef,
+        second: crate::EntityRef,
+        slot: crate::NumericSlot,
+        comparison: crate::NumericComparison,
+    },
     TruceWith {
         first: crate::EntityRef,
         second: crate::EntityRef,
@@ -369,6 +375,25 @@ impl Condition {
     ) -> Result<bool, Error> {
         let current = context.current;
         match self {
+            Self::NumericCompareEntities {
+                first,
+                second,
+                slot,
+                comparison,
+            } => {
+                let (Some(first), Some(second)) = (
+                    first.resolve_in_context(world, context)?,
+                    second.resolve_in_context(world, context)?,
+                ) else {
+                    return Ok(false);
+                };
+                let first = world.numeric_value(first, slot)?;
+                let second = world.numeric_value(second, slot)?;
+                Ok(match comparison {
+                    crate::NumericComparison::AtLeast => first >= second,
+                    crate::NumericComparison::Equal => first == second,
+                })
+            }
             Self::TruceWith { first, second } => {
                 let (Some(first), Some(second)) = (
                     first.resolve_in_context(world, context)?,

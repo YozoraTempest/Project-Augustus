@@ -1459,6 +1459,16 @@ pub(crate) fn validate_condition(
             first.validate()?;
             second.validate()
         }
+        crate::Condition::NumericCompareEntities {
+            first,
+            second,
+            slot,
+            ..
+        } => {
+            first.validate()?;
+            second.validate()?;
+            slot.validate(schema, governments, metrics)
+        }
         crate::Condition::HasJustification {
             issuer,
             target,

@@ -1,0 +1,597 @@
+[
+  {
+    "id": "cash.begin",
+    "scope": "Country",
+    "immediate": [
+      {
+        "BindGlobalScope": {
+          "name": "account"
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompareEntities": {
+                  "first": {
+                    "Relative": "Current"
+                  },
+                  "second": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Country",
+                        "name": "BBB"
+                      }
+                    }
+                  },
+                  "slot": {
+                    "Resource": "Treasury"
+                  },
+                  "comparison": "AtLeast"
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "greater"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "Not": {
+                        "All": [
+                          {
+                            "NumericCompareEntities": {
+                              "first": {
+                                "Relative": "Current"
+                              },
+                              "second": {
+                                "Selected": "Root"
+                              },
+                              "slot": {
+                                "Resource": "Treasury"
+                              },
+                              "comparison": "AtLeast"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "smaller"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Resource": "Treasury"
+          },
+          "operation": "Add",
+          "value": 1
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Resource": "Treasury"
+          },
+          "operation": "Add",
+          "value": 0
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Resource": "Treasury"
+          },
+          "operation": "Add",
+          "value": 0
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Resource": "Treasury"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 1000
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Resource": "Treasury"
+                        },
+                        "comparison": "AtLeast",
+                        "value": 1001
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "precise"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Resource": "Treasury"
+          },
+          "operation": "Add",
+          "value": -1500
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Resource": "Treasury"
+                  },
+                  "comparison": "AtLeast",
+                  "value": -500
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Resource": "Treasury"
+                        },
+                        "comparison": "AtLeast",
+                        "value": 0
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "negative"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Schedule": {
+              "delay": 20,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "cash.month"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "cash.end",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Resource": "Treasury"
+                        },
+                        "comparison": "AtLeast",
+                        "value": 0
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Resource": "Treasury"
+                  },
+                  "comparison": "AtLeast",
+                  "value": -10000000
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "large_negative"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "finished"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "cash.month",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Resource": "Treasury"
+                  },
+                  "comparison": "AtLeast",
+                  "value": -500
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Resource": "Treasury"
+                        },
+                        "comparison": "AtLeast",
+                        "value": 0
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "before_tax"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "If": {
+              "condition": {
+                "All": [
+                  {
+                    "NumericCompareEntities": {
+                      "first": {
+                        "Relative": "Current"
+                      },
+                      "second": {
+                        "Selected": {
+                          "Named": {
+                            "kind": "Country",
+                            "name": "BBB"
+                          }
+                        }
+                      },
+                      "slot": {
+                        "Resource": "Treasury"
+                      },
+                      "comparison": "AtLeast"
+                    }
+                  },
+                  {
+                    "InScope": {
+                      "selector": {
+                        "Named": {
+                          "kind": "Country",
+                          "name": "BBB"
+                        }
+                      },
+                      "kind": "Country",
+                      "condition": {
+                        "All": [
+                          {
+                            "NumericCompareEntities": {
+                              "first": {
+                                "Relative": "Current"
+                              },
+                              "second": {
+                                "Selected": "Root"
+                              },
+                              "slot": {
+                                "Resource": "Treasury"
+                              },
+                              "comparison": "AtLeast"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "Emit": "equal"
+                }
+              ],
+              "otherwise": []
+            }
+          },
+          {
+            "UpdateNumeric": {
+              "target": "Current",
+              "slot": {
+                "Resource": "Treasury"
+              },
+              "operation": "Add",
+              "value": -1000
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 31,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "cash.second"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "cash.second",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Resource": "Treasury"
+                  },
+                  "comparison": "AtLeast",
+                  "value": -500
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Resource": "Treasury"
+                        },
+                        "comparison": "AtLeast",
+                        "value": 0
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "before_second_tax"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "InScope": {
+              "selector": {
+                "Named": {
+                  "kind": "Country",
+                  "name": "BBB"
+                }
+              },
+              "kind": "Country",
+              "plan": [
+                {
+                  "UpdateNumeric": {
+                    "target": "Current",
+                    "slot": {
+                      "Resource": "Treasury"
+                    },
+                    "operation": "Add",
+                    "value": 1
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "If": {
+              "condition": {
+                "All": [
+                  {
+                    "Not": {
+                      "All": [
+                        {
+                          "NumericCompareEntities": {
+                            "first": {
+                              "Relative": "Current"
+                            },
+                            "second": {
+                              "Selected": {
+                                "Named": {
+                                  "kind": "Country",
+                                  "name": "BBB"
+                                }
+                              }
+                            },
+                            "slot": {
+                              "Resource": "Treasury"
+                            },
+                            "comparison": "AtLeast"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "InScope": {
+                      "selector": {
+                        "Named": {
+                          "kind": "Country",
+                          "name": "BBB"
+                        }
+                      },
+                      "kind": "Country",
+                      "condition": {
+                        "All": [
+                          {
+                            "NumericCompareEntities": {
+                              "first": {
+                                "Relative": "Current"
+                              },
+                              "second": {
+                                "Selected": {
+                                  "Global": "account"
+                                }
+                              },
+                              "slot": {
+                                "Resource": "Treasury"
+                              },
+                              "comparison": "AtLeast"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "Emit": "changed"
+                }
+              ],
+              "otherwise": []
+            }
+          },
+          {
+            "UpdateNumeric": {
+              "target": "Current",
+              "slot": {
+                "Resource": "Treasury"
+              },
+              "operation": "Add",
+              "value": -10000000
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "cash.end"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

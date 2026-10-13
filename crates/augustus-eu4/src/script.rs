@@ -299,6 +299,7 @@ pub struct ScriptCompiler<'a> {
     government_form_ids: BTreeSet<String>,
     metric_ids: BTreeSet<String>,
     truce_months: Option<u32>,
+    treasury_slot: Option<augustus_core::NumericSlot>,
     area_scopes: BTreeMap<String, Vec<u32>>,
     religious_school_groups: BTreeMap<String, Option<String>>,
     hidden_descriptions: bool,
@@ -323,6 +324,7 @@ impl<'a> ScriptCompiler<'a> {
             government_form_ids: BTreeSet::new(),
             metric_ids: BTreeSet::new(),
             truce_months: None,
+            treasury_slot: None,
             area_scopes: BTreeMap::new(),
             religious_school_groups: BTreeMap::new(),
             hidden_descriptions: false,
@@ -381,6 +383,13 @@ impl<'a> ScriptCompiler<'a> {
 
     pub fn with_truce_months(mut self, months: Option<u32>) -> Self {
         self.truce_months = months;
+        self
+    }
+
+    /// Bind cash directives to the storage chosen by the host. Existing field
+    /// scenarios retain their declared treasury field when no binding is supplied.
+    pub fn with_treasury_slot(mut self, slot: Option<augustus_core::NumericSlot>) -> Self {
+        self.treasury_slot = slot;
         self
     }
 
@@ -721,10 +730,10 @@ impl<'a> ScriptCompiler<'a> {
         Ok(augustus_core::EntityRef::Selected(selector))
     }
 
-    fn truce_reference(&self, field: &Field) -> Result<augustus_core::EntityRef, Error> {
+    fn typed_country_reference(&self, field: &Field) -> Result<augustus_core::EntityRef, Error> {
         if field.scalar()?.eq_ignore_ascii_case("ROOT") {
             if self.root_kind(field)? != EntityKind::Country {
-                return Err(field.error("truce target ROOT requires country type"));
+                return Err(field.error("target ROOT requires country type"));
             }
             Ok(augustus_core::EntityRef::Selected(ScopeSelector::Root))
         } else {
@@ -1468,7 +1477,7 @@ impl<'a> ScriptCompiler<'a> {
                     if scope != EntityKind::Country {
                         return Err(field.error("truce effect requires country scope"));
                     }
-                    let second = self.truce_reference(field)?;
+                    let second = self.typed_country_reference(field)?;
                     let count = self
                         .truce_months
                         .ok_or_else(|| field.error("default truce duration is unknown"))?;
@@ -1917,11 +1926,29 @@ impl<'a> ScriptCompiler<'a> {
                     if scope != EntityKind::Country {
                         return Err(field.error("add_treasury requires a country scope"));
                     }
-                    plan.push(Action::Add {
-                        target: Target::Current,
-                        field: self.bind(field, "treasury")?,
-                        value: decimal(field)?,
-                    });
+                    if let Some(slot) = &self.treasury_slot {
+                        if matches!(
+                            slot,
+                            augustus_core::NumericSlot::Attribute { .. }
+                                | augustus_core::NumericSlot::StoredGovernment(_)
+                                | augustus_core::NumericSlot::SubjectCount
+                                | augustus_core::NumericSlot::RulerSkill(_)
+                        ) {
+                            return Err(field.error("treasury binding is read only"));
+                        }
+                        plan.push(Action::UpdateNumeric {
+                            target: Target::Current,
+                            slot: slot.clone(),
+                            operation: augustus_core::NumericOperation::Add,
+                            value: cash_literal(field)?,
+                        });
+                    } else {
+                        plan.push(Action::Add {
+                            target: Target::Current,
+                            field: self.bind(field, "treasury")?,
+                            value: decimal(field)?,
+                        });
+                    }
                 }
                 "set_variable" | "change_variable" | "subtract_variable" | "multiply_variable"
                 | "divide_variable" => {
@@ -2095,7 +2122,7 @@ impl<'a> ScriptCompiler<'a> {
                 }
                 "truce_with" => {
                     if scope != EntityKind::Country { return Err(field.error("truce query requires country scope")); }
-                    Condition::TruceWith { first: augustus_core::EntityRef::Relative(Target::Current), second:self.truce_reference(field)? }
+                    Condition::TruceWith { first: augustus_core::EntityRef::Relative(Target::Current), second:self.typed_country_reference(field)? }
                 }
                 "manpower" => {
                     if scope != EntityKind::Country { return Err(field.error("manpower query requires country scope")); }
@@ -2468,10 +2495,33 @@ impl<'a> ScriptCompiler<'a> {
                     if scope != EntityKind::Country {
                         return Err(field.error("treasury requires country scope"));
                     }
-                    Condition::AtLeast {
-                        target: Target::Current,
-                        field: self.bind(field, "treasury")?,
-                        value: decimal(field)?,
+                    let value = field.scalar()?;
+                    let country = value.eq_ignore_ascii_case("ROOT")
+                        || value == "emperor" || value.starts_with("event_target:")
+                        || (country_identifier(value) && value.bytes().any(|byte| byte.is_ascii_alphabetic()));
+                    if country {
+                        Condition::NumericCompareEntities {
+                            first: augustus_core::EntityRef::Relative(Target::Current),
+                            second: self.typed_country_reference(field)?,
+                            slot: self.treasury_slot.clone().map_or_else(
+                                || self.bind(field, "treasury").map(augustus_core::NumericSlot::Field),
+                                Ok,
+                            )?,
+                            comparison: augustus_core::NumericComparison::AtLeast,
+                        }
+                    } else if let Some(slot) = &self.treasury_slot {
+                        Condition::NumericCompare {
+                            target: Target::Current,
+                            slot: slot.clone(),
+                            comparison: augustus_core::NumericComparison::AtLeast,
+                            value: cash_literal(field)?,
+                        }
+                    } else {
+                        Condition::AtLeast {
+                            target: Target::Current,
+                            field: self.bind(field, "treasury")?,
+                            value: decimal(field)?,
+                        }
                     }
                 }
                 name if country_identifier(name) && matches!(&field.value, Value::Block(_)) => Condition::InScope {
@@ -2568,6 +2618,14 @@ fn manpower_literal(field: &Field) -> Result<i64, Error> {
         .map(|value| value / 1000 * 1000)
         .ok_or_else(|| {
             field.error("manpower requires a literal decimal with at most six fractional digits")
+        })
+}
+
+fn cash_literal(field: &Field) -> Result<i64, Error> {
+    crate::setup::micros(field.scalar()?)
+        .map(|value| value / 1000)
+        .ok_or_else(|| {
+            field.error("treasury requires a literal decimal with at most six fractional digits")
         })
 }
 

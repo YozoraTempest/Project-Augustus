@@ -22,6 +22,8 @@ struct Scene {
     entities: Vec<SceneEntity>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     country_resources: BTreeMap<EntityId, augustus_core::CountryResources>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    treasury_slot: Option<augustus_core::NumericSlot>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     offices: BTreeMap<String, EntityId>,
     #[serde(default, skip_serializing_if = "augustus_core::Politics::is_empty")]
@@ -82,6 +84,8 @@ struct Scene {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     monthly_stocks: Option<augustus_core::MonthlyStocks>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    taxation: Option<augustus_core::Taxation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     event_decisions: Option<augustus_core::WeightedEventDecisions>,
 }
 
@@ -139,6 +143,8 @@ pub struct EventView {
     pub monthly_convergence: Option<augustus_core::MonthlyConvergence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monthly_stocks: Option<augustus_core::MonthlyStocks>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub taxation: Option<augustus_core::Taxation>,
     #[serde(skip_serializing_if = "augustus_core::Subjects::is_empty")]
     pub subjects: augustus_core::Subjects,
     pub day: u64,
@@ -212,6 +218,7 @@ impl EventDemo {
                 let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_subject_type_ids(scene.subjects.types.clone())
                     .with_truce_months(scene.truce_months)
+                    .with_treasury_slot(scene.treasury_slot.clone())
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
                     .with_government_form_ids(scene.governments.forms.keys().cloned().collect())
                     .with_metric_ids(scene.metrics.definitions.keys().cloned().collect())
@@ -332,6 +339,7 @@ impl EventDemo {
                 let compiled = ScriptCompiler::new(&schema, &library, true)
                     .with_subject_type_ids(scene.subjects.types.clone())
                     .with_truce_months(scene.truce_months)
+                    .with_treasury_slot(scene.treasury_slot.clone())
                     .with_casus_belli_types(casus_belli.types)
                     .with_government_metric_ids(scene.governments.metrics.keys().cloned().collect())
                     .with_government_form_ids(scene.governments.forms.keys().cloned().collect())
@@ -521,6 +529,9 @@ impl EventDemo {
         }
         world.set_monthly_convergence(scene.monthly_convergence)?;
         world.set_monthly_stocks(scene.monthly_stocks)?;
+        if let Some(taxation) = scene.taxation {
+            world.set_taxation(taxation)?;
+        }
         for (current, targets) in scene.known_absent_targets {
             if targets.is_empty() {
                 return Err(Error::Invalid(
@@ -688,6 +699,7 @@ impl EventDemo {
             monthly_accruals: self.world.monthly_accruals().cloned(),
             monthly_convergence: self.world.monthly_convergence().cloned(),
             monthly_stocks: self.world.monthly_stocks().cloned(),
+            taxation: self.world.taxation().cloned(),
             subjects: self.world.subjects().clone(),
             day: self.world.day(),
             pending_tasks: self.world.pending_tasks(),

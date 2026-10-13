@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace=cash
+country_event={id=cash.begin is_triggered_only=yes
+ immediate={save_global_event_target_as=account
+  if={limit={treasury=BBB} log=greater}
+  BBB={if={limit={NOT={treasury=ROOT}} log=smaller}}
+  add_treasury=0.001 add_treasury=0.0005 add_treasury=0.0005
+  if={limit={treasury=1 NOT={treasury=1.001}} log=precise}
+  add_treasury=-1.5 if={limit={treasury=-0.5 NOT={treasury=0}} log=negative}}
+ option={name=continue country_event={id=cash.month days=20}}}
+country_event={id=cash.month is_triggered_only=yes
+ immediate={if={limit={treasury=-0.5 NOT={treasury=0}} log=before_tax}}
+ option={name=continue if={limit={treasury=BBB BBB={treasury=ROOT}} log=equal}
+  add_treasury=-1 country_event={id=cash.second days=31}}}
+country_event={id=cash.second is_triggered_only=yes
+ immediate={if={limit={treasury=-0.5 NOT={treasury=0}} log=before_second_tax}}
+ option={name=continue BBB={add_treasury=0.001}
+  if={limit={NOT={treasury=BBB} BBB={treasury=event_target:account}} log=changed}
+  add_treasury=-10000 country_event={id=cash.end days=1}}}
+country_event={id=cash.end is_triggered_only=yes
+ immediate={if={limit={NOT={treasury=0} treasury=-10000} log=large_negative}}
+ option={name=done log=finished}}

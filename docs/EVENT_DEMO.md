@@ -266,7 +266,9 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 脚本输入支持显式触发的 `country_event`、`province_event`，要求 `id`、`is_triggered_only = yes` 和至少一个具备标量 `name` 的选项。`fire_only_once` 接受 `yes`、`no`，省略时允许重复触发。标量 `title`、`desc`、`picture` 可读取，但演示不展示本地化文字。事件标识按输入字符串保留；命名空间的数字登记和原版选项命令格式未实现。
 
-三个效果阶段复用已有编译器：`log`、绑定字段的国库操作、命名变量操作、`owner`、`capital_scope`、条件分支和无参数脚本调用。EU4 选项按声明顺序获得字符串标识 `0`、`1` 等；原生定义可以使用自己的选项标识。
+三个效果阶段复用已有编译器：`log`、国库操作、命名变量操作、`owner`、`capital_scope`、条件分支和无参数脚本调用。EU4 选项按声明顺序获得字符串标识 `0`、`1` 等；原生定义可以使用自己的选项标识。
+
+场景可以显式提供 `treasury_slot = {"Resource": "Treasury"}`，让 `add_treasury` 和 `treasury` 访问共享的 `country_resources` 国库余额，原版世界入口使用此绑定。未指定绑定的已有场景继续访问注册的 `treasury` 字段。资源金额以千分位存储，每个最多六位小数字面量分别截断；余额允许为负，未知余额报告错误。国家间比较读取同一槽的实时值，支持字面国家、国家类型的 `ROOT`、`emperor` 与已声明类型的全局事件目标；原生输入使用 `NumericCompareEntities`。`taxation` 可显式选择国家和年度税收属性，余额与月度凭据随存档恢复。跨月顺序、交叉读档及限制见 [国库余额与月度税收](../examples/treasury/README.md)。完整原版初始余额、收支和贷款流程尚未接通。
 
 连续的 `if`、`else_if`、`else` 只执行首个成立的分支。`if` 和 `else_if` 都须以 `limit` 开头，后续分支必须紧邻；空的成立分支也会结束这条分支链。所有分支均须通过语法与引用检查，恒假或不会执行的分支不能藏有未支持内容。
 
