@@ -798,6 +798,11 @@ impl VanillaWorld {
         );
         metrics.definitions.extend(country_metrics.definitions);
         metrics.entities.extend(country_metrics.entities);
+        let prestige = crate::prestige::metrics(&initial, &attribute_draft);
+        metrics.definitions.extend(prestige.definitions);
+        for (entity, values) in prestige.entities {
+            metrics.entities.entry(entity).or_default().extend(values);
+        }
         let liberty_metrics = crate::liberty_desire::metrics(
             &initial,
             report.start_date,
@@ -820,8 +825,9 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by("world metrics", e))?;
         let mut attributes =
             attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
-        let accruals =
+        let mut accruals =
             crate::power_income::bind(&root, &files, &initial, &mut attributes, &mut report.setup)?;
+        crate::prestige::bind(&initial, &mut attributes, &mut accruals);
         let convergence = crate::liberty_desire::bind(
             &root,
             &files,

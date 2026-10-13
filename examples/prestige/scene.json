@@ -1,0 +1,333 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Port",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "metrics": {
+    "definitions": {
+      "prestige": {
+        "kind": "Country",
+        "minimum": -100000,
+        "maximum": 100000,
+        "baseline": 0,
+        "divisor": 100000,
+        "modifier": null,
+        "unresolved_properties": [],
+        "growth_ceiling": false
+      }
+    },
+    "entities": {
+      "0": {
+        "prestige": 12001
+      },
+      "1": {
+        "prestige": 5000
+      }
+    }
+  },
+  "calendar": {
+    "start": {
+      "year": 1444,
+      "month": 11,
+      "day": 11
+    },
+    "month_lengths": [
+      31,
+      28,
+      31,
+      30,
+      31,
+      30,
+      31,
+      31,
+      30,
+      31,
+      30,
+      31
+    ]
+  },
+  "attributes": {
+    "formulas": {
+      "0": {
+        "annual_response": {
+          "base": {
+            "kind": "constant",
+            "micros": 0
+          },
+          "channels": [
+            {
+              "flat": [
+                {
+                  "kind": "conditional",
+                  "condition": {
+                    "HasOwnedProvince": {
+                      "target": "Current"
+                    }
+                  },
+                  "then": [
+                    {
+                      "kind": "numeric",
+                      "source": "current_prestige",
+                      "target": "Current",
+                      "slot": {
+                        "Metric": "prestige"
+                      },
+                      "micros_per_unit": -1000
+                    }
+                  ],
+                  "otherwise": []
+                }
+              ],
+              "rates": [
+                {
+                  "kind": "conditional",
+                  "condition": {
+                    "HasOwnedProvince": {
+                      "target": "Current"
+                    }
+                  },
+                  "then": [
+                    {
+                      "kind": "constant",
+                      "source": "annual_decay",
+                      "micros": -950000
+                    },
+                    {
+                      "kind": "conditional",
+                      "condition": {
+                        "NumericCompare": {
+                          "target": "Current",
+                          "slot": {
+                            "Metric": "prestige"
+                          },
+                          "comparison": "AtLeast",
+                          "value": 0
+                        }
+                      },
+                      "then": [
+                        {
+                          "kind": "modifiers",
+                          "target": "Current",
+                          "property": "prestige_decay"
+                        }
+                      ],
+                      "otherwise": [
+                        {
+                          "kind": "scale",
+                          "factor_micros": -1000000,
+                          "term": {
+                            "kind": "modifiers",
+                            "target": "Current",
+                            "property": "prestige_decay"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "otherwise": []
+                }
+              ]
+            },
+            {
+              "flat": [
+                {
+                  "kind": "conditional",
+                  "condition": {
+                    "HasOwnedProvince": {
+                      "target": "Current"
+                    }
+                  },
+                  "then": [
+                    {
+                      "kind": "constant",
+                      "source": "annual_income",
+                      "micros": 1000000
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "prestige"
+                    }
+                  ],
+                  "otherwise": []
+                }
+              ],
+              "rates": []
+            }
+          ],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        }
+      },
+      "1": {
+        "annual_response": {
+          "base": {
+            "kind": "constant",
+            "micros": 0
+          },
+          "channels": [
+            {
+              "flat": [
+                {
+                  "kind": "conditional",
+                  "condition": {
+                    "HasOwnedProvince": {
+                      "target": "Current"
+                    }
+                  },
+                  "then": [
+                    {
+                      "kind": "numeric",
+                      "source": "current_prestige",
+                      "target": "Current",
+                      "slot": {
+                        "Metric": "prestige"
+                      },
+                      "micros_per_unit": -1000
+                    }
+                  ],
+                  "otherwise": []
+                }
+              ],
+              "rates": [
+                {
+                  "kind": "conditional",
+                  "condition": {
+                    "HasOwnedProvince": {
+                      "target": "Current"
+                    }
+                  },
+                  "then": [
+                    {
+                      "kind": "constant",
+                      "source": "annual_decay",
+                      "micros": -950000
+                    },
+                    {
+                      "kind": "conditional",
+                      "condition": {
+                        "NumericCompare": {
+                          "target": "Current",
+                          "slot": {
+                            "Metric": "prestige"
+                          },
+                          "comparison": "AtLeast",
+                          "value": 0
+                        }
+                      },
+                      "then": [
+                        {
+                          "kind": "modifiers",
+                          "target": "Current",
+                          "property": "prestige_decay"
+                        }
+                      ],
+                      "otherwise": [
+                        {
+                          "kind": "scale",
+                          "factor_micros": -1000000,
+                          "term": {
+                            "kind": "modifiers",
+                            "target": "Current",
+                            "property": "prestige_decay"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "otherwise": []
+                }
+              ]
+            },
+            {
+              "flat": [
+                {
+                  "kind": "conditional",
+                  "condition": {
+                    "HasOwnedProvince": {
+                      "target": "Current"
+                    }
+                  },
+                  "then": [
+                    {
+                      "kind": "constant",
+                      "source": "annual_income",
+                      "micros": 1000000
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "prestige"
+                    }
+                  ],
+                  "otherwise": []
+                }
+              ],
+              "rates": []
+            }
+          ],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        }
+      }
+    },
+    "static_modifiers": {},
+    "building_modifiers": {},
+    "trade_good_modifiers": {}
+  },
+  "monthly_accruals": {
+    "rules": {
+      "0": {
+        "prestige": {
+          "attribute": "annual_response",
+          "divisor": 12000
+        }
+      },
+      "1": {
+        "prestige": {
+          "attribute": "annual_response",
+          "divisor": 12000
+        }
+      }
+    },
+    "settlement_count": 0,
+    "last_settlement": null
+  },
+  "modifiers": {
+    "definitions": {
+      "support": {
+        "values_micros": {
+          "prestige": 1200000,
+          "prestige_decay": -20000
+        },
+        "flags": {}
+      }
+    },
+    "active": {}
+  }
+}

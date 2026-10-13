@@ -65,6 +65,7 @@ impl Condition {
                     | "truce_with"
                     | "has_truce"
                     | "manpower"
+                    | "prestige"
                     | "treasury"
                     | "is_subject_of_type"
                     | "any_subject_country"
@@ -79,9 +80,15 @@ impl Condition {
                             )))
                             .with_root_scope(augustus_core::EntityKind::Country)
                             .with_metric_ids(
-                                ["stability", "adm_power", "dip_power", "mil_power"]
-                                    .map(String::from)
-                                    .into(),
+                                [
+                                    "stability",
+                                    "prestige",
+                                    "adm_power",
+                                    "dip_power",
+                                    "mil_power",
+                                ]
+                                .map(String::from)
+                                .into(),
                             )
                             .with_unbound_subject_types();
                         let scope = if country {
@@ -261,7 +268,7 @@ impl Condition {
                         let compiler = crate::ScriptCompiler::new(&schema, &library, true);
                         let compiler = if matches!(
                             name.as_str(),
-                            "stability" | "adm_power" | "dip_power" | "mil_power"
+                            "stability" | "prestige" | "adm_power" | "dip_power" | "mil_power"
                         ) {
                             compiler.with_metric_ids([name.clone()].into())
                         } else if matches!(

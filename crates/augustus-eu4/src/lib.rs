@@ -31,6 +31,7 @@ mod load;
 mod missions;
 mod monarch_power;
 mod power_income;
+mod prestige;
 mod truces;
 pub use missions::MissionReport;
 mod politics;

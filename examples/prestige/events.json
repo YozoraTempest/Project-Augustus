@@ -1,0 +1,425 @@
+[
+  {
+    "id": "prestige.begin",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "prestige"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 10000
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "initial"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "prestige"
+          },
+          "operation": "Add",
+          "value": -1000000
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "prestige"
+          },
+          "operation": "Add",
+          "value": 100000
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "prestige"
+          },
+          "operation": "Add",
+          "value": 999
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "prestige"
+          },
+          "operation": "Add",
+          "value": 0
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "prestige"
+          },
+          "operation": "Add",
+          "value": 0
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "prestige"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 999
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Metric": "prestige"
+                        },
+                        "comparison": "AtLeast",
+                        "value": 1000
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "quantized"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "prestige"
+          },
+          "operation": "Add",
+          "value": 1000000
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "prestige"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 100000
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "upper_bound"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "Not": {
+                        "All": [
+                          {
+                            "NumericCompareEntities": {
+                              "first": {
+                                "Relative": "Current"
+                              },
+                              "second": {
+                                "Selected": "Root"
+                              },
+                              "slot": {
+                                "Metric": "prestige"
+                              },
+                              "comparison": "AtLeast"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "country_compare"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Metric": "prestige"
+          },
+          "operation": "Add",
+          "value": -50000
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Schedule": {
+              "delay": 20,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "prestige.month"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "prestige.end",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "prestige"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 100000
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "bounded"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "finished"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "prestige.month",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "prestige"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 50000
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "before_decay"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "UpdateNumeric": {
+              "target": "Current",
+              "slot": {
+                "Metric": "prestige"
+              },
+              "operation": "Add",
+              "value": -99875
+            }
+          },
+          {
+            "AttachModifier": {
+              "target": "Current",
+              "name": "support",
+              "duration": null,
+              "hidden": null,
+              "renewal": "KeepLatestDated"
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 31,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "prestige.negative"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "prestige.negative",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "prestige"
+                  },
+                  "comparison": "AtLeast",
+                  "value": -50000
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Metric": "prestige"
+                        },
+                        "comparison": "AtLeast",
+                        "value": -49999
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "before_recovery"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "UpdateNumeric": {
+              "target": "Current",
+              "slot": {
+                "Metric": "prestige"
+              },
+              "operation": "Add",
+              "value": 200000
+            }
+          },
+          {
+            "RemoveModifier": {
+              "target": "Current",
+              "name": "support"
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "prestige.end"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

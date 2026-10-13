@@ -8,6 +8,10 @@
       "mil_power": {
         "attribute": "monthly_mil",
         "divisor": 1000000
+      },
+      "prestige": {
+        "attribute": "yearly_prestige_change",
+        "divisor": 12000
       }
     },
     "1": {
@@ -18,6 +22,10 @@
       "mil_power": {
         "attribute": "monthly_mil",
         "divisor": 1000000
+      },
+      "prestige": {
+        "attribute": "yearly_prestige_change",
+        "divisor": 12000
       }
     }
   },

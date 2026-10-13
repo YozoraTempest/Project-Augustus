@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace=prestige
+country_event={id=prestige.begin is_triggered_only=yes immediate={
+ if={limit={prestige=10} log=initial}
+ add_prestige=-1000 add_prestige=100 add_prestige=0.999 add_prestige=0.0005 add_prestige=0.0005
+ if={limit={prestige=0.999 NOT={prestige=1}} log=quantized}
+ add_prestige=1000 if={limit={prestige=100} log=upper_bound}
+ BBB={if={limit={NOT={prestige=ROOT}} log=country_compare}}
+ add_prestige=-50
+} option={name=continue country_event={id=prestige.month days=20}}}
+country_event={id=prestige.month is_triggered_only=yes immediate={
+ if={limit={prestige=50} log=before_decay}
+} option={name=continue add_prestige=-99.875 add_country_modifier={name=support duration=-1}
+ country_event={id=prestige.negative days=31}}}
+country_event={id=prestige.negative is_triggered_only=yes immediate={
+ if={limit={prestige=-50 NOT={prestige=-49.999}} log=before_recovery}
+} option={name=continue add_prestige=200 remove_country_modifier=support
+ country_event={id=prestige.end days=1}}}
+country_event={id=prestige.end is_triggered_only=yes immediate={
+ if={limit={prestige=100} log=bounded}
+} option={name=done log=finished}}

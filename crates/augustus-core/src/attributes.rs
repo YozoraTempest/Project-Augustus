@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::Condition;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -11,6 +12,34 @@ use crate::{
 };
 
 const ONE: i128 = 1_000_000;
+
+fn validate_attribute_condition(condition: &Condition) -> Result<(), Error> {
+    let mut pending = vec![condition];
+    while let Some(condition) = pending.pop() {
+        match condition {
+            Condition::NumericCompare {
+                slot: crate::NumericSlot::Attribute { .. },
+                ..
+            }
+            | Condition::NumericCompareEntities {
+                slot: crate::NumericSlot::Attribute { .. },
+                ..
+            } => {
+                return Err(Error::Invalid(
+                    "attribute condition cannot depend on another attribute".into(),
+                ));
+            }
+            Condition::All(conditions) | Condition::Any(conditions) => pending.extend(conditions),
+            Condition::Not(condition)
+            | Condition::AnyOwnedProvince { condition, .. }
+            | Condition::AnySubjectCountry { condition, .. }
+            | Condition::With { condition, .. }
+            | Condition::InScope { condition, .. } => pending.push(condition),
+            _ => (),
+        }
+    }
+    Ok(())
+}
 
 type ResolvedContributions = (Vec<(String, String, i64)>, bool);
 
@@ -32,6 +61,26 @@ pub enum AttributeBase {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AttributeTerm {
+    Unknown {
+        reason: String,
+    },
+    /// Read an authoritative quantity in the units selected by the content.
+    /// Derived attribute slots are excluded to keep this dependency acyclic.
+    Numeric {
+        source: String,
+        target: Target,
+        slot: crate::NumericSlot,
+        micros_per_unit: i64,
+    },
+    Scale {
+        factor_micros: i64,
+        term: Box<AttributeTerm>,
+    },
+    Conditional {
+        condition: Box<Condition>,
+        then: Vec<AttributeTerm>,
+        otherwise: Vec<AttributeTerm>,
+    },
     RulerSkill {
         target: Target,
         skill: crate::RulerSkill,
@@ -371,6 +420,103 @@ impl Attributes {
             Ok(())
         };
         match term {
+            AttributeTerm::Unknown { reason } => {
+                unresolved.insert(reason.clone());
+                return Ok((values, false));
+            }
+            AttributeTerm::Numeric {
+                source,
+                target,
+                slot,
+                micros_per_unit,
+            } => {
+                let Some(selected) = attribute_target(world, entity, *target)? else {
+                    unresolved.insert(format!("{source}:unknown_target"));
+                    return Ok((values, false));
+                };
+                let expected = match slot {
+                    crate::NumericSlot::Field(_) | crate::NumericSlot::Named(_) => None,
+                    crate::NumericSlot::Metric(name) => {
+                        Some(world.metrics().definition(name)?.kind)
+                    }
+                    crate::NumericSlot::Resource(_)
+                    | crate::NumericSlot::Government(_)
+                    | crate::NumericSlot::StoredGovernment(_)
+                    | crate::NumericSlot::SubjectCount
+                    | crate::NumericSlot::RulerSkill(_) => Some(EntityKind::Country),
+                    crate::NumericSlot::Attribute { .. } => {
+                        return Err(Error::Invalid(
+                            "attribute quantity cannot depend on another attribute".into(),
+                        ));
+                    }
+                };
+                if expected.is_some_and(|kind| {
+                    world
+                        .entity(selected)
+                        .is_ok_and(|entity| entity.kind != kind)
+                }) {
+                    return Err(Error::Invalid(
+                        "numeric attribute scope does not match slot".into(),
+                    ));
+                }
+                match world.numeric_value(selected, slot) {
+                    Ok(value) => values.push((
+                        source.clone(),
+                        "quantity".into(),
+                        narrow(i128::from(value) * i128::from(*micros_per_unit))?,
+                    )),
+                    Err(Error::Overflow) => return Err(Error::Overflow),
+                    Err(error) => {
+                        unresolved.insert(format!("{source}:unknown_quantity:{error}"));
+                        return Ok((values, false));
+                    }
+                }
+            }
+            AttributeTerm::Scale {
+                factor_micros,
+                term,
+            } => {
+                let (contributions, known) =
+                    self.resolve(world, entity, term, unresolved, depth + 1)?;
+                let mut total = 0_i128;
+                let mut scaled_total = 0_i128;
+                for (source, property, micros) in contributions {
+                    total += i128::from(micros);
+                    let scaled = narrow(i128::from(micros) * i128::from(*factor_micros) / ONE)?;
+                    scaled_total += i128::from(scaled);
+                    values.push((source, property, scaled));
+                }
+                let expected = total
+                    .checked_mul(i128::from(*factor_micros))
+                    .ok_or(Error::Overflow)?
+                    / ONE;
+                let adjustment = narrow(expected - scaled_total)?;
+                if adjustment != 0 {
+                    values.push(("scale".into(), "truncation".into(), adjustment));
+                }
+                return Ok((values, known));
+            }
+            AttributeTerm::Conditional {
+                condition,
+                then,
+                otherwise,
+            } => {
+                let applies = match condition.evaluate(world, entity) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        unresolved.insert(format!("attribute_condition:unknown:{error}"));
+                        return Ok((values, false));
+                    }
+                };
+                let mut known = true;
+                for term in if applies { then } else { otherwise } {
+                    let (contributions, complete) =
+                        self.resolve(world, entity, term, unresolved, depth + 1)?;
+                    values.extend(contributions);
+                    known &= complete;
+                }
+                return Ok((values, known));
+            }
             AttributeTerm::TruncatedSum {
                 source,
                 quantum_micros,
@@ -783,6 +929,40 @@ impl Attributes {
                     .collect();
                 while let Some((term, is_rate)) = terms.pop() {
                     let valid = match term {
+                        AttributeTerm::Unknown { reason } => !reason.is_empty(),
+                        AttributeTerm::Numeric {
+                            source,
+                            target,
+                            slot,
+                            ..
+                        } => {
+                            if matches!(slot, crate::NumericSlot::Attribute { .. }) {
+                                return Err(Error::Invalid(
+                                    "attribute quantity cannot depend on another attribute".into(),
+                                ));
+                            }
+                            world.validate_condition(&Condition::NumericCompare {
+                                target: *target,
+                                slot: slot.clone(),
+                                comparison: crate::NumericComparison::AtLeast,
+                                value: 0,
+                            })?;
+                            !source.is_empty()
+                        }
+                        AttributeTerm::Scale { term, .. } => {
+                            terms.push((term, is_rate));
+                            true
+                        }
+                        AttributeTerm::Conditional {
+                            condition,
+                            then,
+                            otherwise,
+                        } => {
+                            validate_attribute_condition(condition)?;
+                            world.validate_condition(condition)?;
+                            terms.extend(then.iter().chain(otherwise).map(|term| (term, is_rate)));
+                            true
+                        }
                         AttributeTerm::TruncatedSum {
                             source,
                             quantum_micros,

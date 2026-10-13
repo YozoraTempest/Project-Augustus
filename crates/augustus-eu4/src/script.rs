@@ -1521,6 +1521,15 @@ impl<'a> ScriptCompiler<'a> {
                         value: stability_integer(field)?,
                     });
                 }
+                "add_prestige" => {
+                    self.power_scope(field, scope, "prestige")?;
+                    plan.push(Action::UpdateNumeric {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Metric("prestige".into()),
+                        operation: augustus_core::NumericOperation::Add,
+                        value: quantized_decimal(field, "prestige")?,
+                    });
+                }
                 "add_liberty_desire" => {
                     if scope != EntityKind::Country
                         || !self.metric_ids.contains("temporary_liberty_desire")
@@ -2115,6 +2124,26 @@ impl<'a> ScriptCompiler<'a> {
                         value: stability_integer(field)?,
                     }
                 }
+                "prestige" => {
+                    self.power_scope(field, scope, "prestige")?;
+                    let value = field.scalar()?;
+                    let slot = augustus_core::NumericSlot::Metric("prestige".into());
+                    if country_operand(value) {
+                        Condition::NumericCompareEntities {
+                            first: augustus_core::EntityRef::Relative(Target::Current),
+                            second: self.typed_country_reference(field)?,
+                            slot,
+                            comparison: augustus_core::NumericComparison::AtLeast,
+                        }
+                    } else {
+                        Condition::NumericCompare {
+                            target: Target::Current,
+                            slot,
+                            comparison: augustus_core::NumericComparison::AtLeast,
+                            value: quantized_decimal(field, "prestige")?,
+                        }
+                    }
+                }
                 "is_subject" => {
                     if scope != EntityKind::Country { return Err(field.error("subject query requires country scope")); }
                     let condition=Condition::SubjectPresent {target:Target::Current};
@@ -2496,10 +2525,7 @@ impl<'a> ScriptCompiler<'a> {
                         return Err(field.error("treasury requires country scope"));
                     }
                     let value = field.scalar()?;
-                    let country = value.eq_ignore_ascii_case("ROOT")
-                        || value == "emperor" || value.starts_with("event_target:")
-                        || (country_identifier(value) && value.bytes().any(|byte| byte.is_ascii_alphabetic()));
-                    if country {
+                    if country_operand(value) {
                         Condition::NumericCompareEntities {
                             first: augustus_core::EntityRef::Relative(Target::Current),
                             second: self.typed_country_reference(field)?,
@@ -2622,10 +2648,23 @@ fn manpower_literal(field: &Field) -> Result<i64, Error> {
 }
 
 fn cash_literal(field: &Field) -> Result<i64, Error> {
+    quantized_decimal(field, "treasury")
+}
+
+fn country_operand(value: &str) -> bool {
+    value.eq_ignore_ascii_case("ROOT")
+        || value == "emperor"
+        || value.starts_with("event_target:")
+        || (country_identifier(value) && value.bytes().any(|byte| byte.is_ascii_alphabetic()))
+}
+
+fn quantized_decimal(field: &Field, name: &str) -> Result<i64, Error> {
     crate::setup::micros(field.scalar()?)
         .map(|value| value / 1000)
         .ok_or_else(|| {
-            field.error("treasury requires a literal decimal with at most six fractional digits")
+            field.error(format!(
+                "{name} requires a literal decimal with at most six fractional digits"
+            ))
         })
 }
 

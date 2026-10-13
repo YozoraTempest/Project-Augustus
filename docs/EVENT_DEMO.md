@@ -270,6 +270,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 场景可以显式提供 `treasury_slot = {"Resource": "Treasury"}`，让 `add_treasury` 和 `treasury` 访问共享的 `country_resources` 国库余额，原版世界入口使用此绑定。未指定绑定的已有场景继续访问注册的 `treasury` 字段。资源金额以千分位存储，每个最多六位小数字面量分别截断；余额允许为负，未知余额报告错误。国家间比较读取同一槽的实时值，支持字面国家、国家类型的 `ROOT`、`emperor` 与已声明类型的全局事件目标；原生输入使用 `NumericCompareEntities`。`taxation` 可显式选择国家和年度税收属性，余额与月度凭据随存档恢复。跨月顺序、交叉读档及限制见 [国库余额与月度税收](../examples/treasury/README.md)。完整原版初始余额、收支和贷款流程尚未接通。
 
+`add_prestige` 与 `prestige` 使用已注册的 `prestige` 指标，金额保留千分位，增减范围由指标声明；原版入口使用 −100～100。条件支持同一指标的国家间比较，精细字面量逐项截断，未知初值不能由增减操作补成零。原生属性的 `Numeric`、`Scale`、`Conditional` 可以根据当前数量、修正和条件产生变化，`Unknown` 明确标记未绑定的来源；已有月度执行者消费结果，延期事件、来源和待选项随存档恢复。自制场景见 [声望与实时数值反馈](../examples/prestige/README.md)。原版入口接入已知来源类别，完整初值和其他生产来源仍保持未知，未认证完整声望初始化与世界月度处理链。
+
 连续的 `if`、`else_if`、`else` 只执行首个成立的分支。`if` 和 `else_if` 都须以 `limit` 开头，后续分支必须紧邻；空的成立分支也会结束这条分支链。所有分支均须通过语法与引用检查，恒假或不会执行的分支不能藏有未支持内容。
 
 变量支持 `set_variable`、`change_variable`、`subtract_variable`、`multiply_variable`、`divide_variable`，以及 `check_variable` 的大于等于判断和 `is_variable_equal` 的相等判断。当前接受恰好一个 `which` 和一个字面 `value`，最多三位小数；动态名称、变量作为操作数和其他参数形式尚未支持。未显式绑定到状态字段的名称编译为命名状态；已有 `variable/名称` 字段绑定保持原执行计划与存档内容标识。除零、整数溢出和非法缩放会报错。

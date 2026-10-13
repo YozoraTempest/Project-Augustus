@@ -90,6 +90,7 @@ impl Compiler {
                 | "add_republican_tradition"
                 | "add_devotion"
                 | "add_stability"
+                | "add_prestige"
                 | "add_liberty_desire"
                 | "add_truce_with"
                 | "add_manpower"
