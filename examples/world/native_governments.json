@@ -90,6 +90,7 @@
       }
     },
     "republic": {
+      "retain_higher_metrics": ["republican_tradition"],
       "reforms": [
         "test_council"
       ],

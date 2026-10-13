@@ -91,6 +91,151 @@ fn change(kind: &str, before: augustus_core::Plan) -> Action {
     }
 }
 
+fn retained_transition_world() -> World {
+    let mut world = transition_world();
+    let mut governments = world.governments().clone();
+    governments
+        .forms
+        .get_mut("first_kind")
+        .unwrap()
+        .retain_higher_metrics
+        .insert("authority".into());
+    governments
+        .forms
+        .get_mut("second_kind")
+        .unwrap()
+        .inactive_metrics
+        .clear();
+    world.set_governments(governments).unwrap();
+    world
+}
+
+#[test]
+fn retained_entry_values_use_post_callback_state_and_only_floor_cross_form_entry() {
+    let mut world = retained_transition_world();
+    world
+        .execute(
+            EntityId(0),
+            &[change(
+                "second_kind",
+                vec![metric(NumericOperation::Subtract, 1000)],
+            )],
+        )
+        .unwrap();
+    assert_eq!(
+        world
+            .government_metric_stored_value(EntityId(0), "authority")
+            .unwrap(),
+        74_125
+    );
+    world
+        .execute(EntityId(0), &[change("first_kind", vec![])])
+        .unwrap();
+    assert_eq!(
+        world
+            .government_metric_value(EntityId(0), "authority")
+            .unwrap(),
+        74_125
+    );
+    world
+        .execute(
+            EntityId(0),
+            &[
+                metric(NumericOperation::Set, 4125),
+                change("first_kind", vec![metric(NumericOperation::Add, 1000)]),
+            ],
+        )
+        .unwrap();
+    assert_eq!(
+        world
+            .government_metric_value(EntityId(0), "authority")
+            .unwrap(),
+        5125
+    );
+    world
+        .execute(
+            EntityId(0),
+            &[change("second_kind", vec![]), change("first_kind", vec![])],
+        )
+        .unwrap();
+    assert_eq!(
+        world
+            .government_metric_value(EntityId(0), "authority")
+            .unwrap(),
+        50_000
+    );
+}
+
+#[test]
+fn retained_unknown_values_survive_restore_and_absent_values_use_declared_entry() {
+    let mut world = retained_transition_world();
+    let mut governments = world.governments().clone();
+    governments
+        .countries
+        .get_mut(&EntityId(0))
+        .unwrap()
+        .metrics
+        .as_mut()
+        .unwrap()
+        .insert("authority".into(), None);
+    world.set_governments(governments).unwrap();
+    world
+        .execute(EntityId(0), &[change("second_kind", vec![])])
+        .unwrap();
+    let mut resumed = World::restore(
+        &world.save("retained-metric").unwrap(),
+        "retained-metric",
+        world.schema(),
+    )
+    .unwrap();
+    for state in [&mut world, &mut resumed] {
+        state
+            .execute(EntityId(0), &[change("first_kind", vec![])])
+            .unwrap();
+        assert!(
+            state
+                .government_metric_value(EntityId(0), "authority")
+                .is_err()
+        );
+        assert_eq!(
+            state.governments().countries[&EntityId(0)]
+                .metrics
+                .as_ref()
+                .unwrap()["authority"],
+            None
+        );
+        state
+            .execute(EntityId(1), &[change("first_kind", vec![])])
+            .unwrap();
+        assert_eq!(
+            state
+                .government_metric_value(EntityId(1), "authority")
+                .unwrap(),
+            50_000
+        );
+    }
+    assert_eq!(
+        world.save("retained-metric").unwrap(),
+        resumed.save("retained-metric").unwrap()
+    );
+}
+
+#[test]
+fn retained_entry_configuration_requires_known_active_values_and_replacement_is_atomic() {
+    let mut world = retained_transition_world();
+    let previous = world.governments().clone();
+    for name in ["missing", "authority"] {
+        let mut candidate = previous.clone();
+        let form = candidate.forms.get_mut("first_kind").unwrap();
+        form.retain_higher_metrics.insert(name.into());
+        if name == "authority" {
+            form.metrics.insert(name.into(), None);
+        }
+        assert!(world.set_governments(candidate).is_err());
+        assert_eq!(world.governments(), &previous);
+    }
+}
+
 #[test]
 fn transitions_run_callbacks_on_old_state_and_same_form_preserves_reforms() {
     let mut world = transition_world();

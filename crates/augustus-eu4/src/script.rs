@@ -1446,7 +1446,7 @@ impl<'a> ScriptCompiler<'a> {
                         },
                     });
                 }
-                "add_legitimacy" => {
+                "add_legitimacy" | "add_republican_tradition" | "add_devotion" => {
                     let name = field.name.strip_prefix("add_").expect("metric effect");
                     self.government_metric(field, scope, name)?;
                     plan.push(Action::If {

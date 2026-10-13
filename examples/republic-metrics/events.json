@@ -1,0 +1,686 @@
+[
+  {
+    "id": "institutions.start",
+    "scope": "Country",
+    "immediate": [
+      {
+        "ChangeGovernment": {
+          "target": "Current",
+          "kind": "republic",
+          "before": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "republican_tradition"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "republican_tradition"
+                },
+                "operation": "Add",
+                "value": -1000000000
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "republican_tradition"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "republican_tradition"
+                },
+                "operation": "Add",
+                "value": 10125
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricStored": {
+                      "target": "Current",
+                      "name": "republican_tradition"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "StoredGovernment": "republican_tradition"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 10125
+                    }
+                  }
+                ]
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "All": [
+                        {
+                          "GovernmentMetricStored": {
+                            "target": "Current",
+                            "name": "republican_tradition"
+                          }
+                        },
+                        {
+                          "NumericCompare": {
+                            "target": "Current",
+                            "slot": {
+                              "StoredGovernment": "republican_tradition"
+                            },
+                            "comparison": "AtLeast",
+                            "value": 10126
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "tradition_immediate"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "If": {
+              "condition": {
+                "GovernmentMetricActive": {
+                  "target": "Current",
+                  "name": "republican_tradition"
+                }
+              },
+              "then": [
+                {
+                  "UpdateNumeric": {
+                    "target": "Current",
+                    "slot": {
+                      "Government": "republican_tradition"
+                    },
+                    "operation": "Add",
+                    "value": 2875
+                  }
+                }
+              ],
+              "otherwise": []
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 2,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "institutions.later"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricStored": {
+                      "target": "Current",
+                      "name": "republican_tradition"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "StoredGovernment": "republican_tradition"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 13000
+                    }
+                  }
+                ]
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "All": [
+                        {
+                          "GovernmentMetricStored": {
+                            "target": "Current",
+                            "name": "republican_tradition"
+                          }
+                        },
+                        {
+                          "NumericCompare": {
+                            "target": "Current",
+                            "slot": {
+                              "StoredGovernment": "republican_tradition"
+                            },
+                            "comparison": "AtLeast",
+                            "value": 13001
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "tradition_after"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "institutions.later",
+    "scope": "Country",
+    "immediate": [
+      {
+        "ChangeGovernment": {
+          "target": "Current",
+          "kind": "theocracy",
+          "before": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "devotion"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "devotion"
+                },
+                "operation": "Add",
+                "value": -1000000000
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "devotion"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "devotion"
+                },
+                "operation": "Add",
+                "value": 7125
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "republican_tradition"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "republican_tradition"
+                },
+                "operation": "Add",
+                "value": -1000000000
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricStored": {
+                      "target": "Current",
+                      "name": "republican_tradition"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "StoredGovernment": "republican_tradition"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 13000
+                    }
+                  }
+                ]
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "All": [
+                        {
+                          "GovernmentMetricStored": {
+                            "target": "Current",
+                            "name": "republican_tradition"
+                          }
+                        },
+                        {
+                          "NumericCompare": {
+                            "target": "Current",
+                            "slot": {
+                              "StoredGovernment": "republican_tradition"
+                            },
+                            "comparison": "AtLeast",
+                            "value": 13001
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "tradition_retained"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricStored": {
+                      "target": "Current",
+                      "name": "devotion"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "StoredGovernment": "devotion"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 7125
+                    }
+                  }
+                ]
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "All": [
+                        {
+                          "GovernmentMetricStored": {
+                            "target": "Current",
+                            "name": "devotion"
+                          }
+                        },
+                        {
+                          "NumericCompare": {
+                            "target": "Current",
+                            "slot": {
+                              "StoredGovernment": "devotion"
+                            },
+                            "comparison": "AtLeast",
+                            "value": 7126
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "devotion_immediate"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "If": {
+              "condition": {
+                "GovernmentMetricActive": {
+                  "target": "Current",
+                  "name": "devotion"
+                }
+              },
+              "then": [
+                {
+                  "UpdateNumeric": {
+                    "target": "Current",
+                    "slot": {
+                      "Government": "devotion"
+                    },
+                    "operation": "Add",
+                    "value": 2875
+                  }
+                }
+              ],
+              "otherwise": []
+            }
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricStored": {
+                      "target": "Current",
+                      "name": "devotion"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "StoredGovernment": "devotion"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 10000
+                    }
+                  }
+                ]
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "All": [
+                        {
+                          "GovernmentMetricStored": {
+                            "target": "Current",
+                            "name": "devotion"
+                          }
+                        },
+                        {
+                          "NumericCompare": {
+                            "target": "Current",
+                            "slot": {
+                              "StoredGovernment": "devotion"
+                            },
+                            "comparison": "AtLeast",
+                            "value": 10001
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "devotion_after"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "institutions.return",
+    "scope": "Country",
+    "immediate": [
+      {
+        "ChangeGovernment": {
+          "target": "Current",
+          "kind": "republic",
+          "before": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "GovernmentMetricActive": {
+              "target": "Current",
+              "name": "devotion"
+            }
+          },
+          "then": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Government": "devotion"
+                },
+                "operation": "Add",
+                "value": -1000000000
+              }
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricStored": {
+                      "target": "Current",
+                      "name": "devotion"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "StoredGovernment": "devotion"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 10000
+                    }
+                  }
+                ]
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "All": [
+                        {
+                          "GovernmentMetricStored": {
+                            "target": "Current",
+                            "name": "devotion"
+                          }
+                        },
+                        {
+                          "NumericCompare": {
+                            "target": "Current",
+                            "slot": {
+                              "StoredGovernment": "devotion"
+                            },
+                            "comparison": "AtLeast",
+                            "value": 10001
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "devotion_retained"
+            }
+          ],
+          "otherwise": []
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "All": [
+                  {
+                    "GovernmentMetricStored": {
+                      "target": "Current",
+                      "name": "republican_tradition"
+                    }
+                  },
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "StoredGovernment": "republican_tradition"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 50000
+                    }
+                  }
+                ]
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "All": [
+                        {
+                          "GovernmentMetricStored": {
+                            "target": "Current",
+                            "name": "republican_tradition"
+                          }
+                        },
+                        {
+                          "NumericCompare": {
+                            "target": "Current",
+                            "slot": {
+                              "StoredGovernment": "republican_tradition"
+                            },
+                            "comparison": "AtLeast",
+                            "value": 50001
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "tradition_reset"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": []
+      }
+    ],
+    "after": [
+      {
+        "Emit": "finished"
+      }
+    ]
+  }
+]

@@ -50,6 +50,10 @@ pub struct GovernmentState {
 pub struct GovernmentForm {
     pub reforms: BTreeSet<String>,
     pub metrics: BTreeMap<String, Option<i64>>,
+    /// On entry, use the declared value as a floor for a retained metric.
+    /// An explicitly unknown stored value remains unknown.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub retain_higher_metrics: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inactive_metrics: BTreeMap<String, Option<i64>>,
 }
@@ -291,6 +295,15 @@ impl Governments {
         }
         for (kind, form) in &self.forms {
             self.form_definition(kind)?;
+            if form
+                .retain_higher_metrics
+                .iter()
+                .any(|name| form.metrics.get(name).is_none_or(Option::is_none))
+            {
+                return Err(Error::Invalid(
+                    "retained metric requires a known active entry value".into(),
+                ));
+            }
             for reform in &form.reforms {
                 self.reform_definition(reform)?;
             }
@@ -394,7 +407,7 @@ impl World {
         if self.government_kind(entity)? == kind {
             return Ok(());
         }
-        let form = self.governments.form_definition(kind)?.clone();
+        let mut form = self.governments.form_definition(kind)?.clone();
         let state = self
             .governments
             .countries
@@ -406,6 +419,13 @@ impl World {
         let mut inactive = state.inactive_metrics.clone();
         inactive.extend(previous.iter().map(|(k, v)| (k.clone(), *v)));
         inactive.extend(form.inactive_metrics);
+        for name in &form.retain_higher_metrics {
+            if let Some(previous) = inactive.get(name) {
+                let value = form.metrics.get_mut(name).expect("validated active metric");
+                let floor = (*value).expect("validated entry value");
+                *value = previous.map(|previous| previous.max(floor));
+            }
+        }
         for name in form.metrics.keys() {
             inactive.remove(name);
         }

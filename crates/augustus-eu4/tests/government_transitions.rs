@@ -288,3 +288,48 @@ fn uncertain_startup_metrics_and_unverified_forms_are_not_filled_with_defaults()
             .contains_key("custom")
     );
 }
+
+#[test]
+fn startup_republic_entry_retains_higher_values_and_same_form_skips_the_entry_floor() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/retained.txt",
+        r#"
+        on_startup={if={limit={tag=AAA}
+            change_government=republic add_republican_tradition=26
+            change_government=monarchy change_government=republic
+            if={limit={republican_tradition=76 NOT={republican_tradition=76.001}} log=retained}
+            add_republican_tradition=-1000000 add_republican_tradition=7.125
+            change_government=republic
+            if={limit={republican_tradition=7.125 NOT={republican_tradition=7.126}} log=same}
+            change_government=monarchy change_government=republic
+            if={limit={republican_tradition=50 NOT={republican_tradition=50.001}} log=floor}
+        }}
+    "#,
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded.report.estates.startup_unresolved.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|row| row.2.as_str())
+            .collect::<Vec<_>>(),
+        ["retained", "same", "floor"]
+    );
+    assert!(
+        loaded.initial.world().governments().forms["republic"]
+            .retain_higher_metrics
+            .contains("republican_tradition")
+    );
+    let mut resumed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    resumed.restore(&loaded.save().unwrap()).unwrap();
+    assert_eq!(loaded.initial.world(), resumed.initial.world());
+}

@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+country_event={id=institutions.start is_triggered_only=yes
+    immediate={change_government=republic add_republican_tradition=-1000000 add_republican_tradition=10.125
+        if={limit={republican_tradition=10.125 NOT={republican_tradition=10.126}} log=tradition_immediate}}
+    option={name=continue add_republican_tradition=2.875 country_event={id=institutions.later days=2}}
+    after={if={limit={republican_tradition=13 NOT={republican_tradition=13.001}} log=tradition_after}}}
+country_event={id=institutions.later is_triggered_only=yes
+    immediate={change_government=theocracy add_devotion=-1000000 add_devotion=7.125 add_republican_tradition=-1000000
+        if={limit={republican_tradition=13 NOT={republican_tradition=13.001}} log=tradition_retained}
+        if={limit={devotion=7.125 NOT={devotion=7.126}} log=devotion_immediate}}
+    option={name=continue add_devotion=2.875}
+    after={if={limit={devotion=10 NOT={devotion=10.001}} log=devotion_after}}}
+country_event={id=institutions.return is_triggered_only=yes
+    immediate={change_government=republic add_devotion=-1000000
+        if={limit={devotion=10 NOT={devotion=10.001}} log=devotion_retained}
+        if={limit={republican_tradition=50 NOT={republican_tradition=50.001}} log=tradition_reset}}
+    option={name=finish} after={log=finished}}

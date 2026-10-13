@@ -658,6 +658,11 @@ impl GovernmentDraft {
                             .map(|name| (name.into(), Some(50_000)))
                             .into_iter()
                             .collect(),
+                        retain_higher_metrics: if metric == Some("republican_tradition") {
+                            ["republican_tradition".into()].into()
+                        } else {
+                            BTreeSet::new()
+                        },
                         inactive_metrics: if metric == Some("legitimacy") {
                             BTreeMap::new()
                         } else {

@@ -80,6 +80,8 @@ impl Compiler {
             equal(op, &fail)?;
             match name.as_str() {
                 "add_legitimacy"
+                | "add_republican_tradition"
+                | "add_devotion"
                 | "add_stability"
                 | "add_adm_power"
                 | "add_dip_power"
