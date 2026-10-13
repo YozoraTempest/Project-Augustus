@@ -1038,6 +1038,13 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by(root.path(), e))?,
         );
         digest.update(b"\0");
+        if let Some(identity) = startup
+            .compiled_identity()
+            .map_err(|e| Error::caused_by(root.path(), e))?
+        {
+            digest.update(b"\0startup-program\0");
+            digest.update(identity);
+        }
         digest.update(
             initial
                 .world()

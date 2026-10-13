@@ -19,6 +19,7 @@ pub struct NamedValues {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NumericSlot {
+    Resource(crate::CountryResource),
     Field(FieldId),
     Named(String),
     Government(String),
@@ -109,7 +110,7 @@ impl NumericSlot {
                 }
                 Ok(())
             }
-            Self::Field(_) | Self::SubjectCount | Self::RulerSkill(_) => Ok(()),
+            Self::Field(_) | Self::SubjectCount | Self::RulerSkill(_) | Self::Resource(_) => Ok(()),
         }
     }
 
@@ -189,6 +190,7 @@ impl World {
         slot.validate(self.schema(), self.governments(), self.metrics())?;
         match slot {
             NumericSlot::Field(field) => self.value(entity, *field),
+            NumericSlot::Resource(resource) => self.resource_value(entity, *resource),
             NumericSlot::Government(name) => self.government_metric_value(entity, name),
             NumericSlot::StoredGovernment(name) => {
                 self.government_metric_stored_value(entity, name)
@@ -247,6 +249,9 @@ impl World {
         self.entity(entity)?;
         slot.validate(self.schema(), self.governments(), self.metrics())?;
         slot.validate_write()?;
+        if matches!(slot, NumericSlot::Resource(_)) {
+            self.resource_country(entity)?;
+        }
         if let NumericSlot::Government(name) = slot
             && !self.government_metric_active(entity, name)?
         {
@@ -282,6 +287,8 @@ impl World {
             } else {
                 value
             }
+        } else if let NumericSlot::Resource(resource) = slot {
+            resource.bounded(value)
         } else {
             value
         };
@@ -304,6 +311,7 @@ impl World {
                 unreachable!("validated writable numeric slot")
             }
             NumericSlot::Field(field) => self.set(entity, *field, value),
+            NumericSlot::Resource(resource) => self.write_resource_value(entity, *resource, value),
             NumericSlot::Metric(name) => self.set_metric_value(entity, name, Some(value)),
             NumericSlot::Government(name) => {
                 let previous = self

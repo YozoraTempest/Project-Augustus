@@ -241,7 +241,10 @@ impl MonthlySystem for MonthlyEconomy {
     }
 
     fn validate(&self, world: &World) -> Result<(), Error> {
-        if world.monthly_accruals().is_none() && world.monthly_convergence().is_none() {
+        if world.monthly_accruals().is_none()
+            && world.monthly_convergence().is_none()
+            && world.monthly_stocks().is_none()
+        {
             return Err(Error::Invalid("missing monthly metric state".into()));
         }
         if let Some(accruals) = world.monthly_accruals() {
@@ -249,6 +252,9 @@ impl MonthlySystem for MonthlyEconomy {
         }
         if let Some(convergence) = world.monthly_convergence() {
             convergence.validate(world)?;
+        }
+        if let Some(stocks) = world.monthly_stocks() {
+            stocks.validate(world)?;
         }
         if let Some(taxation) = world.taxation() {
             taxation.validate(world)?;
@@ -269,6 +275,10 @@ impl MonthlySystem for MonthlyEconomy {
             .monthly_convergence()
             .map(|convergence| convergence.prepare(world))
             .transpose()?;
+        let stock_receipts = world
+            .monthly_stocks()
+            .map(|stocks| stocks.prepare(world))
+            .transpose()?;
         if let Some(taxes) = taxes {
             let mut taxation = world.taxation.take().expect("prepared taxation");
             taxation.commit(world, taxes);
@@ -286,6 +296,14 @@ impl MonthlySystem for MonthlyEconomy {
                 .expect("prepared convergence");
             convergence.commit(world, receipts);
             world.monthly_convergence = Some(convergence);
+        }
+        if let Some(receipts) = stock_receipts {
+            let mut stocks = world
+                .monthly_stocks
+                .take()
+                .expect("prepared monthly stocks");
+            stocks.commit(world, receipts);
+            world.monthly_stocks = Some(stocks);
         }
         Ok(())
     }

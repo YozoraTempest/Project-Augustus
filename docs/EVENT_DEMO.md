@@ -33,6 +33,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 [停战场景](../examples/truces/README.md) 演示对称关系、自身目标、周年边界、月度清理和跨入口读档。
 
+[人力存量场景](../examples/manpower/README.md) 演示独立资源槽、每条语句的舍入、超额保留、月度恢复和跨入口读档。
+
 [政体查询场景](../examples/government-identity/README.md) 演示政体类型、已选改革、政府属性和跨入口续跑。事件与开局条件读取同一份核心状态。
 
 [政体转换场景](../examples/government-transitions/README.md) 演示转换前回调、同类型保留、跨类型改革替换、指标初始化及停用存储，并核对延期执行与两种输入之间的恢复。

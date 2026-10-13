@@ -1481,6 +1481,19 @@ impl<'a> ScriptCompiler<'a> {
                         },
                     });
                 }
+                "add_manpower" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("manpower effect requires country scope"));
+                    }
+                    plan.push(Action::UpdateNumeric {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Resource(
+                            augustus_core::CountryResource::Manpower,
+                        ),
+                        operation: augustus_core::NumericOperation::Add,
+                        value: manpower_literal(field)?,
+                    });
+                }
                 "add_devastation" => {
                     self.devastation_scope(field, scope)?;
                     plan.push(Action::UpdateNumeric {
@@ -2084,6 +2097,15 @@ impl<'a> ScriptCompiler<'a> {
                     if scope != EntityKind::Country { return Err(field.error("truce query requires country scope")); }
                     Condition::TruceWith { first: augustus_core::EntityRef::Relative(Target::Current), second:self.truce_reference(field)? }
                 }
+                "manpower" => {
+                    if scope != EntityKind::Country { return Err(field.error("manpower query requires country scope")); }
+                    Condition::NumericCompare {
+                        target:Target::Current,
+                        slot:augustus_core::NumericSlot::Resource(augustus_core::CountryResource::Manpower),
+                        comparison:augustus_core::NumericComparison::AtLeast,
+                        value:manpower_literal(field)?,
+                    }
+                }
                 "has_truce" => {
                     if scope != EntityKind::Country { return Err(field.error("truce presence query requires country scope")); }
                     let condition=Condition::TrucePresent {target:Target::Current};
@@ -2537,6 +2559,16 @@ fn ruler_skill(name: &str) -> augustus_core::RulerSkill {
         "mil" => augustus_core::RulerSkill::Military,
         _ => unreachable!("matched ruler skill"),
     }
+}
+
+/// Convert thousands of people to stored thousandths of a person, discarding
+/// each operand's fractional people.
+fn manpower_literal(field: &Field) -> Result<i64, Error> {
+    crate::setup::micros(field.scalar()?)
+        .map(|value| value / 1000 * 1000)
+        .ok_or_else(|| {
+            field.error("manpower requires a literal decimal with at most six fractional digits")
+        })
 }
 
 /// Restricted literal decimals, exactly represented in thousandths. No float parsing.

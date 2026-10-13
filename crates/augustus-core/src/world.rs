@@ -109,6 +109,7 @@ pub struct World {
     pub(crate) taxation: Option<Taxation>,
     pub(crate) monthly_accruals: Option<crate::MonthlyAccruals>,
     pub(crate) monthly_convergence: Option<crate::MonthlyConvergence>,
+    pub(crate) monthly_stocks: Option<crate::MonthlyStocks>,
     pub(crate) monthly_system_id: Option<String>,
     attributes: Attributes,
     pub(crate) administration: Arc<Administration>,
@@ -171,6 +172,8 @@ struct Snapshot {
     monthly_accruals: Option<crate::MonthlyAccruals>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     monthly_convergence: Option<crate::MonthlyConvergence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    monthly_stocks: Option<crate::MonthlyStocks>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     monthly_system_id: Option<String>,
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
@@ -244,6 +247,7 @@ impl World {
             taxation: None,
             monthly_accruals: None,
             monthly_convergence: None,
+            monthly_stocks: None,
             monthly_system_id: None,
             attributes: Attributes::default(),
             administration: Arc::default(),
@@ -355,6 +359,9 @@ impl World {
                 "attributes omit an accrual calculation".into(),
             ));
         }
+        if let Some(stocks) = &self.monthly_stocks {
+            stocks.validate_attributes(&attributes)?;
+        }
         self.attributes = attributes;
         Ok(())
     }
@@ -460,6 +467,7 @@ impl World {
         self.taxation = None;
         self.monthly_accruals = None;
         self.monthly_convergence = None;
+        self.monthly_stocks = None;
         self.monthly_system_id = Some(system.id().into());
         Ok(())
     }
@@ -494,9 +502,19 @@ impl World {
             ));
         }
         taxation.validate(self)?;
+        if self
+            .monthly_stocks
+            .as_ref()
+            .is_some_and(|stocks| stocks.conflicts_with_taxation(&taxation))
+        {
+            return Err(Error::Invalid("duplicate monthly treasury executor".into()));
+        }
         self.taxation = Some(taxation);
         self.monthly_system_id = Some(
-            if self.monthly_accruals.is_some() || self.monthly_convergence.is_some() {
+            if self.monthly_accruals.is_some()
+                || self.monthly_convergence.is_some()
+                || self.monthly_stocks.is_some()
+            {
                 crate::MonthlyEconomy.id()
             } else {
                 MonthlyTax.id()
@@ -802,6 +820,7 @@ impl World {
             taxation: self.taxation.clone(),
             monthly_accruals: self.monthly_accruals.clone(),
             monthly_convergence: self.monthly_convergence.clone(),
+            monthly_stocks: self.monthly_stocks.clone(),
             monthly_system_id: self.monthly_system_id.clone(),
             attributes: self.attributes.clone(),
             administration: self.administration.as_ref().clone(),
@@ -878,6 +897,7 @@ impl World {
             taxation: snapshot.taxation,
             monthly_accruals: snapshot.monthly_accruals,
             monthly_convergence: snapshot.monthly_convergence,
+            monthly_stocks: snapshot.monthly_stocks,
             monthly_system_id: snapshot.monthly_system_id,
             attributes: snapshot.attributes,
             administration: Arc::new(snapshot.administration),
@@ -976,19 +996,25 @@ impl World {
         if let Some(convergence) = &world.monthly_convergence {
             convergence.validate(&world)?;
         }
+        if let Some(stocks) = &world.monthly_stocks {
+            stocks.validate(&world)?;
+        }
         match world.monthly_system_id() {
             None if world.taxation.is_none()
                 && world.monthly_accruals.is_none()
-                && world.monthly_convergence.is_none() => {}
+                && world.monthly_convergence.is_none()
+                && world.monthly_stocks.is_none() => {}
             Some(id)
                 if id == crate::MonthlyEconomy.id()
                     && (world.monthly_accruals.is_some()
-                        || world.monthly_convergence.is_some()) => {}
+                        || world.monthly_convergence.is_some()
+                        || world.monthly_stocks.is_some()) => {}
             Some(id)
                 if !id.is_empty()
                     && world.calendar.is_some()
                     && world.monthly_accruals.is_none()
                     && world.monthly_convergence.is_none()
+                    && world.monthly_stocks.is_none()
                     && (world.taxation.is_some() == (id == MonthlyTax.id())) => {}
             _ => {
                 return Err(Error::Invalid(

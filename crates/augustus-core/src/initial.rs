@@ -319,6 +319,13 @@ impl InitialWorld {
         self.world.set_monthly_accruals(accruals)
     }
 
+    pub fn set_monthly_stocks(
+        &mut self,
+        stocks: Option<crate::MonthlyStocks>,
+    ) -> Result<(), Error> {
+        self.world.set_monthly_stocks(stocks)
+    }
+
     pub fn set_monthly_convergence(
         &mut self,
         convergence: Option<crate::MonthlyConvergence>,

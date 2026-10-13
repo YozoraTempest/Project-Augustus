@@ -270,7 +270,10 @@ impl World {
             state.validate(self)?;
         }
         self.monthly_convergence = convergence;
-        if self.monthly_convergence.is_some() || self.monthly_accruals.is_some() {
+        if self.monthly_convergence.is_some()
+            || self.monthly_accruals.is_some()
+            || self.monthly_stocks.is_some()
+        {
             self.monthly_system_id = Some(crate::MonthlyEconomy.id().into());
         } else {
             self.monthly_system_id = self

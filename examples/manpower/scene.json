@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Port",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "calendar": {
+    "start": {
+      "year": 1444,
+      "month": 11,
+      "day": 11
+    },
+    "month_lengths": [
+      31,
+      28,
+      31,
+      30,
+      31,
+      30,
+      31,
+      31,
+      30,
+      31,
+      30,
+      31
+    ]
+  },
+  "country_resources": {
+    "0": {
+      "treasury_milli": 5000,
+      "manpower_milli": 1501000,
+      "mercantilism_milli": null
+    },
+    "1": {
+      "treasury_milli": null,
+      "manpower_milli": 0,
+      "mercantilism_milli": null
+    }
+  },
+  "attributes": {
+    "formulas": {
+      "0": {
+        "income": {
+          "base": {
+            "kind": "constant",
+            "micros": 640000000
+          },
+          "channels": [],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        },
+        "ceiling": {
+          "base": {
+            "kind": "constant",
+            "micros": 3000000000
+          },
+          "channels": [],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        }
+      },
+      "1": {
+        "income": {
+          "base": {
+            "kind": "constant",
+            "micros": 640000000
+          },
+          "channels": [],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        },
+        "ceiling": {
+          "base": {
+            "kind": "constant",
+            "micros": 3000000000
+          },
+          "channels": [],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        }
+      }
+    },
+    "static_modifiers": {},
+    "building_modifiers": {},
+    "trade_good_modifiers": {}
+  },
+  "monthly_stocks": {
+    "rules": {
+      "0": {
+        "Manpower": {
+          "income_attribute": "income",
+          "divisor": 1000,
+          "ceiling_attribute": "ceiling",
+          "condition": {
+            "HasOwnedProvince": {
+              "target": "Current"
+            }
+          }
+        }
+      },
+      "1": {
+        "Manpower": {
+          "income_attribute": "income",
+          "divisor": 1000,
+          "ceiling_attribute": "ceiling",
+          "condition": {
+            "HasOwnedProvince": {
+              "target": "Current"
+            }
+          }
+        }
+      }
+    },
+    "settlement_count": 0,
+    "last_settlement": null
+  }
+}

@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+namespace=mp
+country_event={id=mp.begin is_triggered_only=yes
+ immediate={add_manpower=100 BBB={add_manpower=0.5 add_manpower=0.0005 add_manpower=0.0005 if={limit={manpower=0.500999 NOT={manpower=0.501}} log=per_literal}}}
+ option={name=continue if={limit={manpower=101.501} log=excess} country_event={id=mp.month days=20}}}
+country_event={id=mp.month is_triggered_only=yes
+ immediate={if={limit={manpower=101.501} log=excess_preserved}}
+ option={name=continue add_manpower=-101 country_event={id=mp.low days=31}}}
+country_event={id=mp.low is_triggered_only=yes
+ immediate={if={limit={manpower=0.501 NOT={manpower=0.502}} log=before_growth}}
+ option={name=continue add_manpower=-999 country_event={id=mp.end days=1}}}
+country_event={id=mp.end is_triggered_only=yes
+ immediate={if={limit={manpower=0 NOT={manpower=0.001}} log=zero}}
+ option={name=done log=finished}}

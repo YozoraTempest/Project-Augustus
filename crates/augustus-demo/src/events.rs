@@ -21,6 +21,8 @@ struct Scene {
     fields: Vec<String>,
     entities: Vec<SceneEntity>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    country_resources: BTreeMap<EntityId, augustus_core::CountryResources>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     offices: BTreeMap<String, EntityId>,
     #[serde(default, skip_serializing_if = "augustus_core::Politics::is_empty")]
     politics: augustus_core::Politics,
@@ -78,6 +80,8 @@ struct Scene {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     monthly_convergence: Option<augustus_core::MonthlyConvergence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    monthly_stocks: Option<augustus_core::MonthlyStocks>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     event_decisions: Option<augustus_core::WeightedEventDecisions>,
 }
 
@@ -123,6 +127,8 @@ pub struct PendingChoiceView {
 
 #[derive(Debug, Serialize)]
 pub struct EventView {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub country_resources: BTreeMap<EntityId, augustus_core::CountryResources>,
     #[serde(skip_serializing_if = "augustus_core::Truces::is_empty")]
     pub truces: augustus_core::Truces,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -131,6 +137,8 @@ pub struct EventView {
     pub monthly_accruals: Option<augustus_core::MonthlyAccruals>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub monthly_convergence: Option<augustus_core::MonthlyConvergence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monthly_stocks: Option<augustus_core::MonthlyStocks>,
     #[serde(skip_serializing_if = "augustus_core::Subjects::is_empty")]
     pub subjects: augustus_core::Subjects,
     pub day: u64,
@@ -492,6 +500,7 @@ impl EventDemo {
         }
         world.set_subjects(scene.subjects)?;
         world.set_truces(scene.truces)?;
+        world.set_country_resources(scene.country_resources)?;
         world.set_completions(scene.completions)?;
         world.set_named_values(scene.named_values)?;
         world.set_markers(scene.markers)?;
@@ -511,6 +520,7 @@ impl EventDemo {
             world.set_monthly_accruals(accruals)?;
         }
         world.set_monthly_convergence(scene.monthly_convergence)?;
+        world.set_monthly_stocks(scene.monthly_stocks)?;
         for (current, targets) in scene.known_absent_targets {
             if targets.is_empty() {
                 return Err(Error::Invalid(
@@ -673,9 +683,11 @@ impl EventDemo {
             .collect::<Result<Vec<_>, augustus_core::Error>>()?;
         Ok(EventView {
             truces: self.world.truces().clone(),
+            country_resources: self.world.country_resources().clone(),
             queued_event_choices: self.world.queued_event_choices().to_vec(),
             monthly_accruals: self.world.monthly_accruals().cloned(),
             monthly_convergence: self.world.monthly_convergence().cloned(),
+            monthly_stocks: self.world.monthly_stocks().cloned(),
             subjects: self.world.subjects().clone(),
             day: self.world.day(),
             pending_tasks: self.world.pending_tasks(),

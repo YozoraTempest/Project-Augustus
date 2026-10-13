@@ -10,7 +10,7 @@ use augustus_core::InitialWorld;
 use jomini::text::ObjectReader;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 pub(super) enum Condition {
     All(Vec<Self>),
     Any(Vec<Self>),
@@ -33,7 +33,7 @@ pub(super) enum Condition {
     If(Box<Self>, Box<Self>),
     Capital(Vec<Self>),
     Region(String, bool),
-    Unknown(String),
+    Unknown(#[serde(skip)] String),
 }
 
 impl Condition {
@@ -64,6 +64,7 @@ impl Condition {
                     | "is_subject"
                     | "truce_with"
                     | "has_truce"
+                    | "manpower"
                     | "is_subject_of_type"
                     | "any_subject_country"
                     | "is_core"

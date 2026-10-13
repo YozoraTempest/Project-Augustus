@@ -10,17 +10,23 @@ use augustus_core::{Action, EntityKind, EventCatalog, InitialWorld, Schema, Scop
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+#[derive(serde::Serialize)]
 enum Step {
-    Metric(Action, LoadedSource),
-    Privilege(String, bool, LoadedSource),
-    Branch(Vec<(Condition, Vec<Self>)>, Option<Vec<Self>>, LoadedSource),
-    Countries(Condition, Vec<Self>, LoadedSource),
-    Country(String, Vec<Self>, LoadedSource),
-    Scoped(ScopeSelector, Vec<Self>, LoadedSource),
+    Metric(Action, #[serde(skip)] LoadedSource),
+    Privilege(String, bool, #[serde(skip)] LoadedSource),
+    Branch(
+        Vec<(Condition, Vec<Self>)>,
+        Option<Vec<Self>>,
+        #[serde(skip)] LoadedSource,
+    ),
+    Countries(Condition, Vec<Self>, #[serde(skip)] LoadedSource),
+    Country(String, Vec<Self>, #[serde(skip)] LoadedSource),
+    Scoped(ScopeSelector, Vec<Self>, #[serde(skip)] LoadedSource),
     Group(Vec<Self>),
-    Pending(String, LoadedSource),
+    Pending(#[serde(skip)] String, #[serde(skip)] LoadedSource),
 }
 
+#[derive(serde::Serialize)]
 struct Callback {
     valid: Condition,
     granted: Vec<Step>,
@@ -86,6 +92,7 @@ impl Compiler {
                 | "add_stability"
                 | "add_liberty_desire"
                 | "add_truce_with"
+                | "add_manpower"
                 | "add_adm_power"
                 | "add_dip_power"
                 | "add_mil_power"
@@ -451,6 +458,47 @@ impl Compiler {
 }
 
 impl EstateStartup {
+    pub(crate) fn compiled_identity(&self) -> Result<Option<Vec<u8>>, serde_json::Error> {
+        if self.steps.is_empty()
+            && self.callbacks.is_empty()
+            && self.events.definitions().is_empty()
+        {
+            return Ok(None);
+        }
+        let mut identity = serde_json::to_value((
+            &self.steps,
+            &self.callbacks,
+            self.events.definitions(),
+            self.events.conditions(),
+            self.events.once_events(),
+            self.events.option_conditions(),
+            self.events.pictures(),
+            self.events.option_weights(),
+            self.events.locations(),
+        ))?;
+        fn remove_diagnostics(value: &mut serde_json::Value) {
+            match value {
+                serde_json::Value::Object(fields) => {
+                    for (name, value) in fields {
+                        if (name == "Unavailable" || name == "Unknown") && value.is_string() {
+                            *value = serde_json::Value::Null;
+                        } else {
+                            remove_diagnostics(value);
+                        }
+                    }
+                }
+                serde_json::Value::Array(values) => {
+                    for value in values {
+                        remove_diagnostics(value);
+                    }
+                }
+                _ => (),
+            }
+        }
+        remove_diagnostics(&mut identity);
+        serde_json::to_vec(&identity).map(Some)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn load(
         root: &ContentRoot,

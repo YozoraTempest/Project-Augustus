@@ -36,6 +36,7 @@ mod politics;
 mod province_cores;
 mod resources;
 mod scopes;
+mod stocks;
 mod subjects;
 mod taxation;
 mod technology;
@@ -97,8 +98,9 @@ pub use politics::{
     CountryPolitics, DiplomaticKind, DiplomaticRelation, NationalFocus, PersonState, Politics,
     RulerSkill, RulerSkillBounds,
 };
-pub use resources::CountryResources;
+pub use resources::{CountryResource, CountryResources};
 pub use scopes::{EntityRef, ScopeContext, ScopeSelector};
+pub use stocks::{MonthlyStocks, StockAccount, StockRule, StockSettlement};
 pub use subjects::Subjects;
 pub use taxation::{MonthlySystem, MonthlyTax, MonthlyTaxAccount, TaxSettlement, Taxation};
 pub use technology::{Technology, TechnologyLevel};

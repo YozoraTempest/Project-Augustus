@@ -1,0 +1,338 @@
+[
+  {
+    "id": "mp.begin",
+    "scope": "Country",
+    "immediate": [
+      {
+        "UpdateNumeric": {
+          "target": "Current",
+          "slot": {
+            "Resource": "Manpower"
+          },
+          "operation": "Add",
+          "value": 100000000
+        }
+      },
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Country",
+              "name": "BBB"
+            }
+          },
+          "kind": "Country",
+          "plan": [
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Resource": "Manpower"
+                },
+                "operation": "Add",
+                "value": 500000
+              }
+            },
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Resource": "Manpower"
+                },
+                "operation": "Add",
+                "value": 0
+              }
+            },
+            {
+              "UpdateNumeric": {
+                "target": "Current",
+                "slot": {
+                  "Resource": "Manpower"
+                },
+                "operation": "Add",
+                "value": 0
+              }
+            },
+            {
+              "If": {
+                "condition": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Resource": "Manpower"
+                        },
+                        "comparison": "AtLeast",
+                        "value": 500000
+                      }
+                    },
+                    {
+                      "Not": {
+                        "All": [
+                          {
+                            "NumericCompare": {
+                              "target": "Current",
+                              "slot": {
+                                "Resource": "Manpower"
+                              },
+                              "comparison": "AtLeast",
+                              "value": 501000
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "then": [
+                  {
+                    "Emit": "per_literal"
+                  }
+                ],
+                "otherwise": []
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "If": {
+              "condition": {
+                "All": [
+                  {
+                    "NumericCompare": {
+                      "target": "Current",
+                      "slot": {
+                        "Resource": "Manpower"
+                      },
+                      "comparison": "AtLeast",
+                      "value": 101501000
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "Emit": "excess"
+                }
+              ],
+              "otherwise": []
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 20,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "mp.month"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "mp.end",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Resource": "Manpower"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 0
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Resource": "Manpower"
+                        },
+                        "comparison": "AtLeast",
+                        "value": 1000
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "zero"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "Emit": "finished"
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "mp.low",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Resource": "Manpower"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 501000
+                }
+              },
+              {
+                "Not": {
+                  "All": [
+                    {
+                      "NumericCompare": {
+                        "target": "Current",
+                        "slot": {
+                          "Resource": "Manpower"
+                        },
+                        "comparison": "AtLeast",
+                        "value": 502000
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "before_growth"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "UpdateNumeric": {
+              "target": "Current",
+              "slot": {
+                "Resource": "Manpower"
+              },
+              "operation": "Add",
+              "value": -999000000
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 1,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "mp.end"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "mp.month",
+    "scope": "Country",
+    "immediate": [
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "NumericCompare": {
+                  "target": "Current",
+                  "slot": {
+                    "Resource": "Manpower"
+                  },
+                  "comparison": "AtLeast",
+                  "value": 101501000
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "excess_preserved"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "UpdateNumeric": {
+              "target": "Current",
+              "slot": {
+                "Resource": "Manpower"
+              },
+              "operation": "Add",
+              "value": -101000000
+            }
+          },
+          {
+            "Schedule": {
+              "delay": 31,
+              "plan": [
+                {
+                  "TriggerEvent": {
+                    "event": "mp.low"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]
