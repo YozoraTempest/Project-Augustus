@@ -165,6 +165,6 @@ impl World {
                 index.add_province();
             }
         }
-        self.ownership = index;
+        self.ownership = std::sync::Arc::new(index);
     }
 }

@@ -25,6 +25,7 @@ pub(super) enum Condition {
     Numeric(augustus_core::Condition),
     Scoped(augustus_core::Condition),
     Subject(augustus_core::Condition),
+    ProvinceCore(augustus_core::Condition),
     Control(augustus_core::CountryController),
     Institution(String, String),
     Estate(String),
@@ -59,7 +60,11 @@ impl Condition {
                 let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
                 equal(op, &fail)?;
                 Ok(match name.as_str() {
-                    "is_subject_of" | "is_subject_of_type" | "any_subject_country" => {
+                    "is_subject_of"
+                    | "is_subject_of_type"
+                    | "any_subject_country"
+                    | "is_core"
+                    | "is_territorial_core" => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
@@ -96,7 +101,13 @@ impl Condition {
                             )
                         };
                         match compiled {
-                            Ok(condition) => Self::Subject(condition),
+                            Ok(condition) => {
+                                if matches!(name.as_str(), "is_core" | "is_territorial_core") {
+                                    Self::ProvinceCore(condition)
+                                } else {
+                                    Self::Subject(condition)
+                                }
+                            }
                             Err(error) => {
                                 report.unsupported(parsed, "trigger", &name, at);
                                 Self::Unknown(error.to_string())
@@ -579,7 +590,7 @@ impl Condition {
         root: augustus_core::EntityId,
     ) -> Option<bool> {
         match self {
-            Self::Subject(condition) => {
+            Self::Subject(condition) | Self::ProvinceCore(condition) => {
                 let entity = province
                     .unwrap_or_else(|| initial.country_entity(tag).expect("registered country"));
                 match initial
@@ -596,7 +607,12 @@ impl Condition {
                     }) {
                     Ok(value) => Some(value),
                     Err(error) => {
-                        reasons.insert(format!("unknown_subject_condition:{error}"));
+                        let kind = if matches!(self, Self::ProvinceCore(_)) {
+                            "core"
+                        } else {
+                            "subject"
+                        };
+                        reasons.insert(format!("unknown_{kind}_condition:{error}"));
                         None
                     }
                 }
@@ -911,6 +927,7 @@ impl Condition {
             Self::Numeric(_) => true,
             Self::Scoped(_) => true,
             Self::Subject(_) => true,
+            Self::ProvinceCore(_) => true,
             Self::Match(name, value) | Self::Institution(name, value) => {
                 replace(name) && replace(value)
             }

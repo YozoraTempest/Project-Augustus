@@ -67,3 +67,77 @@ fn native_input_rejects_duplicate_identity_and_unresolved_references() {
     assert_eq!(world.bound_capital("BBB"), None);
     assert_eq!(world.country("BBB").unwrap().declared_capital, Some(2));
 }
+
+#[test]
+fn province_views_follow_live_core_and_owner_relations_and_restore_input_order() {
+    use augustus_core::{
+        Action, Administration, CoreType, EntityKind, EntityRef, ProvinceAdministration,
+        ScopeSelector,
+    };
+    let mut provinces = provinces();
+    provinces[0].cores = vec!["BBB".into(), "AAA".into()];
+    let mut countries = countries();
+    countries
+        .iter_mut()
+        .find(|country| country.id == "AAA")
+        .unwrap()
+        .declared_capital = None;
+    let mut initial = InitialWorld::new(countries, provinces).unwrap();
+    let a = initial.country_entity("AAA").unwrap();
+    let b = initial.country_entity("BBB").unwrap();
+    let p = initial.province_entity(2).unwrap();
+    initial
+        .set_administration(Administration {
+            provinces: [(
+                p,
+                ProvinceAdministration {
+                    cores_known: true,
+                    cores: [(a, CoreType::Full), (b, CoreType::Full)].into(),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(initial.province(2).unwrap().cores, ["BBB", "AAA"]);
+    let save = initial.world().save("view").unwrap();
+    initial
+        .execute(
+            p,
+            &[
+                Action::SetProvinceCore {
+                    province: EntityRef::Relative(Target::Current),
+                    country: EntityRef::Selected(ScopeSelector::Named {
+                        kind: EntityKind::Country,
+                        name: "AAA".into(),
+                    }),
+                    core: None,
+                },
+                Action::SetOwner {
+                    target: Target::Current,
+                    owner: EntityRef::Selected(ScopeSelector::Named {
+                        kind: EntityKind::Country,
+                        name: "BBB".into(),
+                    }),
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(initial.province(2).unwrap().cores, ["BBB"]);
+    assert_eq!(initial.province(2).unwrap().owner.as_deref(), Some("BBB"));
+    assert_eq!(initial.owned_provinces("BBB").len(), 2);
+    assert_eq!(initial.owned_provinces("AAA").len(), 0);
+    let changed = initial.world().save("view").unwrap();
+    initial.restore(&save, "view").unwrap();
+    assert_eq!(initial.province(2).unwrap().cores, ["BBB", "AAA"]);
+    assert_eq!(initial.province(2).unwrap().owner.as_deref(), Some("AAA"));
+    initial.restore(&changed, "view").unwrap();
+    assert_eq!(initial.province(2).unwrap().cores, ["BBB"]);
+    let mut unknown = Administration::default();
+    unknown
+        .provinces
+        .insert(p, ProvinceAdministration::default());
+    initial.set_administration(unknown).unwrap();
+    assert_eq!(initial.province(2).unwrap().cores, ["BBB", "AAA"]);
+}

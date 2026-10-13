@@ -93,7 +93,10 @@ impl Compiler {
                 | "change_adm"
                 | "change_dip"
                 | "change_mil"
-                | "change_national_focus" => {
+                | "change_national_focus"
+                | "add_core"
+                | "add_territorial_core"
+                | "remove_core" => {
                     let compiled = crate::ScriptCompiler::new(&self.schema, &self.library, true)
                         .with_government_form_ids(self.government_form_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())
@@ -214,6 +217,8 @@ impl Compiler {
                     }
                 }
                 "country_event"
+                | "every_owned_province"
+                | "random_owned_province"
                 | "add_casus_belli"
                 | "reverse_add_casus_belli"
                 | "remove_casus_belli"

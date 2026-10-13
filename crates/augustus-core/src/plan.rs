@@ -16,6 +16,12 @@ pub enum Target {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Condition {
+    ProvinceCore {
+        province: crate::EntityRef,
+        country: crate::EntityRef,
+        /// None matches either known type; a typed query rejects an unknown type.
+        core: Option<crate::CoreType>,
+    },
     NationalFocus {
         target: Target,
         skill: crate::RulerSkill,
@@ -148,6 +154,11 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    SetProvinceCore {
+        province: crate::EntityRef,
+        country: crate::EntityRef,
+        core: Option<crate::CoreType>,
+    },
     /// Capture the owner's current ordered members, then filter each live state.
     ForEachOwnedProvince {
         country: Target,
@@ -339,6 +350,26 @@ impl Condition {
     ) -> Result<bool, Error> {
         let current = context.current;
         match self {
+            Self::ProvinceCore {
+                province,
+                country,
+                core,
+            } => {
+                let (Some(province), Some(country)) = (
+                    province.resolve_in_context(world, context)?,
+                    country.resolve_in_context(world, context)?,
+                ) else {
+                    return Ok(false);
+                };
+                match (world.province_core(province, country)?, core) {
+                    (None, _) => Ok(false),
+                    (Some(_), None) => Ok(true),
+                    (Some(crate::CoreType::Unspecified), Some(_)) => {
+                        Err(Error::Invalid("unknown province core type".into()))
+                    }
+                    (Some(actual), Some(expected)) => Ok(actual == *expected),
+                }
+            }
             Self::SubjectOf { subject, overlord } => {
                 let (Some(subject), Some(overlord)) = (
                     subject.resolve_in_context(world, context)?,
@@ -672,6 +703,18 @@ impl World {
             }
             *budget -= 1;
             match action {
+                Action::SetProvinceCore {
+                    province,
+                    country,
+                    core,
+                } => {
+                    if let (Some(province), Some(country)) = (
+                        province.resolve_in_context(self, context)?,
+                        country.resolve_in_context(self, context)?,
+                    ) {
+                        self.set_province_core(province, country, *core)?;
+                    }
+                }
                 Action::ChangeGovernment {
                     target,
                     kind,

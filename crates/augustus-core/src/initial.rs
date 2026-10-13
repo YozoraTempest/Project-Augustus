@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -66,6 +69,10 @@ pub struct InitialWorld {
     world: World,
     countries: Vec<CountryState>,
     provinces: Vec<ProvinceState>,
+    /// Retain the input's display order while deriving live cores from World.
+    province_core_order: Arc<Vec<Vec<String>>>,
+    projected_administration: Arc<Administration>,
+    projected_ownership: Arc<crate::ownership::OwnershipIndex>,
     country_index: BTreeMap<String, usize>,
     province_index: BTreeMap<u32, usize>,
 }
@@ -177,8 +184,11 @@ impl InitialWorld {
             }
         }
         Ok(Self {
+            projected_administration: Arc::clone(&world.administration),
+            projected_ownership: Arc::clone(&world.ownership),
             world,
             countries,
+            province_core_order: Arc::new(provinces.iter().map(|p| p.cores.clone()).collect()),
             provinces,
             country_index,
             province_index,
@@ -234,7 +244,9 @@ impl InitialWorld {
     }
 
     pub fn set_administration(&mut self, administration: Administration) -> Result<(), Error> {
-        self.world.set_administration(administration)
+        let result = self.world.set_administration(administration);
+        self.refresh_province_relations();
+        result
     }
 
     pub fn world(&self) -> &World {
@@ -242,7 +254,9 @@ impl InitialWorld {
     }
 
     pub fn execute(&mut self, current: EntityId, plan: &[crate::Action]) -> Result<(), Error> {
-        self.world.execute(current, plan)
+        let result = self.world.execute(current, plan);
+        self.refresh_province_relations();
+        result
     }
 
     pub fn execute_in_context(
@@ -250,7 +264,9 @@ impl InitialWorld {
         context: crate::ScopeContext,
         plan: &[crate::Action],
     ) -> Result<(), Error> {
-        self.world.execute_in_context(context, plan)
+        let result = self.world.execute_in_context(context, plan);
+        self.refresh_province_relations();
+        result
     }
 
     pub fn set_event_catalog(&mut self, catalog: crate::EventCatalog) -> Result<(), Error> {
@@ -282,7 +298,9 @@ impl InitialWorld {
     }
 
     pub fn choose_event(&mut self, choice: &crate::EventChoice) -> Result<(), Error> {
-        self.world.choose_event(choice)
+        let result = self.world.choose_event(choice);
+        self.refresh_province_relations();
+        result
     }
 
     pub fn set_calendar(&mut self, calendar: crate::Calendar) -> Result<(), Error> {
@@ -298,12 +316,16 @@ impl InitialWorld {
     }
 
     pub fn advance(&mut self, days: u64) -> Result<(), Error> {
-        self.world
-            .advance_to(self.world.day().checked_add(days).ok_or(Error::Overflow)?)
+        let day = self.world.day().checked_add(days).ok_or(Error::Overflow)?;
+        let result = self.world.advance_to(day);
+        self.refresh_province_relations();
+        result
     }
 
     pub fn process_event_commands(&mut self) -> Result<(), Error> {
-        self.world.process_event_commands()
+        let result = self.world.process_event_commands();
+        self.refresh_province_relations();
+        result
     }
 
     pub fn restore(&mut self, snapshot: &str, content: &str) -> Result<(), Error> {
@@ -340,7 +362,55 @@ impl InitialWorld {
             ));
         }
         self.world = restored;
+        self.refresh_province_relations();
         Ok(())
+    }
+
+    fn refresh_province_relations(&mut self) {
+        let cores_changed =
+            !Arc::ptr_eq(&self.projected_administration, &self.world.administration);
+        let owners_changed = !Arc::ptr_eq(&self.projected_ownership, &self.world.ownership);
+        if !cores_changed && !owners_changed {
+            return;
+        }
+        for (index, province) in self.provinces.iter_mut().enumerate() {
+            let entity = EntityId(self.countries.len() + index);
+            if owners_changed {
+                province.owner = self.world.entities()[entity.0]
+                    .owner
+                    .map(|id| self.countries[id.0].id.clone());
+            }
+            if !cores_changed {
+                continue;
+            }
+            let Some(state) = self
+                .world
+                .administration()
+                .provinces
+                .get(&entity)
+                .filter(|state| state.cores_known)
+            else {
+                province.cores.clone_from(&self.province_core_order[index]);
+                continue;
+            };
+            province.cores = self.province_core_order[index]
+                .iter()
+                .filter(|tag| {
+                    state
+                        .cores
+                        .contains_key(&EntityId(self.country_index[*tag]))
+                })
+                .cloned()
+                .collect();
+            for id in state.cores.keys() {
+                let tag = &self.countries[id.0].id;
+                if !province.cores.contains(tag) {
+                    province.cores.push(tag.clone());
+                }
+            }
+        }
+        self.projected_administration = Arc::clone(&self.world.administration);
+        self.projected_ownership = Arc::clone(&self.world.ownership);
     }
 
     pub fn set_technology(&mut self, technology: Technology) -> Result<(), Error> {

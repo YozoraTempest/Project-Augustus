@@ -1,0 +1,216 @@
+[
+  {
+    "id": "cores.seed",
+    "scope": "Country",
+    "immediate": [
+      {
+        "InScope": {
+          "selector": {
+            "Named": {
+              "kind": "Province",
+              "name": "8"
+            }
+          },
+          "kind": "Province",
+          "plan": [
+            {
+              "SetProvinceCore": {
+                "province": {
+                  "Relative": "Current"
+                },
+                "country": {
+                  "Selected": "Root"
+                },
+                "core": "full"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "If": {
+          "condition": {
+            "All": [
+              {
+                "ProvinceCore": {
+                  "province": {
+                    "Selected": {
+                      "Named": {
+                        "kind": "Province",
+                        "name": "8"
+                      }
+                    }
+                  },
+                  "country": {
+                    "Relative": "Current"
+                  },
+                  "core": null
+                }
+              }
+            ]
+          },
+          "then": [
+            {
+              "Emit": "foreign_core"
+            }
+          ],
+          "otherwise": []
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "SetProvinceCore": {
+              "province": {
+                "Selected": {
+                  "Named": {
+                    "kind": "Province",
+                    "name": "8"
+                  }
+                }
+              },
+              "country": {
+                "Relative": "Current"
+              },
+              "core": "territorial"
+            }
+          },
+          {
+            "If": {
+              "condition": {
+                "All": [
+                  {
+                    "ProvinceCore": {
+                      "province": {
+                        "Selected": {
+                          "Named": {
+                            "kind": "Province",
+                            "name": "8"
+                          }
+                        }
+                      },
+                      "country": {
+                        "Relative": "Current"
+                      },
+                      "core": "territorial"
+                    }
+                  }
+                ]
+              },
+              "then": [
+                {
+                  "Emit": "territorial_core"
+                }
+              ],
+              "otherwise": []
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "cores.promote",
+    "scope": "Country",
+    "immediate": [
+      {
+        "SetProvinceCore": {
+          "province": {
+            "Selected": {
+              "Named": {
+                "kind": "Province",
+                "name": "8"
+              }
+            }
+          },
+          "country": {
+            "Relative": "Current"
+          },
+          "core": "full"
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "SetProvinceCore": {
+              "province": {
+                "Selected": {
+                  "Named": {
+                    "kind": "Province",
+                    "name": "8"
+                  }
+                }
+              },
+              "country": {
+                "Relative": "Current"
+              },
+              "core": null
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  },
+  {
+    "id": "cores.province",
+    "scope": "Province",
+    "immediate": [
+      {
+        "SetProvinceCore": {
+          "province": {
+            "Relative": "Current"
+          },
+          "country": {
+            "Selected": {
+              "Named": {
+                "kind": "Country",
+                "name": "CCC"
+              }
+            }
+          },
+          "core": "territorial"
+        }
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "InScope": {
+              "selector": {
+                "Named": {
+                  "kind": "Country",
+                  "name": "CCC"
+                }
+              },
+              "kind": "Country",
+              "plan": [
+                {
+                  "SetProvinceCore": {
+                    "province": {
+                      "Selected": "Root"
+                    },
+                    "country": {
+                      "Relative": "Current"
+                    },
+                    "core": null
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

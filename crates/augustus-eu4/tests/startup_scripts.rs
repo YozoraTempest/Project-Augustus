@@ -42,6 +42,91 @@ fn fixture() -> tempfile::TempDir {
 }
 
 #[test]
+fn startup_core_effects_share_administrative_state_views_and_atomic_rollback() {
+    use augustus_core::CoreType;
+    let temp = fixture();
+    write(
+        temp.path(),
+        "history/provinces/4 - Highland.txt",
+        "owner=BBB controller=BBB add_core=BBB hre=no",
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA} every_owned_province={remove_core=ROOT} add_core=1 1={if={limit={is_core=ROOT} log=foreign_core}}}} ",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let a = loaded.initial.country_entity("AAA").unwrap();
+    let p = loaded.initial.province_entity(1).unwrap();
+    assert!(
+        loaded.report.estates.startup_unresolved.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    assert_eq!(
+        loaded.initial.world().province_core(p, a).unwrap(),
+        Some(CoreType::Full)
+    );
+    assert!(
+        loaded
+            .initial
+            .province(1)
+            .unwrap()
+            .cores
+            .contains(&"AAA".into())
+    );
+    assert_eq!(
+        loaded.initial.world().events().last().unwrap().2,
+        "foreign_core"
+    );
+    for id in loaded.initial.owned_provinces("AAA") {
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .province_core(loaded.initial.province_entity(id).unwrap(), a)
+                .unwrap(),
+            None
+        );
+        assert!(
+            !loaded
+                .initial
+                .province(id)
+                .unwrap()
+                .cores
+                .contains(&"AAA".into())
+        );
+    }
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA} every_owned_province={remove_core=ROOT} add_core=1 unsupported_effect=yes}} ",
+    );
+    let failed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(!failed.report.estates.startup_unresolved.is_empty());
+    assert_eq!(failed.initial.world().province_core(p, a).unwrap(), None);
+    assert!(
+        !failed
+            .initial
+            .province(1)
+            .unwrap()
+            .cores
+            .contains(&"AAA".into())
+    );
+    for id in failed.initial.owned_provinces("AAA") {
+        assert_eq!(
+            failed
+                .initial
+                .world()
+                .province_core(failed.initial.province_entity(id).unwrap(), a)
+                .unwrap(),
+            Some(CoreType::Full)
+        );
+    }
+    assert!(failed.initial.world().events().is_empty());
+}
+
+#[test]
 fn mission_selection_is_initialized_before_startup_and_invalidated_on_failure() {
     let temp = fixture();
     write(

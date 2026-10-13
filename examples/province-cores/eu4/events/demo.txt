@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+country_event={id=cores.seed is_triggered_only=yes
+ immediate={8={add_core=ROOT} if={limit={is_core=8} log=foreign_core}}
+ option={name=territorial add_territorial_core=8 if={limit={is_territorial_core=8} log=territorial_core}}}
+country_event={id=cores.promote is_triggered_only=yes immediate={add_core=8}
+ option={name=remove remove_core=8}}
+province_event={id=cores.province is_triggered_only=yes immediate={add_territorial_core=CCC}
+ option={name=remove CCC={remove_core=ROOT}}}

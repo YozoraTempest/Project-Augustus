@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "fields": [
+    "unused"
+  ],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "CCC",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "7",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "8",
+      "kind": "Province",
+      "owner": 1,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "administration": {
+    "areas": [],
+    "country_areas": {},
+    "provinces": {
+      "3": {
+        "area": null,
+        "cores_known": true,
+        "cores": {
+          "0": "full"
+        },
+        "raw_autonomy_micros": null,
+        "history_autonomy_delta_micros": 0,
+        "unresolved": []
+      },
+      "4": {
+        "area": null,
+        "cores_known": true,
+        "cores": {
+          "1": "full"
+        },
+        "raw_autonomy_micros": null,
+        "history_autonomy_delta_micros": 0,
+        "unresolved": []
+      }
+    },
+    "rules": {}
+  }
+}

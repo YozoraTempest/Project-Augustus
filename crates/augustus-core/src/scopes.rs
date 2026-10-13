@@ -113,7 +113,7 @@ impl World {
                 .get(&current)
                 .is_some_and(|targets| targets.contains(&target))
         {
-            self.ownership.resolve_absence();
+            std::sync::Arc::make_mut(&mut self.ownership).resolve_absence();
         }
         self.known_absent_targets
             .entry(current)

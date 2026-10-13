@@ -32,6 +32,7 @@ mod objectives;
 mod ownership;
 mod plan;
 mod politics;
+mod province_cores;
 mod resources;
 mod scopes;
 mod subjects;

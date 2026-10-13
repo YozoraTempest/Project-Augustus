@@ -647,6 +647,53 @@ impl<'a> ScriptCompiler<'a> {
         self
     }
 
+    fn core_operands(
+        &self,
+        field: &Field,
+        scope: EntityKind,
+    ) -> Result<(augustus_core::EntityRef, augustus_core::EntityRef), Error> {
+        use augustus_core::EntityRef;
+        let expected = match scope {
+            EntityKind::Province => EntityKind::Country,
+            EntityKind::Country => EntityKind::Province,
+        };
+        let value = field.scalar()?;
+        let selector = if value.eq_ignore_ascii_case("ROOT") {
+            if self.root_kind(field)? != expected {
+                return Err(field.error("core operand ROOT has the wrong entity type"));
+            }
+            ScopeSelector::Root
+        } else if let Some(name) = value.strip_prefix("event_target:") {
+            if self.global_scope_types.get(name) != Some(&expected) {
+                return Err(field.error(
+                    "core operand requires a declared reference of the opposite entity type",
+                ));
+            }
+            ScopeSelector::Global(name.into())
+        } else if expected == EntityKind::Country && country_identifier(value) {
+            ScopeSelector::Named {
+                kind: expected,
+                name: value.into(),
+            }
+        } else if expected == EntityKind::Province && province_identifier(value).is_some() {
+            ScopeSelector::Named {
+                kind: expected,
+                name: province_identifier(value)
+                    .expect("matched province identifier")
+                    .to_string(),
+            }
+        } else {
+            return Err(field.error("core operand requires a literal country or province, typed ROOT, or declared event target"));
+        };
+        let current = EntityRef::Relative(Target::Current);
+        let other = EntityRef::Selected(selector);
+        Ok(if scope == EntityKind::Province {
+            (current, other)
+        } else {
+            (other, current)
+        })
+    }
+
     fn country_reference(&self, field: &Field) -> Result<augustus_core::EntityRef, Error> {
         let value = field.scalar()?;
         let selector = if country_identifier(value) {
@@ -1387,6 +1434,18 @@ impl<'a> ScriptCompiler<'a> {
                     key: localisation_key(field, "custom tooltip")?,
                     hidden: self.hidden_descriptions,
                 }),
+                "add_core" | "add_territorial_core" | "remove_core" => {
+                    let (province, country) = self.core_operands(field, scope)?;
+                    plan.push(Action::SetProvinceCore {
+                        province,
+                        country,
+                        core: match field.name.as_str() {
+                            "add_core" => Some(augustus_core::CoreType::Full),
+                            "add_territorial_core" => Some(augustus_core::CoreType::Territorial),
+                            _ => None,
+                        },
+                    });
+                }
                 "add_devastation" => {
                     self.devastation_scope(field, scope)?;
                     plan.push(Action::UpdateNumeric {
@@ -2056,6 +2115,14 @@ impl<'a> ScriptCompiler<'a> {
                         target: Target::Current,
                         controller: if boolean(field)? { augustus_core::CountryController::Ai }
                             else { augustus_core::CountryController::Human },
+                    }
+                }
+                "is_core" | "is_territorial_core" => {
+                    let (province, country) = self.core_operands(field, scope)?;
+                    Condition::ProvinceCore {
+                        province,
+                        country,
+                        core: (field.name == "is_territorial_core").then_some(augustus_core::CoreType::Territorial),
                     }
                 }
                 "has_casus_belli" => {

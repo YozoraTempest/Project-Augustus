@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
@@ -80,7 +83,7 @@ struct Task {
 pub struct World {
     schema: Schema,
     entities: Vec<Entity>,
-    pub(crate) ownership: crate::ownership::OwnershipIndex,
+    pub(crate) ownership: Arc<crate::ownership::OwnershipIndex>,
     pub(crate) entity_names: BTreeMap<String, Vec<EntityId>>,
     day: u64,
     next_sequence: u64,
@@ -105,7 +108,7 @@ pub struct World {
     pub(crate) monthly_accruals: Option<crate::MonthlyAccruals>,
     pub(crate) monthly_system_id: Option<String>,
     attributes: Attributes,
-    administration: Administration,
+    pub(crate) administration: Arc<Administration>,
     pub(crate) affiliations: Affiliations,
     pub(crate) governments: Governments,
     pub(crate) metrics: crate::Metrics,
@@ -208,7 +211,7 @@ impl World {
         Self {
             schema,
             entities: Vec::new(),
-            ownership: crate::ownership::OwnershipIndex::default(),
+            ownership: Arc::default(),
             entity_names: BTreeMap::new(),
             day: 0,
             next_sequence: 0,
@@ -233,7 +236,7 @@ impl World {
             monthly_accruals: None,
             monthly_system_id: None,
             attributes: Attributes::default(),
-            administration: Administration::default(),
+            administration: Arc::default(),
             affiliations: Affiliations::default(),
             governments: Governments::default(),
             metrics: crate::Metrics::default(),
@@ -321,7 +324,7 @@ impl World {
     pub fn set_administration(&mut self, administration: Administration) -> Result<(), Error> {
         self.require_running()?;
         administration.validate(self)?;
-        self.administration = administration;
+        self.administration = Arc::new(administration);
         Ok(())
     }
 
@@ -499,7 +502,7 @@ impl World {
         let name = name.into();
         self.entity_names.entry(name.clone()).or_default().push(id);
         if kind == EntityKind::Province {
-            self.ownership.add_province();
+            Arc::make_mut(&mut self.ownership).add_province();
         }
         self.entities.push(Entity {
             name,
@@ -524,8 +527,14 @@ impl World {
                 .known_absent_targets
                 .get(&province)
                 .is_some_and(|targets| targets.contains(&Target::Owner));
-        self.ownership
-            .assign(province, self.entities[province.0].owner, unknown, country);
+        if self.entities[province.0].owner != Some(country) {
+            Arc::make_mut(&mut self.ownership).assign(
+                province,
+                self.entities[province.0].owner,
+                unknown,
+                country,
+            );
+        }
         self.entities[province.0].owner = Some(country);
         self.clear_absent_target(province, Target::Owner);
         Ok(())
@@ -768,7 +777,7 @@ impl World {
             monthly_accruals: self.monthly_accruals.clone(),
             monthly_system_id: self.monthly_system_id.clone(),
             attributes: self.attributes.clone(),
-            administration: self.administration.clone(),
+            administration: self.administration.as_ref().clone(),
             affiliations: self.affiliations.clone(),
             governments: self.governments.clone(),
             metrics: self.metrics.clone(),
@@ -813,7 +822,7 @@ impl World {
         let mut world = Self {
             schema: snapshot.schema,
             entities: snapshot.entities,
-            ownership: crate::ownership::OwnershipIndex::default(),
+            ownership: Arc::default(),
             entity_names: BTreeMap::new(),
             day: snapshot.day,
             next_sequence: snapshot.next_sequence,
@@ -841,7 +850,7 @@ impl World {
             monthly_accruals: snapshot.monthly_accruals,
             monthly_system_id: snapshot.monthly_system_id,
             attributes: snapshot.attributes,
-            administration: snapshot.administration,
+            administration: Arc::new(snapshot.administration),
             affiliations: snapshot.affiliations,
             governments: snapshot.governments,
             metrics: snapshot.metrics,
@@ -855,9 +864,7 @@ impl World {
         };
         world.rebuild_ownership();
         world.subject_index = crate::subjects::SubjectIndex::from_politics(&world.politics);
-        world
-            .ownership
-            .restore_order(snapshot.owned_province_order)?;
+        Arc::make_mut(&mut world.ownership).restore_order(snapshot.owned_province_order)?;
         for (id, entity) in world.entities.iter().enumerate() {
             world
                 .entity_names
@@ -1162,6 +1169,12 @@ pub(crate) fn validate_plan(
                 target.validate()?;
                 justifications.identifier(name)?;
             }
+            Action::SetProvinceCore {
+                province, country, ..
+            } => {
+                province.validate()?;
+                country.validate()?;
+            }
             Action::Description { key, .. } => crate::plan::validate_description_key(key)?,
             Action::SetMarker { name, .. } | Action::SetGlobalMarker { name, .. } => {
                 crate::markers::validate_name(name)?
@@ -1353,6 +1366,12 @@ pub(crate) fn validate_condition(
     subjects: &crate::Subjects,
 ) -> Result<(), Error> {
     match condition {
+        crate::Condition::ProvinceCore {
+            province, country, ..
+        } => {
+            province.validate()?;
+            country.validate()
+        }
         crate::Condition::SubjectOf { subject, overlord } => {
             subject.validate()?;
             overlord.validate()
