@@ -27,7 +27,8 @@ use crate::ideas::{IdeaDraft, IdeaReport};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
 use crate::setup::{SetupDraft, SetupReport};
 use crate::{
-    ContentRoot, ContentSet, ContentView, Error, ParsedText, SourceLocation, TextEncoding,
+    ContentRoot, ContentSet, ContentSource, ContentView, Error, ParsedText, SourceLocation,
+    TextEncoding,
 };
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
@@ -180,7 +181,10 @@ impl VanillaWorld {
         players: Option<&std::collections::BTreeSet<String>>,
     ) -> Result<Self, Error> {
         let root = ContentRoot::open(path)?;
-        Self::load_from_view(&root, &root, date, players)
+        let mut sources = vec![ContentSource::base(root.clone())];
+        sources.extend(ContentSource::installed_dlc_archives(root.path())?);
+        let content = ContentSet::resolve(sources)?;
+        Self::load_from_view(&content, &root, date, players)
     }
 
     fn load_from_view(

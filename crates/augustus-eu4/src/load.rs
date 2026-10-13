@@ -3,25 +3,35 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fs,
     path::{Path, PathBuf},
 };
 
 use crate::{
     ContentRoot, ContentView, Error, FileEntry, ModDescriptor, TextDocument, TextEncoding,
+    content::{ArchiveContentRoot, normalize_content_path},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ContentRole {
     UserDirectory,
     Mod,
+    Dlc,
     Base,
 }
 
-/// An explicitly mounted directory and its optional mod descriptor.
+#[derive(Debug)]
+enum ContentBacking {
+    Directory(ContentRoot),
+    Archive(ArchiveContentRoot),
+}
+
+/// One explicitly mounted directory or local DLC archive.
 #[derive(Debug)]
 pub struct ContentSource {
-    root: ContentRoot,
+    backing: ContentBacking,
     role: ContentRole,
+    label: Option<String>,
     descriptor: Option<(PathBuf, ModDescriptor)>,
     replace_paths: BTreeSet<String>,
 }
@@ -29,8 +39,9 @@ pub struct ContentSource {
 impl ContentSource {
     pub fn base(root: ContentRoot) -> Self {
         Self {
-            root,
+            backing: ContentBacking::Directory(root),
             role: ContentRole::Base,
+            label: None,
             descriptor: None,
             replace_paths: BTreeSet::new(),
         }
@@ -39,8 +50,9 @@ impl ContentSource {
     /// Opens the user directory as the highest-priority content overlay.
     pub fn user_directory(path: impl AsRef<Path>) -> Result<Self, Error> {
         Ok(Self {
-            root: ContentRoot::open(path)?,
+            backing: ContentBacking::Directory(ContentRoot::open(path)?),
             role: ContentRole::UserDirectory,
+            label: None,
             descriptor: None,
             replace_paths: BTreeSet::new(),
         })
@@ -72,7 +84,7 @@ impl ContentSource {
         let descriptor = ModDescriptor::parse(&parsed)?;
         let mut replace_paths = BTreeSet::new();
         for path in &descriptor.replace_paths {
-            let normalized = normalize_path(path).map_err(|message| {
+            let normalized = normalize_content_path(path).map_err(|message| {
                 Error::message(
                     document.source(),
                     format!("replace_path {path:?}: {message}"),
@@ -81,21 +93,75 @@ impl ContentSource {
             replace_paths.insert(normalized);
         }
         Ok(Self {
-            root,
+            backing: ContentBacking::Directory(root),
             role: ContentRole::Mod,
+            label: None,
             descriptor: Some((document.source().to_path_buf(), descriptor)),
             replace_paths,
         })
     }
 
-    pub fn root(&self) -> &ContentRoot {
-        &self.root
+    /// Opens one DLC archive without extracting its files.
+    pub fn dlc_archive(path: impl AsRef<Path>, name: impl Into<String>) -> Result<Self, Error> {
+        Ok(Self {
+            backing: ContentBacking::Archive(ArchiveContentRoot::open(path)?),
+            role: ContentRole::Dlc,
+            label: Some(name.into()),
+            descriptor: None,
+            replace_paths: BTreeSet::new(),
+        })
+    }
+
+    /// Finds locally installed DLC archives described by the EU4 installation.
+    /// Only descriptors under `dlc/` and `builtin_dlc/` are considered.
+    pub fn installed_dlc_archives(game_root: impl AsRef<Path>) -> Result<Vec<Self>, Error> {
+        discover_installed_dlc_archives(game_root.as_ref())
+    }
+
+    pub fn directory_root(&self) -> Option<&ContentRoot> {
+        match &self.backing {
+            ContentBacking::Directory(root) => Some(root),
+            ContentBacking::Archive(_) => None,
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        match &self.backing {
+            ContentBacking::Directory(root) => root.path(),
+            ContentBacking::Archive(archive) => archive.path(),
+        }
+    }
+
+    fn files(&self) -> Result<Vec<FileEntry>, Error> {
+        match &self.backing {
+            ContentBacking::Directory(root) => root.files(),
+            ContentBacking::Archive(archive) => Ok(archive.files()),
+        }
+    }
+
+    fn read_text(
+        &self,
+        relative_path: impl AsRef<Path>,
+        encoding: TextEncoding,
+    ) -> Result<TextDocument, Error> {
+        match &self.backing {
+            ContentBacking::Directory(root) => root.read_text(relative_path, encoding),
+            ContentBacking::Archive(archive) => archive.read_text(relative_path, encoding),
+        }
+    }
+
+    fn physical_path(&self, relative_path: &Path) -> PathBuf {
+        match &self.backing {
+            ContentBacking::Directory(root) => root.path().join(relative_path),
+            ContentBacking::Archive(archive) => archive.physical_path(relative_path),
+        }
     }
 
     pub fn name(&self) -> &str {
         match self.role {
             ContentRole::UserDirectory => "EU4 user directory",
             ContentRole::Base => "EU4 base",
+            ContentRole::Dlc => self.label.as_deref().expect("DLC archives have labels"),
             ContentRole::Mod => &self.descriptor().expect("mods have descriptors").name,
         }
     }
@@ -160,18 +226,18 @@ pub struct ContentSet {
 }
 
 impl ContentSet {
-    /// Orders supported directory sources by VFS priority; DLC archives are not represented here.
+    /// Orders mounted sources by VFS priority. Archive paths remain virtual and are never extracted.
     pub fn resolve(sources: Vec<ContentSource>) -> Result<Self, Error> {
         let sources = order_sources(sources)?;
         let mut files = BTreeMap::<String, FileTrace>::new();
         for (source_index, source) in sources.iter().enumerate() {
             let mut seen = BTreeSet::new();
-            for entry in source.root.files()? {
-                let physical_path = source.root.path().join(&entry.relative_path);
+            for entry in source.files()? {
+                let physical_path = source.physical_path(&entry.relative_path);
                 let path = entry.relative_path.to_str().ok_or_else(|| {
                     Error::message(&physical_path, "content path is not valid UTF-8")
                 })?;
-                let logical_path = normalize_path(path)
+                let logical_path = normalize_content_path(path)
                     .map_err(|message| Error::message(&physical_path, message))?;
                 if !seen.insert(logical_path.clone()) {
                     return Err(Error::message(
@@ -244,11 +310,13 @@ impl ContentSet {
             .iter()
             .find(|source| source.role == ContentRole::Base)
             .expect("resolved content always has a base source")
-            .root()
+            .directory_root()
+            .expect("base source is a directory")
     }
 
     pub fn trace(&self, path: &str) -> Result<Option<&FileTrace>, Error> {
-        let normalized = normalize_path(path).map_err(|message| Error::message(path, message))?;
+        let normalized =
+            normalize_content_path(path).map_err(|message| Error::message(path, message))?;
         Ok(self.files.get(&normalized))
     }
 
@@ -260,9 +328,7 @@ impl ContentSet {
         let origin = trace
             .effective()
             .ok_or_else(|| Error::message(path, "file was removed by a directory replacement"))?;
-        self.sources[origin.source_index]
-            .root
-            .read_text(&origin.relative_path, encoding)
+        self.sources[origin.source_index].read_text(&origin.relative_path, encoding)
     }
 }
 
@@ -274,7 +340,7 @@ impl ContentView for ContentSet {
     fn source_roots(&self) -> Vec<PathBuf> {
         self.sources
             .iter()
-            .map(|source| source.root.path().to_path_buf())
+            .map(|source| source.path().to_path_buf())
             .collect()
     }
 
@@ -312,6 +378,97 @@ impl ContentView for ContentSet {
     }
 }
 
+fn discover_installed_dlc_archives(game_root: &Path) -> Result<Vec<ContentSource>, Error> {
+    let game_root =
+        fs::canonicalize(game_root).map_err(|cause| Error::caused_by(game_root, cause))?;
+    if !game_root.is_dir() {
+        return Err(Error::message(
+            game_root,
+            "EU4 installation must be a directory",
+        ));
+    }
+
+    let mut found = Vec::<(String, ContentSource)>::new();
+    for category in ["builtin_dlc", "dlc"] {
+        let category_root = game_root.join(category);
+        let directories = match fs::read_dir(&category_root) {
+            Ok(entries) => entries
+                .map(|entry| entry.map_err(|cause| Error::caused_by(&category_root, cause)))
+                .collect::<Result<Vec<_>, _>>()?,
+            Err(cause) if cause.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(cause) => return Err(Error::caused_by(&category_root, cause)),
+        };
+        let mut directories = directories;
+        directories.sort_by_key(|entry| entry.file_name());
+        for directory in directories {
+            let file_type = directory
+                .file_type()
+                .map_err(|cause| Error::caused_by(directory.path(), cause))?;
+            if file_type.is_symlink() || !file_type.is_dir() {
+                continue;
+            }
+            let descriptor_directory = directory.path();
+            let descriptors = match fs::read_dir(&descriptor_directory) {
+                Ok(entries) => entries
+                    .map(|entry| {
+                        entry.map_err(|cause| Error::caused_by(&descriptor_directory, cause))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+                Err(cause) => return Err(Error::caused_by(&descriptor_directory, cause)),
+            };
+            let mut descriptors = descriptors;
+            descriptors.sort_by_key(|entry| entry.file_name());
+            for descriptor_file in descriptors {
+                let path = descriptor_file.path();
+                let file_type = descriptor_file
+                    .file_type()
+                    .map_err(|cause| Error::caused_by(&path, cause))?;
+                if file_type.is_symlink()
+                    || !file_type.is_file()
+                    || !path
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("dlc"))
+                {
+                    continue;
+                }
+                let document = TextDocument::read(&path, TextEncoding::Windows1252)?;
+                let parsed = document.parse()?;
+                let descriptor = ModDescriptor::parse(&parsed)?;
+                let Some(archive) = descriptor.archive.as_deref() else {
+                    continue;
+                };
+                let relative_path = archive.replace('\\', "/");
+                normalize_content_path(&relative_path).map_err(|message| {
+                    Error::message(
+                        &path,
+                        format!("invalid DLC archive path {archive:?}: {message}"),
+                    )
+                })?;
+                let requested_archive = game_root.join(&relative_path);
+                let archive_path = match fs::canonicalize(&requested_archive) {
+                    Ok(path) => path,
+                    Err(cause) if cause.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(cause) => return Err(Error::caused_by(&requested_archive, cause)),
+                };
+                if !archive_path.starts_with(&game_root) {
+                    return Err(Error::message(
+                        &path,
+                        format!("DLC archive path resolves outside the installation: {archive}"),
+                    ));
+                }
+                if !archive_path.is_file() {
+                    continue;
+                }
+                let name = descriptor.name;
+                let source = ContentSource::dlc_archive(&archive_path, format!("DLC: {name}"))?;
+                found.push((name, source));
+            }
+        }
+    }
+    found.sort_by(|left, right| right.0.as_bytes().cmp(left.0.as_bytes()));
+    Ok(found.into_iter().map(|(_, source)| source).collect())
+}
+
 fn order_sources(mut sources: Vec<ContentSource>) -> Result<Vec<ContentSource>, Error> {
     if sources.is_empty() {
         return Err(Error::message(
@@ -324,11 +481,12 @@ fn order_sources(mut sources: Vec<ContentSource>) -> Result<Vec<ContentSource>, 
     let mut user_directory = None;
     let mut base = None;
     let mut mods = Vec::new();
+    let mut dlcs = Vec::new();
     for source in sources.drain(..) {
-        if !roots.insert(source.root.path().to_path_buf()) {
+        if !roots.insert(source.path().to_path_buf()) {
             return Err(Error::message(
-                source.root.path(),
-                "content directory was mounted more than once",
+                source.path(),
+                "content source was mounted more than once",
             ));
         }
         match source.role {
@@ -349,6 +507,7 @@ fn order_sources(mut sources: Vec<ContentSource>) -> Result<Vec<ContentSource>, 
                 }
             }
             ContentRole::Mod => mods.push(source),
+            ContentRole::Dlc => dlcs.push(source),
         }
     }
 
@@ -417,26 +576,12 @@ fn order_sources(mut sources: Vec<ContentSource>) -> Result<Vec<ContentSource>, 
         },
     );
 
-    let mut result = Vec::with_capacity(ordered.len() + 2);
+    let mut result = Vec::with_capacity(ordered.len() + dlcs.len() + 2);
     if let Some(user_directory) = user_directory {
         result.push(user_directory);
     }
     result.extend(ordered.into_iter().map(|(source, _)| source));
+    result.extend(dlcs);
     result.push(base);
     Ok(result)
-}
-
-fn normalize_path(path: &str) -> Result<String, &'static str> {
-    let normalized = path.replace('\\', "/");
-    let normalized = normalized.trim_end_matches('/');
-    if normalized.is_empty()
-        || normalized.contains(':')
-        || normalized.chars().any(char::is_control)
-        || normalized
-            .split('/')
-            .any(|part| matches!(part, "" | "." | ".."))
-    {
-        return Err("expected a relative content path without traversal");
-    }
-    Ok(normalized.to_ascii_lowercase())
 }

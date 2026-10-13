@@ -36,7 +36,7 @@ enum Command {
         #[arg(long, value_enum, default_value_t = EncodingArg::Windows1252)]
         encoding: EncodingArg,
     },
-    /// Resolve selected game and mod directories and explain file provenance.
+    /// Resolve selected game, installed DLC, and mod sources and explain file provenance.
     Resolve {
         #[command(flatten)]
         sources: SourcesArgs,
@@ -77,7 +77,7 @@ enum Command {
 
 #[derive(Args)]
 struct SourcesArgs {
-    /// Explicit base game directory.
+    /// EU4 installation root; locally present DLC archives are discovered here.
     base: PathBuf,
     /// Mod directory containing descriptor.mod; repeat for every active mod.
     #[arg(long = "mod", value_name = "DIRECTORY")]
@@ -91,7 +91,9 @@ struct SourcesArgs {
 
 impl SourcesArgs {
     fn resolve(self) -> Result<ContentSet, augustus_eu4::Error> {
-        let mut sources = vec![ContentSource::base(ContentRoot::open(self.base)?)];
+        let base = ContentRoot::open(self.base)?;
+        let mut sources = vec![ContentSource::base(base.clone())];
+        sources.extend(ContentSource::installed_dlc_archives(base.path())?);
         if let Some(root) = self.user_directory {
             sources.push(ContentSource::user_directory(root)?);
         }
@@ -277,7 +279,6 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     position,
                     logical_path,
                     content.sources()[origin.source_index]
-                        .root()
                         .path()
                         .join(&origin.relative_path)
                         .display()
@@ -314,7 +315,7 @@ fn print_sources(content: &ContentSet) {
         println!(
             "Source {index}: {} ({})",
             source.name(),
-            source.root().path().display()
+            source.path().display()
         );
     }
 }

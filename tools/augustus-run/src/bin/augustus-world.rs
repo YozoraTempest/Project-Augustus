@@ -11,6 +11,7 @@ use std::{path::PathBuf, process::ExitCode};
     about = "Load and advance the supported EU4 final-edition world systems"
 )]
 struct Cli {
+    /// EU4 installation root; locally present DLC archives are loaded automatically.
     #[arg(long)]
     game_root: PathBuf,
     /// Directory Mod containing descriptor.mod; repeat for every active Mod.
@@ -74,7 +75,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             VanillaWorld::load(&cli.game_root, &cli.date)?
         }
     } else {
-        let mut sources = vec![ContentSource::base(ContentRoot::open(&cli.game_root)?)];
+        let base = ContentRoot::open(&cli.game_root)?;
+        let mut sources = vec![ContentSource::base(base.clone())];
+        sources.extend(ContentSource::installed_dlc_archives(base.path())?);
         for root in &cli.mods {
             sources.push(ContentSource::mod_directory(
                 root,

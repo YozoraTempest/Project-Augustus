@@ -2,10 +2,14 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use std::{
-    fs,
+    collections::BTreeMap,
+    fs::{self, File},
+    io::Read,
     path::{Component, Path, PathBuf},
+    sync::Mutex,
 };
 use walkdir::WalkDir;
+use zip::ZipArchive;
 
 use crate::{Error, TextDocument, TextEncoding};
 
@@ -13,6 +17,21 @@ use crate::{Error, TextDocument, TextEncoding};
 #[derive(Debug, Clone)]
 pub struct ContentRoot {
     root: PathBuf,
+}
+
+#[derive(Debug)]
+pub(crate) struct ArchiveContentRoot {
+    path: PathBuf,
+    entries: Vec<ArchiveEntry>,
+    lookup: BTreeMap<String, usize>,
+    archive: Mutex<ZipArchive<File>>,
+}
+
+#[derive(Debug, Clone)]
+struct ArchiveEntry {
+    file: FileEntry,
+    member_name: String,
+    archive_index: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,6 +158,120 @@ impl ContentRoot {
         }
         TextDocument::read(resolved, encoding)
     }
+}
+
+impl ArchiveContentRoot {
+    pub(crate) fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
+        let path = path.as_ref();
+        let canonical_path =
+            fs::canonicalize(path).map_err(|cause| Error::caused_by(path, cause))?;
+        if !canonical_path.is_file() {
+            return Err(Error::message(path, "content archive must be a file"));
+        }
+        let file = File::open(&canonical_path)
+            .map_err(|cause| Error::caused_by(&canonical_path, cause))?;
+        let mut archive =
+            ZipArchive::new(file).map_err(|cause| Error::caused_by(&canonical_path, cause))?;
+        let mut entries = Vec::new();
+        for archive_index in 0..archive.len() {
+            let entry = archive
+                .by_index(archive_index)
+                .map_err(|cause| Error::caused_by(&canonical_path, cause))?;
+            if entry.is_dir() {
+                continue;
+            }
+            let member_name = entry
+                .name()
+                .map_err(|cause| Error::caused_by(&canonical_path, cause))?
+                .into_owned();
+            normalize_content_path(&member_name)
+                .map_err(|message| Error::message(&canonical_path, message))?;
+            let relative_path = PathBuf::from(member_name.replace('\\', "/"));
+            entries.push(ArchiveEntry {
+                file: FileEntry {
+                    relative_path,
+                    byte_size: entry.size(),
+                },
+                member_name,
+                archive_index,
+            });
+        }
+        entries.sort_by(|left, right| left.file.relative_path.cmp(&right.file.relative_path));
+        let mut lookup = BTreeMap::new();
+        for (entry_index, entry) in entries.iter().enumerate() {
+            let member_key = normalize_content_path(&entry.member_name)
+                .map_err(|message| Error::message(&canonical_path, message))?;
+            lookup.insert(member_key, entry_index);
+        }
+        Ok(Self {
+            path: canonical_path,
+            entries,
+            lookup,
+            archive: Mutex::new(archive),
+        })
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn files(&self) -> Vec<FileEntry> {
+        self.entries
+            .iter()
+            .map(|entry| entry.file.clone())
+            .collect()
+    }
+
+    pub(crate) fn read_text(
+        &self,
+        relative_path: impl AsRef<Path>,
+        encoding: TextEncoding,
+    ) -> Result<TextDocument, Error> {
+        let relative_path = relative_path.as_ref();
+        let raw_path = relative_path
+            .to_str()
+            .ok_or_else(|| Error::message(relative_path, "content path is not valid UTF-8"))?;
+        let logical_path = normalize_content_path(raw_path)
+            .map_err(|message| Error::message(relative_path, message))?;
+        let entry = self
+            .lookup
+            .get(&logical_path)
+            .and_then(|index| self.entries.get(*index))
+            .ok_or_else(|| {
+                Error::message(self.path.join(relative_path), "archive entry was not found")
+            })?;
+        let source = self.path.join(&entry.file.relative_path);
+        let mut archive = self
+            .archive
+            .lock()
+            .map_err(|_| Error::message(&self.path, "archive reader lock is poisoned"))?;
+        let mut file = archive
+            .by_index(entry.archive_index)
+            .map_err(|cause| Error::caused_by(&source, cause))?;
+        let mut bytes = Vec::with_capacity(entry.file.byte_size.min(1_048_576) as usize);
+        file.read_to_end(&mut bytes)
+            .map_err(|cause| Error::caused_by(&source, cause))?;
+        Ok(TextDocument::from_bytes(source, bytes, encoding))
+    }
+
+    pub(crate) fn physical_path(&self, relative_path: &Path) -> PathBuf {
+        self.path.join(relative_path)
+    }
+}
+
+pub(crate) fn normalize_content_path(path: &str) -> Result<String, &'static str> {
+    let normalized = path.replace('\\', "/");
+    let normalized = normalized.trim_end_matches('/');
+    if normalized.is_empty()
+        || normalized.contains(':')
+        || normalized.chars().any(char::is_control)
+        || normalized
+            .split('/')
+            .any(|part| matches!(part, "" | "." | ".."))
+    {
+        return Err("expected a relative content path without traversal");
+    }
+    Ok(normalized.to_ascii_lowercase())
 }
 
 impl ContentView for ContentRoot {
