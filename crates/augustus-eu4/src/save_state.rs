@@ -89,6 +89,11 @@ impl VanillaSaveState {
                     .country_markers
                     .insert((*country).into(), markers.clone());
             }
+            if let Some(statuses) = self.external_state.country_statuses.get(*country) {
+                state
+                    .country_statuses
+                    .insert((*country).into(), statuses.clone());
+            }
             if let Some(estates) = self.external_state.estate_privileges.get(*country) {
                 let entity = world.initial.country_entity(country).ok_or_else(|| {
                     Error::message("save state", "save country is missing from the world")
@@ -274,6 +279,24 @@ pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveStat
             external_state
                 .country_metric_values
                 .insert(tag.clone(), metrics);
+        }
+
+        if let Some(value) = optional_scalar(&parsed, &country, "is_at_war")? {
+            let at_war = match value.as_str() {
+                "yes" => true,
+                "no" => false,
+                _ => {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {tag} has an invalid is_at_war flag"),
+                    ));
+                }
+            };
+            external_state
+                .country_statuses
+                .entry(tag.clone())
+                .or_default()
+                .insert("at_war".into(), Some(at_war));
         }
 
         let mut markers = BTreeSet::new();
@@ -820,6 +843,7 @@ countries={
 		manpower=9.754
 		mercantilism=10.000
 		stability=0.000
+		is_at_war=yes
 		current_power_projection=50.000
 		prestige=5.125
 		legitimacy=100.000
@@ -902,6 +926,10 @@ provinces={
         assert_eq!(
             state.external_state.country_metric_values["AAA"]["prestige"],
             Some(5_125)
+        );
+        assert_eq!(
+            state.external_state.country_statuses["AAA"]["at_war"],
+            Some(true)
         );
         assert_eq!(
             state.external_state.country_national_focus["AAA"],
