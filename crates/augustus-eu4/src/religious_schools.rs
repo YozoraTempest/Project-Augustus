@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use augustus_core::{AffiliationDimension, InitialWorld};
 use jomini::text::ObjectReader;
@@ -33,7 +33,7 @@ struct History {
 pub(super) struct ReligiousSchoolsDraft {
     groups: BTreeMap<String, Option<String>>,
     religions: BTreeMap<String, Option<String>>,
-    histories: BTreeMap<String, History>,
+    histories: BTreeMap<(String, PathBuf), History>,
 }
 
 impl ReligiousSchoolsDraft {
@@ -105,7 +105,10 @@ impl ReligiousSchoolsDraft {
         country: &str,
         report: &mut ReligiousSchoolReport,
     ) -> Result<(), Error> {
-        let history = self.histories.entry(country.into()).or_default();
+        let history = self
+            .histories
+            .entry((country.into(), parsed.source().into()))
+            .or_default();
         for (key, operator, value) in reader.fields() {
             let name = key.read_string();
             if crate::bootstrap::dated_name(&name)
@@ -201,17 +204,28 @@ impl ReligiousSchoolsDraft {
             let entity = initial
                 .country_entity(&country.id)
                 .expect("registered country");
-            match self.histories.get(&country.id) {
-                Some(history) if !history.unknown => {
-                    if let Some(school) = &history.school {
-                        dimension.members.insert(entity, Some(school.clone()));
-                        report.selected_countries += 1;
-                    } else {
-                        dimension.absent_members.insert(entity);
-                        report.absent_countries += 1;
-                    }
+            let candidates = self
+                .histories
+                .iter()
+                .filter_map(|((id, _), history)| (id == &country.id).then_some(history))
+                .collect::<Vec<_>>();
+            let consensus = candidates.first().and_then(|first| {
+                (!first.unknown
+                    && candidates
+                        .iter()
+                        .all(|candidate| !candidate.unknown && candidate.school == first.school))
+                .then(|| first.school.clone())
+            });
+            match consensus {
+                Some(Some(school)) => {
+                    dimension.members.insert(entity, Some(school));
+                    report.selected_countries += 1;
                 }
-                _ => {
+                Some(None) => {
+                    dimension.absent_members.insert(entity);
+                    report.absent_countries += 1;
+                }
+                None => {
                     dimension.members.insert(entity, None);
                     report.unknown_countries.push(country.id.clone());
                 }

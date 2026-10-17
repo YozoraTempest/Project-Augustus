@@ -18,6 +18,12 @@ use crate::{
 };
 
 type Reader<'a, 'b> = ObjectReader<'a, 'b, TextEncoding>;
+mod mechanics;
+
+pub(crate) fn mechanic_feature_name(id: &str) -> String {
+    format!("eu4/government_mechanic/{id}")
+}
+
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
 const FLAGS: [&str; 8] = [
     "monarchy",
@@ -36,6 +42,7 @@ pub struct GovernmentReport {
     pub unavailable_transitions: BTreeMap<String, String>,
     pub government_definitions: usize,
     pub reform_definitions: usize,
+    pub mechanic_definitions: usize,
     pub countries_with_selected_reforms: usize,
     pub countries_with_legitimacy: usize,
     pub default_legitimacy_countries: Vec<String>,
@@ -79,6 +86,7 @@ struct Seed {
 
 #[derive(Default)]
 struct Reform {
+    id: String,
     effect: GovernmentReform,
     feature_sources: BTreeMap<String, LoadedSource>,
     flags: BTreeMap<String, bool>,
@@ -95,6 +103,7 @@ pub(super) struct GovernmentDraft {
     forms: BTreeMap<String, Form>,
     reforms: BTreeMap<String, Reform>,
     countries: BTreeMap<String, Seed>,
+    mechanic_availability: BTreeMap<String, Option<bool>>,
 }
 
 impl GovernmentDraft {
@@ -103,7 +112,10 @@ impl GovernmentDraft {
         files: &[FileEntry],
         report: &mut GovernmentReport,
     ) -> Result<Self, Error> {
-        let mut draft = Self::default();
+        let mut draft = Self {
+            mechanic_availability: mechanics::load(root, files, report)?,
+            ..Self::default()
+        };
         for file in files.iter().filter(|f| {
             direct_txt(&f.relative_path, "common/governments")
                 || direct_txt(&f.relative_path, "common/government_reforms")
@@ -200,8 +212,11 @@ impl GovernmentDraft {
                     }
                     draft.forms.insert(name, Form { base, levels });
                 } else {
-                    let mut reform = Reform::default();
-                    Self::reform_body(&parsed, body, &name, &mut reform, report, 0)?;
+                    let mut reform = Reform {
+                        id: name.clone(),
+                        ..Reform::default()
+                    };
+                    draft.reform_body(&parsed, body, &mut reform, report, 0)?;
                     draft.reforms.insert(name, reform);
                 }
                 report.definition_sources.insert(id, source(&parsed, at));
@@ -213,9 +228,9 @@ impl GovernmentDraft {
     }
 
     fn reform_body(
+        &self,
         parsed: &ParsedText<'_>,
         reader: Reader<'_, '_>,
-        name: &str,
         reform: &mut Reform,
         report: &mut GovernmentReport,
         depth: usize,
@@ -243,20 +258,31 @@ impl GovernmentDraft {
                     reform.uncertain_flags.insert(field.clone());
                 }
                 if field == "nomad" {
-                    Self::feature(parsed, &key, op, &value, name, reform, report)?;
+                    Self::feature(parsed, &key, op, &value, reform, report)?;
                 }
                 reform.flags.insert(field, flag);
             } else if field == "revolutionary" {
-                Self::feature(parsed, &key, op, &value, name, reform, report)?;
+                Self::feature(parsed, &key, op, &value, reform, report)?;
             } else if field == "custom_attributes" {
                 equal(op, &fail)?;
                 for (key, op, value) in block(&value, &fail)?.fields() {
-                    Self::feature(parsed, &key, op, &value, name, reform, report)?;
+                    Self::feature(parsed, &key, op, &value, reform, report)?;
                 }
+            } else if field == "government_abilities" {
+                equal(op, &fail)?;
+                mechanics::apply(
+                    parsed,
+                    &value,
+                    &self.mechanic_availability,
+                    reform,
+                    false,
+                    report,
+                    at,
+                )?;
             } else if field == "modifiers" {
                 equal(op, &fail)?;
                 let body = block(&value, &fail)?;
-                let definition = properties(parsed, body.clone(), "reform", name, report)?;
+                let definition = properties(parsed, body.clone(), "reform", &reform.id, report)?;
                 reform.effect.unresolved_properties.extend(
                     body.fields()
                         .map(|(key, _, _)| key.read_string())
@@ -295,8 +321,8 @@ impl GovernmentDraft {
                 let body = block(&value, &fail)?;
                 match constant_condition(parsed, body.clone(), "allow")? {
                     Some(false) => {}
-                    Some(true) => Self::reform_body(parsed, body, name, reform, report, depth + 1)?,
-                    None => Self::pending_definition(parsed, body, reform, report, depth + 1)?,
+                    Some(true) => self.reform_body(parsed, body, reform, report, depth + 1)?,
+                    None => self.pending_definition(parsed, body, reform, report, depth + 1)?,
                 }
             } else if !matches!(field.as_str(), "basic_reform" | "allow" | "icon") {
                 report.unsupported(parsed, "reform", &field, at);
@@ -305,7 +331,7 @@ impl GovernmentDraft {
         for key in report
             .ambiguous_properties
             .keys()
-            .filter_map(|k| k.strip_prefix(&format!("reform:{name}:")))
+            .filter_map(|k| k.strip_prefix(&format!("reform:{}:", reform.id)))
         {
             reform.effect.unresolved_properties.insert(key.into());
         }
@@ -317,7 +343,6 @@ impl GovernmentDraft {
         key: &jomini::text::ScalarReader<'_, TextEncoding>,
         op: Option<jomini::text::Operator>,
         value: &jomini::text::ValueReader<'_, '_, TextEncoding>,
-        id: &str,
         reform: &mut Reform,
         report: &mut GovernmentReport,
     ) -> Result<(), Error> {
@@ -334,7 +359,7 @@ impl GovernmentDraft {
         if let Some(first) = reform.feature_sources.get(&name) {
             reform.effect.features.insert(name.clone(), None);
             report.ambiguous(
-                format!("reform_feature:{id}:{name}"),
+                format!("reform_feature:{}:{name}", reform.id),
                 first.clone(),
                 source(parsed, at),
             );
@@ -348,6 +373,7 @@ impl GovernmentDraft {
     }
 
     fn pending_definition(
+        &self,
         parsed: &ParsedText<'_>,
         reader: Reader<'_, '_>,
         reform: &mut Reform,
@@ -379,6 +405,16 @@ impl GovernmentDraft {
                 for (key, _, _) in block(&value, &fail)?.fields() {
                     reform.effect.features.insert(key.read_string(), None);
                 }
+            } else if name == "government_abilities" {
+                mechanics::apply(
+                    parsed,
+                    &value,
+                    &self.mechanic_availability,
+                    reform,
+                    true,
+                    report,
+                    parsed.field_location(&key),
+                )?;
             } else if name == "modifiers" {
                 let fail = |m: &str| {
                     Error::message(parsed.source(), m).with_location(parsed.field_location(&key))
@@ -390,7 +426,7 @@ impl GovernmentDraft {
                         .insert(key.read_string());
                 }
             } else if name == "conditional" {
-                Self::pending_definition(
+                self.pending_definition(
                     parsed,
                     value.read_object().map_err(|_| {
                         Error::message(parsed.source(), "expected conditional block")

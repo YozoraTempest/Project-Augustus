@@ -4,6 +4,7 @@
 use rand::RngExt;
 use rand_chacha::rand_core::Rng;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 use crate::{EntityId, EntityKind, Error, FieldId, RuleId, ScopeContext, World};
 
@@ -12,6 +13,12 @@ pub enum Target {
     Current,
     Owner,
     Capital,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SchoolOpinionTarget {
+    Previous,
+    Country(crate::EntityRef),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +93,11 @@ pub enum Condition {
         target: Target,
         controller: crate::CountryController,
     },
+    /// Read an authoritative named boolean fact for a country.
+    PoliticalStatus {
+        target: Target,
+        name: String,
+    },
     AffiliationPresent {
         target: Target,
         dimension: String,
@@ -106,6 +118,10 @@ pub enum Condition {
         target: Target,
         kind: String,
     },
+    GovernmentRank {
+        target: Target,
+        rank: u8,
+    },
     GovernmentReform {
         target: Target,
         id: String,
@@ -121,6 +137,24 @@ pub enum Condition {
     GovernmentMetricStored {
         target: Target,
         name: String,
+    },
+    HasIdea {
+        target: Target,
+        id: String,
+    },
+    EstatePrivilege {
+        target: Target,
+        privilege: String,
+    },
+    EstateLoyaltyAtLeast {
+        target: Target,
+        estate: String,
+        loyalty_milli: i64,
+    },
+    EstateInfluenceAtLeast {
+        target: Target,
+        estate: String,
+        influence_milli: i64,
     },
     HasMarker {
         target: Target,
@@ -164,6 +198,12 @@ pub enum Condition {
         field: FieldId,
         value: i64,
     },
+    /// Evaluate the selector once, then only the selected predicate.
+    If {
+        condition: Box<Condition>,
+        then: Box<Condition>,
+        otherwise: Box<Condition>,
+    },
     All(Vec<Condition>),
     Any(Vec<Condition>),
     Not(Box<Condition>),
@@ -203,11 +243,32 @@ pub enum Action {
         condition: Condition,
         plan: Plan,
     },
+    /// Select one country from the current world after filtering its live state.
+    RandomCountry {
+        condition: Condition,
+        plan: Plan,
+    },
     /// Update the owner edge. Systems using this primitive manage their own
     /// dependent state; it does not perform a complete territorial transfer.
     SetOwner {
         target: Target,
         owner: crate::EntityRef,
+    },
+    CreateNavalUnit {
+        owner: crate::EntityRef,
+        unit_type: String,
+    },
+    CreateArmy {
+        owner: crate::EntityRef,
+        location: crate::EntityRef,
+        name: String,
+        regiments: Vec<String>,
+    },
+    CreateArmyFromCategories {
+        owner: crate::EntityRef,
+        location: crate::EntityRef,
+        name: String,
+        categories: Vec<String>,
     },
     /// Capture an ordered selection, then check each member's live condition
     /// immediately before its body. Every iteration shares the caller's budget.
@@ -265,6 +326,10 @@ pub enum Action {
         target: Target,
         dimension: String,
         member: Option<String>,
+    },
+    SetSchoolOpinion {
+        target: SchoolOpinionTarget,
+        opinion: i64,
     },
     UpdateNumeric {
         target: Target,
@@ -361,6 +426,14 @@ pub enum Action {
         kind: String,
         before: Plan,
     },
+    SetGovernmentRank {
+        target: Target,
+        rank: u8,
+    },
+    /// Assign the current country as the holder of a political office.
+    SetOfficeHolder {
+        office: String,
+    },
     AddGovernmentReform {
         target: Target,
         id: String,
@@ -378,7 +451,96 @@ pub enum Action {
 
 pub type Plan = Vec<Action>;
 
+impl Action {
+    /// Return the global marker names read by this action and its nested plans.
+    pub fn global_marker_references(&self) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        self.collect_global_marker_references(&mut names);
+        names
+    }
+
+    fn collect_global_marker_references(&self, names: &mut BTreeSet<String>) {
+        let collect_plan = |plan: &[Action], names: &mut BTreeSet<String>| {
+            for action in plan {
+                action.collect_global_marker_references(names);
+            }
+        };
+        match self {
+            Self::ForEachSubjectCountry {
+                condition, plan, ..
+            }
+            | Self::ForEachOwnedProvince {
+                condition, plan, ..
+            }
+            | Self::RandomOwnedProvince {
+                condition, plan, ..
+            }
+            | Self::RandomCountry { condition, plan }
+            | Self::ForEach {
+                condition, plan, ..
+            } => {
+                names.extend(condition.global_marker_references());
+                collect_plan(plan, names);
+            }
+            Self::Preview { plan }
+            | Self::InScope { plan, .. }
+            | Self::With { plan, .. }
+            | Self::Schedule { plan, .. } => collect_plan(plan, names),
+            Self::RandomBranch { then, otherwise } => {
+                collect_plan(then, names);
+                collect_plan(otherwise, names);
+            }
+            Self::If {
+                condition,
+                then,
+                otherwise,
+            } => {
+                names.extend(condition.global_marker_references());
+                collect_plan(then, names);
+                collect_plan(otherwise, names);
+            }
+            Self::ChangeGovernment { before, .. } => collect_plan(before, names),
+            _ => (),
+        }
+    }
+}
+
 impl Condition {
+    /// Return the global marker names read anywhere in this condition tree.
+    pub fn global_marker_references(&self) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        self.collect_global_marker_references(&mut names);
+        names
+    }
+
+    fn collect_global_marker_references(&self, names: &mut BTreeSet<String>) {
+        match self {
+            Self::HasGlobalMarker { name } => {
+                names.insert(name.clone());
+            }
+            Self::AnyOwnedProvince { condition, .. }
+            | Self::AnySubjectCountry { condition, .. }
+            | Self::With { condition, .. }
+            | Self::InScope { condition, .. }
+            | Self::Not(condition) => condition.collect_global_marker_references(names),
+            Self::If {
+                condition,
+                then,
+                otherwise,
+            } => {
+                condition.collect_global_marker_references(names);
+                then.collect_global_marker_references(names);
+                otherwise.collect_global_marker_references(names);
+            }
+            Self::All(conditions) | Self::Any(conditions) => {
+                for condition in conditions {
+                    condition.collect_global_marker_references(names);
+                }
+            }
+            _ => (),
+        }
+    }
+
     pub fn evaluate(&self, world: &World, current: EntityId) -> Result<bool, Error> {
         self.evaluate_in_context(world, crate::ScopeContext::new(current))
     }
@@ -549,6 +711,21 @@ impl Condition {
                 })?;
                 Ok(actual == *controller)
             }
+            Self::PoliticalStatus { target, name } => {
+                if name.is_empty() {
+                    return Err(Error::Invalid("empty political status name".into()));
+                }
+                let entity = world.target(current, *target)?;
+                if world.entity(entity)?.kind != EntityKind::Country {
+                    return Err(Error::Invalid("political status requires a country".into()));
+                }
+                world.politics().status(entity, name).ok_or_else(|| {
+                    Error::Invalid(format!(
+                        "unknown political status {name} for entity {}",
+                        entity.0
+                    ))
+                })
+            }
             Self::AffiliationPresent { target, dimension } => {
                 crate::affiliations::validate_condition(dimension, None)?;
                 let entity = world.target(current, *target)?;
@@ -608,6 +785,14 @@ impl Condition {
                 crate::governments::validate_identifier(kind)?;
                 Ok(world.government_kind(world.target(current, *target)?)? == kind)
             }
+            Self::GovernmentRank { target, rank } => {
+                if !(1..=3).contains(rank) {
+                    return Err(Error::Invalid(
+                        "government rank must be between 1 and 3".into(),
+                    ));
+                }
+                Ok(world.government_rank(world.target(current, *target)?)? == *rank)
+            }
             Self::GovernmentReform { target, id } => {
                 world.government_reform_selected(world.target(current, *target)?, id)
             }
@@ -620,6 +805,30 @@ impl Condition {
             Self::GovernmentMetricStored { target, name } => {
                 world.government_metric_stored(world.target(current, *target)?, name)
             }
+            Self::HasIdea { target, id } => {
+                world.ideas().has_idea(world.target(current, *target)?, id)
+            }
+            Self::EstatePrivilege { target, privilege } => {
+                world.estate_has_privilege(world.target(current, *target)?, privilege)
+            }
+            Self::EstateLoyaltyAtLeast {
+                target,
+                estate,
+                loyalty_milli,
+            } => world.estate_loyalty_at_least(
+                world.target(current, *target)?,
+                estate,
+                *loyalty_milli,
+            ),
+            Self::EstateInfluenceAtLeast {
+                target,
+                estate,
+                influence_milli,
+            } => world.estate_influence_at_least(
+                world.target(current, *target)?,
+                estate,
+                *influence_milli,
+            ),
             Self::HasMarker { target, name } => {
                 world.has_marker(world.target(current, *target)?, name)
             }
@@ -673,6 +882,17 @@ impl Condition {
                 field,
                 value,
             } => Ok(world.value(world.target(current, *target)?, *field)? >= *value),
+            Self::If {
+                condition,
+                then,
+                otherwise,
+            } => {
+                if condition.evaluate_in_context(world, context)? {
+                    then.evaluate_in_context(world, context)
+                } else {
+                    otherwise.evaluate_in_context(world, context)
+                }
+            }
             Self::All(conditions) => {
                 for condition in conditions {
                     if !condition.evaluate_in_context(world, context)? {
@@ -726,7 +946,7 @@ impl World {
         let mut budget = 100_000;
         let result = phases
             .iter()
-            .try_for_each(|plan| self.execute_inner(context, plan, &mut budget, 0));
+            .try_for_each(|plan| self.execute_inner(context, plan, &mut budget, 0, None));
         if result.is_err() {
             self.failed = true;
         }
@@ -752,7 +972,7 @@ impl World {
             };
             let selected = context.with_current(entity);
             if condition.evaluate_in_context(self, selected)? {
-                self.execute_inner(selected, plan, budget, depth + 1)?;
+                self.execute_inner(selected, plan, budget, depth + 1, Some(context.current))?;
             }
         }
         Ok(())
@@ -764,6 +984,7 @@ impl World {
         plan: &[Action],
         budget: &mut usize,
         depth: usize,
+        previous: Option<EntityId>,
     ) -> Result<(), Error> {
         if depth >= 64 {
             return Err(Error::Invalid("plan call depth exceeded".into()));
@@ -814,7 +1035,13 @@ impl World {
                     before,
                 } => {
                     let entity = self.target(current, *target)?;
-                    self.change_government(entity, kind, before, budget, depth)?;
+                    self.change_government(entity, kind, before, budget, depth, previous)?;
+                }
+                Action::SetOfficeHolder { office } => {
+                    self.set_office_holder(office, current)?;
+                }
+                Action::SetGovernmentRank { target, rank } => {
+                    self.set_government_rank(self.target(current, *target)?, Some(*rank))?;
                 }
                 Action::AddGovernmentReform { target, id } => {
                     self.add_government_reform(self.target(current, *target)?, id)?;
@@ -828,6 +1055,40 @@ impl World {
                         .resolve_in_context(self, context)?
                         .ok_or_else(|| Error::Invalid("owner reference is absent".into()))?;
                     self.set_owner(province, country)?;
+                }
+                Action::CreateNavalUnit { owner, unit_type } => {
+                    let owner = owner
+                        .resolve_in_context(self, context)?
+                        .ok_or_else(|| Error::Invalid("naval unit owner is absent".into()))?;
+                    self.create_naval_unit(owner, current, unit_type)?;
+                }
+                Action::CreateArmy {
+                    owner,
+                    location,
+                    name,
+                    regiments,
+                } => {
+                    let owner = owner
+                        .resolve_in_context(self, context)?
+                        .ok_or_else(|| Error::Invalid("army owner is absent".into()))?;
+                    let location = location
+                        .resolve_in_context(self, context)?
+                        .ok_or_else(|| Error::Invalid("army location is absent".into()))?;
+                    self.create_army(owner, location, name, regiments)?;
+                }
+                Action::CreateArmyFromCategories {
+                    owner,
+                    location,
+                    name,
+                    categories,
+                } => {
+                    let owner = owner
+                        .resolve_in_context(self, context)?
+                        .ok_or_else(|| Error::Invalid("army owner is absent".into()))?;
+                    let location = location
+                        .resolve_in_context(self, context)?
+                        .ok_or_else(|| Error::Invalid("army location is absent".into()))?;
+                    self.create_army_from_categories(owner, location, name, categories)?;
                 }
                 Action::ForEachSubjectCountry {
                     country,
@@ -879,12 +1140,39 @@ impl World {
                         }
                     }
                     if !selected.is_empty() {
-                        let index = self.random.random_range(0..selected.len());
+                        let index = self.random_source().random_range(0..selected.len());
                         self.execute_inner(
                             context.with_current(selected[index]),
                             plan,
                             budget,
                             depth + 1,
+                            Some(context.current),
+                        )?;
+                    }
+                }
+                Action::RandomCountry { condition, plan } => {
+                    let mut selected = Vec::new();
+                    for (index, entity) in self.entities().iter().enumerate() {
+                        if entity.kind != EntityKind::Country {
+                            continue;
+                        }
+                        if *budget == 0 {
+                            return Err(Error::Invalid("instruction limit exceeded".into()));
+                        }
+                        *budget -= 1;
+                        let country = EntityId(index);
+                        if condition.evaluate_in_context(self, context.with_current(country))? {
+                            selected.push(country);
+                        }
+                    }
+                    if !selected.is_empty() {
+                        let index = self.random_source().random_range(0..selected.len());
+                        self.execute_inner(
+                            context.with_current(selected[index]),
+                            plan,
+                            budget,
+                            depth + 1,
+                            Some(context.current),
                         )?;
                     }
                 }
@@ -970,6 +1258,31 @@ impl World {
                     let entity = self.target(current, *target)?;
                     self.set_affiliation_member(entity, dimension, member.as_deref())?;
                 }
+                Action::SetSchoolOpinion { target, opinion } => {
+                    let target = match target {
+                        SchoolOpinionTarget::Previous => previous.ok_or_else(|| {
+                            Error::Invalid("previous country scope is unbound".into())
+                        })?,
+                        SchoolOpinionTarget::Country(target) => {
+                            target.resolve_in_context(self, context)?.ok_or_else(|| {
+                                Error::Invalid("school opinion target is absent".into())
+                            })?
+                        }
+                    };
+                    if self.entity(target)?.kind != EntityKind::Country {
+                        return Err(Error::Invalid(
+                            "school opinion target must be a country".into(),
+                        ));
+                    }
+                    let school = self
+                        .affiliations()
+                        .member("religious_school", target)
+                        .ok_or_else(|| {
+                            Error::Invalid("school opinion target has unknown school".into())
+                        })?
+                        .to_owned();
+                    self.set_school_opinion(current, &school, *opinion)?;
+                }
                 Action::UpdateNumeric {
                     target,
                     slot,
@@ -1017,6 +1330,7 @@ impl World {
                             plan,
                             budget,
                             depth + 1,
+                            Some(context.current),
                         )?;
                     }
                 }
@@ -1040,12 +1354,12 @@ impl World {
                     self.resolve_estate_privilege_effect(current, privilege, effect)?
                 }
                 Action::RandomBranch { then, otherwise } => {
-                    let branch = if self.random.next_u64() & 1 == 0 {
+                    let branch = if self.random_source().next_u64() & 1 == 0 {
                         then
                     } else {
                         otherwise
                     };
-                    self.execute_inner(context, branch, budget, depth + 1)?;
+                    self.execute_inner(context, branch, budget, depth + 1, previous)?;
                 }
                 Action::Accumulate {
                     target,
@@ -1065,7 +1379,7 @@ impl World {
                         .get(rule.0)
                         .ok_or_else(|| Error::Invalid(format!("unknown rule {}", rule.0)))?
                         .clone();
-                    self.execute_inner(context, &plan, budget, depth + 1)?;
+                    self.execute_inner(context, &plan, budget, depth + 1, previous)?;
                 }
                 Action::Add {
                     target,
@@ -1094,13 +1408,14 @@ impl World {
                     } else {
                         otherwise
                     };
-                    self.execute_inner(context, branch, budget, depth + 1)?;
+                    self.execute_inner(context, branch, budget, depth + 1, previous)?;
                 }
                 Action::With { target, plan } => self.execute_inner(
                     context.with_current(self.target(current, *target)?),
                     plan,
                     budget,
                     depth + 1,
+                    Some(context.current),
                 )?,
                 Action::Schedule { delay, plan } => {
                     self.schedule_in_context(context, *delay, plan.clone())?

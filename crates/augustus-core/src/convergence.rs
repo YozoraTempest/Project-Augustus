@@ -273,6 +273,8 @@ impl World {
         if self.monthly_convergence.is_some()
             || self.monthly_accruals.is_some()
             || self.monthly_stocks.is_some()
+            || self.monthly_production.is_some()
+            || self.monthly_cashflows.is_some()
         {
             self.monthly_system_id = Some(crate::MonthlyEconomy.id().into());
         } else {

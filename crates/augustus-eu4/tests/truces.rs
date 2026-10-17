@@ -146,7 +146,7 @@ fn unknown_graph_aborts_startup_without_leaking_prior_grants() {
 }
 
 #[test]
-fn literal_defines_are_required_and_lua_changes_are_never_silently_ignored() {
+fn positive_integral_truce_defines_are_required_and_lua_overrides_apply() {
     for value in ["0", "-1", "1.5"] {
         let temp = fixture();
         let path = temp.path().join("common/defines.lua");
@@ -166,7 +166,9 @@ fn literal_defines_are_required_and_lua_changes_are_never_silently_ignored() {
     let path = temp.path().join("common/defines/override.lua");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, "NDefines.NDiplomacy.TRUCE_YEARS = 2").unwrap();
-    assert!(VanillaWorld::load(temp.path(), "1444.11.11").is_err());
+    startup(temp.path(), "on_startup={add_truce_with=BBB}");
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(loaded.report.setup.truce_months, Some(24));
     let temp = fixture();
     let path = temp.path().join("common/defines.lua");
     fs::write(

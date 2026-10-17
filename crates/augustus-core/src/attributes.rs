@@ -13,7 +13,9 @@ use crate::{
 
 const ONE: i128 = 1_000_000;
 
-fn validate_attribute_condition(condition: &Condition) -> Result<(), Error> {
+pub const MONTHLY_AUTONOMY_DELTA_ATTRIBUTE: &str = "province_autonomy_monthly_delta";
+
+pub(crate) fn validate_attribute_condition(condition: &Condition) -> Result<(), Error> {
     let mut pending = vec![condition];
     while let Some(condition) = pending.pop() {
         match condition {
@@ -30,6 +32,13 @@ fn validate_attribute_condition(condition: &Condition) -> Result<(), Error> {
                 ));
             }
             Condition::All(conditions) | Condition::Any(conditions) => pending.extend(conditions),
+            Condition::If {
+                condition,
+                then,
+                otherwise,
+            } => {
+                pending.extend([condition.as_ref(), then.as_ref(), otherwise.as_ref()]);
+            }
             Condition::Not(condition)
             | Condition::AnyOwnedProvince { condition, .. }
             | Condition::AnySubjectCountry { condition, .. }
@@ -81,6 +90,11 @@ pub enum AttributeTerm {
         then: Vec<AttributeTerm>,
         otherwise: Vec<AttributeTerm>,
     },
+    /// Evaluate the inner term only for the current holder of this office.
+    OfficeScoped {
+        office: String,
+        term: Box<AttributeTerm>,
+    },
     RulerSkill {
         target: Target,
         skill: crate::RulerSkill,
@@ -98,6 +112,13 @@ pub enum AttributeTerm {
         source: String,
         quantum_micros: i64,
         terms: Vec<AttributeTerm>,
+    },
+    /// Multiply the sum of each factor group from left to right. The final
+    /// product is truncated to the requested precision before becoming a rate.
+    ProductOfSums {
+        source: String,
+        factors: Vec<Vec<AttributeTerm>>,
+        quantum_micros: i64,
     },
     Metrics {
         target: Target,
@@ -143,6 +164,15 @@ pub enum AttributeTerm {
         definition: String,
         property: String,
     },
+    /// Apply a static modifier once for each country with the selected reform
+    /// and at least one province in the requested affiliation member.
+    CountedStaticModifier {
+        definition: String,
+        property: String,
+        reform: String,
+        affiliation_dimension: String,
+        affiliation_member: String,
+    },
     Buildings {
         property: String,
     },
@@ -171,6 +201,8 @@ pub struct AttributeFormula {
     pub channels: Vec<AttributeChannel>,
     pub minimum_micros: Option<i64>,
     pub maximum_micros: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_quantum_micros: Option<i64>,
     pub unresolved: BTreeSet<String>,
 }
 
@@ -225,6 +257,10 @@ pub struct Attributes {
     pub static_modifiers: BTreeMap<String, ModifierDefinition>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub static_unresolved_properties: BTreeMap<String, BTreeSet<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub government_rank_modifiers: BTreeMap<u8, ModifierDefinition>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub government_rank_unresolved_properties: BTreeMap<u8, BTreeSet<String>>,
     pub building_modifiers: BTreeMap<String, ModifierDefinition>,
     pub trade_good_modifiers: BTreeMap<String, ModifierDefinition>,
     /// Dimension, effect scope, then member. Missing entries remain unknown.
@@ -236,6 +272,74 @@ pub struct Attributes {
 
 fn narrow(value: i128) -> Result<i64, Error> {
     i64::try_from(value).map_err(|_| Error::Overflow)
+}
+
+fn count_reform_members(
+    world: &World,
+    reform: &str,
+    dimension: &str,
+    member: &str,
+    unresolved: &mut BTreeSet<String>,
+) -> Result<(i64, bool), Error> {
+    let mut candidates = BTreeMap::<EntityId, bool>::new();
+    let mut possible_unknown_owner = false;
+    for (index, province) in world.entities().iter().enumerate() {
+        if province.kind != EntityKind::Province {
+            continue;
+        }
+        let province_id = EntityId(index);
+        let membership = world
+            .affiliations()
+            .belongs_to(dimension, province_id, member);
+        if let Some(owner) = province.owner {
+            match membership {
+                Some(true) => {
+                    candidates.insert(owner, true);
+                }
+                Some(false) => {}
+                None => {
+                    candidates.entry(owner).or_insert(false);
+                }
+            }
+        } else {
+            let owner_is_absent = world
+                .known_absent_targets
+                .get(&province_id)
+                .is_some_and(|targets| targets.contains(&Target::Owner));
+            if !owner_is_absent && membership != Some(false) {
+                possible_unknown_owner = true;
+            }
+        }
+    }
+
+    let mut count = 0_i64;
+    let mut complete = !possible_unknown_owner;
+    if possible_unknown_owner {
+        unresolved.insert(format!("{dimension}:{member}:unknown_owner"));
+    }
+    for (country, known_member) in candidates {
+        match world.government_reform_selected(country, reform) {
+            Ok(false) => {}
+            Ok(true) if known_member => {
+                count = count.checked_add(1).ok_or(Error::Overflow)?;
+            }
+            Ok(true) => {
+                complete = false;
+                unresolved.insert(format!(
+                    "{dimension}:{member}:unknown_membership:{}",
+                    world.entity(country)?.name
+                ));
+            }
+            Err(error) => {
+                complete = false;
+                unresolved.insert(format!(
+                    "{reform}:unknown_selection:{}:{error}",
+                    world.entity(country)?.name
+                ));
+            }
+        }
+    }
+    Ok((count, complete))
 }
 
 impl Attributes {
@@ -328,6 +432,37 @@ impl Attributes {
             if let Some(max) = formula.maximum_micros {
                 *v = (*v).min(max);
             }
+            if let Some(quantum) = formula.result_quantum_micros {
+                let before = *v;
+                *v = *v / quantum * quantum;
+                let adjustment = *v - before;
+                if adjustment != 0 {
+                    if let Some(step) = steps.last_mut() {
+                        step.flat_micros =
+                            narrow(i128::from(step.flat_micros) + i128::from(adjustment))?;
+                        step.output_micros = Some(*v);
+                        step.contributions.push(AttributeContribution {
+                            source: "formula".into(),
+                            property: "result_truncation".into(),
+                            micros: adjustment,
+                            is_rate: false,
+                        });
+                    } else {
+                        steps.push(AttributeStep {
+                            input_micros: Some(before),
+                            flat_micros: adjustment,
+                            rate_micros: 0,
+                            output_micros: Some(*v),
+                            contributions: vec![AttributeContribution {
+                                source: "formula".into(),
+                                property: "result_truncation".into(),
+                                micros: adjustment,
+                                is_rate: false,
+                            }],
+                        });
+                    }
+                }
+            }
         }
         Ok(AttributeEvaluation {
             base_micros: base,
@@ -352,12 +487,15 @@ impl Attributes {
         let mut subtotal = 0_i128;
         let mut unresolved = BTreeSet::new();
         let mut count = 0;
-        for (index, province) in world.entities().iter().enumerate() {
-            if province.kind != EntityKind::Province || province.owner != Some(country) {
-                continue;
-            }
+        if world.ownership.has_unknown() {
+            unresolved.insert("unknown_province_ownership".into());
+        }
+        // Aggregation retains entity order, independent of effect acquisition order.
+        let mut members = world.ownership.known_members(country).to_vec();
+        members.sort_unstable();
+        for entity in members {
+            let province = world.entity(entity)?;
             count += 1;
-            let entity = EntityId(index);
             if !self
                 .formulas
                 .get(&entity)
@@ -517,6 +655,16 @@ impl Attributes {
                 }
                 return Ok((values, known));
             }
+            AttributeTerm::OfficeScoped { office, term } => {
+                let Some(&holder) = world.politics().offices.get(office) else {
+                    unresolved.insert(format!("office:{office}:unknown"));
+                    return Ok((values, false));
+                };
+                if holder != entity {
+                    return Ok((values, true));
+                }
+                return self.resolve(world, entity, term, unresolved, depth + 1);
+            }
             AttributeTerm::TruncatedSum {
                 source,
                 quantum_micros,
@@ -539,6 +687,50 @@ impl Attributes {
                 let quantum = i128::from(*quantum_micros);
                 let adjustment = narrow(total / quantum * quantum - total)?;
                 values.push((source.clone(), "truncation".into(), adjustment));
+                return Ok((values, known));
+            }
+            AttributeTerm::ProductOfSums {
+                source,
+                factors,
+                quantum_micros,
+            } => {
+                if source.is_empty()
+                    || *quantum_micros <= 0
+                    || factors.len() < 2
+                    || factors.iter().any(Vec::is_empty)
+                {
+                    return Err(Error::Invalid("invalid attribute product group".into()));
+                }
+                let mut known = true;
+                let mut input_total = 0_i128;
+                let mut factor_totals = Vec::with_capacity(factors.len());
+                for factor in factors {
+                    let mut factor_total = 0_i128;
+                    for term in factor {
+                        let (contributions, complete) =
+                            self.resolve(world, entity, term, unresolved, depth + 1)?;
+                        known &= complete;
+                        for contribution in contributions {
+                            factor_total = factor_total
+                                .checked_add(i128::from(contribution.2))
+                                .ok_or(Error::Overflow)?;
+                            input_total = input_total
+                                .checked_add(i128::from(contribution.2))
+                                .ok_or(Error::Overflow)?;
+                            values.push(contribution);
+                        }
+                    }
+                    factor_totals.push(factor_total);
+                }
+                let mut product = factor_totals[0];
+                for factor in &factor_totals[1..] {
+                    product = product.checked_mul(*factor).ok_or(Error::Overflow)? / ONE;
+                }
+                let quantum = i128::from(*quantum_micros);
+                let product = product / quantum * quantum;
+                let relative_rate = product.checked_sub(ONE).ok_or(Error::Overflow)?;
+                let adjustment = narrow(relative_rate - input_total)?;
+                values.push((source.clone(), "composition_adjustment".into(), adjustment));
                 return Ok((values, known));
             }
             AttributeTerm::RulerSkill {
@@ -639,7 +831,9 @@ impl Attributes {
             }
             AttributeTerm::Estates { target, property } => {
                 if let Some(target) = attribute_target(world, entity, *target)? {
-                    let result = world.estates().property_effects(target, property)?;
+                    let result = world
+                        .estates()
+                        .property_effects_with_world(world, target, property)?;
                     unresolved.extend(result.unresolved);
                     values.extend(
                         result
@@ -669,6 +863,32 @@ impl Attributes {
                 if let Some(target) = attribute_target(world, entity, *target)? {
                     let result = world.governments().property_effects(target, property)?;
                     unresolved.extend(result.unresolved);
+                    let rank_effects_registered = !self.government_rank_modifiers.is_empty();
+                    match world.government_rank(target) {
+                        Ok(rank) => {
+                            if let Some(modifier) = self.government_rank_modifiers.get(&rank) {
+                                if modifier.flags.contains_key(property)
+                                    || self
+                                        .government_rank_unresolved_properties
+                                        .get(&rank)
+                                        .is_some_and(|properties| properties.contains(property))
+                                {
+                                    unresolved.insert(format!(
+                                        "government_rank:{rank}:unresolved_property:{property}"
+                                    ));
+                                } else {
+                                    append(format!("government_rank:{rank}"), property, modifier)?;
+                                }
+                            } else if rank_effects_registered {
+                                unresolved
+                                    .insert(format!("government_rank:{rank}:missing_effects"));
+                            }
+                        }
+                        Err(_) if rank_effects_registered => {
+                            unresolved.insert("government_rank:unknown".into());
+                        }
+                        Err(_) => {}
+                    }
                     values.extend(
                         result
                             .contributions
@@ -786,9 +1006,51 @@ impl Attributes {
                     .ok_or_else(|| Error::Invalid("unknown static attribute source".into()))?;
                 append(format!("static:{definition}"), property, data)?;
             }
+            AttributeTerm::CountedStaticModifier {
+                definition,
+                property,
+                reform,
+                affiliation_dimension,
+                affiliation_member,
+            } => {
+                if world.entity(entity)?.kind != EntityKind::Country {
+                    return Err(Error::Invalid(
+                        "counted static modifier requires a country attribute".into(),
+                    ));
+                }
+                let data = self
+                    .static_modifiers
+                    .get(definition)
+                    .ok_or_else(|| Error::Invalid("unknown static attribute source".into()))?;
+                if data.flags.contains_key(property) {
+                    return Err(Error::Invalid(format!(
+                        "attribute requires numeric property {property}"
+                    )));
+                }
+                let per_country = data.values_micros.get(property).copied().unwrap_or(0);
+                let (count, complete) = count_reform_members(
+                    world,
+                    reform,
+                    affiliation_dimension,
+                    affiliation_member,
+                    unresolved,
+                )?;
+                let value = narrow(i128::from(per_country) * i128::from(count))?;
+                values.push((
+                    format!("static:{definition}:counted_by:{reform}"),
+                    property.clone(),
+                    value,
+                ));
+                return Ok((values, complete));
+            }
             AttributeTerm::Buildings { property } => {
                 if let Some(state) = world.economy().provinces.get(&entity) {
                     for name in &state.buildings {
+                        if world.economy().buildings.get(name).is_some_and(|building| {
+                            building.role == crate::BuildingRole::Fortification
+                        }) {
+                            continue;
+                        }
                         if let Some(data) = self.building_modifiers.get(name) {
                             append(format!("building:{name}"), property, data)?;
                         } else {
@@ -884,6 +1146,29 @@ impl Attributes {
                 return Err(Error::Invalid("invalid unresolved static property".into()));
             }
         }
+        for (&rank, definition) in &self.government_rank_modifiers {
+            if !(1..=3).contains(&rank) {
+                return Err(Error::Invalid("invalid government rank modifier".into()));
+            }
+            validate_definition(&format!("government_rank:{rank}"), definition)?;
+        }
+        for (&rank, properties) in &self.government_rank_unresolved_properties {
+            let definition = self.government_rank_modifiers.get(&rank).ok_or_else(|| {
+                Error::Invalid("unresolved properties reference an unknown government rank".into())
+            })?;
+            if !(1..=3).contains(&rank)
+                || properties.is_empty()
+                || properties.iter().any(|property| {
+                    property.is_empty()
+                        || definition.values_micros.contains_key(property)
+                        || definition.flags.contains_key(property)
+                })
+            {
+                return Err(Error::Invalid(
+                    "invalid unresolved government rank property".into(),
+                ));
+            }
+        }
         for (dimension, scopes) in &self.affiliation_modifiers {
             if dimension.is_empty() || scopes.keys().any(String::is_empty) {
                 return Err(Error::Invalid("invalid affiliation effect scope".into()));
@@ -913,6 +1198,9 @@ impl Attributes {
                 if name.is_empty()
                     || matches!(&formula.base, AttributeBase::Unknown { reason } if reason.is_empty())
                     || formula.unresolved.iter().any(|s| s.is_empty())
+                    || formula
+                        .result_quantum_micros
+                        .is_some_and(|quantum| quantum <= 0)
                     || matches!((formula.minimum_micros, formula.maximum_micros), (Some(min),Some(max)) if min > max)
                 {
                     return Err(Error::Invalid("invalid attribute formula".into()));
@@ -963,6 +1251,10 @@ impl Attributes {
                             terms.extend(then.iter().chain(otherwise).map(|term| (term, is_rate)));
                             true
                         }
+                        AttributeTerm::OfficeScoped { office, term } => {
+                            terms.push((term, is_rate));
+                            !office.is_empty()
+                        }
                         AttributeTerm::TruncatedSum {
                             source,
                             quantum_micros,
@@ -970,6 +1262,18 @@ impl Attributes {
                         } => {
                             terms.extend(children.iter().map(|term| (term, is_rate)));
                             !source.is_empty() && *quantum_micros > 0
+                        }
+                        AttributeTerm::ProductOfSums {
+                            source,
+                            factors,
+                            quantum_micros,
+                        } => {
+                            terms.extend(factors.iter().flatten().map(|term| (term, is_rate)));
+                            is_rate
+                                && !source.is_empty()
+                                && *quantum_micros > 0
+                                && factors.len() >= 2
+                                && factors.iter().all(|factor| !factor.is_empty())
                         }
                         AttributeTerm::RulerSkill { .. } | AttributeTerm::NationalFocus { .. } => {
                             true
@@ -1003,6 +1307,24 @@ impl Attributes {
                             definition,
                             property,
                         } => !definition.is_empty() && !property.is_empty(),
+                        AttributeTerm::CountedStaticModifier {
+                            definition,
+                            property,
+                            reform,
+                            affiliation_dimension,
+                            affiliation_member,
+                        } => {
+                            !is_rate
+                                && world.entity(entity)?.kind == EntityKind::Country
+                                && !property.is_empty()
+                                && !reform.is_empty()
+                                && !affiliation_dimension.is_empty()
+                                && !affiliation_member.is_empty()
+                                && self
+                                    .static_modifiers
+                                    .get(definition)
+                                    .is_some_and(|data| data.values_micros.contains_key(property))
+                        }
                         AttributeTerm::Buildings { property }
                         | AttributeTerm::TradeGood { property } => {
                             world.entity(entity)?.kind == EntityKind::Province

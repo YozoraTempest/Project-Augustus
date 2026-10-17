@@ -1,0 +1,2 @@
+2 = { global_autonomy = -0.025 }
+3 = { global_autonomy = -0.05 }

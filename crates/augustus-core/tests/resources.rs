@@ -108,6 +108,41 @@ fn established_resource_bounds_and_scope_checks_precede_writes() {
 }
 
 #[test]
+fn mercantilism_thresholds_read_live_known_state_and_keep_unknown_unknown() {
+    let mut world = world();
+    let condition = Condition::NumericCompare {
+        target: Target::Current,
+        slot: NumericSlot::Resource(CountryResource::Mercantilism),
+        comparison: NumericComparison::AtLeast,
+        value: 50_500,
+    };
+    assert!(condition.evaluate(&world, EntityId(0)).is_err());
+    world
+        .set_country_resources(
+            [(
+                EntityId(0),
+                CountryResources {
+                    treasury_milli: Some(5_000),
+                    manpower_milli: Some(1_500_000),
+                    mercantilism_milli: Some(50_500),
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    assert!(condition.evaluate(&world, EntityId(0)).unwrap());
+    world
+        .update_numeric(
+            EntityId(0),
+            &NumericSlot::Resource(CountryResource::Mercantilism),
+            NumericOperation::Set,
+            50_499,
+        )
+        .unwrap();
+    assert!(!condition.evaluate(&world, EntityId(0)).unwrap());
+}
+
+#[test]
 fn queued_queries_and_changes_share_the_saved_resource_state() {
     let mut whole = world();
     whole

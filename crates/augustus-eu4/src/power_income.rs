@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use crate::{ContentView, Error, FileEntry, SetupReport};
+use crate::{Error, FileEntry, SetupReport};
 use augustus_core::{
     AccrualRule, AttributeBase, AttributeChannel, AttributeFormula, AttributeTerm, Attributes,
     InitialWorld, MonthlyAccruals, RulerSkill, Target,
@@ -9,8 +9,8 @@ use augustus_core::{
 
 /// Bind verified sources while keeping unimplemented producers explicit.
 pub(super) fn bind(
-    root: &impl ContentView,
     files: &[FileEntry],
+    defines: &crate::Defines,
     initial: &InitialWorld,
     attributes: &mut Attributes,
     report: &mut SetupReport,
@@ -25,9 +25,7 @@ pub(super) fn bind(
             "NAT_FOCUS_INCREASE",
             "NAT_FOCUS_DECREASE",
         ] {
-            if let Some((value, source)) =
-                crate::defines::optional_signed_literal(root, files, "NCountry", name)?
-            {
+            if let Some((value, source)) = defines.optional_signed("NCountry", name)? {
                 if value % 1_000_000 != 0 || i32::try_from(value / 1_000_000).is_err() {
                     return Err(Error::message(
                         &source.path,
@@ -117,6 +115,7 @@ pub(super) fn bind(
                 }],
                 minimum_micros: None,
                 maximum_micros: None,
+                result_quantum_micros: None,
                 unresolved,
             };
             attributes

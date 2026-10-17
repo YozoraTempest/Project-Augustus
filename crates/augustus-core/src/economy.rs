@@ -5,20 +5,468 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntityKind, Error, World};
+use crate::{EntityId, EntityKind, Error, InitialWorld, World};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuildingDefinition {
     pub cost_milli: Option<i64>,
     pub construction_months: Option<u32>,
+    #[serde(default, skip_serializing_if = "BuildingRole::is_standard")]
+    pub role: BuildingRole,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fort_level_milli: Option<i64>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildingRole {
+    #[default]
+    Standard,
+    Fortification,
+}
+
+impl BuildingRole {
+    fn is_standard(&self) -> bool {
+        *self == Self::Standard
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TradeGoodDefinition {
+    /// Runtime table index supplied by the compatibility layer.
+    ///
+    /// `None` means that the source does not expose a stable numeric index.
+    /// The shared core keeps the value opaque so other rulesets can use their
+    /// own tables without importing EU4-specific numbering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_index: Option<u32>,
     pub base_price_milli: Option<i64>,
     pub gold_type: Option<bool>,
+}
+
+/// Runtime price inputs reconstructed by the EU4 compatibility layer.
+///
+/// EU4 stores price impacts as thousandths around a 1000 baseline. The
+/// definition price remains separate from the dynamic impact list so a save
+/// loader can rebuild the effective price table without changing content data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeGoodPriceInput {
+    pub base_price_milli: i32,
+    pub price_impact_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaTradeGoodPriceResult {
+    pub factor_milli: i32,
+    pub effective_price_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TradeProductionInput {
+    pub province_base_quantity_milli: i32,
+    pub country_base_quantity_milli: i32,
+    pub external_base_quantity_milli: i32,
+    pub province_quantity_modifier_milli: i32,
+    pub country_quantity_modifier_milli: i32,
+    pub external_quantity_modifier_milli: i32,
+    pub trade_good_price_milli: i32,
+    pub province_fixed_value_milli: i32,
+    pub external_fixed_value_milli: i32,
+    pub province_value_modifier_milli: i32,
+    pub external_value_modifier_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TradeProductionResult {
+    pub quantity_milli: i32,
+    pub value_milli: i32,
+}
+
+/// Inputs for the vanilla trade-goods-size calculation used by ordinary
+/// production. The compatibility layer resolves the six source values; this
+/// operator owns their merge, lower bound, and truncation order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeGoodsSizeInput {
+    pub province_base_milli: i32,
+    pub trade_good_base_milli: i32,
+    pub external_base_milli: i32,
+    pub province_modifier_milli: i32,
+    pub trade_good_modifier_milli: i32,
+    pub external_modifier_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaTradeGoodsSizeResult {
+    pub combined_base_milli: i32,
+    pub combined_modifier_milli: i32,
+    pub quantity_milli: i32,
+}
+
+/// Inputs for the native `a13fd0`-equivalent value stage. The first stage's
+/// output is supplied by `calculate_vanilla_trade_goods_size`; flat and rate
+/// contributions are kept separate because the original code adds the former
+/// before applying the latter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaProductionBaseValueInput {
+    pub goods_size_milli: i32,
+    pub trade_good_price_milli: i32,
+    pub flat_modifier_milli: i32,
+    pub external_flat_modifier_milli: i32,
+    pub rate_modifier_milli: i32,
+    pub external_rate_modifier_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaProductionBaseValueResult {
+    pub priced_value_milli: i32,
+    pub flat_value_milli: i32,
+    pub rate_factor_milli: i32,
+    pub value_milli: i32,
+}
+
+/// Rebuilds the effective EU4 trade-good price from its content price and the
+/// summed runtime price-impact entries. The native writer uses signed 32-bit
+/// accumulation, a lower factor bound of 10, and truncation toward zero.
+pub fn calculate_vanilla_trade_good_price(
+    input: VanillaTradeGoodPriceInput,
+) -> VanillaTradeGoodPriceResult {
+    let factor_milli = 1_000_i32.wrapping_add(input.price_impact_milli).max(10);
+    let effective_price_milli =
+        ((i64::from(factor_milli) * i64::from(input.base_price_milli)) / 1_000) as i32;
+
+    VanillaTradeGoodPriceResult {
+        factor_milli,
+        effective_price_milli,
+    }
+}
+
+/// Inputs for the observed country-modifier refresh stage. The compatibility
+/// layer resolves the two source values and the scale supplied by the source
+/// definition; the core owns the effective-value clamp and fixed-point order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaDerivedModifierInput {
+    pub base_value_milli: i32,
+    pub context_modifier_milli: i32,
+    pub scale_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaDerivedModifierResult {
+    pub effective_value_milli: i32,
+    pub derived_value_milli: i32,
+}
+
+/// Explicit contributions to the observed country-modifier aggregation stage.
+/// Source selection stays in the compatibility layer; the core only performs
+/// the ordered 32-bit accumulation of contributions that have already been
+/// resolved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaModifierAggregationInput {
+    pub initial_value_milli: i32,
+    pub contributions_milli: Vec<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaModifierAggregationResult {
+    pub value_milli: i32,
+}
+
+/// Reproduces the ordinary vanilla trade-goods-size stage.
+///
+/// The native implementation combines the three base terms and three
+/// modifier terms in 32-bit values, clamps the combined modifier at -1000,
+/// multiplies by the resulting factor, and truncates toward zero. The
+/// quotient is then cast to a signed 32-bit value before its sign is checked;
+/// negative produced quantities are replaced with zero after that cast.
+pub fn calculate_vanilla_trade_goods_size(
+    input: VanillaTradeGoodsSizeInput,
+) -> VanillaTradeGoodsSizeResult {
+    let combined_base = input
+        .province_base_milli
+        .wrapping_add(input.trade_good_base_milli)
+        .wrapping_add(input.external_base_milli);
+    let combined_modifier = input
+        .province_modifier_milli
+        .wrapping_add(input.trade_good_modifier_milli)
+        .wrapping_add(input.external_modifier_milli);
+    let bounded_modifier = combined_modifier.max(-1000);
+    let raw_quantity = ((i64::from(bounded_modifier) + 1000) * i64::from(combined_base)) / 1000;
+    let quantity = (raw_quantity as i32).max(0);
+
+    VanillaTradeGoodsSizeResult {
+        combined_base_milli: combined_base,
+        combined_modifier_milli: combined_modifier,
+        quantity_milli: quantity,
+    }
+}
+
+/// Reproduces the native ordinary production value stage after quantity
+/// calculation. Each division truncates toward zero. The price product is
+/// cast to a signed 32-bit value and negative results are replaced with zero
+/// before fixed modifiers are added; the final rate factor is clamped to the
+/// observed `[10, 2000]` range, while the final value itself is not clamped.
+pub fn calculate_vanilla_production_base_value(
+    input: VanillaProductionBaseValueInput,
+) -> VanillaProductionBaseValueResult {
+    let priced =
+        (i64::from(input.goods_size_milli) * i64::from(input.trade_good_price_milli)) / 1000;
+    let priced_value = (priced as i32).max(0);
+    let flat_value = priced_value
+        .wrapping_add(input.flat_modifier_milli)
+        .wrapping_add(input.external_flat_modifier_milli);
+    let rate_factor = 1000_i32
+        .wrapping_add(input.rate_modifier_milli)
+        .wrapping_add(input.external_rate_modifier_milli)
+        .clamp(10, 2000);
+    let value = ((i64::from(flat_value) * i64::from(rate_factor)) / 1000) as i32;
+
+    VanillaProductionBaseValueResult {
+        priced_value_milli: priced_value,
+        flat_value_milli: flat_value,
+        rate_factor_milli: rate_factor,
+        value_milli: value,
+    }
+}
+
+/// Calculates the derived country-modifier value observed after the source
+/// context has been aggregated. The effective value is clamped before the
+/// scale is applied, and the final division truncates toward zero.
+pub fn calculate_vanilla_derived_modifier(
+    input: VanillaDerivedModifierInput,
+) -> VanillaDerivedModifierResult {
+    let effective_value = (i64::from(input.base_value_milli)
+        + i64::from(input.context_modifier_milli))
+    .clamp(10, 2_000);
+    let derived_value = (effective_value * i64::from(input.scale_milli)) / 1_000;
+
+    VanillaDerivedModifierResult {
+        effective_value_milli: effective_value as i32,
+        derived_value_milli: derived_value as i32,
+    }
+}
+
+/// Aggregates already-resolved modifier contributions in declaration order.
+/// Each addition follows the native 32-bit signed storage behavior.
+pub fn aggregate_vanilla_modifier_contributions(
+    input: VanillaModifierAggregationInput,
+) -> VanillaModifierAggregationResult {
+    let value = input
+        .contributions_milli
+        .into_iter()
+        .fold(input.initial_value_milli, i32::wrapping_add);
+    VanillaModifierAggregationResult { value_milli: value }
+}
+
+/// Inputs for the verified ordinary EU4 production-income path.
+///
+/// The inputs are deliberately explicit: their upstream producers (technology,
+/// country modifiers and province state) are resolved by the compatibility layer.
+/// `base_value_milli` is the output of the native value stage above; this
+/// function only owns the later country/province arithmetic and truncation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaProductionInput {
+    /// The price-adjusted province value before country and province modifiers.
+    pub base_value_milli: i32,
+    /// Country-side production efficiency in thousandths.
+    pub country_modifier_milli: i32,
+    /// Legacy province production slot in thousandths.
+    pub legacy_province_modifier_milli: i32,
+    /// Province modifier queried from the live modifier container.
+    pub queried_province_modifier_milli: i32,
+}
+
+/// Explicit inputs supplied by a compatibility layer for one province.
+/// Native container keys are intentionally not interpreted here because the
+/// same numeric key can have different meanings in different contexts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaProductionInputState {
+    pub input: Option<VanillaProductionInput>,
+    pub unresolved: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaProductionResult {
+    pub pre_query_value_milli: i32,
+    pub annual_value_milli: i32,
+    pub monthly_value_milli: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaProductionProvinceResult {
+    pub province_id: u32,
+    pub pre_query_value_milli: Option<i64>,
+    pub annual_value_milli: Option<i64>,
+    pub monthly_value_milli: Option<i64>,
+    pub unresolved: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaProductionCountryResult {
+    pub known_annual_value_milli: i64,
+    pub known_monthly_value_milli: i64,
+    pub annual_value_milli: Option<i64>,
+    pub monthly_value_milli: Option<i64>,
+    pub provinces: Vec<VanillaProductionProvinceResult>,
+    pub unresolved: BTreeSet<String>,
+}
+
+/// Calculates ordinary production income using EU4's observed order.
+///
+/// Each division truncates toward zero. The first stage combines the country
+/// modifier and legacy province slot; the second applies the queried province
+/// modifier; the annual result is then divided by twelve.
+pub fn calculate_vanilla_production(input: VanillaProductionInput) -> VanillaProductionResult {
+    let first_factor = 1_000_i64
+        + i64::from(input.country_modifier_milli)
+        + i64::from(input.legacy_province_modifier_milli);
+    let pre_query = (i64::from(input.base_value_milli) * first_factor) / 1_000;
+    let query_factor = 1_000_i64 + i64::from(input.queried_province_modifier_milli);
+    let annual = (pre_query * query_factor) / 1_000;
+
+    VanillaProductionResult {
+        pre_query_value_milli: pre_query as i32,
+        annual_value_milli: annual as i32,
+        monthly_value_milli: (annual / 12) as i32,
+    }
+}
+
+/// Aggregates the verified ordinary-production formula over a country's live
+/// owned provinces. Inputs remain explicit because their native producers and
+/// refresh timing are compatibility-layer concerns.
+pub fn calculate_vanilla_production_for_country(
+    initial: &InitialWorld,
+    country: EntityId,
+    inputs: &BTreeMap<u32, VanillaProductionInputState>,
+) -> Result<VanillaProductionCountryResult, Error> {
+    let owned = initial.world().owned_provinces(country)?;
+    let entity_to_province: BTreeMap<_, _> = initial
+        .provinces()
+        .iter()
+        .filter_map(|province| {
+            initial
+                .province_entity(province.id)
+                .map(|entity| (entity, province.id))
+        })
+        .collect();
+    let mut known_annual = 0_i64;
+    let mut known_monthly = 0_i64;
+    let mut unresolved = BTreeSet::new();
+    let mut provinces = Vec::with_capacity(owned.len());
+
+    for &entity in owned {
+        let province_id = entity_to_province
+            .get(&entity)
+            .copied()
+            .ok_or_else(|| Error::Invalid("owned entity is not a province".into()))?;
+        let mut province_unresolved = BTreeSet::new();
+        let result = match inputs.get(&province_id) {
+            Some(state) if state.unresolved.is_empty() => state
+                .input
+                .map(calculate_vanilla_production)
+                .ok_or_else(|| "missing_production_input".to_string())
+                .map(Some)
+                .unwrap_or_else(|reason| {
+                    province_unresolved.insert(reason);
+                    None
+                }),
+            Some(state) => {
+                province_unresolved.extend(
+                    state
+                        .unresolved
+                        .iter()
+                        .filter(|reason| !reason.is_empty())
+                        .cloned(),
+                );
+                if province_unresolved.is_empty() {
+                    province_unresolved.insert("unknown_production_input".into());
+                }
+                None
+            }
+            None => {
+                province_unresolved.insert("missing_production_input".into());
+                None
+            }
+        };
+        let (pre_query, annual, monthly) = result
+            .map(|value| {
+                (
+                    Some(i64::from(value.pre_query_value_milli)),
+                    Some(i64::from(value.annual_value_milli)),
+                    Some(i64::from(value.monthly_value_milli)),
+                )
+            })
+            .unwrap_or((None, None, None));
+        if let Some(value) = annual {
+            known_annual = known_annual.checked_add(value).ok_or(Error::Overflow)?;
+        }
+        if let Some(value) = monthly {
+            known_monthly = known_monthly.checked_add(value).ok_or(Error::Overflow)?;
+        }
+        for reason in &province_unresolved {
+            unresolved.insert(format!("province:{province_id}:{reason}"));
+        }
+        provinces.push(VanillaProductionProvinceResult {
+            province_id,
+            pre_query_value_milli: pre_query,
+            annual_value_milli: annual,
+            monthly_value_milli: monthly,
+            unresolved: province_unresolved,
+        });
+    }
+
+    Ok(VanillaProductionCountryResult {
+        known_annual_value_milli: known_annual,
+        known_monthly_value_milli: known_monthly,
+        annual_value_milli: unresolved.is_empty().then_some(known_annual),
+        monthly_value_milli: unresolved.is_empty().then_some(known_monthly),
+        provinces,
+        unresolved,
+    })
+}
+
+/// Calculates produced quantity and its trade value from already-resolved inputs.
+/// Modifier and base-value sums wrap at 32 bits; each scaling step truncates toward zero.
+pub fn calculate_trade_production(input: TradeProductionInput) -> TradeProductionResult {
+    let base_quantity = input
+        .province_base_quantity_milli
+        .wrapping_add(input.country_base_quantity_milli)
+        .wrapping_add(input.external_base_quantity_milli);
+    let quantity_modifier = input
+        .province_quantity_modifier_milli
+        .wrapping_add(input.country_quantity_modifier_milli)
+        .wrapping_add(input.external_quantity_modifier_milli)
+        .max(-1000);
+    let quantity_factor = i64::from(1000_i32.wrapping_add(quantity_modifier));
+    let quantity = ((i64::from(base_quantity) * quantity_factor) / 1000) as i32;
+    let quantity = quantity.max(0);
+
+    let produced_value =
+        ((i64::from(quantity) * i64::from(input.trade_good_price_milli)) / 1000) as i32;
+    let base_value = produced_value
+        .max(0)
+        .wrapping_add(input.province_fixed_value_milli)
+        .wrapping_add(input.external_fixed_value_milli);
+    let value_factor = 1000_i32
+        .wrapping_add(input.province_value_modifier_milli)
+        .wrapping_add(input.external_value_modifier_milli)
+        .clamp(10, 2000);
+    let value = ((i64::from(base_value) * i64::from(value_factor)) / 1000) as i32;
+
+    TradeProductionResult {
+        quantity_milli: quantity,
+        value_milli: value,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +511,13 @@ impl Economy {
             .find_map(|(name, node)| node.members.contains(&province).then_some(name.as_str()))
     }
 
+    /// Finds a trade good by a compatibility-layer runtime index.
+    pub fn trade_good_by_runtime_index(&self, index: u32) -> Option<(&str, &TradeGoodDefinition)> {
+        self.trade_goods.iter().find_map(|(name, definition)| {
+            (definition.runtime_index == Some(index)).then_some((name.as_str(), definition))
+        })
+    }
+
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
         let fail = |message: &str| Error::Invalid(message.into());
         let province = |id| -> Result<(), Error> {
@@ -80,14 +535,22 @@ impl Economy {
         {
             return Err(fail("empty economic definition identifier"));
         }
-        if self
-            .buildings
+        let mut runtime_indices = BTreeSet::new();
+        for definition in self.trade_goods.values() {
+            if let Some(index) = definition.runtime_index
+                && !runtime_indices.insert(index)
+            {
+                return Err(fail("duplicate trade-good runtime index"));
+            }
+        }
+        if self.buildings.values().any(|b| {
+            b.cost_milli.is_some_and(|v| v < 0)
+                || b.construction_months == Some(0)
+                || b.fort_level_milli.is_some_and(|v| v < 0)
+        }) || self
+            .trade_goods
             .values()
-            .any(|b| b.cost_milli.is_some_and(|v| v < 0) || b.construction_months == Some(0))
-            || self
-                .trade_goods
-                .values()
-                .any(|g| g.base_price_milli.is_some_and(|v| v < 0))
+            .any(|g| g.base_price_milli.is_some_and(|v| v < 0))
         {
             return Err(fail("invalid economic definition value"));
         }
@@ -106,12 +569,7 @@ impl Economy {
             }
         }
         let mut members = BTreeSet::new();
-        let mut indegree: BTreeMap<&str, usize> = self
-            .trade_nodes
-            .keys()
-            .map(|name| (name.as_str(), 0))
-            .collect();
-        for (name, node) in &self.trade_nodes {
+        for node in self.trade_nodes.values() {
             province(node.location)?;
             if node.end == Some(true) && !node.outgoing.is_empty() {
                 return Err(fail("terminal trade node has outgoing routes"));
@@ -123,32 +581,10 @@ impl Economy {
                 }
             }
             for target in &node.outgoing {
-                if target == name {
-                    return Err(fail("trade node routes to itself"));
-                }
-                *indegree
-                    .get_mut(target.as_str())
-                    .ok_or_else(|| fail("unknown trade route destination"))? += 1;
-            }
-        }
-        // Validate the network in linear graph traversal, without recursive depth limits.
-        let mut ready: Vec<&str> = indegree
-            .iter()
-            .filter_map(|(&name, &degree)| (degree == 0).then_some(name))
-            .collect();
-        let mut visited = 0;
-        while let Some(name) = ready.pop() {
-            visited += 1;
-            for target in &self.trade_nodes[name].outgoing {
-                let degree = indegree.get_mut(target.as_str()).expect("validated route");
-                *degree -= 1;
-                if *degree == 0 {
-                    ready.push(target);
+                if !self.trade_nodes.contains_key(target) {
+                    return Err(fail("unknown trade route destination"));
                 }
             }
-        }
-        if visited != self.trade_nodes.len() {
-            return Err(fail("cyclic trade network"));
         }
         Ok(())
     }

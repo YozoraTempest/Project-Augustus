@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_core::World;
-use augustus_eu4::VanillaWorld;
+use augustus_core::{CountryResources, VanillaProductionInput, World};
+use augustus_eu4::{
+    VanillaExternalProductionInput, VanillaExternalState, VanillaProductionInputState,
+    VanillaProvinceProductionBaseValueInput, VanillaWorld,
+};
 use std::{
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -28,6 +32,23 @@ fn copy_fixture() -> tempfile::TempDir {
     temp
 }
 
+fn production_input(
+    base_value_milli: i32,
+    country_modifier_milli: i32,
+    legacy_province_modifier_milli: i32,
+    queried_province_modifier_milli: i32,
+) -> VanillaProductionInputState {
+    VanillaProductionInputState {
+        input: Some(VanillaProductionInput {
+            base_value_milli,
+            country_modifier_milli,
+            legacy_province_modifier_milli,
+            queried_province_modifier_milli,
+        }),
+        unresolved: BTreeSet::new(),
+    }
+}
+
 #[test]
 fn buildings_goods_and_routes_reach_the_core_with_history_and_sources() {
     let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
@@ -39,6 +60,9 @@ fn buildings_goods_and_routes_reach_the_core_with_history_and_sources() {
     );
     assert_eq!(economy.trade_goods["gold"].base_price_milli, Some(0));
     assert_eq!(economy.trade_goods["gold"].gold_type, Some(true));
+    assert_eq!(economy.trade_goods["grain"].runtime_index, Some(1));
+    assert_eq!(economy.trade_goods["cloth"].runtime_index, Some(2));
+    assert_eq!(economy.trade_goods["gold"].runtime_index, Some(3));
     let north = loaded.province(1).unwrap();
     assert_eq!(north.buildings.unwrap(), ["test_fort"]);
     assert_eq!(
@@ -80,12 +104,496 @@ fn buildings_goods_and_routes_reach_the_core_with_history_and_sources() {
 }
 
 #[test]
+fn province_production_value_uses_content_price_without_inventing_missing_goods() {
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let result = loaded
+        .calculate_vanilla_province_production_base_value(
+            1,
+            VanillaProvinceProductionBaseValueInput {
+                goods_size_milli: 1_000,
+                flat_modifier_milli: 100,
+                external_flat_modifier_milli: -50,
+                rate_modifier_milli: 0,
+                external_rate_modifier_milli: 0,
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.priced_value_milli, 2_125);
+    assert_eq!(result.flat_value_milli, 2_175);
+    assert_eq!(result.value_milli, 2_175);
+    assert_eq!(
+        loaded
+            .calculate_vanilla_province_production_base_value(
+                4,
+                VanillaProvinceProductionBaseValueInput {
+                    goods_size_milli: 1_000,
+                    flat_modifier_milli: 0,
+                    external_flat_modifier_milli: 0,
+                    rate_modifier_milli: 0,
+                    external_rate_modifier_milli: 0,
+                },
+            )
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn external_production_value_inputs_bind_content_price_before_monthly_settlement() {
+    let state = VanillaExternalState {
+        country_resources: BTreeMap::from([(
+            "AAA".into(),
+            CountryResources {
+                treasury_milli: Some(1_234),
+                ..Default::default()
+            },
+        )]),
+        production_value_inputs: BTreeMap::from([(
+            2,
+            VanillaExternalProductionInput {
+                goods_size_milli: 1_000,
+                flat_modifier_milli: 0,
+                external_flat_modifier_milli: 0,
+                rate_modifier_milli: 0,
+                external_rate_modifier_milli: 0,
+                country_modifier_milli: 0,
+                legacy_province_modifier_milli: 0,
+                queried_province_modifier_milli: 0,
+            },
+        )]),
+        ..Default::default()
+    };
+    let mut loaded =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let entity = loaded.initial.province_entity(2).unwrap();
+    let input = &loaded.initial.world().monthly_production().unwrap().inputs[&entity];
+    assert_eq!(input.input.as_ref().unwrap().base_value_milli, 3_000);
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().country_resources()[&country].treasury_milli,
+        Some(1_234)
+    );
+    loaded.advance(30).unwrap();
+    let account = &loaded
+        .initial
+        .world()
+        .monthly_production()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.monthly_value_milli, Some(250));
+    assert!(account.unresolved.contains("unknown_treasury_after_tax"));
+    assert_eq!(
+        loaded.initial.world().country_resources()[&country].treasury_milli,
+        None
+    );
+}
+
+#[test]
+fn external_price_impacts_rebuild_effective_price_before_production() {
+    let state = VanillaExternalState {
+        production_value_inputs: BTreeMap::from([(
+            2,
+            VanillaExternalProductionInput {
+                goods_size_milli: 1_000,
+                flat_modifier_milli: 0,
+                external_flat_modifier_milli: 0,
+                rate_modifier_milli: 0,
+                external_rate_modifier_milli: 0,
+                country_modifier_milli: 0,
+                legacy_province_modifier_milli: 0,
+                queried_province_modifier_milli: 0,
+            },
+        )]),
+        trade_good_price_impacts_milli: BTreeMap::from([(2, 500)]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let entity = loaded.initial.province_entity(2).unwrap();
+    let input = &loaded.initial.world().monthly_production().unwrap().inputs[&entity];
+
+    assert_eq!(input.input.as_ref().unwrap().base_value_milli, 4_500);
+}
+
+#[test]
+fn external_country_annual_tax_binds_before_monthly_settlement() {
+    let state = VanillaExternalState {
+        country_resources: BTreeMap::from([(
+            "AAA".into(),
+            CountryResources {
+                treasury_milli: Some(1_234),
+                ..Default::default()
+            },
+        )]),
+        country_annual_tax_milli: BTreeMap::from([("AAA".into(), Some(36_000))]),
+        ..Default::default()
+    };
+    let mut loaded =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let annual_province_micros = loaded
+        .initial
+        .world()
+        .attributes()
+        .sum_owned(loaded.initial.world(), country, "tax_after_autonomy")
+        .unwrap()
+        .known_subtotal_micros;
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .taxation()
+            .unwrap()
+            .external_country_annual_milli[&country],
+        Some(36_000)
+    );
+
+    loaded.advance(30).unwrap();
+    let account = &loaded
+        .initial
+        .world()
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    let expected = (annual_province_micros + 36_000_000) / 12_000;
+    assert_eq!(account.known_subtotal_milli, expected);
+    assert_eq!(account.income_milli, None);
+    assert!(account.unresolved.contains("city_status"));
+    assert_eq!(account.treasury_after_milli, None);
+}
+
+#[test]
+fn external_province_annual_tax_binds_by_eu4_province_id() {
+    let state = VanillaExternalState {
+        province_annual_tax_milli: BTreeMap::from([(2, Some(42_000))]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let province = loaded.initial.province_entity(2).unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .taxation()
+            .unwrap()
+            .external_province_annual_milli[&province],
+        Some(42_000)
+    );
+}
+
+#[test]
+fn external_country_cashflows_bind_after_production_and_preserve_unknown_tax_state() {
+    let state = VanillaExternalState {
+        country_resources: BTreeMap::from([(
+            "AAA".into(),
+            CountryResources {
+                treasury_milli: Some(1_234),
+                ..Default::default()
+            },
+        )]),
+        country_monthly_cashflows_milli: BTreeMap::from([("AAA".into(), Some(75))]),
+        production_value_inputs: BTreeMap::from([(
+            2,
+            VanillaExternalProductionInput {
+                goods_size_milli: 1_000,
+                flat_modifier_milli: 0,
+                external_flat_modifier_milli: 0,
+                rate_modifier_milli: 0,
+                external_rate_modifier_milli: 0,
+                country_modifier_milli: 0,
+                legacy_province_modifier_milli: 0,
+                queried_province_modifier_milli: 0,
+            },
+        )]),
+        ..Default::default()
+    };
+    let mut loaded =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let cashflows = loaded.initial.world().monthly_cashflows().unwrap();
+    assert_eq!(cashflows.amounts_milli[&country], Some(75));
+    loaded.advance(30).unwrap();
+
+    let account = &loaded
+        .initial
+        .world()
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert!(
+        account
+            .unresolved
+            .contains("unknown_treasury_after_production")
+    );
+    assert_eq!(account.amount_milli, Some(75));
+    assert_eq!(
+        loaded.initial.world().country_resources()[&country].treasury_milli,
+        None
+    );
+}
+
+#[test]
+fn external_production_input_formats_cannot_overlap_a_province() {
+    let state = VanillaExternalState {
+        production_inputs: BTreeMap::from([(2, production_input(1_000, 0, 0, 0))]),
+        production_value_inputs: BTreeMap::from([(
+            2,
+            VanillaExternalProductionInput {
+                goods_size_milli: 1_000,
+                flat_modifier_milli: 0,
+                external_flat_modifier_milli: 0,
+                rate_modifier_milli: 0,
+                external_rate_modifier_milli: 0,
+                country_modifier_milli: 0,
+                legacy_province_modifier_milli: 0,
+                queried_province_modifier_milli: 0,
+            },
+        )]),
+        ..Default::default()
+    };
+    let error = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("both production_inputs and production_value_inputs"));
+}
+
+#[test]
+fn runtime_production_value_inputs_refresh_without_resetting_monthly_receipts() {
+    let mut loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let first = VanillaExternalProductionInput {
+        goods_size_milli: 1_000,
+        flat_modifier_milli: 0,
+        external_flat_modifier_milli: 0,
+        rate_modifier_milli: 0,
+        external_rate_modifier_milli: 0,
+        country_modifier_milli: 0,
+        legacy_province_modifier_milli: 0,
+        queried_province_modifier_milli: 0,
+    };
+    loaded
+        .set_vanilla_production_value_inputs(BTreeMap::from([(2, first)]))
+        .unwrap();
+    loaded.advance(30).unwrap();
+    let second = VanillaExternalProductionInput {
+        goods_size_milli: 2_000,
+        ..first
+    };
+    loaded
+        .set_vanilla_production_value_inputs(BTreeMap::from([(2, second)]))
+        .unwrap();
+    let entity = loaded.initial.province_entity(2).unwrap();
+    let production = loaded.initial.world().monthly_production().unwrap();
+    assert_eq!(production.settlement_count, 1);
+    assert_eq!(
+        production.inputs[&entity]
+            .input
+            .as_ref()
+            .unwrap()
+            .base_value_milli,
+        6_000
+    );
+}
+
+#[test]
+fn production_value_inputs_round_trip_as_resolved_core_state() {
+    let state = VanillaExternalState {
+        production_value_inputs: BTreeMap::from([(
+            2,
+            VanillaExternalProductionInput {
+                goods_size_milli: 1_000,
+                flat_modifier_milli: 0,
+                external_flat_modifier_milli: 0,
+                rate_modifier_milli: 0,
+                external_rate_modifier_milli: 0,
+                country_modifier_milli: 0,
+                legacy_province_modifier_milli: 0,
+                queried_province_modifier_milli: 0,
+            },
+        )]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let snapshot = loaded.save().unwrap();
+    let mut restored =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    restored.restore(&snapshot).unwrap();
+    assert_eq!(
+        restored.initial.world().monthly_production(),
+        loaded.initial.world().monthly_production()
+    );
+}
+
+#[test]
+fn later_building_definition_replaces_the_earlier_definition_and_keeps_its_source() {
+    let temp = copy_fixture();
+    let path = temp.path().join("common/buildings/zz_override.txt");
+    fs::write(
+        path,
+        "test_market = { cost = 90 modifier = { test_power = 0.25 } }\n",
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let building = &loaded.initial.world().economy().buildings["test_market"];
+    assert_eq!(building.cost_milli, Some(90_000));
+    assert_eq!(building.construction_months, None);
+
+    let report = &loaded.report.economy;
+    let key = "buildings:test_market";
+    assert!(
+        report.definition_sources[key]
+            .path
+            .ends_with("zz_override.txt")
+    );
+    assert_eq!(report.overridden_definition_sources[key].len(), 1);
+    assert!(
+        report.overridden_definition_sources[key][0]
+            .path
+            .ends_with("test_buildings.txt")
+    );
+
+    let attributes = &loaded.initial.world().attributes().building_modifiers["test_market"];
+    assert_eq!(attributes.values_micros["test_power"], 250_000);
+    assert!(!attributes.values_micros.contains_key("local_tax_modifier"));
+    let attribute_key = "buildings:test_market:modifier";
+    assert!(
+        loaded.report.attributes.definition_sources[attribute_key]
+            .path
+            .ends_with("zz_override.txt")
+    );
+    assert_eq!(
+        loaded.report.attributes.overridden_definition_sources[attribute_key].len(),
+        1
+    );
+}
+
+#[test]
+fn country_production_query_aggregates_live_owned_provinces() {
+    let fixture = copy_fixture();
+    fs::write(
+        fixture.path().join("history/provinces/4 - Highland.txt"),
+        "owner = AAA",
+    )
+    .unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let inputs = BTreeMap::from([
+        (2, production_input(2000, 20, 0, -20)),
+        (4, production_input(500, 20, 0, 0)),
+    ]);
+
+    let result = loaded.country_vanilla_production("AAA", &inputs).unwrap();
+    assert_eq!(result.known_annual_value_milli, 2509);
+    assert_eq!(result.known_monthly_value_milli, 208);
+    assert_eq!(result.annual_value_milli, Some(2509));
+    assert_eq!(result.monthly_value_milli, Some(208));
+    assert!(result.unresolved.is_empty());
+    assert_eq!(result.provinces.len(), 2);
+    assert_eq!(result.provinces[0].annual_value_milli, Some(1999));
+    assert_eq!(result.provinces[1].annual_value_milli, Some(510));
+}
+
+#[test]
+fn country_production_query_keeps_known_subtotals_when_an_input_is_unknown() {
+    let fixture = copy_fixture();
+    fs::write(
+        fixture.path().join("history/provinces/4 - Highland.txt"),
+        "owner = AAA",
+    )
+    .unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let inputs = BTreeMap::from([(2, production_input(2000, 20, 0, -20))]);
+
+    let result = loaded.country_vanilla_production("AAA", &inputs).unwrap();
+    assert_eq!(result.known_annual_value_milli, 1999);
+    assert_eq!(result.known_monthly_value_milli, 166);
+    assert_eq!(result.annual_value_milli, None);
+    assert_eq!(result.monthly_value_milli, None);
+    assert!(
+        result
+            .unresolved
+            .contains("province:4:missing_production_input")
+    );
+    assert_eq!(result.provinces[1].annual_value_milli, None);
+}
+
+#[test]
+fn external_production_inputs_bind_by_eu4_province_id_and_restore() {
+    let fixture = copy_fixture();
+    let mut loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let inputs = BTreeMap::from([(2, production_input(2000, 20, 0, -20))]);
+    loaded
+        .set_vanilla_production_inputs(inputs.clone())
+        .unwrap();
+
+    let entity = loaded.initial.province_entity(2).unwrap();
+    assert_eq!(
+        loaded.initial.world().monthly_production().unwrap().inputs,
+        BTreeMap::from([(entity, inputs[&2].clone())])
+    );
+
+    loaded.advance(30).unwrap();
+    let updated = BTreeMap::from([(2, production_input(3000, 0, 0, 0))]);
+    loaded
+        .set_vanilla_production_inputs(updated.clone())
+        .unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .monthly_production()
+            .unwrap()
+            .settlement_count,
+        1
+    );
+    assert_eq!(
+        loaded.initial.world().monthly_production().unwrap().inputs,
+        BTreeMap::from([(entity, updated[&2].clone())])
+    );
+
+    let snapshot = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    restored
+        .set_vanilla_production_inputs(updated.clone())
+        .unwrap();
+    restored.restore(&snapshot).unwrap();
+    assert_eq!(
+        restored
+            .initial
+            .world()
+            .monthly_production()
+            .unwrap()
+            .inputs,
+        BTreeMap::from([(entity, updated[&2].clone())])
+    );
+}
+
+#[test]
+fn external_production_inputs_reject_unknown_eu4_province_ids() {
+    let fixture = copy_fixture();
+    let mut loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let error = loaded
+        .set_vanilla_production_inputs(BTreeMap::from([(999, production_input(2000, 20, 0, -20))]))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown EU4 production province 999"));
+}
+
+#[test]
 fn duplicate_catalogs_unknown_goods_and_invalid_history_fail_with_locations() {
     for (path, from, to, message) in [
         (
-            "common/buildings/test_buildings.txt",
-            "test_fort =",
-            "test_market =",
+            "common/tradegoods/test_goods.txt",
+            "grain =",
+            "cloth =",
             "duplicate economic definition",
         ),
         (

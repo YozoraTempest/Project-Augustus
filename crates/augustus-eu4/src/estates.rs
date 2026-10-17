@@ -7,8 +7,8 @@ use std::{
 };
 
 use augustus_core::{
-    EstateDefinition, EstateEffect, EstatePrivilege, EstateRules, EstateState, Estates,
-    InitialWorld,
+    EstateConditionalModifier, EstateConditionalScale, EstateDefinition, EstateEffect,
+    EstateLoyaltyDecay, EstatePrivilege, EstateRules, EstateState, Estates, InitialWorld,
 };
 use jomini::text::ObjectReader;
 use serde::Serialize;
@@ -43,6 +43,7 @@ pub struct EstateReport {
     pub history_sources: BTreeMap<String, LoadedSource>,
     pub unsupported_fields: BTreeMap<String, usize>,
     pub unsupported_examples: BTreeMap<String, LoadedSource>,
+    pub unsupported_conditional_triggers: BTreeMap<String, usize>,
     pub ambiguous_properties: BTreeMap<String, Vec<LoadedSource>>,
     pub unresolved_countries: BTreeMap<String, BTreeSet<String>>,
     pub pending_land_changes: BTreeMap<String, Vec<LoadedSource>>,
@@ -92,12 +93,23 @@ pub(super) struct EstateDraft {
     conditions: BTreeMap<String, Condition>,
     histories: BTreeMap<String, History>,
     initialization: EstateInitialization,
+    script_library: crate::ScriptLibrary,
+    conditional_modifiers: BTreeMap<String, Vec<ConditionalDraft>>,
+}
+
+struct ConditionalDraft {
+    trigger: Result<crate::script::ConditionSource, Error>,
+    source: LoadedSource,
+    scale: EstateConditionalScale,
+    modifier: EstateEffect,
+    unresolved_fields: bool,
 }
 
 impl EstateDraft {
     pub(super) fn load(
         root: &impl ContentView,
         files: &[FileEntry],
+        defines: &crate::Defines,
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
         let mut draft = Self {
@@ -105,6 +117,8 @@ impl EstateDraft {
             conditions: BTreeMap::new(),
             histories: BTreeMap::new(),
             initialization: EstateInitialization::default(),
+            script_library: crate::ScriptLibrary::new(),
+            conditional_modifiers: BTreeMap::new(),
         };
         if !files
             .iter()
@@ -113,6 +127,7 @@ impl EstateDraft {
             return Ok(draft);
         }
         let library = library(root, files, report)?;
+        draft.script_library = crate::ScriptLibrary::from_root(root, files, ENCODING)?;
         for file in files
             .iter()
             .filter(|f| direct_txt(&f.relative_path, "common/estates"))
@@ -268,18 +283,88 @@ impl EstateDraft {
                         | "loyalty_scaled_conditional_modifier"
                         | "influence_scaled_conditional_modifier" => {
                             let body = block(&value, &fail)?;
-                            for (_, _, value) in body
-                                .fields()
-                                .filter(|(k, _, _)| k.read_string() == "modifier")
+                            let scale = match name.as_str() {
+                                "conditional_modifier" => EstateConditionalScale::Fixed,
+                                "loyalty_scaled_conditional_modifier" => {
+                                    EstateConditionalScale::Loyalty
+                                }
+                                _ => EstateConditionalScale::Influence,
+                            };
+                            let mut condition = None;
+                            let mut modifier = None;
+                            let mut unresolved_condition = false;
+                            for (conditional_key, conditional_op, conditional_value) in
+                                body.fields()
                             {
-                                for (key, _, _) in block(&value, &fail)?.fields() {
-                                    let name = key.read_string();
-                                    privilege.effect.modifier.values_micros.remove(&name);
-                                    privilege.effect.modifier.flags.remove(&name);
-                                    privilege.effect.unresolved_properties.insert(name);
+                                let conditional_name = conditional_key.read_string();
+                                let conditional_at = parsed.field_location(&conditional_key);
+                                let conditional_fail = |message: &str| {
+                                    Error::message(parsed.source(), message)
+                                        .with_location(conditional_at)
+                                };
+                                equal(conditional_op, &conditional_fail)?;
+                                match conditional_name.as_str() {
+                                    "trigger" if condition.is_none() => {
+                                        let trigger = block(&conditional_value, &conditional_fail)?;
+                                        condition = Some((
+                                            crate::script::ConditionSource::parse(
+                                                &parsed,
+                                                "AND",
+                                                trigger,
+                                                conditional_at,
+                                            ),
+                                            source(&parsed, conditional_at),
+                                        ));
+                                    }
+                                    "trigger" => {
+                                        return Err(conditional_fail(
+                                            "duplicate conditional modifier trigger",
+                                        ));
+                                    }
+                                    "modifier" if modifier.is_none() => {
+                                        modifier = Some(effect(
+                                            &parsed,
+                                            block(&conditional_value, &conditional_fail)?,
+                                            &format!("{id}:{name}"),
+                                            report,
+                                        )?);
+                                    }
+                                    "modifier" => {
+                                        return Err(conditional_fail(
+                                            "duplicate conditional modifier payload",
+                                        ));
+                                    }
+                                    _ => {
+                                        unresolved_condition = true;
+                                        report.unsupported(
+                                            &parsed,
+                                            "privilege",
+                                            "conditional_modifier_field",
+                                            conditional_at,
+                                        );
+                                    }
                                 }
                             }
-                            report.unsupported(&parsed, "privilege", &name, at);
+                            if condition.is_none() && modifier.is_none() && !unresolved_condition {
+                                continue;
+                            }
+                            let modifier = modifier.ok_or_else(|| {
+                                fail("conditional modifier is missing its modifier block")
+                            })?;
+                            let (trigger, source) = condition.ok_or_else(|| {
+                                fail("conditional modifier is missing its trigger block")
+                            })?;
+                            draft
+                                .conditional_modifiers
+                                .entry(id.clone())
+                                .or_default()
+                                .push(ConditionalDraft {
+                                    trigger,
+                                    source,
+                                    scale,
+                                    modifier,
+                                    unresolved_fields: unresolved_condition,
+                                });
                         }
                         "on_granted" | "on_granted_province" | "is_valid" => {
                             let body = block(&value, &fail)?;
@@ -322,9 +407,7 @@ impl EstateDraft {
             ("ESTATE_ANGRY_THRESHOLD", &mut rules.angry_below_milli),
             ("ESTATE_HAPPY_THRESHOLD", &mut rules.happy_from_milli),
         ] {
-            if let Some((value, at)) =
-                crate::defines::optional_literal(root, files, "NCountry", name)?
-            {
+            if let Some((value, at)) = defines.optional("NCountry", name)? {
                 if value % 1000 != 0 {
                     return Err(Error::message(
                         &at.path,
@@ -337,7 +420,74 @@ impl EstateDraft {
                     .insert(format!("define:{name}"), at);
             }
         }
-        draft.initialization.load_rules(root, files, report)?;
+        if let Some((base, at)) = defines.optional("NCountry", "ESTATE_DEFAULT_LOYALTY")? {
+            if base % 1000 != 0 {
+                return Err(Error::message(
+                    &at.path,
+                    "estate loyalty target base define exceeds supported precision",
+                ));
+            }
+            let base_milli = base / 1000;
+            if base_milli > i64::from(i32::MAX) {
+                return Err(Error::message(
+                    &at.path,
+                    "estate loyalty target base define exceeds supported range",
+                ));
+            }
+            rules.loyalty_target_base_milli = Some(base_milli);
+            report
+                .definition_sources
+                .insert("define:ESTATE_DEFAULT_LOYALTY".into(), at);
+        }
+        let decay_min = defines.optional("NCountry", "ESTATE_LOYALTY_DECAY_BASE_MIN")?;
+        let decay_max = defines.optional("NCountry", "ESTATE_LOYALTY_DECAY_BASE_MAX")?;
+        match (decay_min, decay_max) {
+            (Some((minimum, minimum_at)), Some((maximum, maximum_at))) => {
+                if minimum % 1000 != 0 {
+                    return Err(Error::message(
+                        &minimum_at.path,
+                        "estate loyalty decay define exceeds supported precision",
+                    ));
+                }
+                if maximum % 1000 != 0 {
+                    return Err(Error::message(
+                        &maximum_at.path,
+                        "estate loyalty decay define exceeds supported precision",
+                    ));
+                }
+                let base_min_annual_milli = minimum / 1000;
+                let base_max_annual_milli = maximum / 1000;
+                if base_min_annual_milli < 0
+                    || base_max_annual_milli < base_min_annual_milli
+                    || base_max_annual_milli > i64::from(i32::MAX)
+                {
+                    return Err(Error::message(
+                        &maximum_at.path,
+                        "invalid estate loyalty decay defines",
+                    ));
+                }
+                rules.loyalty_decay = Some(EstateLoyaltyDecay {
+                    base_min_annual_milli,
+                    base_max_annual_milli,
+                });
+                report
+                    .definition_sources
+                    .insert("define:ESTATE_LOYALTY_DECAY_BASE_MIN".into(), minimum_at);
+                report
+                    .definition_sources
+                    .insert("define:ESTATE_LOYALTY_DECAY_BASE_MAX".into(), maximum_at);
+            }
+            (None, None) => {}
+            (Some((_, at)), None) | (None, Some((_, at))) => {
+                return Err(Error::message(
+                    &at.path,
+                    "estate loyalty decay defines must be provided together",
+                ));
+            }
+        }
+        draft
+            .initialization
+            .load_rules(root, files, defines, report)?;
         // Current influence scaling is independent of initial land allocation.
         draft.content.rules = rules;
         report.definitions = draft.content.definitions.len();
@@ -351,7 +501,8 @@ impl EstateDraft {
         reader: Reader<'_, '_>,
         tag: &str,
         report: &mut EstateReport,
-    ) -> Result<(), Error> {
+    ) -> Result<BTreeSet<String>, Error> {
+        let mut handled = BTreeSet::new();
         let history = self.histories.entry(tag.into()).or_default();
         for (key, op, value) in reader.fields() {
             let name = key.read_string();
@@ -386,6 +537,7 @@ impl EstateDraft {
                             .history_sources
                             .insert(format!("{tag}:{id}"), source(parsed, at));
                     }
+                    handled.insert(name);
                 }
                 "change_estate_land_share" | "add_estate_loyalty" => {
                     equal(op, &fail)?;
@@ -399,6 +551,7 @@ impl EstateDraft {
                         format!("{tag}:{name}:{}", history.metrics.len()),
                         source(parsed, at),
                     );
+                    handled.insert(name);
                 }
                 "add_estate_influence" => {
                     report
@@ -415,7 +568,7 @@ impl EstateDraft {
                 }
             }
         }
-        Ok(())
+        Ok(handled)
     }
 
     pub(super) fn bind(
@@ -425,6 +578,69 @@ impl EstateDraft {
     ) -> Result<Estates, Error> {
         if self.content.definitions.is_empty() {
             return Ok(self.content);
+        }
+        for (id, drafts) in std::mem::take(&mut self.conditional_modifiers) {
+            let effect = &mut self
+                .content
+                .privileges
+                .get_mut(&id)
+                .expect("parsed privilege")
+                .effect;
+            for draft in drafts {
+                let condition = draft.trigger.and_then(|source| {
+                    crate::ScriptCompiler::for_world(initial.world(), &self.script_library, false)
+                        .compile_condition_source(&source, augustus_core::EntityKind::Country)
+                });
+                let condition = match condition {
+                    Ok(condition) => Some(condition),
+                    Err(error) => {
+                        *report
+                            .unsupported_conditional_triggers
+                            .entry(error.detail().to_owned())
+                            .or_default() += 1;
+                        let key = "privilege:conditional_modifier_trigger".to_owned();
+                        *report.unsupported_fields.entry(key.clone()).or_default() += 1;
+                        report
+                            .unsupported_examples
+                            .entry(key)
+                            .or_insert(draft.source);
+                        None
+                    }
+                };
+                if !draft.unresolved_fields
+                    && let Some(condition) = condition
+                {
+                    effect
+                        .conditional_modifiers
+                        .push(EstateConditionalModifier {
+                            condition,
+                            scale: draft.scale,
+                            modifier: draft.modifier.modifier,
+                            unresolved_properties: draft.modifier.unresolved_properties,
+                        });
+                } else {
+                    let properties: BTreeSet<_> = draft
+                        .modifier
+                        .modifier
+                        .values_micros
+                        .keys()
+                        .chain(draft.modifier.modifier.flags.keys())
+                        .chain(draft.modifier.unresolved_properties.iter())
+                        .cloned()
+                        .collect();
+                    if properties.is_empty() {
+                        effect
+                            .unresolved_effects
+                            .insert("conditional_modifier_trigger".into());
+                    } else {
+                        effect.unresolved_properties.extend(properties);
+                    }
+                }
+            }
+            for name in &effect.unresolved_properties {
+                effect.modifier.values_micros.remove(name);
+                effect.modifier.flags.remove(name);
+            }
         }
         for country in initial.countries() {
             let history = self.histories.get(&country.id);
@@ -582,6 +798,9 @@ fn merge(target: &mut EstateEffect, source: EstateEffect) -> Result<(), Error> {
     target
         .unresolved_properties
         .extend(source.unresolved_properties);
+    target
+        .conditional_modifiers
+        .extend(source.conditional_modifiers);
     for (p, value) in source.modifier.values_micros {
         let total = target.modifier.values_micros.entry(p).or_default();
         *total = total.checked_add(value).ok_or_else(|| {

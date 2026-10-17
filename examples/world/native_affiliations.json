@@ -23,5 +23,15 @@
     "members": {},
     "absent_members": [0, 1],
     "acceptance": {}
+  },
+  "technology_group": {
+    "groups": {},
+    "members": {"0": "test_group", "1": null},
+    "acceptance": {}
+  },
+  "unit_type": {
+    "groups": {},
+    "members": {"0": "test_group", "1": null},
+    "acceptance": {}
   }
 }

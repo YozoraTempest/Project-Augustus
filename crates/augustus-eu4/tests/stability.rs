@@ -412,3 +412,30 @@ fn duplicate_missing_and_indirect_history_keep_initial_values_unknown() {
         }
     }
 }
+
+#[test]
+fn unrelated_history_effect_does_not_hide_initial_stability() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/scripted_effects/unrelated.txt",
+        "unrelated_country_setup={add_prestige=1}",
+    );
+    let selected = temp.path().join("history/countries/AAA - Alpha.txt");
+    let previous = fs::read_to_string(&selected).unwrap();
+    fs::write(
+        selected,
+        format!("{previous}\nunrelated_country_setup=yes\n"),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().metrics.unwrap()["stability"],
+        Some(0)
+    );
+    assert_eq!(
+        loaded.country("BBB").unwrap().metrics.unwrap()["stability"],
+        Some(0)
+    );
+}

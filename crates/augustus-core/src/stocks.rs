@@ -79,6 +79,12 @@ impl MonthlyStocks {
         })
     }
 
+    pub(crate) fn conflicts_with_production(&self) -> bool {
+        self.rules
+            .values()
+            .any(|rules| rules.contains_key(&CountryResource::Treasury))
+    }
+
     pub(crate) fn validate_attributes(&self, attributes: &crate::Attributes) -> Result<(), Error> {
         for (entity, rules) in &self.rules {
             for rule in rules.values() {
@@ -309,11 +315,20 @@ impl World {
         }
         if let Some(state) = &state {
             state.validate(self)?;
+            if self
+                .monthly_production
+                .as_ref()
+                .is_some_and(|_| state.conflicts_with_production())
+            {
+                return Err(Error::Invalid("duplicate monthly treasury executor".into()));
+            }
         }
         self.monthly_stocks = state;
         self.monthly_system_id = if self.monthly_stocks.is_some()
             || self.monthly_accruals.is_some()
             || self.monthly_convergence.is_some()
+            || self.monthly_production.is_some()
+            || self.monthly_cashflows.is_some()
         {
             Some(crate::MonthlyEconomy.id().into())
         } else {

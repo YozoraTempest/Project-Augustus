@@ -7,7 +7,10 @@ use std::{
 };
 
 use augustus_core::{EntityKind, ProvinceClass, Schema, World};
-use augustus_eu4::{ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaWorld};
+use augustus_eu4::{
+    ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalArmy,
+    VanillaExternalNavalUnit, VanillaExternalState, VanillaWorld,
+};
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world")
@@ -72,6 +75,341 @@ fn world_loader_reads_mod_files_through_resolved_content() {
             .iter()
             .any(|source| source.name() == "Test Mod")
     );
+}
+
+#[test]
+fn country_tax_uses_all_nations_when_no_free_city_is_in_the_hre() {
+    let fixture = copy_fixture();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "all_nations = { global_tax_income = 13 }\n\
+         free_cities_in_hre = { global_tax_income = 3 }",
+    );
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let world = loaded.initial.world();
+    let tax = world
+        .attributes()
+        .evaluate(world, country, "country_annual_tax")
+        .unwrap();
+
+    assert_eq!(
+        world
+            .taxation()
+            .unwrap()
+            .country_annual_attribute
+            .as_deref(),
+        Some("country_annual_tax")
+    );
+    assert_eq!(tax.known_subtotal_micros, Some(13_000_000));
+    assert_eq!(tax.value_micros, Some(13_000_000));
+    assert!(
+        !loaded
+            .report
+            .attributes
+            .unmapped_properties
+            .contains_key("static_modifiers:global_tax_income")
+    );
+}
+
+#[test]
+fn country_tax_does_not_assume_landless_countries_receive_all_nations() {
+    let fixture = copy_fixture();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "all_nations = { global_tax_income = 13 }",
+    );
+    for (id, name) in [(1, "North"), (2, "East"), (3, "South"), (4, "Highland")] {
+        fs::write(
+            fixture
+                .path()
+                .join(format!("history/provinces/{id} - {name}.txt")),
+            "owner = AAA",
+        )
+        .unwrap();
+    }
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let landowner = loaded.initial.country_entity("AAA").unwrap();
+    let landless = loaded.initial.country_entity("BBB").unwrap();
+    let world = loaded.initial.world();
+    assert!(!world.has_owned_province(landless).unwrap());
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(world, landowner, "country_annual_tax")
+            .unwrap()
+            .value_micros,
+        Some(13_000_000)
+    );
+    let landless_tax = world
+        .attributes()
+        .evaluate(world, landless, "country_annual_tax")
+        .unwrap();
+    assert_eq!(landless_tax.value_micros, None);
+    assert!(
+        landless_tax
+            .unresolved
+            .contains("all_nations_landless_country_type_unresolved")
+    );
+}
+
+#[test]
+fn country_tax_counts_free_city_reforms_in_the_hre_for_the_current_emperor() {
+    let fixture = copy_fixture();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "all_nations = { global_tax_income = 13 }\n\
+         free_cities_in_hre = { global_tax_income = 3 }",
+    );
+    append_fixture(
+        fixture.path(),
+        "common/government_reforms/test_governments.txt",
+        "free_city = { republic = yes }",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/countries/BBB - Beta.txt",
+        "add_government_reform = free_city",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/provinces/2 - East.txt",
+        "1444.1.1 = { owner = BBB hre = yes }",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/provinces/4 - Highland.txt",
+        "owner = AAA",
+    );
+
+    let mut loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let emperor = loaded.initial.country_entity("AAA").unwrap();
+    let city = loaded.initial.country_entity("BBB").unwrap();
+    let province = loaded.initial.province_entity(2).unwrap();
+    let world = loaded.initial.world();
+    assert_eq!(
+        world.politics().offices.get("imperial_emperor"),
+        Some(&emperor)
+    );
+    assert!(world.has_owned_province(emperor).unwrap());
+    assert!(world.government_reform_selected(city, "free_city").unwrap());
+    assert_eq!(
+        world
+            .affiliations()
+            .belongs_to("imperial_membership", province, "hre"),
+        Some(true)
+    );
+    assert_eq!(world.entity(province).unwrap().owner, Some(city));
+    assert!(world.owned_provinces(city).unwrap().contains(&province));
+    let emperor_tax = world
+        .attributes()
+        .evaluate(world, emperor, "country_annual_tax")
+        .unwrap();
+    assert_eq!(emperor_tax.value_micros, Some(16_000_000));
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(world, city, "country_annual_tax")
+            .unwrap()
+            .value_micros,
+        Some(13_000_000)
+    );
+
+    let mut affiliations = loaded.initial.world().affiliations().clone();
+    let imperial = affiliations.0.get_mut("imperial_membership").unwrap();
+    imperial.members.remove(&province);
+    imperial.absent_members.insert(province);
+    loaded.initial.set_affiliations(affiliations).unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(loaded.initial.world(), emperor, "country_annual_tax")
+            .unwrap()
+            .value_micros,
+        Some(13_000_000)
+    );
+
+    let mut affiliations = loaded.initial.world().affiliations().clone();
+    let imperial = affiliations.0.get_mut("imperial_membership").unwrap();
+    imperial.absent_members.remove(&province);
+    imperial.members.insert(province, Some("hre".into()));
+    loaded.initial.set_affiliations(affiliations).unwrap();
+    let mut governments = loaded.initial.world().governments().clone();
+    governments
+        .countries
+        .get_mut(&city)
+        .unwrap()
+        .reforms
+        .as_mut()
+        .unwrap()
+        .remove("free_city");
+    loaded.initial.set_governments(governments).unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(loaded.initial.world(), emperor, "country_annual_tax")
+            .unwrap()
+            .value_micros,
+        Some(13_000_000)
+    );
+}
+
+#[test]
+fn technology_levels_keep_enabled_unit_names_in_order_with_sources() {
+    let fixture = copy_fixture();
+    fs::write(
+        fixture.path().join("common/technology.txt"),
+        "groups = { test_group = { start_level = 1 } }\ntables = {\n\
+         adm_tech = \"technologies/test_adm.txt\"\n\
+         dip_tech = \"technologies/test_dip.txt\"\n\
+         mil_tech = \"technologies/test_mil.txt\"\n}",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("common/technologies/test_dip.txt"),
+        "monarch_power = DIP\n\
+         technology = { year = 1410 enable = barque trade_range = 100 enable = cog }\n\
+         technology = { year = 1500 enable = caravel }",
+    )
+    .unwrap();
+    fs::create_dir_all(fixture.path().join("common/units")).unwrap();
+    fs::write(
+        fixture.path().join("common/units/barque.txt"),
+        "type = light_ship\nunit_type = western\nhull_size = 8",
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let levels = &loaded.initial.world().technology().tables["diplomatic"];
+    assert_eq!(levels[0].enabled_units, ["barque", "cog"]);
+    assert_eq!(levels[1].enabled_units, ["caravel"]);
+    let template = &loaded.initial.world().unit_templates().definitions["barque"];
+    assert_eq!(template.category, "light_ship");
+    assert_eq!(
+        template
+            .properties
+            .iter()
+            .map(|property| (property.name.as_str(), property.value.as_str()))
+            .collect::<Vec<_>>(),
+        [("unit_type", "western"), ("hull_size", "8")]
+    );
+    assert_eq!(loaded.report.setup.unit_templates, 5);
+    assert!(
+        !loaded
+            .report
+            .setup
+            .unapplied_definition_fields
+            .contains_key("technology.level:enable")
+    );
+    assert_eq!(
+        loaded.report.setup.enabled_unit_sources["diplomatic:0:barque"][0].line,
+        2
+    );
+    assert_eq!(loaded.report.setup.unit_template_sources["barque"].line, 1);
+
+    let saved = loaded.save().unwrap();
+    let mut same = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    same.restore(&saved).unwrap();
+    assert_eq!(
+        same.initial.world().unit_templates(),
+        loaded.initial.world().unit_templates()
+    );
+    fs::write(
+        fixture.path().join("common/units/barque.txt"),
+        "type = light_ship\nunit_type = western\nhull_size = 9",
+    )
+    .unwrap();
+    let mut changed = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert!(changed.restore(&saved).is_err());
+}
+
+#[test]
+fn country_history_keeps_unit_type_separate_and_applies_dated_changes() {
+    let fixture = copy_fixture();
+    append_fixture(
+        fixture.path(),
+        "history/countries/AAA - Alpha.txt",
+        "technology_group = test_group\nunit_type = sample_army_group\n\
+         1445.1.1 = { unit_type = later_army_group }",
+    );
+
+    let start = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let country = start.initial.country("AAA").unwrap();
+    assert_eq!(country.technology_group.as_deref(), Some("test_group"));
+    assert_eq!(country.unit_type.as_deref(), Some("sample_army_group"));
+    let start_source = &start.report.setup.history_sources["country:AAA:unit_type"];
+    assert!(start_source.path.ends_with("AAA - Alpha.txt"));
+
+    let later = VanillaWorld::load(fixture.path(), "1450.1.1").unwrap();
+    let country = later.initial.country("AAA").unwrap();
+    assert_eq!(country.technology_group.as_deref(), Some("test_group"));
+    assert_eq!(country.unit_type.as_deref(), Some("later_army_group"));
+    assert!(later.report.setup.history_sources["country:AAA:unit_type"].line > start_source.line);
+    assert!(
+        !start
+            .report
+            .unapplied_country_fields
+            .contains_key("unit_type")
+    );
+}
+
+#[test]
+fn country_without_unit_type_inherits_its_technology_group() {
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+
+    let country = loaded.initial.country("AAA").unwrap();
+    assert_eq!(country.technology_group.as_deref(), Some("test_group"));
+    assert_eq!(country.unit_type.as_deref(), Some("test_group"));
+    assert!(
+        !loaded
+            .report
+            .setup
+            .history_sources
+            .contains_key("country:AAA:unit_type")
+    );
+
+    let country_without_group = loaded.initial.country("BBB").unwrap();
+    assert_eq!(country_without_group.technology_group, None);
+    assert_eq!(country_without_group.unit_type, None);
+}
+
+#[test]
+fn country_without_unit_type_inherits_its_final_dated_technology_group() {
+    let fixture = copy_fixture();
+    let technology_path = fixture.path().join("common/technology.txt");
+    let technology = fs::read_to_string(&technology_path).unwrap();
+    fs::write(
+        technology_path,
+        technology.replace(
+            "groups = { test_group = { start_level = 3 } }",
+            "groups = { test_group = { start_level = 3 } later_group = { start_level = 2 } }",
+        ),
+    )
+    .unwrap();
+    append_fixture(
+        fixture.path(),
+        "history/countries/AAA - Alpha.txt",
+        "1445.1.1 = { technology_group = later_group }",
+    );
+
+    let before_change = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let country = before_change.initial.country("AAA").unwrap();
+    assert_eq!(country.technology_group.as_deref(), Some("test_group"));
+    assert_eq!(country.unit_type.as_deref(), Some("test_group"));
+
+    let after_change = VanillaWorld::load(fixture.path(), "1450.1.1").unwrap();
+    let country = after_change.initial.country("AAA").unwrap();
+    assert_eq!(country.technology_group.as_deref(), Some("later_group"));
+    assert_eq!(country.unit_type.as_deref(), Some("later_group"));
 }
 
 #[test]
@@ -162,6 +500,20 @@ fn cyclic_or_duplicate_subject_definitions_keep_colonial_selection_unknown() {
         assert_eq!(selected_idea(&loaded, "BBB"), None);
         assert!(loaded.report.ideas.unknown_statuses["BBB"].contains("colonial_nation"));
     }
+}
+
+#[test]
+fn loader_distinguishes_an_explicit_zero_seed_from_runtime_clock_mode() {
+    let runtime_seed = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let fixed_zero = VanillaWorld::load_with_seed(fixture(), "1444.11.11", 0).unwrap();
+
+    assert_eq!(runtime_seed.initial.world().eu4_event_seed(), None);
+    assert_eq!(fixed_zero.initial.world().eu4_event_seed(), Some(0));
+    assert_eq!(
+        runtime_seed.initial.world().eu4_random_state().unwrap().0,
+        0
+    );
+    assert_eq!(fixed_zero.initial.world().eu4_random_state().unwrap().0, 0);
 }
 
 #[test]
@@ -436,6 +788,18 @@ fn flag_history_is_ordered_and_unknown_scoped_mutations_are_not_assumed_false() 
     fs::write(&path, format!("{history}\n1443.1.1 = {{ clr_country_flag = not_implemented }}\n1445.1.1 = {{ set_country_flag = not_implemented }}")).unwrap();
     let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
     assert!(
+        !loaded
+            .report
+            .unapplied_country_fields
+            .contains_key("clr_country_flag")
+    );
+    assert!(
+        !loaded
+            .report
+            .unapplied_country_fields
+            .contains_key("set_country_flag")
+    );
+    assert!(
         loaded
             .country("AAA")
             .unwrap()
@@ -454,6 +818,7 @@ fn flag_history_is_ordered_and_unknown_scoped_mutations_are_not_assumed_false() 
     )
     .unwrap();
     let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.unapplied_country_fields.contains_key("if"));
     assert!(
         loaded
             .country("AAA")
@@ -611,9 +976,11 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
     assert_eq!(loaded.initial.bound_capital("AAA"), Some(2));
     assert_eq!(loaded.initial.bound_capital("BBB"), Some(1));
     assert_eq!(loaded.report.ruleset, "eu4-final-all-dlc");
-    assert_eq!(
-        loaded.report.unapplied_country_fields["set_country_flag"],
-        1
+    assert!(
+        !loaded
+            .report
+            .unapplied_country_fields
+            .contains_key("set_country_flag")
     );
     assert_eq!(loaded.report.unapplied_province_fields["discovered_by"], 1);
     let origin = &loaded.report.unapplied_examples["province:discovered_by"];
@@ -630,7 +997,8 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
         "province.manpower_base",
     ])
     .unwrap();
-    let mut native = World::new(schema);
+    let mut native = World::eu4_seeded(schema, vec![], 0);
+    native.set_eu4_event_seed(None);
     let alpha = native.add_entity("AAA", EntityKind::Country);
     let beta = native.add_entity("BBB", EntityKind::Country);
     let north = native.add_entity("1", EntityKind::Province);
@@ -661,10 +1029,10 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
     }
     let politics = serde_json::from_str(r#"{
         "countries": {
-            "0": {"statuses":{"client_nation":false,"colonial_nation":false,"federation_nation":false,"revolution_target":false},"national_focus":{"skill":null},"ruler":{"name":"Iris","dynasty":"Sun","birth_date":{"year":1410,"month":1,"day":1},"administration":2,"diplomacy":3,"military":4},
+            "0": {"statuses":{"at_war":null,"client_nation":false,"colonial_nation":false,"federation_nation":false,"revolution_target":false},"national_focus":{"skill":null},"ruler":{"name":"Iris","dynasty":"Sun","birth_date":{"year":1410,"month":1,"day":1},"administration":2,"diplomacy":3,"military":4},
                 "heir":{"name":"Rowan","regnal_name":"Rowan I","dynasty":"Sun","birth_date":{"year":1440,"month":1,"day":1},"historical_death_date":{"year":1444,"month":11,"day":12},"administration":1,"diplomacy":2,"military":3,"claim_milli":87125,"block_disinherit":true},
                 "consort":{"name":"Vale","country_of_origin":1,"female":true,"birth_date":{"year":1415,"month":1,"day":1},"historical_death_date":{"year":1450,"month":1,"day":1}}},
-            "1": {"statuses":{"client_nation":false,"colonial_nation":false,"federation_nation":false,"revolution_target":false},"national_focus":{"skill":null},"ruler":{"name":"Council","regent":true,"administration":0,"diplomacy":0,"military":0}}
+            "1": {"statuses":{"at_war":null,"client_nation":false,"colonial_nation":false,"federation_nation":false,"revolution_target":false},"national_focus":{"skill":null},"ruler":{"name":"Council","regent":true,"administration":0,"diplomacy":0,"military":0}}
         },
         "relations": [
             {"kind":"alliance","first":0,"second":1},
@@ -707,9 +1075,9 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             "test_fort":{"cost_milli":200000,"construction_months":18}
         },
         "trade_goods": {
-            "grain":{"base_price_milli":2125},
-            "cloth":{"base_price_milli":3000},
-            "gold":{"base_price_milli":0,"gold_type":true}
+            "grain":{"runtime_index":1,"base_price_milli":2125},
+            "cloth":{"runtime_index":2,"base_price_milli":3000},
+            "gold":{"runtime_index":3,"base_price_milli":0,"gold_type":true}
         },
         "trade_nodes": {
             "river":{"location":2,"members":[2],"outgoing":["harbor"],"inland":true},
@@ -733,6 +1101,8 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
                 year,
                 values_micros: Default::default(),
                 flags: Default::default(),
+                enabled_units: Vec::new(),
+                unresolved_properties: Default::default(),
             })
             .collect();
         match branch {
@@ -742,11 +1112,17 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             }
             "diplomatic" => {
                 levels[3].values_micros.insert("test_range".into(), 7125000);
+                levels[3].enabled_units.push("sample_light_ship".into());
             }
             _ => {
                 levels[0]
                     .values_micros
                     .insert("test_strength".into(), 1250000);
+                levels[0].enabled_units = vec![
+                    "test_infantry".into(),
+                    "test_cavalry".into(),
+                    "test_artillery".into(),
+                ];
             }
         }
         technology.tables.insert(branch.into(), levels);
@@ -759,6 +1135,67 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             .collect(),
     );
     native.set_technology(technology).unwrap();
+    native
+        .set_unit_templates(augustus_core::UnitTemplates {
+            definitions: [
+                (
+                    "sample_light_ship".into(),
+                    augustus_core::UnitTemplate {
+                        category: "light_ship".into(),
+                        properties: vec![
+                            ("unit_type", "sample_group"),
+                            ("hull_size", "11"),
+                            ("base_cannons", "7"),
+                            ("sail_speed", "6"),
+                            ("trade_power", "1.25"),
+                            ("sailors", "25"),
+                        ]
+                        .into_iter()
+                        .map(|(name, value)| augustus_core::UnitTemplateProperty {
+                            name: name.into(),
+                            value: value.into(),
+                        })
+                        .collect(),
+                    },
+                ),
+                (
+                    "test_infantry".into(),
+                    augustus_core::UnitTemplate {
+                        category: "infantry".into(),
+                        properties: vec![("unit_type", "test_group")]
+                            .into_iter()
+                            .map(|(name, value)| augustus_core::UnitTemplateProperty {
+                                name: name.into(),
+                                value: value.into(),
+                            })
+                            .collect(),
+                    },
+                ),
+                (
+                    "test_cavalry".into(),
+                    augustus_core::UnitTemplate {
+                        category: "cavalry".into(),
+                        properties: vec![augustus_core::UnitTemplateProperty {
+                            name: "unit_type".into(),
+                            value: "test_group".into(),
+                        }],
+                    },
+                ),
+                (
+                    "test_artillery".into(),
+                    augustus_core::UnitTemplate {
+                        category: "artillery".into(),
+                        properties: vec![augustus_core::UnitTemplateProperty {
+                            name: "unit_type".into(),
+                            value: "test_group".into(),
+                        }],
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        })
+        .unwrap();
     native
         .set_country_resources(
             [
@@ -876,6 +1313,18 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             .mark_target_absent(augustus_core::EntityId(index), augustus_core::Target::Owner)
             .unwrap();
     }
+    assert_eq!(
+        loaded.initial.world().governments(),
+        native.governments(),
+        "government state differs"
+    );
+    assert_eq!(loaded.initial.world().politics(), native.politics());
+    assert_eq!(loaded.initial.world().attributes(), native.attributes());
+    assert_eq!(
+        loaded.initial.world().affiliations(),
+        native.affiliations(),
+        "affiliation state differs"
+    );
     assert_eq!(loaded.initial.world(), &native);
     let earlier = VanillaWorld::load(fixture(), "1435.1.1").unwrap();
     assert_eq!(
@@ -970,6 +1419,52 @@ fn invalid_relationships_and_used_colors_fail_world_construction() {
             .to_string()
             .contains("duplicate map color")
     );
+}
+
+#[test]
+fn external_starting_units_are_bound_before_startup_and_saved() {
+    let baseline = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let port = baseline
+        .initial
+        .provinces()
+        .iter()
+        .find(|province| {
+            baseline
+                .initial
+                .province_entity(province.id)
+                .and_then(|entity| baseline.initial.world().province_has_port(entity).ok())
+                == Some(true)
+        })
+        .map(|province| province.id)
+        .expect("fixture must contain a port province");
+
+    let mut external = VanillaExternalState::default();
+    external.armies.push(VanillaExternalArmy {
+        owner: "AAA".into(),
+        location: 1,
+        name: "Northern Army".into(),
+        regiments: vec!["infantry".into(), "cavalry".into()],
+    });
+    external.naval_units.push(VanillaExternalNavalUnit {
+        owner: "AAA".into(),
+        location: port,
+        unit_type: "light_ship".into(),
+    });
+
+    let mut loaded =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &external).unwrap();
+    assert_eq!(loaded.initial.armies().len(), 1);
+    assert_eq!(loaded.initial.armies()[0].regiments.len(), 2);
+    assert_eq!(loaded.initial.naval_units().len(), 1);
+    assert_eq!(
+        loaded.initial.naval_units()[0].location.0,
+        loaded.initial.province_entity(port).unwrap().0
+    );
+
+    let snapshot = loaded.save().unwrap();
+    loaded.restore(&snapshot).unwrap();
+    assert_eq!(loaded.initial.armies().len(), 1);
+    assert_eq!(loaded.initial.naval_units().len(), 1);
 }
 
 #[test]

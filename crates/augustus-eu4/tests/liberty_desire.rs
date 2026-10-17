@@ -198,9 +198,22 @@ fn unsupported_operands_and_scope_report_source_and_lua_rate_changes_are_not_ign
         "common/defines/control.lua",
         "NDefines.NCountry.MONTHLY_LIBERTY_DECREASE = 0.2\n",
     );
-    let error = VanillaWorld::load(temp.path(), "1444.11.11").unwrap_err();
-    assert!(error.to_string().contains("MONTHLY_LIBERTY_DECREASE"));
-    assert!(error.location().is_some());
+    write(
+        temp.path(),
+        "common/on_actions/control.txt",
+        "on_startup={if={limit={tag=BBB} add_liberty_desire=25}}",
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .report
+            .setup
+            .definition_sources
+            .values()
+            .any(|source| source.path.ends_with("common/defines/control.lua"))
+    );
+    loaded.advance(20).unwrap();
+    assert_eq!(quantity(&loaded, "BBB"), Some(24_800));
 }
 
 #[test]

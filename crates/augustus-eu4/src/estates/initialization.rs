@@ -191,6 +191,7 @@ impl EstateInitialization {
         &mut self,
         root: &impl ContentView,
         files: &[FileEntry],
+        defines: &crate::Defines,
         report: &mut EstateReport,
     ) -> Result<(), Error> {
         let mut values = BTreeMap::new();
@@ -198,9 +199,7 @@ impl EstateInitialization {
             "ESTATE_START_CROWNLAND_INFLUENCE",
             "ESTATE_MIN_DISTRIBUTED_CROWNLAND",
         ] {
-            if let Some((value, at)) =
-                crate::defines::optional_literal(root, files, "NCountry", key)?
-            {
+            if let Some((value, at)) = defines.optional("NCountry", key)? {
                 values.insert(key, value);
                 report
                     .definition_sources

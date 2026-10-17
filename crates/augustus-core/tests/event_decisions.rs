@@ -2,10 +2,10 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, Condition, CountryController, EmptyWeightChoice, EntityId, EntityKind, Error,
-    EventCatalog, EventChoice, EventDecisionSystem, EventDefinition, EventOption, EventWeight,
-    FieldId, PendingEvent, PendingEventId, Schema, Target, WeightModifier, WeightedEventDecisions,
-    World,
+    Action, Condition, CountryController, CountryResource, EmptyWeightChoice, EntityId, EntityKind,
+    Error, EventCatalog, EventChoice, EventDecisionSystem, EventDefinition, EventOption,
+    EventWeight, FieldId, NumericOperation, NumericSlot, PendingEvent, PendingEventId, Schema,
+    Target, WeightModifier, WeightedEventDecisions, World,
 };
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -80,6 +80,45 @@ fn decision_is_captured_after_immediate_and_command_does_not_recheck_it() {
 }
 
 #[test]
+fn failed_queued_commands_report_the_event_option_and_country() {
+    let mut world = World::new(Schema::new(["unused"]).unwrap());
+    let country = world.add_entity("AAA", EntityKind::Country);
+    world
+        .set_country_controller(country, CountryController::Ai)
+        .unwrap();
+    world
+        .set_event_catalog(
+            EventCatalog::new([EventDefinition {
+                id: "startup_recruitment".into(),
+                scope: EntityKind::Country,
+                immediate: Vec::new(),
+                options: vec![EventOption {
+                    id: "raise_troops".into(),
+                    effects: vec![Action::UpdateNumeric {
+                        target: Target::Current,
+                        slot: NumericSlot::Resource(CountryResource::Manpower),
+                        operation: NumericOperation::Add,
+                        value: 1_000,
+                    }],
+                }],
+                after: Vec::new(),
+            }])
+            .unwrap()
+            .with_decision_system(Arc::new(WeightedEventDecisions {
+                empty: EmptyWeightChoice::FirstDeclared,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+    world.trigger_event("startup_recruitment", country).unwrap();
+    let error = world.process_event_commands().unwrap_err().to_string();
+
+    assert!(error.contains("event startup_recruitment option raise_troops for AAA"));
+    assert!(error.contains("country resource Manpower is unknown for entity 0"));
+}
+
+#[test]
 fn human_choices_remain_pending_without_consuming_randomness() {
     let mut world = setup(CountryController::Human, EmptyWeightChoice::FirstDeclared);
     let before: serde_json::Value = serde_json::from_str(&world.save("scene").unwrap()).unwrap();
@@ -128,6 +167,56 @@ fn zero_weights_have_an_explicit_content_policy() {
             }
         );
     }
+}
+
+#[test]
+fn weighted_ai_keeps_events_pending_when_an_option_is_unavailable() {
+    let mut world = setup(CountryController::Ai, EmptyWeightChoice::FirstDeclared);
+    let catalog = world
+        .event_catalog()
+        .clone()
+        .with_unavailable_options(BTreeMap::from([(
+            "council".into(),
+            BTreeMap::from([("no".into(), "unsupported effect update_sprite_pack".into())]),
+        )]))
+        .unwrap();
+    world.set_event_catalog(catalog).unwrap();
+
+    let before: serde_json::Value = serde_json::from_str(&world.save("scene").unwrap()).unwrap();
+    world.trigger_event("council", EntityId(0)).unwrap();
+
+    assert!(world.queued_event_choices().is_empty());
+    assert_eq!(world.pending_events().len(), 1);
+    assert_eq!(
+        world
+            .available_event_options(PendingEventId(0))
+            .unwrap()
+            .iter()
+            .map(|option| option.id.as_str())
+            .collect::<Vec<_>>(),
+        ["yes"]
+    );
+    assert_eq!(
+        world
+            .event_catalog()
+            .unavailable_option_reason("council", "no"),
+        Some("unsupported effect update_sprite_pack")
+    );
+
+    let after: serde_json::Value = serde_json::from_str(&world.save("scene").unwrap()).unwrap();
+    assert_eq!(before["random"], after["random"]);
+    let before_invalid_choice = world.save("scene").unwrap();
+    assert!(
+        world
+            .choose_event(&EventChoice {
+                pending: PendingEventId(0),
+                option: "no".into(),
+            })
+            .unwrap_err()
+            .to_string()
+            .contains("unavailable")
+    );
+    assert_eq!(world.save("scene").unwrap(), before_invalid_choice);
 }
 
 #[test]

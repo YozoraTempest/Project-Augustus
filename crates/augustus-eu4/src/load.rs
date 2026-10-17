@@ -3,8 +3,13 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
+    fmt, fs,
     path::{Path, PathBuf},
+};
+
+use serde::{
+    Deserialize, Deserializer,
+    de::{self, IgnoredAny, MapAccess, Visitor},
 };
 
 use crate::{
@@ -175,6 +180,54 @@ impl ContentSource {
     }
 }
 
+#[derive(Debug)]
+struct LauncherModSelection {
+    enabled_mods: BTreeSet<String>,
+}
+
+impl<'de> Deserialize<'de> for LauncherModSelection {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct SelectionVisitor;
+
+        impl<'de> Visitor<'de> for SelectionVisitor {
+            type Value = LauncherModSelection;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("an EU4 launcher configuration object")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut enabled_mods = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    if key.eq_ignore_ascii_case("enabled_mods") {
+                        if enabled_mods.is_some() {
+                            return Err(de::Error::custom(
+                                "duplicate enabled_mods configuration field",
+                            ));
+                        }
+                        enabled_mods = Some(map.next_value::<Vec<String>>()?);
+                    } else {
+                        let _: IgnoredAny = map.next_value()?;
+                    }
+                }
+                let enabled_mods =
+                    enabled_mods.ok_or_else(|| de::Error::missing_field("enabled_mods"))?;
+                Ok(LauncherModSelection {
+                    enabled_mods: enabled_mods.into_iter().collect(),
+                })
+            }
+        }
+
+        deserializer.deserialize_map(SelectionVisitor)
+    }
+}
+
 /// One physical file, including candidates that no longer contribute content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileOrigin {
@@ -226,7 +279,7 @@ pub struct ContentSet {
 }
 
 impl ContentSet {
-    /// Orders mounted sources by VFS priority. Archive paths remain virtual and are never extracted.
+    /// Orders sources by search priority. Archive paths remain virtual and are never extracted.
     pub fn resolve(sources: Vec<ContentSource>) -> Result<Self, Error> {
         let sources = order_sources(sources)?;
         let mut files = BTreeMap::<String, FileTrace>::new();
@@ -288,6 +341,59 @@ impl ContentSet {
             }
         }
         Ok(Self { sources, files })
+    }
+
+    /// Resolves the base game, locally installed DLC, and explicitly supplied directory Mods.
+    pub fn from_installation(
+        game_root: impl AsRef<Path>,
+        mod_directories: &[PathBuf],
+        user_directory: Option<&Path>,
+        launcher_config: Option<&Path>,
+        descriptor_encoding: TextEncoding,
+    ) -> Result<Self, Error> {
+        let base = ContentRoot::open(game_root)?;
+        let mut sources = vec![ContentSource::base(base.clone())];
+        sources.extend(ContentSource::installed_dlc_archives(base.path())?);
+        for path in mod_directories {
+            sources.push(ContentSource::mod_directory(path, descriptor_encoding)?);
+        }
+        if let Some(path) = user_directory {
+            sources.push(ContentSource::user_directory(path)?);
+        }
+        match launcher_config {
+            Some(path) => Self::resolve_with_launcher_config(sources, path),
+            None => Self::resolve(sources),
+        }
+    }
+
+    /// Selects explicitly provided Mods from `enabled_mods` in EU4's `dlc_load.json`.
+    /// DLC sources remain governed by the fixed all-DLC ruleset.
+    pub fn resolve_with_launcher_config(
+        sources: Vec<ContentSource>,
+        config_path: impl AsRef<Path>,
+    ) -> Result<Self, Error> {
+        let config_path = config_path.as_ref();
+        let bytes = fs::read(config_path).map_err(|cause| Error::caused_by(config_path, cause))?;
+        let selection: LauncherModSelection =
+            serde_json::from_slice(&bytes).map_err(|cause| Error::caused_by(config_path, cause))?;
+        let provided = sources
+            .iter()
+            .filter(|source| source.role == ContentRole::Mod)
+            .map(|source| source.name().to_owned())
+            .collect::<BTreeSet<_>>();
+        if let Some(missing) = selection.enabled_mods.difference(&provided).next() {
+            return Err(Error::message(
+                config_path,
+                format!("enabled Mod has no supplied directory source: {missing}"),
+            ));
+        }
+        let selected = sources
+            .into_iter()
+            .filter(|source| {
+                source.role != ContentRole::Mod || selection.enabled_mods.contains(source.name())
+            })
+            .collect();
+        Self::resolve(selected)
     }
 
     pub fn sources(&self) -> &[ContentSource] {
@@ -567,11 +673,11 @@ fn order_sources(mut sources: Vec<ContentSource>) -> Result<Vec<ContentSource>, 
     let mut ordered = mods.into_iter().zip(priorities).collect::<Vec<_>>();
     ordered.sort_by(
         |(left_source, left_priority), (right_source, right_priority)| {
-            right_priority.cmp(left_priority).then_with(|| {
-                right_source
+            left_priority.cmp(right_priority).then_with(|| {
+                left_source
                     .name()
                     .as_bytes()
-                    .cmp(left_source.name().as_bytes())
+                    .cmp(right_source.name().as_bytes())
             })
         },
     );

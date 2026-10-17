@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_eu4::{ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaWorld};
+use augustus_eu4::{ContentSet, TextEncoding, VanillaExternalState, VanillaWorld};
 use clap::Parser;
 use std::{path::PathBuf, process::ExitCode};
 
@@ -14,14 +14,23 @@ struct Cli {
     /// EU4 installation root; locally present DLC archives are loaded automatically.
     #[arg(long)]
     game_root: PathBuf,
-    /// Directory Mod containing descriptor.mod; repeat for every active Mod.
+    /// Directory Mod containing descriptor.mod; repeat for each candidate Mod.
     #[arg(long = "mod", value_name = "DIRECTORY")]
     mods: Vec<PathBuf>,
     /// EU4 user directory mounted above Mods and base game content.
     #[arg(long, value_name = "DIRECTORY")]
     user_directory: Option<PathBuf>,
+    /// EU4 launcher dlc_load.json; filters the supplied Mod directories by descriptor name.
+    #[arg(long, value_name = "FILE")]
+    launcher_config: Option<PathBuf>,
+    /// JSON state bundle supplied by another simulation or an external save reader.
+    #[arg(long, value_name = "FILE")]
+    external_state: Option<PathBuf>,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
+    /// Explicit EU4 random seed; omitted seeds use the runtime clock for local AI event choices.
+    #[arg(long)]
+    seed: Option<u32>,
     /// Advance calendar days and execute supported monthly settlements.
     #[arg(
         long,
@@ -56,6 +65,9 @@ struct Cli {
     technology: Option<String>,
     #[arg(long)]
     modifier: Option<String>,
+    /// Show one unit template by its file stem.
+    #[arg(long)]
+    unit: Option<String>,
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
@@ -68,31 +80,51 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
-    let mut loaded = if cli.mods.is_empty() && cli.user_directory.is_none() {
-        if let Some(players) = &players {
-            VanillaWorld::load_with_players(&cli.game_root, &cli.date, players)?
-        } else {
-            VanillaWorld::load(&cli.game_root, &cli.date)?
+    let content = ContentSet::from_installation(
+        &cli.game_root,
+        &cli.mods,
+        cli.user_directory.as_deref(),
+        cli.launcher_config.as_deref(),
+        TextEncoding::Windows1252,
+    )?;
+    let external_state = cli
+        .external_state
+        .as_ref()
+        .map(
+            |path| -> Result<VanillaExternalState, Box<dyn std::error::Error>> {
+                Ok(serde_json::from_slice(&std::fs::read(path)?)?)
+            },
+        )
+        .transpose()?;
+    let mut loaded = match (&players, cli.seed, external_state.as_ref()) {
+        (Some(players), Some(seed), Some(state)) => {
+            VanillaWorld::load_from_content_with_players_and_seed_and_external_state(
+                &content, &cli.date, players, seed, state,
+            )?
         }
-    } else {
-        let base = ContentRoot::open(&cli.game_root)?;
-        let mut sources = vec![ContentSource::base(base.clone())];
-        sources.extend(ContentSource::installed_dlc_archives(base.path())?);
-        for root in &cli.mods {
-            sources.push(ContentSource::mod_directory(
-                root,
-                TextEncoding::Windows1252,
-            )?);
+        (Some(players), None, Some(state)) => {
+            VanillaWorld::load_from_content_with_players_and_external_state(
+                &content, &cli.date, players, state,
+            )?
         }
-        if let Some(root) = &cli.user_directory {
-            sources.push(ContentSource::user_directory(root)?);
+        (None, Some(seed), Some(state)) => {
+            VanillaWorld::load_from_content_with_seed_and_external_state(
+                &content, &cli.date, seed, state,
+            )?
         }
-        let content = ContentSet::resolve(sources)?;
-        if let Some(players) = &players {
+        (None, None, Some(state)) => {
+            VanillaWorld::load_from_content_with_external_state(&content, &cli.date, state)?
+        }
+        (Some(players), Some(seed), None) => VanillaWorld::load_from_content_with_players_and_seed(
+            &content, &cli.date, players, seed,
+        )?,
+        (Some(players), None, None) => {
             VanillaWorld::load_from_content_with_players(&content, &cli.date, players)?
-        } else {
-            VanillaWorld::load_from_content(&content, &cli.date)?
         }
+        (None, Some(seed), None) => {
+            VanillaWorld::load_from_content_with_seed(&content, &cli.date, seed)?
+        }
+        (None, None, None) => VanillaWorld::load_from_content(&content, &cli.date)?,
     };
     if let Some(path) = cli.load {
         loaded.restore(&std::fs::read_to_string(path)?)?;
@@ -109,8 +141,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut output = serde_json::json!({"report": loaded.report,
         "simulation": {"day": loaded.initial.world().day(), "date": loaded.initial.world().date()?,
+            "eu4_random": loaded.initial.world().eu4_random_state().map(|(seed, count, index)| {
+                serde_json::json!({"seed": seed, "count": count, "index": index})
+            }),
             "tax_settlements": loaded.initial.world().taxation().map(|t| t.settlement_count),
-            "last_tax_day": loaded.initial.world().taxation().and_then(|t| t.last_settlement.as_ref().map(|s| s.day))}});
+            "last_tax_day": loaded.initial.world().taxation().and_then(|t| t.last_settlement.as_ref().map(|s| s.day)),
+            "production_settlements": loaded.initial.world().monthly_production().map(|p| p.settlement_count),
+            "last_production_day": loaded.initial.world().monthly_production().and_then(|p| p.last_settlement.as_ref().map(|s| s.day)),
+            "cashflow_settlements": loaded.initial.world().monthly_cashflows().map(|c| c.settlement_count),
+            "last_cashflow_day": loaded.initial.world().monthly_cashflows().and_then(|c| c.last_settlement.as_ref().map(|s| s.day)),
+            "armies": loaded.initial.armies().len(),
+            "naval_units": loaded.initial.naval_units().len()}});
     if !loaded.initial.world().country_controllers().is_empty() {
         output["country_controllers"] = serde_json::json!(
             loaded
@@ -141,6 +182,42 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         output["modifier"] = serde_json::json!({"id": name, "definition": loaded.initial.world().modifiers().definitions.get(&name).ok_or("unknown modifier")?});
         output["modifier_source"] = serde_json::to_value(
             &loaded.report.setup.definition_sources[&format!("modifier:{name}")],
+        )?;
+    }
+    if let Some(name) = cli.unit {
+        let unit_name = name.as_str();
+        let unlocked_at = loaded
+            .initial
+            .world()
+            .technology()
+            .tables
+            .iter()
+            .flat_map(|(branch, levels)| {
+                levels.iter().enumerate().filter_map(move |(level, entry)| {
+                    if entry
+                        .enabled_units
+                        .iter()
+                        .any(|unit| unit == unit_name)
+                    {
+                        Some(serde_json::json!({"branch": branch, "level": level, "year": entry.year}))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        output["unit_template"] = serde_json::json!({
+            "id": name,
+            "definition": loaded.initial.world().unit_templates().definitions.get(&name).ok_or("unknown unit template")?,
+            "unlocked_at": unlocked_at,
+        });
+        output["unit_template_source"] = serde_json::to_value(
+            loaded
+                .report
+                .setup
+                .unit_template_sources
+                .get(&name)
+                .ok_or("missing unit template source")?,
         )?;
     }
     if cli.economy {
@@ -199,6 +276,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(id) = cli.province {
         output["province"] = serde_json::to_value(loaded.province(id).ok_or("unknown province")?)?;
+        output["province_trade_good_base_price_milli"] =
+            serde_json::to_value(loaded.province_trade_good_base_price_milli(id)?)?;
         output["province_sources"] = serde_json::to_value(&loaded.province_sources[&id])?;
     }
     println!("{}", serde_json::to_string_pretty(&output)?);

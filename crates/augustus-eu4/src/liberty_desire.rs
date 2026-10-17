@@ -9,7 +9,7 @@ use augustus_core::{
     MonthlyConvergence, Target, WorldDate,
 };
 
-use crate::{ContentView, Error, FileEntry, SetupReport};
+use crate::{Error, FileEntry, SetupReport};
 
 pub(super) fn metrics(
     initial: &InitialWorld,
@@ -66,8 +66,8 @@ pub(super) fn metrics(
 }
 
 pub(super) fn bind(
-    root: &impl ContentView,
     files: &[FileEntry],
+    defines: &crate::Defines,
     initial: &InitialWorld,
     attributes: &mut Attributes,
     report: &mut SetupReport,
@@ -82,9 +82,7 @@ pub(super) fn bind(
             "MIN_LIBERTY_DESIRE",
             "MAX_LIBERTY_DESIRE",
         ] {
-            if let Some((value, source)) =
-                crate::defines::optional_literal(root, files, "NCountry", name)?
-            {
+            if let Some((value, source)) = defines.optional("NCountry", name)? {
                 if value % 1000 != 0 {
                     return Err(Error::message(
                         &source.path,
@@ -118,6 +116,7 @@ pub(super) fn bind(
                 }],
                 minimum_micros: values.get("MIN_LIBERTY_DESIRE").copied(),
                 maximum_micros: values.get("MAX_LIBERTY_DESIRE").copied(),
+                result_quantum_micros: None,
                 unresolved: Default::default(),
             },
         );

@@ -50,6 +50,7 @@ pub(super) fn label(date: Date) -> WorldDate {
 pub(super) fn ruler_skill_bounds(
     root: &impl ContentView,
     files: &[FileEntry],
+    defines: &crate::Defines,
     report: &mut crate::SetupReport,
 ) -> Result<Option<augustus_core::RulerSkillBounds>, Error> {
     if !files
@@ -63,8 +64,7 @@ pub(super) fn ruler_skill_bounds(
         ("MONARCH_MIN_SKILL", "minimum"),
         ("MONARCH_MAX_SKILL", "maximum"),
     ] {
-        let Some((value, source)) = crate::defines::optional_literal(root, files, "NCountry", key)?
-        else {
+        let Some((value, source)) = defines.optional("NCountry", key)? else {
             continue;
         };
         let bound = u8::try_from(value / 1_000_000)
@@ -541,18 +541,19 @@ pub(super) fn has_subject_mutation(
     Ok(false)
 }
 
-pub(super) fn history_effect_names(
+pub(super) fn subject_history_effect_names(
     root: &impl ContentView,
     files: &[FileEntry],
 ) -> Result<BTreeSet<String>, Error> {
-    let mut names = BTreeSet::new();
-    for file in files
+    let effect_files: Vec<_> = files
         .iter()
         .filter(|file| direct_txt(&file.relative_path, "common/scripted_effects"))
-    {
+        .collect();
+    let mut all_names = BTreeSet::new();
+    for file in &effect_files {
         let document = root.read_text(&file.relative_path, TextEncoding::Windows1252)?;
         let parsed = document.parse()?;
-        names.extend(
+        all_names.extend(
             parsed
                 .reader()
                 .fields()
@@ -560,7 +561,93 @@ pub(super) fn history_effect_names(
                 .filter(|name| !name.starts_with('@')),
         );
     }
-    Ok(names)
+
+    let mut direct = BTreeSet::new();
+    let mut calls = BTreeMap::<String, BTreeSet<String>>::new();
+    for file in effect_files {
+        let document = root.read_text(&file.relative_path, TextEncoding::Windows1252)?;
+        let parsed = document.parse()?;
+        for (key, _, value) in parsed.reader().fields() {
+            let name = key.read_string();
+            if name.starts_with('@') {
+                continue;
+            }
+            let Ok(body) = value.read_object() else {
+                continue;
+            };
+            let (mutates_subjects, dependencies) =
+                subject_effect_dependencies(&parsed, body, &all_names, 0)?;
+            if mutates_subjects {
+                direct.insert(name.clone());
+            }
+            calls.entry(name).or_default().extend(dependencies);
+        }
+    }
+
+    let mut result = direct;
+    loop {
+        let reached: Vec<_> = calls
+            .iter()
+            .filter(|(name, dependencies)| {
+                !result.contains(*name)
+                    && dependencies
+                        .iter()
+                        .any(|dependency| result.contains(dependency))
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
+        if reached.is_empty() {
+            break;
+        }
+        result.extend(reached);
+    }
+    Ok(result)
+}
+
+fn subject_effect_dependencies(
+    parsed: &ParsedText<'_>,
+    reader: jomini::text::ObjectReader<'_, '_, TextEncoding>,
+    scripted_effects: &BTreeSet<String>,
+    depth: usize,
+) -> Result<(bool, BTreeSet<String>), Error> {
+    if depth > 64 {
+        return Err(Error::message(
+            parsed.source(),
+            "subject scripted effect nesting exceeds limit",
+        ));
+    }
+    let mut mutates_subjects = false;
+    let mut dependencies = BTreeSet::new();
+    for (key, _, value) in reader.fields() {
+        let name = key.read_string();
+        if matches!(
+            name.as_str(),
+            "create_subject"
+                | "create_vassal"
+                | "create_march"
+                | "create_union"
+                | "change_subject_type"
+                | "grant_independence"
+                | "break_union"
+                | "free_vassal"
+                | "vassalize"
+                | "inherit"
+                | "release"
+                | "release_all_subjects"
+                | "release_all_possible_countries"
+                | "effect"
+        ) {
+            mutates_subjects = true;
+        } else if scripted_effects.contains(&name) {
+            dependencies.insert(name);
+        } else if let Ok(body) = value.read_object() {
+            let (nested_mutation, nested_dependencies) =
+                subject_effect_dependencies(parsed, body, scripted_effects, depth + 1)?;
+            mutates_subjects |= nested_mutation;
+            dependencies.extend(nested_dependencies);
+        }
+    }
+    Ok((mutates_subjects, dependencies))
 }
 
 #[derive(Debug, Serialize)]

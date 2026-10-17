@@ -50,6 +50,7 @@ pub(super) struct AutonomyDraft {
     reform_ranks: BTreeMap<String, Option<u8>>,
     subject_ranks: BTreeMap<String, Option<u8>>,
     countries: BTreeMap<String, CountrySeed>,
+    rank_global_autonomy: BTreeMap<u8, Option<i64>>,
     changes: Vec<Change>,
     pending_changes: Vec<Predicate>,
     areas: BTreeSet<String>,
@@ -172,6 +173,7 @@ impl AutonomyDraft {
     pub(super) fn load(
         root: &impl ContentView,
         files: &[FileEntry],
+        defines: &crate::Defines,
         map: &ParsedText<'_>,
         report: &mut AdministrationReport,
     ) -> Result<Self, Error> {
@@ -182,6 +184,7 @@ impl AutonomyDraft {
             reform_ranks: BTreeMap::new(),
             subject_ranks: BTreeMap::new(),
             countries: BTreeMap::new(),
+            rank_global_autonomy: BTreeMap::new(),
             changes: Vec::new(),
             pending_changes: Vec::new(),
             areas: BTreeSet::new(),
@@ -195,9 +198,7 @@ impl AutonomyDraft {
         ] {
             // Older self-authored fixtures do not declare rank rules. Missing input
             // prevents empire inference; the fixed-edition defaults are not substituted.
-            if let Some((value, at)) =
-                crate::defines::optional_literal(root, files, "NCountry", field)?
-            {
+            if let Some((value, at)) = defines.optional("NCountry", field)? {
                 if value % 1_000_000 != 0 || !(1_000_000..=3_000_000).contains(&value) {
                     return Err(Error::message(
                         &at.path,
@@ -670,6 +671,33 @@ impl AutonomyDraft {
         (rank > 0).then_some(rank)
     }
 
+    pub(super) fn bind_rank_autonomy(&mut self, attributes: &augustus_core::Attributes) {
+        for rank in 1..=3 {
+            let value = attributes
+                .government_rank_modifiers
+                .get(&rank)
+                .and_then(|modifier| {
+                    if attributes
+                        .government_rank_unresolved_properties
+                        .get(&rank)
+                        .is_some_and(|properties| properties.contains("global_autonomy"))
+                        || modifier.flags.contains_key("global_autonomy")
+                    {
+                        None
+                    } else {
+                        Some(
+                            modifier
+                                .values_micros
+                                .get("global_autonomy")
+                                .copied()
+                                .unwrap_or(0),
+                        )
+                    }
+                });
+            self.rank_global_autonomy.insert(rank, value);
+        }
+    }
+
     pub(super) fn has_pending(&self, area: Option<&str>, owner: Option<&str>) -> bool {
         self.pending_changes
             .iter()
@@ -692,7 +720,7 @@ impl AutonomyDraft {
             let country = initial.country(owner)?;
             let seed = self.countries.get(owner)?;
             let rank = self.rank(initial, owner)?;
-            report.initial_country_ranks.insert(owner.into(), rank);
+            let global_autonomy = self.rank_global_autonomy.get(&rank).copied().flatten()?;
             let culture = province.culture.as_ref()?;
             let primary = country.primary_culture.as_ref()?;
             if culture != primary
@@ -735,7 +763,11 @@ impl AutonomyDraft {
                 .count() as i64
                 * 20_000;
             let value = cultural + religious + foreign;
-            if rank >= 2 { value / 2 } else { value }
+            if global_autonomy < 0 {
+                value / 2
+            } else {
+                value
+            }
         } else {
             0
         };

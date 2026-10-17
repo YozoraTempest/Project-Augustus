@@ -5,7 +5,23 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntityKind, Error, ModifierDefinition, World};
+use crate::{Condition, EntityId, EntityKind, Error, ModifierDefinition, ScopeContext, World};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EstateConditionalScale {
+    Fixed,
+    Influence,
+    Loyalty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EstateConditionalModifier {
+    pub condition: Condition,
+    pub scale: EstateConditionalScale,
+    pub modifier: ModifierDefinition,
+    pub unresolved_properties: BTreeSet<String>,
+}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -13,6 +29,8 @@ pub struct EstateEffect {
     pub modifier: ModifierDefinition,
     pub unresolved_properties: BTreeSet<String>,
     pub unresolved_effects: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditional_modifiers: Vec<EstateConditionalModifier>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +57,50 @@ pub struct EstateInfluenceBand {
     pub scale_micros: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EstateLoyaltyDecay {
+    pub base_min_annual_milli: i64,
+    pub base_max_annual_milli: i64,
+}
+
+impl EstateLoyaltyDecay {
+    /// Return the loyalty value after one scheduled update, using signed
+    /// interpolation, monthly division, and the 0-to-100 clamp.
+    pub fn next_loyalty_milli(&self, current_milli: i64, target_milli: i64) -> Result<i64, Error> {
+        self.validate()?;
+        if !(0..=100_000).contains(&current_milli) {
+            return Err(Error::Invalid("invalid current estate loyalty".into()));
+        }
+        if !(i64::from(i32::MIN)..=i64::from(i32::MAX)).contains(&target_milli) {
+            return Err(Error::Invalid("invalid estate loyalty target".into()));
+        }
+
+        let difference = i128::from(target_milli) - i128::from(current_milli);
+        if difference == 0 {
+            return Ok(current_milli);
+        }
+
+        let minimum = i128::from(self.base_min_annual_milli);
+        let spread = i128::from(self.base_max_annual_milli - self.base_min_annual_milli);
+        let interpolation = spread.checked_mul(difference).ok_or(Error::Overflow)? / 50_000;
+        let signed_minimum = minimum * difference.signum();
+        let monthly_delta = (signed_minimum + interpolation) / 12;
+        let next = i128::from(current_milli) + monthly_delta;
+        Ok(next.clamp(0, 100_000) as i64)
+    }
+
+    fn validate(&self) -> Result<(), Error> {
+        if self.base_min_annual_milli < 0
+            || self.base_max_annual_milli < self.base_min_annual_milli
+            || self.base_max_annual_milli > i64::from(i32::MAX)
+        {
+            return Err(Error::Invalid("invalid estate loyalty decay rules".into()));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EstateRules {
@@ -46,6 +108,11 @@ pub struct EstateRules {
     pub happy_from_milli: Option<i64>,
     /// None means that the influence-to-effect rule has not been established.
     pub influence_bands: Option<Vec<EstateInfluenceBand>>,
+    /// Base term for a loyalty target; this is not an estate's initial loyalty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loyalty_target_base_milli: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loyalty_decay: Option<EstateLoyaltyDecay>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +120,8 @@ pub struct EstateRules {
 pub struct EstateState {
     pub active: Option<bool>,
     pub loyalty_milli: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loyalty_target_milli: Option<i64>,
     pub influence_milli: Option<i64>,
     pub land_share_micros: Option<i64>,
     pub privileges: Option<BTreeSet<String>>,
@@ -98,7 +167,15 @@ impl Estates {
     }
 
     pub fn declared_effects(&self, entity: EntityId) -> Result<EstateEvaluation, Error> {
-        self.evaluate(entity, None)
+        self.evaluate(None, entity, None)
+    }
+
+    pub fn declared_effects_with_world(
+        &self,
+        world: &World,
+        entity: EntityId,
+    ) -> Result<EstateEvaluation, Error> {
+        self.evaluate(Some(world), entity, None)
     }
 
     pub fn property_effects(
@@ -106,11 +183,21 @@ impl Estates {
         entity: EntityId,
         property: &str,
     ) -> Result<EstateEvaluation, Error> {
-        self.evaluate(entity, Some(property))
+        self.evaluate(None, entity, Some(property))
+    }
+
+    pub fn property_effects_with_world(
+        &self,
+        world: &World,
+        entity: EntityId,
+        property: &str,
+    ) -> Result<EstateEvaluation, Error> {
+        self.evaluate(Some(world), entity, Some(property))
     }
 
     fn evaluate(
         &self,
+        world: Option<&World>,
         entity: EntityId,
         property: Option<&str>,
     ) -> Result<EstateEvaluation, Error> {
@@ -172,8 +259,11 @@ impl Estates {
                         .find(|b| influence >= b.minimum_milli)
                         .map(|b| b.scale_micros)
                 });
-                append(
+                append_with_conditionals(
                     &mut result,
+                    world,
+                    entity,
+                    Some(state),
                     format!("{prefix}:{name}"),
                     effect,
                     scale,
@@ -184,8 +274,11 @@ impl Estates {
                     .unresolved
                     .insert(format!("{prefix}:unknown_loyalty_band"));
             }
-            append(
+            append_with_conditionals(
                 &mut result,
+                world,
+                entity,
+                Some(state),
                 format!("{prefix}:land"),
                 &definition.land_ownership,
                 state.land_share_micros,
@@ -195,15 +288,21 @@ impl Estates {
                 for id in selected {
                     let source = format!("{prefix}:privilege:{id}");
                     if let Some(privilege) = self.privileges.get(id) {
-                        append(
+                        append_with_conditionals(
                             &mut result,
+                            world,
+                            entity,
+                            Some(state),
                             source.clone(),
                             &self.resolved_effect(entity, id, &privilege.effect),
                             Some(1_000_000),
                             property,
                         )?;
-                        append(
+                        append_with_conditionals(
                             &mut result,
+                            world,
+                            entity,
+                            Some(state),
                             format!("{source}:land"),
                             &privilege.land_ownership,
                             state.land_share_micros,
@@ -276,6 +375,13 @@ impl Estates {
         {
             return Err(Error::Invalid("invalid estate loyalty thresholds".into()));
         }
+        if self
+            .rules
+            .loyalty_target_base_milli
+            .is_some_and(|value| !(0..=i64::from(i32::MAX)).contains(&value))
+        {
+            return Err(Error::Invalid("invalid estate loyalty target base".into()));
+        }
         if let Some(bands) = &self.rules.influence_bands
             && (bands.first().is_none_or(|b| b.minimum_milli != 0)
                 || bands
@@ -287,6 +393,9 @@ impl Estates {
         {
             return Err(Error::Invalid("invalid estate influence bands".into()));
         }
+        if let Some(decay) = &self.rules.loyalty_decay {
+            decay.validate()?;
+        }
         for (id, definition) in &self.definitions {
             if id.is_empty() || definition.privileges.iter().any(String::is_empty) {
                 return Err(Error::Invalid("invalid estate definition".into()));
@@ -297,15 +406,15 @@ impl Estates {
                 &definition.happy,
                 &definition.land_ownership,
             ] {
-                validate_effect(e)?;
+                validate_effect(e, world)?;
             }
         }
         for (id, privilege) in &self.privileges {
             if id.is_empty() {
                 return Err(Error::Invalid("empty estate privilege".into()));
             }
-            validate_effect(&privilege.effect)?;
-            validate_effect(&privilege.land_ownership)?;
+            validate_effect(&privilege.effect, world)?;
+            validate_effect(&privilege.land_ownership, world)?;
         }
         for (&entity, states) in &self.countries {
             if world.entity(entity)?.kind != EntityKind::Country {
@@ -318,6 +427,9 @@ impl Estates {
                     .get(id)
                     .ok_or_else(|| Error::Invalid("unknown estate state".into()))?;
                 if !percent(state.loyalty_milli)
+                    || state
+                        .loyalty_target_milli
+                        .is_some_and(|v| !(0..=i64::from(i32::MAX)).contains(&v))
                     || state.influence_milli.is_some_and(|v| v < 0)
                     || !ratio(state.land_share_micros)
                     || state
@@ -338,7 +450,7 @@ impl Estates {
                     "estate land shares exceed total land".into(),
                 ));
             }
-            self.declared_effects(entity)?;
+            self.declared_effects_with_world(world, entity)?;
         }
         for (&entity, reasons) in &self.unresolved_countries {
             if world.entity(entity)?.kind != EntityKind::Country
@@ -365,6 +477,159 @@ fn relevant(effect: &EstateEffect, property: Option<&str>) -> bool {
                     || effect.unresolved_properties.contains(p)
             },
         )
+        || effect
+            .conditional_modifiers
+            .iter()
+            .any(|modifier| conditional_relevant(modifier, property))
+}
+
+fn conditional_relevant(modifier: &EstateConditionalModifier, property: Option<&str>) -> bool {
+    property.map_or_else(
+        || {
+            !modifier.modifier.values_micros.is_empty()
+                || !modifier.modifier.flags.is_empty()
+                || !modifier.unresolved_properties.is_empty()
+        },
+        |property| {
+            modifier.modifier.values_micros.contains_key(property)
+                || modifier.modifier.flags.contains_key(property)
+                || modifier.unresolved_properties.contains(property)
+        },
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_with_conditionals(
+    result: &mut EstateEvaluation,
+    world: Option<&World>,
+    entity: EntityId,
+    state: Option<&EstateState>,
+    source: String,
+    effect: &EstateEffect,
+    scale: Option<i64>,
+    property: Option<&str>,
+) -> Result<(), Error> {
+    append(result, source.clone(), effect, scale, property)?;
+    let conditional_prefix = format!("{source}:conditional:");
+    let mut tainted_properties = BTreeSet::new();
+    for (index, conditional) in effect.conditional_modifiers.iter().enumerate() {
+        if !conditional_relevant(conditional, property) {
+            continue;
+        }
+        let conditional_source = format!("{source}:conditional:{index}");
+        let Some(world) = world else {
+            let properties = conditional_properties(conditional, property);
+            result.unresolved.extend(
+                properties
+                    .iter()
+                    .map(|property| format!("{conditional_source}:world_required:{property}")),
+            );
+            tainted_properties.extend(properties);
+            continue;
+        };
+        match conditional
+            .condition
+            .evaluate_in_context(world, ScopeContext::new(entity))
+        {
+            Ok(false) => continue,
+            Ok(true) => (),
+            Err(error) => {
+                let properties = conditional_properties(conditional, property);
+                result.unresolved.extend(
+                    properties.iter().map(|property| {
+                        format!("{conditional_source}:condition:{error}:{property}")
+                    }),
+                );
+                tainted_properties.extend(properties);
+                continue;
+            }
+        }
+        let factor_milli = match conditional.scale {
+            EstateConditionalScale::Fixed => Some(1_000),
+            EstateConditionalScale::Influence => state.and_then(|state| state.influence_milli),
+            EstateConditionalScale::Loyalty => state.and_then(|state| state.loyalty_milli),
+        };
+        let scale = match conditional.scale {
+            EstateConditionalScale::Fixed => Some(1_000_000),
+            EstateConditionalScale::Influence | EstateConditionalScale::Loyalty => factor_milli
+                .map(|value| (value / 100).checked_mul(1_000).ok_or(Error::Overflow))
+                .transpose()?,
+        };
+        let Some(scale) = scale else {
+            let properties = conditional_properties(conditional, property);
+            result.unresolved.extend(
+                properties
+                    .iter()
+                    .map(|property| format!("{conditional_source}:unknown_scale:{property}")),
+            );
+            tainted_properties.extend(properties);
+            continue;
+        };
+        tainted_properties.extend(
+            conditional
+                .unresolved_properties
+                .iter()
+                .filter(|name| property.is_none_or(|selected| selected == name.as_str()))
+                .cloned(),
+        );
+        let conditional_effect = EstateEffect {
+            modifier: conditional.modifier.clone(),
+            unresolved_properties: conditional.unresolved_properties.clone(),
+            ..Default::default()
+        };
+        append(
+            result,
+            conditional_source,
+            &conditional_effect,
+            Some(scale),
+            property,
+        )?;
+    }
+    for property in tainted_properties {
+        result.contributions.retain(|contribution| {
+            contribution.property != property
+                || (contribution.source != source
+                    && !contribution.source.starts_with(&conditional_prefix))
+        });
+        rebuild_total(result, &property)?;
+    }
+    Ok(())
+}
+
+fn conditional_properties(
+    conditional: &EstateConditionalModifier,
+    property: Option<&str>,
+) -> BTreeSet<String> {
+    conditional
+        .modifier
+        .values_micros
+        .keys()
+        .chain(conditional.modifier.flags.keys())
+        .chain(conditional.unresolved_properties.iter())
+        .filter(|name| property.is_none_or(|selected| selected == name.as_str()))
+        .cloned()
+        .collect()
+}
+
+fn rebuild_total(result: &mut EstateEvaluation, property: &str) -> Result<(), Error> {
+    let mut total = 0_i64;
+    let mut found = false;
+    for contribution in result
+        .contributions
+        .iter()
+        .filter(|contribution| contribution.property == property)
+    {
+        found = true;
+        total = total
+            .checked_add(contribution.micros)
+            .ok_or(Error::Overflow)?;
+    }
+    if found {
+        result.known_totals_micros.insert(property.into(), total);
+    } else {
+        result.known_totals_micros.remove(property);
+    }
+    Ok(())
 }
 
 fn append(
@@ -418,7 +683,22 @@ fn append(
     Ok(())
 }
 
-fn validate_effect(effect: &EstateEffect) -> Result<(), Error> {
+fn validate_effect(effect: &EstateEffect, world: &World) -> Result<(), Error> {
+    validate_effect_contents(effect)?;
+    for conditional in &effect.conditional_modifiers {
+        crate::attributes::validate_attribute_condition(&conditional.condition)?;
+        world.validate_condition(&conditional.condition)?;
+        let modifier = EstateEffect {
+            modifier: conditional.modifier.clone(),
+            unresolved_properties: conditional.unresolved_properties.clone(),
+            ..Default::default()
+        };
+        validate_effect_contents(&modifier)?;
+    }
+    Ok(())
+}
+
+fn validate_effect_contents(effect: &EstateEffect) -> Result<(), Error> {
     let m = &effect.modifier;
     if m.values_micros
         .keys()

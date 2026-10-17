@@ -72,6 +72,7 @@ impl AdministrationDraft {
     pub(super) fn load(
         root: &impl ContentView,
         files: &[FileEntry],
+        defines: &crate::Defines,
         map: &ParsedText<'_>,
         report: &mut AdministrationReport,
     ) -> Result<Self, Error> {
@@ -81,10 +82,10 @@ impl AdministrationDraft {
             memberships: BTreeMap::new(),
             deltas: BTreeMap::new(),
             operations: BTreeMap::new(),
-            autonomy: crate::autonomy::AutonomyDraft::load(root, files, map, report)?,
+            autonomy: crate::autonomy::AutonomyDraft::load(root, files, defines, map, report)?,
             capital_maximum: 0,
         };
-        let (value, at) = crate::defines::literal(root, files, "NEconomy", "CAPITAL_MAX_AUTONOMY")?;
+        let (value, at) = defines.required("NEconomy", "CAPITAL_MAX_AUTONOMY")?;
         result.capital_maximum = value / 100;
         if value > 100_000_000 || value % 100 != 0 {
             return Err(Error::message(
@@ -224,13 +225,53 @@ impl AdministrationDraft {
         reader: ObjectReader<'_, '_, TextEncoding>,
         country: &str,
         report: &mut AdministrationReport,
-    ) -> Result<(), Error> {
+    ) -> Result<BTreeSet<String>, Error> {
+        let handled = reader
+            .fields()
+            .filter_map(|(key, _, _)| {
+                let name = key.read_string();
+                matches!(
+                    name.as_str(),
+                    "government_rank"
+                        | "add_accepted_culture"
+                        | "remove_accepted_culture"
+                        | "add_government_reform"
+                        | "remove_government_reform"
+                )
+                .then_some(name)
+            })
+            .collect();
         self.autonomy
-            .country_history(parsed, reader, country, &self.areas, report)
+            .country_history(parsed, reader, country, &self.areas, report)?;
+        Ok(handled)
+    }
+
+    pub(super) fn initialize_country_ranks(
+        &self,
+        initial: &mut InitialWorld,
+        report: &mut AdministrationReport,
+    ) -> Result<(), Error> {
+        let ranks = initial
+            .countries()
+            .iter()
+            .filter_map(|country| {
+                let entity = initial.country_entity(&country.id)?;
+                self.autonomy
+                    .rank(initial, &country.id)
+                    .map(|rank| (country.id.clone(), entity, rank))
+            })
+            .collect::<Vec<_>>();
+        for (country, entity, rank) in ranks {
+            initial
+                .set_government_rank(entity, Some(rank))
+                .map_err(|error| Error::caused_by("government rank", error))?;
+            report.initial_country_ranks.insert(country, rank);
+        }
+        Ok(())
     }
 
     pub(super) fn bind(
-        self,
+        mut self,
         initial: &InitialWorld,
         history: &BTreeSet<u32>,
         report: &mut AdministrationReport,
@@ -238,6 +279,7 @@ impl AdministrationDraft {
         definitions: &crate::AttributeReport,
         date: Date,
     ) -> Result<Administration, Error> {
+        self.autonomy.bind_rank_autonomy(attributes);
         let baseline = date == Date::parse("1444.11.11").expect("valid baseline date");
         for &id in self.memberships.keys() {
             if initial.province(id).is_none() {

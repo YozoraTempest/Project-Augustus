@@ -41,6 +41,8 @@ pub struct CountryState {
     pub religion: Option<String>,
     pub government: Option<String>,
     pub technology_group: Option<String>,
+    #[serde(default)]
+    pub unit_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +83,64 @@ pub struct InitialWorld {
 
 impl InitialWorld {
     pub fn set_metrics(&mut self, metrics: crate::Metrics) -> Result<(), Error> {
+        self.world.set_metrics(metrics)
+    }
+
+    /// Applies externally resolved metric values atomically while preserving
+    /// all definitions and values that the provider did not mention.
+    pub fn set_metric_values(
+        &mut self,
+        values: BTreeMap<EntityId, BTreeMap<String, Option<i64>>>,
+    ) -> Result<(), Error> {
+        let mut metrics = self.world.metrics().clone();
+        for (&entity, entries) in &values {
+            let kind = self.world.entity(entity)?.kind;
+            for (name, &value) in entries {
+                let definition = metrics
+                    .definitions
+                    .get(name)
+                    .ok_or_else(|| Error::Invalid(format!("unknown metric {name}")))?;
+                if definition.kind != kind {
+                    return Err(Error::Invalid("metric scope does not match entity".into()));
+                }
+                definition.validate_value(value)?;
+                metrics
+                    .entities
+                    .entry(entity)
+                    .or_default()
+                    .insert(name.clone(), value);
+            }
+        }
+        self.world.set_metrics(metrics)
+    }
+
+    /// Applies externally resolved growth ceilings atomically while preserving
+    /// metric values and definitions that the provider did not mention.
+    pub fn set_metric_ceilings(
+        &mut self,
+        ceilings: BTreeMap<EntityId, BTreeMap<String, Option<i64>>>,
+    ) -> Result<(), Error> {
+        let mut metrics = self.world.metrics().clone();
+        for (&entity, entries) in &ceilings {
+            let kind = self.world.entity(entity)?.kind;
+            for (name, &value) in entries {
+                let definition = metrics
+                    .definitions
+                    .get(name)
+                    .ok_or_else(|| Error::Invalid(format!("unknown metric {name}")))?;
+                if !definition.growth_ceiling || definition.kind != kind {
+                    return Err(Error::Invalid(
+                        "metric growth ceiling scope does not match entity".into(),
+                    ));
+                }
+                definition.validate_value(value)?;
+                metrics
+                    .ceilings
+                    .entry(entity)
+                    .or_default()
+                    .insert(name.clone(), value);
+            }
+        }
         self.world.set_metrics(metrics)
     }
     pub fn new(
@@ -200,6 +260,21 @@ impl InitialWorld {
         })
     }
 
+    pub fn new_with_eu4_seed(
+        countries: Vec<CountryState>,
+        provinces: Vec<ProvinceState>,
+        seed: u32,
+    ) -> Result<Self, Error> {
+        let mut initial = Self::new(countries, provinces)?;
+        initial.world.eu4_random = Some(crate::rng::Eu4Rng::from_seed(seed));
+        initial.world.eu4_event_seed = Some(seed);
+        Ok(initial)
+    }
+
+    pub fn set_eu4_event_seed(&mut self, seed: Option<u32>) {
+        self.world.set_eu4_event_seed(seed);
+    }
+
     pub fn set_politics(&mut self, politics: Politics) -> Result<(), Error> {
         self.world.set_politics(politics)
     }
@@ -256,6 +331,14 @@ impl InitialWorld {
         self.world.set_governments(governments)
     }
 
+    pub fn set_government_rank(
+        &mut self,
+        country: EntityId,
+        rank: Option<u8>,
+    ) -> Result<(), Error> {
+        self.world.set_government_rank(country, rank)
+    }
+
     pub fn set_administration(&mut self, administration: Administration) -> Result<(), Error> {
         let result = self.world.set_administration(administration);
         self.refresh_province_relations();
@@ -264,6 +347,10 @@ impl InitialWorld {
 
     pub fn world(&self) -> &World {
         &self.world
+    }
+
+    pub fn content_identity_state(&self) -> Result<String, Error> {
+        self.world.content_identity_state()
     }
 
     pub fn execute(&mut self, current: EntityId, plan: &[crate::Action]) -> Result<(), Error> {
@@ -328,6 +415,42 @@ impl InitialWorld {
         self.world.set_monthly_accruals(accruals)
     }
 
+    pub fn set_monthly_production(
+        &mut self,
+        production: crate::MonthlyProduction,
+    ) -> Result<(), Error> {
+        self.world.set_monthly_production(production)
+    }
+
+    pub fn set_monthly_production_inputs(
+        &mut self,
+        inputs: BTreeMap<EntityId, crate::VanillaProductionInputState>,
+    ) -> Result<(), Error> {
+        self.world.set_monthly_production_inputs(inputs)
+    }
+
+    pub fn set_monthly_cashflows(
+        &mut self,
+        cashflows: Option<crate::MonthlyExternalCashflows>,
+    ) -> Result<(), Error> {
+        self.world.set_monthly_cashflows(cashflows)
+    }
+
+    pub fn set_monthly_cashflow_inputs(
+        &mut self,
+        amounts_milli: BTreeMap<EntityId, Option<i64>>,
+    ) -> Result<(), Error> {
+        self.world.set_monthly_cashflow_inputs(amounts_milli)
+    }
+
+    pub fn monthly_cashflows(&self) -> Option<&crate::MonthlyExternalCashflows> {
+        self.world.monthly_cashflows()
+    }
+
+    pub fn monthly_production(&self) -> Option<&crate::MonthlyProduction> {
+        self.world.monthly_production()
+    }
+
     pub fn set_monthly_stocks(
         &mut self,
         stocks: Option<crate::MonthlyStocks>,
@@ -371,6 +494,10 @@ impl InitialWorld {
             || restored.monthly_system_id() != self.world.monthly_system_id()
             || restored.monthly_accruals().map(|a| &a.rules)
                 != self.world.monthly_accruals().map(|a| &a.rules)
+            || restored.monthly_production().map(|p| &p.inputs)
+                != self.world.monthly_production().map(|p| &p.inputs)
+            || restored.monthly_cashflows().map(|c| &c.amounts_milli)
+                != self.world.monthly_cashflows().map(|c| &c.amounts_milli)
             || restored
                 .taxation()
                 .map(|t| (&t.annual_attribute, &t.countries))
@@ -443,6 +570,53 @@ impl InitialWorld {
     pub fn set_technology(&mut self, technology: Technology) -> Result<(), Error> {
         self.world.set_technology(technology)
     }
+    pub fn set_unit_templates(&mut self, templates: crate::UnitTemplates) -> Result<(), Error> {
+        self.world.set_unit_templates(templates)
+    }
+    pub fn set_selected_unit(
+        &mut self,
+        country: EntityId,
+        category: &str,
+        unit_type: &str,
+    ) -> Result<(), Error> {
+        self.world.set_selected_unit(country, category, unit_type)
+    }
+    pub fn clear_selected_unit(&mut self, country: EntityId, category: &str) -> Result<(), Error> {
+        self.world.clear_selected_unit(country, category)
+    }
+    pub fn create_army(
+        &mut self,
+        owner: EntityId,
+        location: EntityId,
+        name: &str,
+        unit_types: &[String],
+    ) -> Result<crate::ArmyId, Error> {
+        self.world.create_army(owner, location, name, unit_types)
+    }
+    pub fn armies(&self) -> &[crate::Army] {
+        self.world.armies()
+    }
+    pub fn create_army_from_categories(
+        &mut self,
+        owner: EntityId,
+        location: EntityId,
+        name: &str,
+        categories: &[String],
+    ) -> Result<Option<crate::ArmyId>, Error> {
+        self.world
+            .create_army_from_categories(owner, location, name, categories)
+    }
+    pub fn naval_units(&self) -> &[crate::NavalUnit] {
+        self.world.naval_units()
+    }
+    pub fn create_naval_unit(
+        &mut self,
+        owner: EntityId,
+        location: EntityId,
+        unit_type: &str,
+    ) -> Result<crate::NavalUnitId, Error> {
+        self.world.create_naval_unit(owner, location, unit_type)
+    }
     pub fn set_modifiers(&mut self, modifiers: Modifiers) -> Result<(), Error> {
         self.world.set_modifiers(modifiers)
     }
@@ -454,6 +628,24 @@ impl InitialWorld {
         resources: BTreeMap<EntityId, CountryResources>,
     ) -> Result<(), Error> {
         self.world.set_country_resources(resources)
+    }
+
+    pub fn set_estate_loyalty_targets(
+        &mut self,
+        targets: BTreeMap<EntityId, BTreeMap<String, Option<i64>>>,
+    ) -> Result<(), Error> {
+        let mut estates = self.world.estates().clone();
+        for (&country, entries) in &targets {
+            for (estate, &target) in entries {
+                let state = estates
+                    .countries
+                    .get_mut(&country)
+                    .and_then(|states| states.get_mut(estate))
+                    .ok_or_else(|| Error::Invalid("unknown estate loyalty target".into()))?;
+                state.loyalty_target_milli = target;
+            }
+        }
+        self.world.set_estates(estates)
     }
     pub fn countries(&self) -> &[CountryState] {
         &self.countries

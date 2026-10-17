@@ -62,6 +62,7 @@
   "countries": {
     "0": {
       "kind": "monarchy",
+      "rank": 3,
       "reforms": [
         "test_charter",
         "test_court"
@@ -72,6 +73,7 @@
     },
     "1": {
       "kind": "republic",
+      "rank": 2,
       "reforms": [
         "test_council"
       ],

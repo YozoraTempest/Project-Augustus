@@ -33,6 +33,7 @@ pub struct EventCatalog {
     definitions: Arc<BTreeMap<String, EventDefinition>>,
     conditions: Arc<BTreeMap<String, crate::Condition>>,
     option_conditions: Arc<BTreeMap<String, BTreeMap<String, crate::Condition>>>,
+    unavailable_options: Arc<BTreeMap<String, BTreeMap<String, String>>>,
     once_events: Arc<BTreeSet<String>>,
     pictures: Arc<BTreeMap<String, crate::EventPictures>>,
     locations: Arc<BTreeMap<String, crate::EventLocations>>,
@@ -63,6 +64,7 @@ impl EventCatalog {
             definitions: Arc::new(result),
             conditions: Arc::default(),
             option_conditions: Arc::default(),
+            unavailable_options: Arc::default(),
             once_events: Arc::default(),
             pictures: Arc::default(),
             locations: Arc::default(),
@@ -114,6 +116,48 @@ impl EventCatalog {
         &self.option_conditions
     }
 
+    /// Records choices whose effects could not be compiled. Their reasons stay
+    /// attached to the content, and they cannot be selected or executed.
+    pub fn with_unavailable_options(
+        mut self,
+        unavailable: BTreeMap<String, BTreeMap<String, String>>,
+    ) -> Result<Self, Error> {
+        for (event, options) in &unavailable {
+            let definition = self.get(event)?;
+            for (option, reason) in options {
+                if !definition.options.iter().any(|item| &item.id == option) {
+                    return Err(Error::Invalid(format!(
+                        "unknown unavailable option {option} for event {event}"
+                    )));
+                }
+                if reason.trim().is_empty() {
+                    return Err(Error::Invalid(format!(
+                        "empty unavailable reason for event option {event}:{option}"
+                    )));
+                }
+            }
+        }
+        self.unavailable_options = Arc::new(unavailable);
+        Ok(self)
+    }
+
+    pub fn unavailable_options(&self) -> &BTreeMap<String, BTreeMap<String, String>> {
+        &self.unavailable_options
+    }
+
+    pub fn unavailable_option_reason(&self, event: &str, option: &str) -> Option<&str> {
+        self.unavailable_options
+            .get(event)
+            .and_then(|options| options.get(option))
+            .map(String::as_str)
+    }
+
+    pub(crate) fn has_unavailable_options(&self, event: &str) -> bool {
+        self.unavailable_options
+            .get(event)
+            .is_some_and(|options| !options.is_empty())
+    }
+
     pub fn with_option_weights(
         mut self,
         weights: crate::EventOptionWeights,
@@ -135,6 +179,36 @@ impl EventCatalog {
 
     pub fn option_weights(&self) -> &crate::EventOptionWeights {
         &self.weights
+    }
+
+    pub fn global_marker_references(&self) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        for condition in self.conditions.values() {
+            names.extend(condition.global_marker_references());
+        }
+        for options in self.option_conditions.values() {
+            for condition in options.values() {
+                names.extend(condition.global_marker_references());
+            }
+        }
+        for options in self.weights.values() {
+            for weight in options.values() {
+                for modifier in &weight.modifiers {
+                    names.extend(modifier.condition.global_marker_references());
+                }
+            }
+        }
+        for definition in self.definitions.values() {
+            for plan in std::iter::once(&definition.immediate)
+                .chain(definition.options.iter().map(|option| &option.effects))
+                .chain(std::iter::once(&definition.after))
+            {
+                for action in plan {
+                    names.extend(action.global_marker_references());
+                }
+            }
+        }
+        names
     }
 
     pub fn with_decision_system(
@@ -492,6 +566,13 @@ impl World {
         let conditions = self.event_catalog.option_conditions.get(&pending.event);
         let mut available = Vec::new();
         for option in &definition.options {
+            if self
+                .event_catalog
+                .unavailable_option_reason(&pending.event, &option.id)
+                .is_some()
+            {
+                continue;
+            }
             if let Some(condition) = conditions.and_then(|conditions| conditions.get(&option.id))
                 && !condition.evaluate(self, pending.current)?
             {
@@ -563,6 +644,7 @@ impl World {
             &definition.immediate,
             budget,
             depth,
+            None,
         )?;
         let picture = catalog
             .pictures
@@ -656,6 +738,15 @@ impl World {
                 choice.option
             )));
         }
+        if let Some(reason) = self
+            .event_catalog
+            .unavailable_option_reason(&pending.event, &choice.option)
+        {
+            return Err(Error::Invalid(format!(
+                "event option {}:{} is unavailable: {reason}",
+                pending.event, choice.option
+            )));
+        }
         if self
             .event_queue
             .choices
@@ -695,12 +786,14 @@ impl World {
             &option.effects,
             budget,
             0,
+            None,
         )?;
         self.execute_inner(
             crate::ScopeContext::new(current),
             &definition.after,
             budget,
             0,
+            None,
         )?;
         let completed = self
             .event_queue

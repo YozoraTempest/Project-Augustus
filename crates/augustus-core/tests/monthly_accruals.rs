@@ -122,6 +122,7 @@ fn fixture() -> World {
         }],
         minimum_micros: None,
         maximum_micros: None,
+        result_quantum_micros: None,
         unresolved: Default::default(),
     };
     world
@@ -345,6 +346,7 @@ fn late_country_overflow_rolls_back_tax_and_all_accrual_balances() {
             }],
             minimum_micros: None,
             maximum_micros: None,
+            result_quantum_micros: None,
             unresolved: Default::default(),
         },
     );
@@ -357,6 +359,7 @@ fn late_country_overflow_rolls_back_tax_and_all_accrual_balances() {
                 channels: vec![],
                 minimum_micros: None,
                 maximum_micros: None,
+                result_quantum_micros: None,
                 unresolved: Default::default(),
             },
         )]

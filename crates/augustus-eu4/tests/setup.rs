@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
+use augustus_core::TechnologyProperty;
 use augustus_eu4::VanillaWorld;
 use std::{
     fs,
@@ -66,6 +67,37 @@ fn baseline_technology_resources_and_permanent_modifiers_reach_the_shared_state(
     assert_eq!(later.province(1).unwrap().modifiers.len(), 2);
     let end = VanillaWorld::load(fixture(), "1450.1.1").unwrap();
     assert!(end.country("AAA").unwrap().modifiers.is_empty());
+}
+
+#[test]
+fn technology_property_query_preserves_unparsed_fields() {
+    let temp = copy_fixture();
+    let path = temp.path().join("common/technologies/test_adm.txt");
+    let text = fs::read_to_string(&path).unwrap().replace(
+        "technology = { year = 1430 test_capability = yes }",
+        "technology = { year = 1430 test_capability = yes production_efficiency = 0.02 native_only = text }",
+    );
+    fs::write(path, text).unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let technology = loaded.initial.world().technology();
+    assert_eq!(
+        technology.country_property(country, "administrative", "production_efficiency"),
+        TechnologyProperty::Value(20_000)
+    );
+    assert_eq!(
+        technology.country_property(country, "administrative", "test_capability"),
+        TechnologyProperty::Flag(true)
+    );
+    assert_eq!(
+        technology.country_property(country, "administrative", "missing"),
+        TechnologyProperty::Absent
+    );
+    assert_eq!(
+        technology.country_property(country, "administrative", "native_only"),
+        TechnologyProperty::Unknown
+    );
 }
 
 #[test]

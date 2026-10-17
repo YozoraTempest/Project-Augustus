@@ -2,9 +2,11 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Administration, AdministrativeCategory, AreaStatus, AttributeBase, AttributeChannel,
-    AttributeFormula, AttributeTerm, Attributes, Calendar, CoreType, CountryResources, EntityId,
-    EntityKind, ProvinceAdministration, Schema, Taxation, World, WorldDate,
+    AccrualRule, Action, Administration, AdministrativeCategory, AreaStatus, AttributeBase,
+    AttributeChannel, AttributeFormula, AttributeTerm, Attributes, Calendar, CoreType,
+    CountryResources, EntityId, EntityKind, FieldId, MONTHLY_AUTONOMY_DELTA_ATTRIBUTE,
+    MetricDefinition, Metrics, MonthlyAccruals, ProvinceAdministration, Schema, Target, Taxation,
+    World, WorldDate,
 };
 
 fn world() -> World {
@@ -79,6 +81,213 @@ fn query(world: &World, entity: usize) -> augustus_core::AdministrationEvaluatio
         .administration()
         .evaluate(world, EntityId(entity))
         .unwrap()
+}
+
+#[test]
+fn monthly_autonomy_clamps_before_tax_and_resumes_with_identical_state() {
+    let mut world = world();
+    let border = EntityId(3);
+    let mut administration = world.administration().clone();
+    administration
+        .provinces
+        .get_mut(&border)
+        .unwrap()
+        .raw_autonomy_micros = Some(350_500);
+    world.set_administration(administration).unwrap();
+
+    let tax_formula = |base_micros| AttributeFormula {
+        base: AttributeBase::Constant {
+            micros: base_micros,
+        },
+        channels: vec![AttributeChannel {
+            flat: Vec::new(),
+            rates: vec![AttributeTerm::Autonomy],
+        }],
+        minimum_micros: None,
+        maximum_micros: None,
+        result_quantum_micros: None,
+        unresolved: Default::default(),
+    };
+    let monthly_autonomy = AttributeFormula {
+        base: AttributeBase::Constant { micros: 0 },
+        channels: vec![AttributeChannel {
+            flat: vec![AttributeTerm::Constant {
+                source: "monthly_autonomy".into(),
+                micros: -1_000,
+            }],
+            rates: Vec::new(),
+        }],
+        minimum_micros: None,
+        maximum_micros: None,
+        result_quantum_micros: None,
+        unresolved: Default::default(),
+    };
+    world
+        .set_metrics(Metrics {
+            definitions: [(
+                "tick".into(),
+                MetricDefinition {
+                    kind: EntityKind::Country,
+                    minimum: 0,
+                    maximum: i64::MAX,
+                    baseline: 0,
+                    divisor: 1,
+                    modifier: None,
+                    unresolved_properties: Default::default(),
+                    below_baseline: None,
+                    growth_ceiling: false,
+                },
+            )]
+            .into(),
+            entities: [(EntityId(0), [("tick".into(), Some(0))].into())].into(),
+            ..Default::default()
+        })
+        .unwrap();
+    world
+        .set_attributes(Attributes {
+            formulas: [
+                (
+                    EntityId(0),
+                    [(
+                        "monthly_income".into(),
+                        AttributeFormula {
+                            base: AttributeBase::Constant { micros: 0 },
+                            channels: Vec::new(),
+                            minimum_micros: None,
+                            maximum_micros: None,
+                            result_quantum_micros: None,
+                            unresolved: Default::default(),
+                        },
+                    )]
+                    .into(),
+                ),
+                (EntityId(2), [("tax".into(), tax_formula(0))].into()),
+                (
+                    border,
+                    [
+                        (MONTHLY_AUTONOMY_DELTA_ATTRIBUTE.into(), monthly_autonomy),
+                        ("tax".into(), tax_formula(1_200_000_000)),
+                    ]
+                    .into(),
+                ),
+            ]
+            .into(),
+            ..Default::default()
+        })
+        .unwrap();
+    world
+        .set_calendar(Calendar {
+            start: WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            },
+            month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+        })
+        .unwrap();
+    world
+        .set_country_resources(
+            [(
+                EntityId(0),
+                CountryResources {
+                    treasury_milli: Some(0),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    world
+        .set_monthly_accruals(MonthlyAccruals {
+            rules: [(
+                EntityId(0),
+                [(
+                    "tick".into(),
+                    AccrualRule {
+                        attribute: "monthly_income".into(),
+                        divisor: 1,
+                    },
+                )]
+                .into(),
+            )]
+            .into(),
+            ..Default::default()
+        })
+        .unwrap();
+    world
+        .set_taxation(Taxation::new("tax", [EntityId(0)].into()))
+        .unwrap();
+
+    let mut overflow = world.clone();
+    let mut overflow_attributes = overflow.attributes().clone();
+    for province in [EntityId(2), border] {
+        overflow_attributes
+            .formulas
+            .get_mut(&province)
+            .unwrap()
+            .get_mut("tax")
+            .unwrap()
+            .base = AttributeBase::Field {
+            field: FieldId(0),
+            micros_per_unit: 1,
+        };
+        overflow
+            .schedule(
+                province,
+                20,
+                vec![Action::Set {
+                    target: Target::Current,
+                    field: FieldId(0),
+                    value: i64::MAX,
+                }],
+            )
+            .unwrap();
+    }
+    overflow.set_attributes(overflow_attributes).unwrap();
+    assert!(overflow.advance_to(20).is_err());
+    assert_eq!(
+        overflow.administration().provinces[&border].raw_autonomy_micros,
+        Some(350_500)
+    );
+
+    world.advance_to(20).unwrap();
+    assert_eq!(
+        world.administration().provinces[&border].raw_autonomy_micros,
+        Some(350_000)
+    );
+    assert_eq!(query(&world, 3).effective_autonomy_micros, Some(350_000));
+    assert_eq!(
+        world
+            .taxation()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&EntityId(0)]
+            .income_milli,
+        Some(65_000)
+    );
+
+    let saved = world.save("monthly-autonomy").unwrap();
+    let mut resumed = World::restore(&saved, "monthly-autonomy", world.schema()).unwrap();
+    world.advance_to(51).unwrap();
+    resumed.advance_to(51).unwrap();
+    assert_eq!(world, resumed);
+    assert_eq!(
+        world.administration().provinces[&border].raw_autonomy_micros,
+        Some(350_000)
+    );
+    assert_eq!(
+        world
+            .taxation()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&EntityId(0)]
+            .income_milli,
+        Some(65_000)
+    );
 }
 
 #[test]
@@ -190,6 +399,7 @@ fn administrative_attributes() -> Attributes {
         }],
         minimum_micros: None,
         maximum_micros: None,
+        result_quantum_micros: None,
         unresolved: Default::default(),
     };
     Attributes {
@@ -554,6 +764,7 @@ fn autonomy_is_a_separate_live_factor_and_unknown_factor_blocks_subtotal() {
         ],
         minimum_micros: None,
         maximum_micros: None,
+        result_quantum_micros: None,
         unresolved: Default::default(),
     };
     world

@@ -8,7 +8,11 @@ var overview: Dictionary = {}
 var province_image: Image
 var color_ids: Dictionary = {}
 var game_path: LineEdit
+var baseline_save: LineEdit
 var date_input: LineEdit
+var mod_directories: Array[String] = []
+var user_directory := ""
+var launcher_config := ""
 var status: Label
 var country_choice: OptionButton
 var country_details: Label
@@ -17,8 +21,13 @@ var diplomacy_details: Label
 var province_details: Label
 var map_view: TextureRect
 var directory_picker: FileDialog
+var save_picker: FileDialog
 var details_scroll: ScrollContainer
 var selection_revision := 0
+var unit_country_id := ""
+var unit_option_cache: Dictionary = {}
+var unit_option_controls: Dictionary = {}
+var unit_selection_status: Label
 var calendar_label: Label
 var run_button: Button
 var simulation_timer: Timer
@@ -59,12 +68,24 @@ func _ready() -> void:
 	date_input.custom_minimum_size.x = 130
 	form.add_child(date_input)
 	form.add_child(button("载入开局", load_world))
+	var save_form := HBoxContainer.new()
+	page.add_child(save_form)
+	baseline_save = LineEdit.new()
+	baseline_save.placeholder_text = "可选：1444.11.11 全 DLC、无 Mod 的明文存档，仅导入 HRE 归属与帝位偏好"
+	baseline_save.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_form.add_child(baseline_save)
+	save_form.add_child(button("选择存档", func(): save_picker.popup_centered_ratio(0.7)))
 	directory_picker = FileDialog.new()
 	directory_picker.file_mode = FileDialog.FILE_MODE_OPEN_DIR
 	directory_picker.access = FileDialog.ACCESS_FILESYSTEM
 	directory_picker.dir_selected.connect(func(path): game_path.text = path)
 	add_child(directory_picker)
-	status = label("选择安装目录后载入。游戏资源从本地读取。", 15)
+	save_picker = FileDialog.new()
+	save_picker.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	save_picker.access = FileDialog.ACCESS_FILESYSTEM
+	save_picker.file_selected.connect(func(path): baseline_save.text = path)
+	add_child(save_picker)
+	status = label("选择安装目录后载入；可选导入 1444.11.11 基线存档中的 HRE 归属与帝位偏好。", 15)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status.max_lines_visible = 3
 	page.add_child(status)
@@ -112,6 +133,19 @@ func _ready() -> void:
 	country_details = label("尚未载入", 16)
 	country_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	panel.add_child(country_details)
+	panel.add_child(label("兵种选择", 20))
+	unit_selection_status = label("尚未载入", 15)
+	unit_selection_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	panel.add_child(unit_selection_status)
+	for category in ["infantry", "cavalry", "artillery"]:
+		var row := HBoxContainer.new()
+		row.add_child(label({"infantry": "步兵", "cavalry": "骑兵", "artillery": "炮兵"}[category], 15))
+		var option := OptionButton.new()
+		option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		option.item_selected.connect(choose_unit_template.bind(category))
+		unit_option_controls[category] = option
+		row.add_child(option)
+		panel.add_child(row)
 	panel.add_child(label("统治者", 20))
 	politics_details = label("尚未载入", 16)
 	politics_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -124,14 +158,37 @@ func _ready() -> void:
 	province_details = label("尚未选择", 16)
 	province_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	panel.add_child(province_details)
-	var args := OS.get_cmdline_user_args()
-	for i in args.size():
-		if args[i] == "--game-root" and i + 1 < args.size():
-			game_path.text = args[i + 1]
-		if args[i] == "--date" and i + 1 < args.size():
-			date_input.text = args[i + 1]
+	if not parse_launch_args(OS.get_cmdline_user_args()):
+		return
 	if not game_path.text.is_empty():
 		load_world()
+
+func parse_launch_args(args: PackedStringArray) -> bool:
+	var index := 0
+	while index < args.size():
+		var option := args[index]
+		if option not in ["--game-root", "--date", "--mod", "--user-directory", "--launcher-config", "--baseline-save"]:
+			index += 1
+			continue
+		if index + 1 >= args.size():
+			status.text = "启动参数缺少对应的值。"
+			return false
+		var value := args[index + 1]
+		match option:
+			"--game-root":
+				game_path.text = value
+			"--date":
+				date_input.text = value
+			"--mod":
+				mod_directories.append(value)
+			"--user-directory":
+				user_directory = value
+			"--launcher-config":
+				launcher_config = value
+			"--baseline-save":
+				baseline_save.text = value
+		index += 2
+	return true
 
 func label(text: String, size: int) -> Label:
 	var node := Label.new()
@@ -149,7 +206,14 @@ func button(text: String, action: Callable) -> Button:
 func load_world() -> bool:
 	set_running(false)
 	var candidate = AugustusWorldSession.new()
-	var packet: Dictionary = JSON.parse_string(candidate.load_world(game_path.text, date_input.text))
+	var packet: Dictionary = JSON.parse_string(candidate.load_world_with_baseline_save(
+		game_path.text,
+		date_input.text,
+		mod_directories,
+		user_directory,
+		launcher_config,
+		baseline_save.text
+	))
 	if not packet.ok:
 		status.text = packet.error
 		return false
@@ -183,6 +247,8 @@ func load_world() -> bool:
 	material.set_shader_parameter("palette_width", float(width))
 	map_view.material = material
 	country_choice.clear()
+	unit_country_id = ""
+	unit_option_cache.clear()
 	for country in data.countries:
 		country_choice.add_item("%s · %s (%d)" % [country.id, country.name, country.province_count])
 		country_choice.set_item_metadata(country_choice.item_count - 1, country.id)
@@ -194,6 +260,8 @@ func load_world() -> bool:
 	for count in data.report.unapplied_province_fields.values():
 		unapplied += int(count)
 	status.text = "%d 个国家定义 · %d 个有领土国家 · %d 个省份定义\n尚未应用 %d 项历史字段；有 %d 个国家的历史文件存在歧义。" % [data.report.countries, data.report.active_countries, data.report.provinces, unapplied, data.report.ambiguous_country_histories.size()]
+	if data.saved_imperial_baseline != null:
+		status.text += "\n从所选存档导入 %d 个 HRE 省份归属和 %d 条帝位偏好。" % [int(data.saved_imperial_baseline.provinces_checked), int(data.saved_imperial_baseline.preferences_imported)]
 	province_details.text = "点击地图查看省份。"
 	select_country(0)
 	for control in time_controls:
@@ -292,6 +360,7 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 		status.text = packet.error
 		return
 	var country: Dictionary = packet.value.state
+	refresh_unit_templates(id)
 	var government: Variant = packet.value.government
 	country_details.text = "%s · %s\n领土 %d 个省份 · 首都 %s\n文化 %s · 宗教 %s\n政体 %s" % [country.id, country.name, packet.value.owned_provinces.size(), shown(packet.value.bound_capital), shown(country.primary_culture), shown(country.religion), shown(null if government == null else government.kind)]
 	if government != null:
@@ -304,13 +373,11 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 			country_details.text += "\n合法性：此政体不使用"
 	var ideas: Variant = packet.value.ideas
 	if ideas == null or ideas.groups == null:
-		country_details.text += "
-国家理念：选择未确定"
+		country_details.text += "\n国家理念：选择未确定"
 	else:
 		for group in ideas.groups:
 			var progress: Variant = ideas.groups[group]
-			country_details.text += "
-国家理念 %s · %s" % [group, "进度未确定" if progress == null else "已解锁 %d 项" % int(progress)]
+			country_details.text += "\n国家理念 %s · %s" % [group, "进度未确定" if progress == null else "已解锁 %d 项" % int(progress)]
 	var tech: Variant = packet.value.technology
 	country_details.text += "\n行政 / 外交 / 军事科技：\n" + ("未载入" if tech == null else "%s / %s / %s" % [shown(tech.get("administrative")), shown(tech.get("diplomatic")), shown(tech.get("military"))])
 	var resources: Variant = packet.value.resources
@@ -368,6 +435,65 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 	for relation in packet.value.diplomacy:
 		relations.append(relation_text(relation, id))
 	diplomacy_details.text = "没有已载入的外交关系" if relations.is_empty() else "\n".join(relations)
+
+func refresh_unit_templates(id: String) -> void:
+	var packet: Dictionary = JSON.parse_string(session.query_unit_templates(id))
+	if not packet.ok:
+		unit_selection_status.text = packet.error
+		return
+	var data: Dictionary = packet.value
+	var available: Dictionary = data.available
+	var selected: Dictionary = data.selected
+	var unselected := 0
+	var unavailable := 0
+	for category in ["infantry", "cavalry", "artillery"]:
+		var option: OptionButton = unit_option_controls[category]
+		var choices: Array = available.get(category, [])
+		var chosen: Variant = selected.get(category)
+		if choices.is_empty():
+			unavailable += 1
+		elif chosen == null:
+			unselected += 1
+		var signature := JSON.stringify([choices, chosen])
+		if unit_country_id == id and unit_option_cache.get(category) == signature:
+			continue
+		option.clear()
+		option.add_item("未选择")
+		option.set_item_metadata(0, "")
+		var selected_index := 0
+		for unit_type in choices:
+			option.add_item(unit_type)
+			option.set_item_metadata(option.item_count - 1, unit_type)
+			if unit_type == chosen:
+				selected_index = option.item_count - 1
+		option.select(selected_index)
+		option.disabled = choices.is_empty()
+		unit_option_cache[category] = signature
+	unit_country_id = id
+	if unselected == 0:
+		unit_selection_status.text = "已选择所有可用兵种。%s" % ("部分类别尚未解锁。" if unavailable > 0 else "")
+	else:
+		unit_selection_status.text = "%d 个类别尚未选择；%d 个类别当前没有解锁模板。" % [unselected, unavailable]
+
+func choose_unit_template(index: int, category: String) -> void:
+	if unit_country_id.is_empty():
+		return
+	var option: OptionButton = unit_option_controls[category]
+	var unit_type := str(option.get_item_metadata(index))
+	if unit_type.is_empty():
+		var clear_packet: Dictionary = JSON.parse_string(session.clear_unit_template(unit_country_id, category))
+		if not clear_packet.ok:
+			unit_selection_status.text = clear_packet.error
+			return
+		unit_option_cache.clear()
+		refresh_unit_templates(unit_country_id)
+		return
+	var packet: Dictionary = JSON.parse_string(session.select_unit_template(unit_country_id, category, unit_type))
+	if not packet.ok:
+		unit_selection_status.text = packet.error
+		return
+	unit_option_cache.clear()
+	refresh_unit_templates(unit_country_id)
 
 func relation_text(relation: Dictionary, id: String) -> String:
 	var first: bool = relation.first == id

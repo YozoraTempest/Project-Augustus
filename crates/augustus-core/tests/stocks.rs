@@ -9,6 +9,7 @@ fn formula(base: AttributeBase) -> AttributeFormula {
         channels: vec![],
         minimum_micros: None,
         maximum_micros: None,
+        result_quantum_micros: None,
         unresolved: Default::default(),
     }
 }

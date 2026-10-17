@@ -125,6 +125,31 @@ fn unknown_progress_selection_and_properties_preserve_known_sources() {
 }
 
 #[test]
+fn has_idea_queries_progress_and_preserves_unknown_selection_or_progress() {
+    let mut world = scenario();
+    let selected = EntityId(0);
+    let unselected = EntityId(1);
+    let condition = |id: &str| augustus_core::Condition::HasIdea {
+        target: augustus_core::Target::Current,
+        id: id.into(),
+    };
+    assert!(!condition("one").evaluate(&world, selected).unwrap());
+    assert!(!condition("one").evaluate(&world, unselected).unwrap());
+    progress(&mut world, Some(1));
+    assert!(condition("one").evaluate(&world, selected).unwrap());
+    assert!(!condition("two").evaluate(&world, selected).unwrap());
+    assert!(condition("unknown").evaluate(&world, selected).is_err());
+
+    progress(&mut world, None);
+    assert!(condition("one").evaluate(&world, selected).is_err());
+
+    let mut ideas = world.ideas().clone();
+    ideas.countries.get_mut(&selected).unwrap().groups = None;
+    world.set_ideas(ideas).unwrap();
+    assert!(condition("one").evaluate(&world, selected).is_err());
+}
+
+#[test]
 fn unexecuted_unlock_scripts_taint_arbitrary_properties_only_when_relevant() {
     let mut world = scenario();
     let mut ideas = world.ideas().clone();

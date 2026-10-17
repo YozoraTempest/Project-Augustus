@@ -14,7 +14,9 @@
 cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --date 1444.11.11 --country HAB --province 134
 ```
 
-输出 JSON 包含载入报告，以及可选的国家、省份查询和对应文件来源。省份基础税收、生产、人力用千分位整数表示，例如 `6000` 表示 `6`。未知国家或省份、错误日期、无效引用和不匹配的地图尺寸会报错。加载器要求安装目录版本为 1.37.5；仅修改版本声明不能使其他版本兼容。
+输出 JSON 包含载入报告，以及可选的国家、省份查询和对应文件来源。国家查询分别保留科技组与历史单位组（`unit_type`）。省份基础税收、生产、人力用千分位整数表示，例如 `6000` 表示 `6`。未知国家或省份、错误日期、无效引用和不匹配的地图尺寸会报错。加载器要求安装目录版本为 1.37.5；仅修改版本声明不能使其他版本兼容。
+
+需要读取目录 Mod 时，可重复提供 `--mod`，并用 `--launcher-config "<EU4 用户目录>/dlc_load.json"` 按启动器的 `enabled_mods` 筛选；Godot 启动参数也接受这些选项及 `--user-directory`。启用列表中的每个 Mod 仍须提供其目录。默认使用安装目录内可用的全部 DLC，不读取启动器的 DLC 禁用列表。
 
 省份查询的 `metrics.devastation` 使用千分位整数，`null` 表示当前数值未知。直接荒废度效果、查询和按比例生效的省份属性已接入；月度恢复与繁荣度尚未实现。开局脚本未能完整执行时，不会把初始化的零当作最终值。
 
@@ -44,17 +46,21 @@ godot --path godot -- --game-root "/path/to/Europa Universalis IV" --date 1444.1
 命令行可以推进日期，在中途保存并继续：
 
 ```sh
-cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --country HAB --days 45 --save augustus-world.json
+cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --country HAB --seed 8351375 --days 45 --save augustus-world.json
 cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --country HAB --load augustus-world.json --days 320
 ```
 
-`--date` 始终指定开局日期，恢复时须与保存时一致。命令行拒绝覆盖已有文件。存档核对受支持内容、开局数据和所选月度系统，内容变化、错误存档或不匹配的世界会报错。`simulation` 给出当前日期、累计天数和税收月结次数。默认开局推进 365 天到达 `1445.11.11`，跨过十二次月结。
+新 EU4 世界的随机种子通过 `--seed` 指定，默认是 `0`；恢复时以快照保存的随机状态为准。EU4 快照会保存种子、抽取计数、624 项状态数组和当前索引；旧版通用快照仍可读取。`simulation.eu4_random` 报告当前种子和计数。`--date` 始终指定开局日期，恢复时须与保存时一致。命令行拒绝覆盖已有文件。存档核对受支持内容、开局数据和所选月度系统，内容变化、错误存档或不匹配的世界会报错。默认开局推进 365 天到达 `1445.11.11`，跨过十二次月结。
+
+已验证的范围覆盖原版随机状态的初始化、单值生成、1,000 值批量生成及按保存计数重建。具体游戏系统如何把随机值映射为区间结果，以及非固定种子的时钟输入，仍需原版对照；因此这不代表所有随机消费者已与 EU4 一致。
 
 日历每年 365 天，二月固定 28 天。每月首日执行一次月结，开局当天不结算；同日任务先按登记顺序执行，再计算税收。标准税收系统按当前所有权汇总省份 `tax_after_autonomy` 年化属性，除以十二并转为千分位货币，向零截断。这个执行顺序与取整约定已通过自制样本验证，仍需原版运行对照。
 
-国家查询的 `last_monthly_tax` 保存最近一次结算的已知部分、完整收入、实际入账、前后余额和缺项。只有完整收入和原有余额都已确定才入账。税收缺项会使之后的余额保持未知，不能把旧余额或部分收入当作当前准确余额。原版开局的国库及部分税收来源尚未确定，因此当前原版推进会产生有缺项的记录；生产、贸易、维护、借贷和人力结算尚未执行。
+国家查询的 `last_monthly_tax` 保存最近一次结算的已知部分、完整收入、实际入账、前后余额和缺项；启用生产执行器后，`last_monthly_production` 保存按国家汇总的年度值、月度值、逐省结果、国库前后余额和缺项。只有完整收入和原有余额都已确定才入账。税收缺项会使之后的余额保持未知，不能把旧余额或部分收入当作当前准确余额。原版开局的国库及部分税收来源尚未确定，因此当前原版推进会产生有缺项的记录；生产、贸易、维护、借贷和人力结算尚未全部接通。
 
 Rust 原生系统可以实现 `MonthlySystem`，在开局前整体替换月度执行者；存档记录系统标识和版本，恢复后需要同一实现。示例见 `crates/augustus-core/tests/calendar_taxation.rs`。兼容输入与原生输入使用同一个核心和调度入口，当前接口尚不是稳定 Mod SDK。
+
+原生内容也可通过 `Taxation::with_country_annual_attribute` 指定国家级年化税收属性。EU4 加载器会将 `all_nations.global_tax_income` 用于已知拥有省份的国家；当前皇帝还会按 HRE 成员中已选 `free_city` 改革的国家数，计入 `free_cities_in_hre.global_tax_income`。无领土国家的特殊资格尚未接入，年税保留为未知。未知国家属性会阻止实际入账，已知省份小计仍保留；配置与账项参与保存和恢复校验。原版 HRE 状态变更后的缓存刷新时序尚未完整验证。
 
 ## 当前范围
 
@@ -68,7 +74,7 @@ Rust 原生系统可以实现 `MonthlySystem`，在开局前整体替换月度�
 
 国家历史中的君主、继承人及配偶会载入核心，保留姓名、王朝、出生日期、历史死亡日期、三项能力、宣称强度、摄政和来源国家等受支持字段。缺少的能力值保持未知；已超过声明死亡日期或尚未出生的条目不作为当前角色，报告保留其来源。嵌套的军事领袖、人物性格和未支持字段仍会报告。
 
-外交历史载入同盟、王室联姻、保障、警告、贸易联盟成员、属国关系，以及两个皇帝职位。属国类型须在本地定义中存在。无向关系统一两国顺序；保障、警告、贸易联盟和属国关系保留方向。重复关系合并为一个核心状态，同时保留各条来源。核心拒绝自我关系、无效国家引用、多个宗主或循环属国关系。
+外交历史载入同盟、王室联姻、保障、警告、贸易联盟成员、属国关系，以及两个皇帝职位。属国类型须在本地定义中存在。无向关系统一两国顺序；保障、警告、贸易联盟和属国关系保留方向。重复关系合并为一个核心状态，同时保留各条来源。核心拒绝自我关系、无效国家引用、多个宗主或循环属国关系。兼容事件在国家作用域中支持 `set_emperor = yes`，直接更新帝国皇帝职位；正常选举流程仍未接入。
 
 当前日期选择采用包含开始日、不包含结束日的区间；各文件中的皇帝变更统一按日期排序。这些输入规则通过自制用例和本地原版文件载入检查，尚未完成与原版运行状态的逐项对照。
 
@@ -82,27 +88,31 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 ## 建筑、商品与贸易网络
 
-建筑目录读取明确声明的费用与工期；费用采用千分位整数，工期保留月数，不换算成固定天数。省份历史中以建筑标识为字段的 `yes` / `no` 条目，按开局历史顺序增删建筑。商品目录与价格目录合并为核心定义，保留基础价格和声明的金矿类别。缺少的费用、工期、价格或类别保持未知，不补默认值。
+建筑目录读取明确声明的费用与工期；费用采用千分位整数，工期保留月数，不换算成固定天数。省份历史中以建筑标识为字段的 `yes` / `no` 条目，按开局历史顺序增删建筑。商品目录与价格目录合并为核心定义，保留兼容层观察到的运行时索引、基础价格和声明的金矿类别。运行时索引从 1 开始，按选定内容中 `common/tradegoods` 的定义顺序分配；核心把它当作可选的外部标识，不用它推导动态价格。缺少的费用、工期、价格或类别保持未知，不补默认值。
 
 贸易节点保留位置省份、成员省份、下游连接，以及声明的内陆和终点标记。核心检查引用、重复归属、自我连接和循环网络。输入中的重复定义会报错，当前入口不猜测其覆盖顺序。省份没有历史文件时，建筑查询返回 `null`；有历史文件但没有受支持的现存建筑条目时返回空列表。这份列表表示历史输入结果，尚未执行建筑保留条件。
 
-使用 `--economy` 查询建筑与商品目录、完整贸易网络；报告的 `economy` 字段给出数量、定义来源、建筑历史的最终声明位置和未应用字段。原有省份 JSON 字段继续保留，新增 `buildings`、`trade_node`、`trade_node_outgoing` 和 `trade_good_definition`。
+使用 `--economy` 查询建筑与商品目录、完整贸易网络；报告的 `economy` 字段给出数量、定义来源、建筑历史的最终声明位置和未应用字段。原有省份 JSON 字段继续保留，新增 `buildings`、`trade_node`、`trade_node_outgoing` 和 `trade_good_definition`。查询单个省份时还会给出 `province_trade_good_base_price_milli`，它只表示 `common/prices` 中声明的商品基础价格，不代表动态市场价格或已经完成的贸易结算。Rust 调用方可以使用 `VanillaWorld::calculate_vanilla_province_production_base_value`，在明确提供货物数量及修正项时复用该基础价格；没有已知商品价格时返回未知，不补默认值。
+
+建筑定义会保留标准建筑与要塞的角色及要塞等级。要塞不参与普通省份属性的建筑修正汇总；防御区域、维护和战斗路径尚未接通。
 
 ```sh
 cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --province 134 --economy
 ```
 
-这些数据与人物、外交一样进入同一个核心及存档，原有建造演示存档仍可读取。部分建筑与商品的省份数值修正已进入下述属性计算；建造与保留条件、回调、动态价格、产出与贸易收入尚未执行，绘制路线的路径和控制点也未接入。未处理的定义字段会记录在报告中。显示的基础价格不能当作实际商品收入，贸易连接也不能当作贸易结算已经完成。
+这些数据与人物、外交一样进入同一个核心及存档，原有建造演示存档仍可读取。部分建筑与商品的省份数值修正已进入下述属性计算；自动生成生产上游、建造与保留条件、回调和贸易收入仍未全部接入，但兼容层提供明确输入时，月度生产执行器会把逐省结果写入国家国库并保留结算记录。动态价格可以由外部状态按运行时索引提供，兼容层会在生产值阶段重建有效价格；绘制路线的路径和控制点也未接入。核心已经提供贸易传播金额、保留比例、路线权重归一化、候选排序和价值下推的独立算子，兼容层仍需提供省份产出、国家权力、路线和政策等上游状态后才能组成完整贸易结算。未处理的定义字段会记录在报告中。显示的基础价格不能当作实际商品收入，贸易连接也不能当作贸易结算已经完成。
 
 位图、脚本和生成报告均来自本地安装，不随项目分发。需要完整资源的 DLC 档案读取尚未接入；当前地图与所列开局字段从安装目录的普通文件读取。
 
 ## 政体与改革
 
-政体查询包含已选改革及合法性状态。基础改革从政体定义读取，历史中的改革增删与合法性按日期处理；同层级的后选改革替换前项。可确定的 DLC 和常量条件会应用，未知条件、重复定义保留报告。只有已确认使用合法性的政体才载入该指标；普通君主制的 `1444.11.11` 历史初值为 100，明确历史值优先，其他日期不补默认值。启动事件和外交初始化对合法性的后续改动尚未执行，因此它不等于完整开局存档中的最终值。使用贤能值、游牧团结或奉献值的政体不会附加合法性效果；贤能值与游牧团结尚未接入，共和国传统和奉献值的开局数值及属性效果仍未确定。
+国家等级按开局历史、改革等级、属国上限和皇帝身份初始化，并保存在共享政府状态；受支持的国家脚本可用 `government_rank = N` 查询、用 `set_government_rank = N` 修改。政体查询也包含已选改革及合法性状态。基础改革从政体定义读取，历史中的改革增删与合法性按日期处理；同层级的后选改革替换前项。可确定的 DLC 和常量条件会应用，未知条件、重复定义保留报告。只有已确认使用合法性的政体才载入该指标；普通君主制的 `1444.11.11` 历史初值为 100，明确历史值优先，其他日期不补默认值。启动事件和外交初始化对合法性的后续改动尚未执行，因此它不等于完整开局存档中的最终值。使用贤能值、游牧团结或奉献值的政体不会附加合法性效果；贤能值与游牧团结尚未接入，共和国传统和奉献值的开局数值及属性效果仍未确定。
 
 国家查询新增 `government` 和 `declared_government_effects`。合法性按静态定义缩放数值声明，改革的直接税收、人力修正进入省份计算；宽容度、叛乱与外交等声明尚需对应系统消费。条件修正和改革触发效果尚未执行。原生内容也使用可整项替换并保存的 `Governments`；查询随当前改革、指标和所有者变化，不保存派生值缓存。
 
-已接入部分 `change_government` 转换：同类型仍执行旧状态回调并保留改革与指标；跨类型先执行回调，再采用目标基础改革和活动指标，清除普通改革。当前支持分类明确的君主制、共和国、神权、部落君主制和原住民基础政体，游牧、贤能及其他未核对分类保留报告。共和国传统和奉献值在转换时初始化为 50，停用后可查询保留值；它们的历史开局初值和属性缩放仍未知，会影响依赖这些属性的初始化结果。阶层重建、等级及其他跨系统生命周期尚未接入，完整原版启动仍可能被回调中的未支持脚本阻塞。自制用例见[政体转换场景](../examples/government-transitions/README.md)。
+国家条件支持 `has_government_mechanic = <标识>`。兼容模块读取 `common/government_mechanics` 的定义和改革中的 `government_abilities`，应用可确定的常量及 DLC 条件，将已挂载的机制翻译成核心政体能力；查询可用于受支持的事件、阶层和理念条件，并随改革增删、所有者查询及存档恢复读取当前状态。多个改革可共同提供同一机制。需要国家运行状态的 `available` 条件、未知改革条件、重复定义及缺失引用保留为未知；尚未实现机制点数、互动、增长和动态可用性的刷新。
+
+已接入部分 `change_government` 转换：同类型仍执行旧状态回调并保留改革与指标；跨类型先执行回调，再采用目标基础改革和活动指标，清除普通改革。当前支持分类明确的君主制、共和国、神权、部落君主制和原住民基础政体，游牧、贤能及其他未核对分类保留报告。共和国传统和奉献值在转换时初始化为 50，停用后可查询保留值；它们的历史开局初值和属性缩放仍未知，会影响依赖这些属性的初始化结果。阶层重建及其他跨系统生命周期尚未接入，完整原版启动仍可能被回调中的未支持脚本阻塞。自制用例见[政体转换场景](../examples/government-transitions/README.md)。
 
 启动效果、其调用的事件和选项已支持字面小数 `add_legitimacy`；`legitimacy` 阈值条件读取同一份国家状态，也可用于受支持的理念与阶层选择条件。每次增减限制在 0 到 100，不适用该机制的国家忽略效果。启动执行未完成时，放弃中间写入，并将存活国家的活动指标值保留为未知；查询不会把开局前的值当作最终结果。正统性的自然增长、其他政体指标和历史文件中的 `add_legitimacy` 尚未执行。
 
@@ -116,7 +126,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 国家查询的 `estates` 列出阶层的可用状态、忠诚度、影响力、土地份额和已选特权；`declared_estate_effects` 给出已知属性声明及缺项。阶层可用条件复用国家条件解释器，支持部分政体、文化、宗教、DLC、历史标记及阶层依赖，并展开已接入的带参数条件脚本。未知条件和循环依赖保持未知。直接历史中的特权增删按日期处理，未执行的条件与作用域不会被当作已经应用。
 
-阶层的三档属性、土地效果及特权的直接收益、代价进入共享核心。税收和人力公式按当前所有者查询这些效果；状态改变后重新计算。原生内容可以提供完整的 `Estates`、内容定义的忠诚度阈值和影响力档位，通过 `set_estates` 整项替换，状态随存档保存。自制完整样本包含税收月结与保存恢复，见 `crates/augustus-core/tests/estates.rs`。
+阶层的三档属性、土地效果及特权的直接收益、代价进入共享核心。税收和人力公式按当前所有者查询这些效果；状态改变后重新计算。特权中受支持的条件修正使用世界的编译目录，读取当前政体指标、国家点数和任务状态；未知值继续阻止相关属性得到完整结果。原生内容可以提供完整的 `Estates`、内容定义的忠诚度阈值和影响力档位，通过 `set_estates` 整项替换，状态随存档保存。自制完整样本包含税收月结与保存恢复，见 `crates/augustus-core/tests/estates.rs`。
 
 开局土地分配已接入共享核心的 `EstateLandRules`。兼容模块从基础与条件影响力、已载入的政体和历史修正生成分配权重，读取王冠权重与最低保留份额，再按声明顺序处理分配和舍入。直接历史中的 `change_estate_land_share`、`add_estate_loyalty` 按日期与条目顺序应用，生成的数值随项目存档保存，恢复时不重复执行。报告的 `initial_land_countries`、`initial_loyalty_countries` 统计已生成国家，`unresolved_initialization` 说明缺项；未完成的直接历史操作保留来源。
 
@@ -132,11 +142,11 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 国家启动效果、事件和选项的修正添加、移除及查询共用已有修正定义与核心附着记录。到期状态同时影响事件条件和属性贡献，保存恢复保留期限。历史中尚未确定的有限期限继续报告未知；启动失败会撤销候选修改，并将存活国家的最终修正附着状态标记为未知。国家和省份查询的 `modifier_attachments_known` 表示附着列表是否完整确定；`modifiers` 和 `declared_modifier_totals_micros` 保留已记录的声明，属性查询另行给出最终数值和缺项。定义中的未知属性在实际附着时影响计算，移除后不再影响。当前国家效果读取已载入的 `common/event_modifiers` 定义，省份期限、其他定义来源及完整历史期限生成仍待核对。
 
-原版启动事件、历史中的非空特权回调、特权自身的非零土地附加、省份授予回调及重复授予等行为仍待接入或核对。未验证的上界、土地越界和未知作用域继续保留未知。正式原版开局的最终土地、忠诚度与特权列表尚未确定；分配权重也不能当作当前影响力。缺项继续阻止完整收入入账，界面中的阶层操作、持续忠诚度变化和议程尚未实现。
+原版启动事件、历史中的非空特权回调、特权自身的非零土地附加、省份授予回调及重复授予等行为仍待接入或核对。未验证的上界、土地越界和未知作用域继续保留未知。正式原版开局的最终土地、忠诚度与特权列表尚未确定；分配权重也不能当作当前影响力。核心已经接入按国家注册顺序分摊的每日忠诚度更新和带符号衰减公式，但只有在忠诚度目标已经由内容或外部状态提供时才写入；原版目标的全部来源、界面中的阶层操作和议程仍未完整接入。
 
 ## 科技、国家资源与历史修正
 
-科技组和三条科技表从本地定义读取，科技等级按表内声明顺序从 0 编号。仅在 `1444.11.11`，使用国家科技组明确声明的 `start_level` 设置行政、外交和军事等级；没有科技组或选择其他日期时，等级保持未知，不根据年份猜测。科技表中的数值与布尔声明可以查询，升级费用、解锁、累积效果和研究过程尚未执行。
+科技组、三条科技表和 `common/units` 模板从本地定义读取，科技等级按表内声明顺序从 0 编号。每级的 `enable` 单位模板名称也按声明顺序载入，并可从 `--technology` 查询结果查看。单位模板可用 `--unit <文件名>` 按文件主名查询，其类别和声明字段按原顺序保留。仅在 `1444.11.11`，使用国家科技组明确声明的 `start_level` 设置行政、外交和军事等级；没有科技组或选择其他日期时，等级保持未知，不根据年份猜测。单位解锁条件、可用单位选择、升级费用、累积效果和研究过程尚未执行。
 
 国家历史中明确声明的重商主义按日期载入，使用千分位整数，`25000` 表示 `25`。国库和可用人力保留未知状态，尚未计算其开局值。国家查询新增 `technology`、`resources`、`modifiers` 和 `declared_modifier_totals_micros`，原有字段继续保留。
 
@@ -150,6 +160,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 ```sh
 cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --country VEN --technology administrative
+cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --unit sample_light_ship
 cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --province 224 --modifier guadiana_estuary_modifier
 ```
 
@@ -161,7 +172,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 文化组从本地定义读取，接受文化的增删按所选历史日期处理，文化联盟按已接入的国家等级规则初始化。主文化、接受文化及联盟接受的文化不应用基础文化惩罚；同组和异组的未接受文化分别选择 `same_culture_group`、`non_accepted_culture` 中的数值。宗教只自动应用当前国教的 `country` 块和省份宗教的 `province` 块中已支持的属性；兼容入口不将次要宗教、转换回调或宽容度声明直接当成税收效果。`report.attributes.religion_definitions` 给出已确定的宗教定义数量；定义和属性重复时保留来源与缺项。
 
-每条计算返回基础值、各阶段的固定增量、比例之和、输出与贡献来源。数值均使用百万分位整数；`known_subtotal_micros` 是已接入部分的结果，`unresolved` 列出缺项。只要存在缺项，`value_micros` 就是 `null`。基础值未知时，已知部分结果也为 `null`。国家查询的 `province_attribute_totals` 按当前所有权汇总省份贡献，同时保留缺项；它不包含国家固定人力等尚未接入的来源。
+每条计算返回基础值、各阶段的固定增量、比例之和、输出与贡献来源。数值均使用百万分位整数；`known_subtotal_micros` 是已接入部分的结果，`unresolved` 列出缺项。只要存在缺项，`value_micros` 就是 `null`。基础值未知时，已知部分结果也为 `null`。国家查询的 `province_attribute_totals` 按当前所有权汇总省份贡献，同时保留缺项；尚有省份归属未确定时，只给出已知领土的小计，完整总量保持未知，明确无主的省份不会造成这一缺项。它不包含国家固定人力等尚未接入的来源。
 
 完整自治与州规则、政体对文化待遇的影响、宽容度与宗教机制、理念、阶层、科技效果及其他来源还需实现和核对。当前结果不能作为完整原版税收、人力上限或收入。原有 `resources.manpower_milli` 表示可用人力，继续保持未知，不用省份贡献代替。
 
@@ -181,9 +192,9 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 报告的 `initialized_autonomy`、`unknown_initial_autonomy` 给出已生成与未知的省份，`applied_country_autonomy` 保留已执行操作的来源，`pending_country_autonomy` 和 `pending_province_initialization` 列出待处理输入。已生成时，`history_autonomy_delta_micros` 为零，追加量已进入原始自治度；生成未知或选择其他日期时，该字段继续保留直接历史追加量，不能作为最终值。首都的原始值也可非零，生效值另受首都上限约束。
 
-规则最低自治从已载入的静态定义读取，首都上限从基础文件中的 `NEconomy.CAPITAL_MAX_AUTONOMY` 直接数值读取。完整核心所在州可以查询规则最低自治，原始自治度未知时仍不能确定非首都省份的有效自治。附加 Lua 对选定字段的赋值与表达式会报错；当前入口不执行 Lua。其他最低自治修正和贸易公司规则仍有缺项。Godot 将这些字段标为已接入规则的结果。
+规则最低自治从已载入的静态定义读取，首都上限使用 Lua 求值后的 `NEconomy.CAPITAL_MAX_AUTONOMY`。完整核心所在州可以查询规则最低自治，原始自治度未知时仍不能确定非首都省份的有效自治。其他最低自治修正和贸易公司规则仍有缺项。Godot 将这些字段标为已接入规则的结果。
 
-税收与人力计算按当前所有者的行政状态选择 `core`、`colonial_core`、`non_core`、`territory_core` 或 `territory_non_core` 的直接比例修正，与其他比例修正相加，再单独应用自治折减。所有权、核心或州与领地关系改变后，查询和月结都会重新选择来源。分类未知、所选定义缺失或属性有歧义时保留缺项；不适用的分类不会影响当前结果。这部分尚未完成原版运行数值核对，完整税收继续标为未知。原生内容通过 `AttributeTerm::Administration` 提供自己的分类与静态定义映射，使用同一计算和存档接口；示例见 `crates/augustus-core/tests/administration.rs`。
+税收与人力计算按当前所有者的行政状态选择 `core`、`colonial_core`、`non_core`、`territory_core` 或 `territory_non_core`。税收把行政、文化、宗教、建筑、商品及国家来源的税效率直接相加，不另加 100% 基础倍率；再将效率与 `1 − 有效自治` 相乘，并在千分精度截断后乘基础税。HAB 的 17 个省份在四份原版采集中与 442 条税收调用逐位吻合；其他国家、修正组合及未接入来源仍有缺项。人力继续使用比例修正通道。所有权、核心或州与领地关系改变后，查询和月结都会重新选择来源。分类未知、所选定义缺失或属性有歧义时保留缺项；不适用的分类不会影响当前结果。原生内容通过 `AttributeTerm::Administration` 提供自己的分类与静态定义映射，使用同一计算和存档接口；示例见 `crates/augustus-core/tests/administration.rs`。
 
 国家理念读取 `common/ideas` 中的免费理念组，按文件和声明顺序检查候选。条件支持国家标识、文化与宗教及其分组、科技组、政体、改革、君主王朝、直接历史标记，以及 AND、OR、NOT。还支持特殊国家身份、政体属性，以及 `capital_scope` 下的 `region` / `superregion`。首都条件使用已绑定的核心首都；无效首都、未知身份和未支持的作用域保留缺项。较早候选的条件未知时不会直接采用后面的通用组。`report.ideas` 给出定义来源、身份来源、未支持字段和各国的未确定原因。
 
@@ -191,13 +202,13 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 `1444.11.11` 的选定国家理念以零解锁初始化，国家传统立即提供直接属性；其他历史日期的进度保持未知。税收和人力公式查询当前所有者的理念效果。核心 `Ideas` 支持多个理念组、内容定义的项目数量、顺序解锁及完成奖励，原生样本见 [native_ideas.json](../examples/world/native_ideas.json)。原生内容可用 `CountryPolitics.statuses` 提供显式国家身份，用 `GovernmentReform.features` 定义政体能力；身份缺失或值为 `null` 表示未知，政体能力在改革选择及定义完整时未声明表示不具备。通过 `set_ideas` 整项替换，状态和定义随存档保存；重复项目、越界进度和无效国家引用会被拒绝。重复直接属性保留缺项，未执行的解锁脚本影响其生效阶段的完整性。尚未实现花费点数解锁、理念切换及付费理念组的玩法。
 
-新增 `tax_after_autonomy` 与 `manpower_after_autonomy`，在原有部分计算之后单独乘以 `1 − 有效自治`。原有自治前字段继续保留。自治输入未知时，折减后的 `known_subtotal_micros` 为 `null`；前一阶段的数值仍可在 `steps` 中查看。首都上限明确为零时，可以确定这一阶段的折减比例为零，其他缺项仍使最终 `value_micros` 保持 `null`。
+新增 `tax_after_autonomy` 与 `manpower_after_autonomy`。税收效率与自治倍率在同一乘积中合成，乘积先截断到千分，再乘基础税并截断货币结果；例如 `0.670 × 0.941` 得 `0.630`，对应原版逐省输出。`tax_basis` 保留自治前税额，`manpower_after_autonomy` 仍将自治作为后续比例阶段。自治输入未知时，`tax_after_autonomy.known_subtotal_micros` 为 `null`；缺失的其他来源仍使最终 `value_micros` 保持为 `null`。
 
 原生内容直接提供 `Administration`，可以设置地区、区域和大区分组，各国的州与领地关系、完整或领地核心、原始自治度和各类最低自治规则；查询使用当前所有者、首都及行政状态，支持整项替换。它与兼容内容使用同一核心、计算阶段和存档。行政状态恢复时检查地理分组的成员引用与跨组重复、国家和省份引用，以及比例范围；没有该字段的已有建造演示存档仍可恢复。
 
-报告的 `attributes` 部分给出定义数量、来源、未映射属性，以及重复定义或属性的全部位置。静态修正同名定义暂不选择，其中的数值不会进入已确定来源；涉及重复项的计算保留缺项。本入口只读取基础 `defines.lua` 中选定字段的直接数值声明，表达式或附加 Lua 文件中对该字段的赋值会报错，尚未执行完整 Lua 定义加载。
+报告的 `attributes` 部分给出定义数量、来源、未映射属性，以及重复定义或属性的全部位置。静态修正同名定义暂不选择，其中的数值不会进入已确定来源；涉及重复项的计算保留缺项。定义输入在一次 Lua 5.1 求值中依次执行有效的 `common/defines.lua`、`common/defines` 直接子目录中的普通 Lua 文件，以及存在时的 `difficulty_normal.lua`；其他难度文件不会执行。已实现的系统共享这批结果，支持表达式和后续覆盖。数值仍按各系统的精度与范围校验，错误类型不会转换成零。普通直接声明保留字段位置，动态计算只报告最后改变有效值的文件级来源。
 
-核心的 `Attributes` 可以整项替换，原生输入也使用同一个计算器。每阶段计算 `(输入 + 固定增量之和) × (1 + 比例修正之和)`；连续阶段分别相乘，最终才应用声明的上下限。每阶段按百万分位向零截断，运算溢出时报错。当前基础字段、所有权、建筑、商品和附加历史修正均在查询时读取，不保存派生值缓存；城市与占领来源的选择来自本次开局历史，尚未接入运行中的状态变化。自制 [原生属性样本](../examples/world/native_attributes.json) 与原版写法样本得到相同核心状态；这份样本用于贡献者测试，尚不是稳定的 Mod SDK。
+核心的 `Attributes` 可以整项替换，原生输入也使用同一个计算器。普通通道计算 `(输入 + 固定增量之和) × (1 + 比例修正之和)`；`ProductOfSums` 可将多个来源组相加、按顺序相乘，并按指定精度截断，供 EU4 直接税效率使用。运算溢出时报错。当前基础字段、所有权、建筑、商品和附加历史修正均在查询时读取，不保存派生值缓存；城市与占领来源的选择来自本次开局历史，尚未接入运行中的状态变化。自制 [原生属性样本](../examples/world/native_attributes.json) 与原版写法样本得到相同核心状态；这份样本用于贡献者测试，尚不是稳定的 Mod SDK。
 
 共享核心的 `Affiliations` 保存实体的文化与宗教归属、分组和接受政策，可整项替换；`Attributes` 根据当前所有者及归属选择来源，修改这些状态后无需重建公式。原生内容通过同一接口提供状态和效果，样本见 [native_affiliations.json](../examples/world/native_affiliations.json)。接受政策与归属随核心存档保存，未知输入继续保持未知；这尚不包含战役中的文化转换、宗教转换或国家等级变化系统。
 
@@ -213,7 +224,98 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 国家历史中的字面 `national_focus = ADM/DIP/MIL` 已进入共享人物状态，受支持的事件可以直接切换或清除焦点。`setup.monarch_power_income_defines` 报告基础收入与焦点系数及声明来源。命令行和 Godot 国家查询的 `attributes.monthly_adm/dip/mil` 给出实时计算及缺项，`last_monthly_accruals` 给出上次入账记录；原版顾问和部分收入来源尚未绑定，完整收入保持未知。已知的自制公式可以执行月结，见 [月度君主点数](../examples/country-income/README.md)。
 
-国家查询中的 `metrics` 提供行政、外交、军事点数，`metric_ceilings` 提供已知的增长上限。当前原版初始化规则尚未接入，这些值保留为未知；不能据此运行原版的完整开局。`setup` 报告列出 `POWER_MAX` 的基础值、声明来源及点数未知的国家。外交负值下限读取字面 `DEBT_LIMIT_DIP`；缺少声明时不猜测下限，额外 Lua 赋值仍需要尚未支持的 Lua 求值。自制场景用法见 [国家点数库存](../examples/country-power/README.md)。
+国家查询中的 `metrics` 提供行政、外交、军事点数，`metric_ceilings` 提供已知的增长上限。当前原版初始化规则尚未接入，这些值保留为未知；不能据此运行原版的完整开局。`setup` 报告列出 `POWER_MAX` 的基础值、声明来源及点数未知的国家。外交负值下限使用 Lua 求值后的 `DEBT_LIMIT_DIP`；缺少声明时不猜测下限。自制场景用法见 [国家点数库存](../examples/country-power/README.md)。
+
+兼容层也可以在启动事件执行前接收外部程序提供的国家指标，例如另一套模拟器或存档读取器解析出的 `prestige`。`VanillaWorld::load_with_country_metric_values` 只绑定调用方明确给出的国家和指标，省略项继续保持未知；这条入口不推断 EU4 的生产者，也不会把外部规则写进核心定义。加载完成后，`set_country_metric_values` 可用于绑定运行中的新状态。
+
+如果另一套游戏实例能够提供多类状态，可以使用 `VanillaExternalState` 一次性注入国家指标、每项指标的增长上限、国库与人力、已确认的阶层特权和忠诚度目标、当前省份原始自治度、已经翻译好的国家级月度现金流、开局陆军和舰船，以及按 EU4 省份编号给出的生产输入和税收输入。`country_metric_ceilings` 只写入提供者已经确认的动态增长上限；省略的国家或指标继续保持未知，Augustus 不会把 `POWER_MAX` 或其他基础定义自动当成每个国家的最终上限。`estate_privileges` 使用国家标签、阶层标识和特权集合绑定当前已授予特权；`Some([])` 表示明确没有特权，省略或 `null` 仍表示未知。`province_raw_autonomy_milli` 使用千分位比例绑定当前行政状态，之后的月度自治规则会从这份状态继续运行；`country_annual_tax_milli` 替换国家级年税来源；`province_annual_tax_milli` 按省份替换 `tax_after_autonomy` 的年化值，显式的 `null` 表示该省份仍未知，未列出的省份继续使用本地内容计算。税收输入使用年化千分位整数，月结时统一换算为月收入。月度现金流使用千分位整数，正数表示收入，负数表示支出；Augustus 会在税收和普通生产之后应用它，并保留每个国家的结算记录。`production_inputs` 接收已经算好的最终生产基础值；`production_value_inputs` 则接收货物数量、价值阶段修正和月结修正，由兼容层从当前 EU4 内容读取商品基础价格后生成最终输入。两种生产格式不能同时声明同一省份。开局单位在启动事件之前绑定，因此启动脚本可以读取这些单位；单位来源仍由提供者负责翻译，Augustus 不从其他游戏复制脚本或规则。该对象在启动事件之前绑定，核心只接收已经翻译好的数值；缺少的国家、指标或省份仍保持未知，错误的标签、省份编号或无港口舰船位置会拒绝整个输入。命令行可直接读取 JSON 状态包：
+
+```json
+{
+  "country_metric_values": {"HAB": {"prestige": 26942}},
+  "country_metric_ceilings": {
+    "HAB": {"adm_power": 999, "dip_power": 999, "mil_power": 999}
+  },
+  "country_resources": {
+    "HAB": {"treasury_milli": 120000, "manpower_milli": 5000000, "mercantilism_milli": 25000}
+  },
+  "estate_privileges": {
+    "HAB": {
+      "estate_nobles": ["estate_nobles_habsburg_disunity"]
+    }
+  },
+  "country_annual_tax_milli": {
+    "HAB": 36000
+  },
+  "province_annual_tax_milli": {
+    "134": 6000,
+    "135": null
+  },
+  "province_raw_autonomy_milli": {
+    "134": 250
+  },
+  "estate_loyalty_targets": {
+    "HAB": {"estate_church": 40300, "estate_nobles": 44600, "estate_burghers": 34400}
+  },
+  "country_monthly_cashflows_milli": {
+    "HAB": 1250,
+    "FRA": -300
+  },
+  "production_inputs": {
+    "134": {
+      "input": {
+        "base_value_milli": 6000,
+        "country_modifier_milli": 100,
+        "legacy_province_modifier_milli": 0,
+        "queried_province_modifier_milli": 0
+      },
+      "unresolved": []
+    }
+  },
+  "production_value_inputs": {
+    "135": {
+      "goods_size_milli": 1000,
+      "flat_modifier_milli": 0,
+      "external_flat_modifier_milli": 0,
+      "rate_modifier_milli": 0,
+      "external_rate_modifier_milli": 0,
+      "country_modifier_milli": 0,
+      "legacy_province_modifier_milli": 0,
+      "queried_province_modifier_milli": 0
+    }
+  },
+  "armies": [
+    {
+      "owner": "HAB",
+      "location": 134,
+      "name": "Main Army",
+      "regiments": ["western_medieval_infantry", "western_medieval_knights"]
+    }
+  ],
+  "naval_units": [
+    {"owner": "HAB", "location": 135, "unit_type": "light_ship"}
+  ]
+}
+```
+
+```sh
+cargo run -p augustus-run --bin augustus-world --locked -- \
+  --game-root "/path/to/Europa Universalis IV" \
+  --external-state "/path/to/external-state.json" \
+  --country HAB --days 30
+```
+
+状态包是运行时输入，不会把另一套游戏的脚本或规则复制进 Augustus；提供者负责读取、校验并翻译来源游戏的状态。
+
+战役运行中可以调用 `VanillaWorld::set_country_monthly_cashflows` 更新已经安装的现金流表。它只替换下一次月结使用的输入，不重置税收、生产或现金流的结算次数。现金流来源未知时，应传入 `null`；核心会保留未知状态，不把它当成零。
+
+生产执行器安装后，兼容提供者可以调用 `VanillaWorld::set_vanilla_production_inputs` 刷新下一次月结使用的省份输入。刷新不会重置已经完成的月结次数、账本或存档状态；输入仍按 EU4 省份编号绑定，不能借此创建不存在的省份。
+
+如果提供者保留的是货物数量和生产阶段修正，可以改用 `VanillaWorld::set_vanilla_production_value_inputs`。它会重新读取当前 EU4 内容中的商品基础价格，再刷新下一次月结输入；已有月结次数和账本保持不变。没有商品价格的省份会保留为未知。
+
+战役已经载入后，兼容提供者还可以调用 `VanillaWorld::set_estate_loyalty_targets` 更新已有阶层的目标。这个入口只修改现存国家和阶层，不会凭空创建阶层；未知标签或阶层会拒绝整个更新。
+
+Godot 会话提供同样的 `load_world_with_content_and_external_state` 入口，参数仍使用安装目录、Mod 列表、用户目录和启动器配置，最后再传入状态包路径。
 
 入口读取 `common/cb_types`，在 `casus_belli` 报告中列出定义来源、显式授予类型数量及尚未编译的保留条件。受支持的启动授予使用核心的有向记录；启动初始化未完成时清除部分写入并将库存标为未知。其他书签的历史授予尚未导入，同样不能判成已知没有记录。自动生成、宣战权限和战争目标尚未运行。自制样本及接口见 [宣战理由记录演示](../examples/justifications/README.md)。
 
@@ -238,8 +340,9 @@ cargo test --workspace --locked
 cargo build -p augustus-godot --locked
 godot --headless --path godot --editor --import --quit
 godot --headless --path godot --script res://tests/world.gd
+godot --headless --path godot --script res://tests/installation.gd -- --game-root "/path/to/Europa Universalis IV" --country HAB --province 134
 godot --path godot --script res://tests/world.gd
 godot --headless --path godot --script res://tests/session.gd
 ```
 
-最后两项界面检查分别验证真实渲染中的国家颜色，以及原有建造演示。Windows x86_64 已验证，其他平台尚未验证。实际游戏安装的检查可运行同一界面测试并提供 `--game-root`；使用 `--country`、`--province` 选择查看对象，`--capture` 后提供 PNG 路径可保存画面。报告和截图只保存在本地，不提交原版资源或其生成数据。
+最后两项界面检查分别验证真实渲染中的国家颜色，以及原有建造演示。`installation.gd` 使用指定的本地安装检查 Godot 到 Rust 的加载、日期和国家省份查询；也接受重复的 `--mod`、`--user-directory` 和 `--launcher-config`。Windows x86_64 已验证，其他平台尚未验证。报告和截图只保存在本地，不提交原版资源或其生成数据。

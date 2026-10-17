@@ -127,6 +127,108 @@ fn startup_core_effects_share_administrative_state_views_and_atomic_rollback() {
 }
 
 #[test]
+fn mission_preview_guard_is_true_for_live_startup_conditions() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA not_in_mission_preview_mode={key=BOH_RELIGION}} log=live_startup}}",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    assert_eq!(
+        loaded.initial.world().events().last().unwrap().2,
+        "live_startup"
+    );
+}
+
+#[test]
+fn current_age_uses_loaded_start_years_and_preserves_conditional_transitions() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/ages/test.txt",
+        "age_of_discovery={start=1400 can_start={always=yes}} age_of_reformation={start=1530 can_start={is_religion_enabled=protestant}} age_of_absolutism={start=1620 can_start={is_institution_enabled=global_trade}} age_of_revolutions={start=1710 can_start={is_institution_enabled=enlightenment}}",
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA current_age=age_of_discovery} log=discovery} if={limit={tag=AAA current_age=age_of_reformation} log=reformation}}",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|event| event.2.as_str())
+            .collect::<Vec<_>>(),
+        ["discovery"]
+    );
+}
+
+#[test]
+fn historical_map_setup_excludes_random_map_missions() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA NOT={map_setup=map_setup_random}} log=historical_map} if={limit={tag=AAA map_setup=map_setup_random} log=random_map}}",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|event| event.2.as_str())
+            .collect::<Vec<_>>(),
+        ["historical_map"]
+    );
+}
+
+#[test]
+fn fresh_startup_has_no_previous_country_tag_history() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA was_tag=BBB} log=wrong} if={limit={tag=AAA NOT={was_tag=BBB}} log=fresh_tag_history}}",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    assert_eq!(
+        loaded.initial.world().events().last().unwrap().2,
+        "fresh_tag_history"
+    );
+}
+
+#[test]
+fn startup_expands_parameterized_effect_macros() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/scripted_effects/test.txt",
+        "startup_log={log=$message$}",
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA} startup_log={message=macro_expanded}}}",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    assert_eq!(
+        loaded.initial.world().events().last().unwrap().2,
+        "macro_expanded"
+    );
+}
+
+#[test]
 fn mission_selection_is_initialized_before_startup_and_invalidated_on_failure() {
     let temp = fixture();
     write(
@@ -469,7 +571,11 @@ fn reached_macro_failures_keep_the_definition_source_and_roll_back_all_startup_w
             ),
         );
         let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
-        assert!(loaded.initial.world().events().is_empty());
+        assert!(
+            loaded.initial.world().events().is_empty(),
+            "{call}: {:?}",
+            loaded.initial.world().events()
+        );
         assert!(loaded.initial.world().pending_events().is_empty());
         let report = &loaded.report.estates;
         assert!(
@@ -519,7 +625,11 @@ fn unbound_templates_are_allowed_but_invalid_calls_and_missing_references_still_
             ),
         );
         let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
-        assert!(loaded.initial.world().events().is_empty());
+        assert!(
+            loaded.initial.world().events().is_empty(),
+            "{effect}: {:?}",
+            loaded.initial.world().events()
+        );
         assert!(
             loaded
                 .report
@@ -536,4 +646,115 @@ fn unbound_templates_are_allowed_but_invalid_calls_and_missing_references_still_
                 .ends_with(expected_path)
         );
     }
+}
+
+#[test]
+fn unsupported_effect_in_startup_event_option_does_not_discard_known_startup_state() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={events={sample.start} log=known_startup_effect}",
+    );
+    write(
+        temp.path(),
+        "events/A_first.txt",
+        "country_event={id=sample.start is_triggered_only=yes trigger={tag=AAA} option={name=continue country_event={id=sample.child}}} country_event={id=sample.child is_triggered_only=yes option={name=known set_country_flag=known_option} option={name=unavailable update_sprite_pack=yes}}",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let world = loaded.initial.world();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    assert!(loaded.report.estates.applied_startup_effects > 0);
+    assert!(
+        world
+            .events()
+            .iter()
+            .any(|event| event.2 == "known_startup_effect")
+    );
+    assert!(
+        world
+            .pending_events()
+            .iter()
+            .any(|event| event.event == "sample.start")
+    );
+    assert_eq!(
+        world
+            .event_catalog()
+            .unavailable_option_reason("sample.child", "1"),
+        Some("unsupported effect update_sprite_pack")
+    );
+    assert_eq!(
+        loaded.report.estates.unsupported_fields["startup_event_option:unsupported effect update_sprite_pack"],
+        1
+    );
+}
+
+#[test]
+fn global_history_writes_leave_unwritten_startup_flags_known_false() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        "capital=1 primary_culture=alpha religion=test_faith set_global_flag=history_marker",
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={has_global_flag=school_marker} log=unexpected_school_marker} if={limit={NOT={has_global_flag=school_marker}} log=school_marker_is_absent}}",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let world = loaded.initial.world();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    assert!(!world.global_markers().known);
+    assert_eq!(
+        world.global_markers().values.get("school_marker"),
+        Some(&false)
+    );
+    assert!(
+        world
+            .events()
+            .iter()
+            .any(|event| event.2 == "school_marker_is_absent")
+    );
+    assert!(
+        !world
+            .events()
+            .iter()
+            .any(|event| event.2 == "unexpected_school_marker")
+    );
+}
+
+#[test]
+fn a_global_flag_written_by_history_remains_unknown() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        "capital=1 primary_culture=alpha religion=test_faith set_global_flag=history_marker",
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={has_global_flag=history_marker} log=historical_marker_present}}",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .report
+            .estates
+            .startup_unresolved
+            .iter()
+            .any(|item| item.contains("global marker state is unknown for name history_marker"))
+    );
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .global_markers()
+            .values
+            .contains_key("history_marker")
+    );
 }

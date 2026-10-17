@@ -270,6 +270,29 @@ impl Administration {
         })
     }
 
+    pub(crate) fn autonomy_bounds(
+        &self,
+        world: &World,
+        province: EntityId,
+    ) -> Result<Option<(i64, i64)>, Error> {
+        let evaluation = self.evaluate(world, province)?;
+        let Some(minimum) = evaluation.minimum_autonomy_micros else {
+            return Ok(None);
+        };
+        let maximum = if evaluation.is_capital {
+            let Some(maximum) = self.rules.capital_maximum_micros else {
+                return Ok(None);
+            };
+            maximum
+        } else {
+            ONE
+        };
+        if minimum > maximum {
+            return Err(Error::Invalid("autonomy bounds are inverted".into()));
+        }
+        Ok(Some((minimum, maximum)))
+    }
+
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
         fn hierarchy(
             groups: &BTreeMap<String, BTreeSet<String>>,
@@ -352,5 +375,84 @@ impl Administration {
             self.evaluate(world, province)?;
         }
         Ok(())
+    }
+}
+
+impl World {
+    pub(crate) fn prepare_monthly_autonomy(&self) -> Result<Option<Administration>, Error> {
+        let attribute = crate::MONTHLY_AUTONOMY_DELTA_ATTRIBUTE;
+        if !self
+            .attributes()
+            .formulas
+            .values()
+            .any(|formulas| formulas.contains_key(attribute))
+        {
+            return Ok(None);
+        }
+
+        let mut updated = self.administration().clone();
+        let mut changed = false;
+        for (index, entity) in self.entities().iter().enumerate() {
+            if entity.kind != EntityKind::Province || entity.owner.is_none() {
+                continue;
+            }
+            let province = EntityId(index);
+            if !self
+                .attributes()
+                .formulas
+                .get(&province)
+                .is_some_and(|formulas| formulas.contains_key(attribute))
+            {
+                continue;
+            }
+
+            let autonomy = self.attributes().evaluate(self, province, attribute)?;
+            let bounds = self.administration().autonomy_bounds(self, province)?;
+            let state = updated
+                .provinces
+                .get_mut(&province)
+                .ok_or_else(|| Error::Invalid("missing province administration".into()))?;
+            let unresolved_prefix = "monthly_autonomy:";
+            let previous_unresolved = state.unresolved.clone();
+            state
+                .unresolved
+                .retain(|reason| !reason.starts_with(unresolved_prefix));
+
+            let Some(delta) = autonomy.value_micros else {
+                let detail = autonomy
+                    .unresolved
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .join(",");
+                state
+                    .unresolved
+                    .insert(format!("{unresolved_prefix}{detail}"));
+                changed |= state.unresolved != previous_unresolved;
+                continue;
+            };
+            let Some((minimum, maximum)) = bounds else {
+                state
+                    .unresolved
+                    .insert(format!("{unresolved_prefix}autonomy_bounds"));
+                changed |= state.unresolved != previous_unresolved;
+                continue;
+            };
+            let Some(raw) = state.raw_autonomy_micros else {
+                state
+                    .unresolved
+                    .insert(format!("{unresolved_prefix}initial_autonomy"));
+                changed |= state.unresolved != previous_unresolved;
+                continue;
+            };
+
+            let next = i64::try_from(
+                (i128::from(raw) + i128::from(delta))
+                    .clamp(i128::from(minimum), i128::from(maximum)),
+            )
+            .map_err(|_| Error::Overflow)?;
+            changed |= next != raw || state.unresolved != previous_unresolved;
+            state.raw_autonomy_micros = Some(next);
+        }
+        Ok(changed.then_some(updated))
     }
 }

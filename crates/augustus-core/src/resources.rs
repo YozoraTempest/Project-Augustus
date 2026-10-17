@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Uninitialized stocks remain unknown until an initialization rule supplies them.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 #[serde(deny_unknown_fields)]
 pub struct CountryResources {
     pub treasury_milli: Option<i64>,

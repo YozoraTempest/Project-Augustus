@@ -283,6 +283,8 @@ impl World {
             .validate(self)
             .and_then(|()| self.validate_event_content(&self.event_catalog))
             .and_then(|()| self.attributes().validate(self))
+            .and_then(|()| self.objectives().validate(self))
+            .and_then(|()| self.estates().validate(self))
             .and_then(|()| {
                 self.monthly_accruals()
                     .map(|a| a.validate(self))

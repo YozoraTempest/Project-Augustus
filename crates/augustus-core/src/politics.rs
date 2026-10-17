@@ -81,6 +81,9 @@ pub struct CountryPolitics {
     /// Explicit political facts. Missing entries and None both mean unknown.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub statuses: BTreeMap<String, Option<bool>>,
+    /// Known preferred holders, keyed by political office.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub office_preferences: BTreeMap<String, EntityId>,
     pub ruler: Option<PersonState>,
     pub heir: Option<PersonState>,
     pub consort: Option<PersonState>,
@@ -160,6 +163,12 @@ impl Politics {
             country(id)?;
             if state.statuses.keys().any(String::is_empty) {
                 return Err(Error::Invalid("empty political status".into()));
+            }
+            if state.office_preferences.keys().any(String::is_empty) {
+                return Err(Error::Invalid("empty political office preference".into()));
+            }
+            for &preferred_holder in state.office_preferences.values() {
+                country(preferred_holder)?;
             }
             for person in [&state.ruler, &state.heir, &state.consort]
                 .into_iter()
@@ -255,6 +264,23 @@ impl Politics {
 impl World {
     pub fn politics(&self) -> &Politics {
         &self.politics
+    }
+
+    pub(crate) fn set_office_holder(
+        &mut self,
+        office: &str,
+        holder: EntityId,
+    ) -> Result<(), Error> {
+        if office.is_empty() {
+            return Err(Error::Invalid("empty political office".into()));
+        }
+        if self.entity(holder)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "political office holder must be a country".into(),
+            ));
+        }
+        self.politics.offices.insert(office.to_owned(), holder);
+        Ok(())
     }
 
     pub fn national_focus(&self, entity: EntityId) -> Result<NationalFocus, Error> {

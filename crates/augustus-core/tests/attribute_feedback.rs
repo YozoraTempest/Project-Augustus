@@ -18,6 +18,7 @@ fn formula(terms: Vec<AttributeTerm>) -> AttributeFormula {
         }],
         minimum_micros: None,
         maximum_micros: None,
+        result_quantum_micros: None,
         unresolved: Default::default(),
     }
 }
@@ -249,6 +250,7 @@ fn monthly_feedback_reads_live_quantities_and_inputs_after_restore() {
         ],
         minimum_micros: None,
         maximum_micros: None,
+        result_quantum_micros: None,
         unresolved: Default::default(),
     };
     whole.set_attributes(attributes(formula)).unwrap();

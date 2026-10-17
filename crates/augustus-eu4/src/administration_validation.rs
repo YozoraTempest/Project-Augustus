@@ -6,7 +6,9 @@ use std::{
     path::Path,
 };
 
-use augustus_core::{AreaStatus, CoreType, ProvinceClass, WorldDate};
+use augustus_core::{
+    Affiliations, AreaStatus, CoreType, EntityId, InitialWorld, Politics, ProvinceClass, WorldDate,
+};
 use jomini::{
     TextToken,
     text::{ObjectReader, ValueReader},
@@ -46,11 +48,40 @@ pub struct AdministrationComparison {
     pub differences: Vec<AdministrationDifference>,
 }
 
+/// Membership flags imported from a supported unadvanced 1444.11.11 save.
+#[derive(Debug, Default, Serialize)]
+pub struct SavedImperialMembershipReport {
+    pub save_date: String,
+    pub provinces_checked: usize,
+    pub provinces_in_hre: usize,
+    pub provinces_outside_hre: usize,
+}
+
+/// Current emperor preferences imported from a supported unadvanced 1444.11.11 save.
+#[derive(Debug, Default, Serialize)]
+pub struct SavedOfficePreferenceReport {
+    pub save_date: String,
+    pub preferences_imported: usize,
+}
+
+/// HRE membership and emperor preferences imported together from one baseline save.
+#[derive(Debug, Default, Serialize)]
+pub struct SavedImperialBaselineReport {
+    pub save_date: String,
+    pub provinces_checked: usize,
+    pub provinces_in_hre: usize,
+    pub provinces_outside_hre: usize,
+    pub preferences_imported: usize,
+}
+
+const IMPERIAL_EMPEROR_OFFICE: &str = "imperial_emperor";
+
 #[derive(Debug, Default)]
 struct SavedProvince {
     owner: Option<String>,
     cores: BTreeMap<String, CoreType>,
     raw_autonomy: i64,
+    in_empire: Option<bool>,
 }
 
 type Object<'a, 'b> = ObjectReader<'a, 'b, TextEncoding>;
@@ -109,6 +140,22 @@ fn strings(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<Vec<String>
         .read_array()
         .map_err(|e| Error::caused_by(parsed.source(), e))?;
     array.values().map(|v| scalar(parsed, &v)).collect()
+}
+
+fn plaintext_save_document(path: &Path) -> Result<TextDocument, Error> {
+    let mut bytes = std::fs::read(path).map_err(|e| Error::caused_by(path, e))?;
+    if !bytes.starts_with(b"EU4txt") {
+        return Err(Error::message(
+            path,
+            "expected uncompressed plaintext EU4txt save",
+        ));
+    }
+    bytes[..6].fill(b' ');
+    Ok(TextDocument::from_bytes(
+        path,
+        bytes,
+        TextEncoding::Windows1252,
+    ))
 }
 
 fn check_metadata(parsed: &ParsedText<'_>) -> Result<usize, Error> {
@@ -181,6 +228,18 @@ fn read_provinces(parsed: &ParsedText<'_>) -> Result<BTreeMap<u32, SavedProvince
         let owner = single(parsed, &province, "owner")?
             .map(|v| scalar(parsed, &v))
             .transpose()?;
+        let in_empire = if let Some(history) = single(parsed, &province, "history")? {
+            let history = object(parsed, &history)?;
+            single(parsed, &history, "hre")?
+                .map(|value| match scalar(parsed, &value)?.as_str() {
+                    "yes" => Ok(true),
+                    "no" => Ok(false),
+                    _ => Err(fail("invalid saved HRE membership")),
+                })
+                .transpose()?
+        } else {
+            None
+        };
         let mut cores = BTreeMap::new();
         if let Some(value) = single(parsed, &province, "cores")? {
             for tag in strings(parsed, &value)? {
@@ -222,6 +281,7 @@ fn read_provinces(parsed: &ParsedText<'_>) -> Result<BTreeMap<u32, SavedProvince
                     owner,
                     cores,
                     raw_autonomy,
+                    in_empire,
                 },
             )
             .is_some()
@@ -230,6 +290,244 @@ fn read_provinces(parsed: &ParsedText<'_>) -> Result<BTreeMap<u32, SavedProvince
         }
     }
     Ok(result)
+}
+
+fn read_saved_office_preferences(
+    parsed: &ParsedText<'_>,
+    initial: &InitialWorld,
+) -> Result<BTreeMap<EntityId, EntityId>, Error> {
+    let countries = object(parsed, &required(parsed, &parsed.reader(), "countries")?)?;
+    let mut seen_tags = BTreeSet::new();
+    let mut preferences = BTreeMap::new();
+    for (key, op, value) in countries.fields() {
+        let fail = |message: &str| {
+            Error::message(parsed.source(), message).with_location(parsed.field_location(&key))
+        };
+        equal(op, &fail)?;
+        let tag = key.read_string();
+        if !crate::script::country_identifier(&tag) || !seen_tags.insert(tag.clone()) {
+            return Err(fail("invalid or duplicate saved country identifier"));
+        }
+        let country = object(parsed, &value)?;
+        let Some(value) = single(parsed, &country, "preferred_emperor")? else {
+            continue;
+        };
+        let preferred_tag = scalar(parsed, &value)?;
+        if !crate::script::country_identifier(&preferred_tag) {
+            return Err(fail("invalid saved emperor preference country"));
+        }
+        let voter = initial
+            .country_entity(&tag)
+            .ok_or_else(|| fail(&format!("unknown country with emperor preference: {tag}")))?;
+        let preferred = initial.country_entity(&preferred_tag).ok_or_else(|| {
+            fail(&format!(
+                "unknown preferred emperor country: {preferred_tag}"
+            ))
+        })?;
+        if preferences.insert(voter, preferred).is_some() {
+            return Err(fail("duplicate saved emperor preference"));
+        }
+    }
+    Ok(preferences)
+}
+
+fn baseline_save_date(
+    parsed: &ParsedText<'_>,
+    path: &Path,
+    subject: &str,
+) -> Result<String, Error> {
+    check_metadata(parsed)?;
+    let save_date = scalar(parsed, &required(parsed, &parsed.reader(), "date")?)?;
+    if save_date != "1444.11.11" {
+        return Err(Error::message(
+            path,
+            format!("{subject} import requires a save dated 1444.11.11"),
+        ));
+    }
+    Ok(save_date)
+}
+
+fn saved_hre_membership_state(
+    initial: &InitialWorld,
+    parsed: &ParsedText<'_>,
+    path: &Path,
+    save_date: String,
+) -> Result<(Affiliations, SavedImperialMembershipReport), Error> {
+    let saved = read_provinces(parsed)?;
+    if saved.len() != initial.provinces().len() {
+        return Err(Error::message(
+            path,
+            "save province count does not match loaded content",
+        ));
+    }
+
+    let mut affiliations = initial.world().affiliations().clone();
+    let dimension = affiliations
+        .0
+        .entry(crate::imperial_membership::DIMENSION.into())
+        .or_default();
+    dimension.groups.entry("hre".into()).or_insert(None);
+    let mut report = SavedImperialMembershipReport {
+        save_date,
+        ..Default::default()
+    };
+    for province in initial.provinces() {
+        let state = saved.get(&province.id).ok_or_else(|| {
+            Error::message(path, format!("save is missing province {}", province.id))
+        })?;
+        let in_empire = state
+            .in_empire
+            .or_else(|| state.owner.is_none().then_some(false))
+            .ok_or_else(|| {
+                Error::message(
+                    path,
+                    format!(
+                        "save is missing HRE membership for province {}",
+                        province.id
+                    ),
+                )
+            })?;
+        let entity = initial
+            .province_entity(province.id)
+            .expect("registered province");
+        if in_empire {
+            dimension.members.insert(entity, Some("hre".into()));
+            dimension.absent_members.remove(&entity);
+            report.provinces_in_hre += 1;
+        } else {
+            dimension.members.remove(&entity);
+            dimension.absent_members.insert(entity);
+            report.provinces_outside_hre += 1;
+        }
+        report.provinces_checked += 1;
+    }
+    Ok((affiliations, report))
+}
+
+fn politics_with_office_preferences(
+    initial: &InitialWorld,
+    preferences: &BTreeMap<EntityId, EntityId>,
+) -> Politics {
+    let mut politics = initial.world().politics().clone();
+    for country in politics.countries.values_mut() {
+        country.office_preferences.remove(IMPERIAL_EMPEROR_OFFICE);
+    }
+    for (voter, preferred) in preferences {
+        politics
+            .countries
+            .entry(*voter)
+            .or_default()
+            .office_preferences
+            .insert(IMPERIAL_EMPEROR_OFFICE.into(), *preferred);
+    }
+    politics
+}
+
+/// Imports only HRE province-membership flags from an unadvanced 1444.11.11 save.
+/// Government reforms and all other campaign state remain sourced from the loaded world.
+pub fn apply_saved_hre_membership(
+    loaded: &mut VanillaWorld,
+    path: impl AsRef<Path>,
+) -> Result<SavedImperialMembershipReport, Error> {
+    let path = path.as_ref();
+    let expected = WorldDate {
+        year: 1444,
+        month: 11,
+        day: 11,
+    };
+    if loaded.report.start_date != expected {
+        return Err(Error::message(
+            path,
+            "HRE membership import requires a world loaded at 1444.11.11",
+        ));
+    }
+    let document = plaintext_save_document(path)?;
+    let parsed = document.parse()?;
+    let save_date = baseline_save_date(&parsed, path, "HRE membership")?;
+    let (affiliations, report) =
+        saved_hre_membership_state(&loaded.initial, &parsed, path, save_date)?;
+    loaded
+        .initial
+        .set_affiliations(affiliations)
+        .map_err(|e| Error::caused_by(path, e))?;
+    Ok(report)
+}
+
+/// Imports only current emperor preferences from an unadvanced 1444.11.11 save.
+/// Uncompressed plaintext and the baseline game version, DLC, and mod set are required.
+pub fn apply_saved_office_preferences(
+    loaded: &mut VanillaWorld,
+    path: impl AsRef<Path>,
+) -> Result<SavedOfficePreferenceReport, Error> {
+    let path = path.as_ref();
+    let expected = WorldDate {
+        year: 1444,
+        month: 11,
+        day: 11,
+    };
+    if loaded.report.start_date != expected {
+        return Err(Error::message(
+            path,
+            "emperor preference import requires a world loaded at 1444.11.11",
+        ));
+    }
+    let document = plaintext_save_document(path)?;
+    let parsed = document.parse()?;
+    let save_date = baseline_save_date(&parsed, path, "emperor preference")?;
+    let preferences = read_saved_office_preferences(&parsed, &loaded.initial)?;
+    let politics = politics_with_office_preferences(&loaded.initial, &preferences);
+    loaded
+        .initial
+        .set_politics(politics)
+        .map_err(|e| Error::caused_by(path, e))?;
+    Ok(SavedOfficePreferenceReport {
+        save_date,
+        preferences_imported: preferences.len(),
+    })
+}
+
+/// Imports HRE province membership and emperor preferences from one baseline save pass.
+/// The world is replaced only after both state sets validate successfully.
+pub fn apply_saved_imperial_baseline(
+    loaded: &mut VanillaWorld,
+    path: impl AsRef<Path>,
+) -> Result<SavedImperialBaselineReport, Error> {
+    let path = path.as_ref();
+    let expected = WorldDate {
+        year: 1444,
+        month: 11,
+        day: 11,
+    };
+    if loaded.report.start_date != expected {
+        return Err(Error::message(
+            path,
+            "imperial baseline import requires a world loaded at 1444.11.11",
+        ));
+    }
+    let document = plaintext_save_document(path)?;
+    let parsed = document.parse()?;
+    let save_date = baseline_save_date(&parsed, path, "imperial baseline")?;
+    let (affiliations, hre_report) =
+        saved_hre_membership_state(&loaded.initial, &parsed, path, save_date.clone())?;
+    let preferences = read_saved_office_preferences(&parsed, &loaded.initial)?;
+    let politics = politics_with_office_preferences(&loaded.initial, &preferences);
+
+    let mut initial = loaded.initial.clone();
+    initial
+        .set_affiliations(affiliations)
+        .map_err(|error| Error::caused_by(path, error))?;
+    initial
+        .set_politics(politics)
+        .map_err(|error| Error::caused_by(path, error))?;
+    loaded.initial = initial;
+
+    Ok(SavedImperialBaselineReport {
+        save_date,
+        provinces_checked: hre_report.provinces_checked,
+        provinces_in_hre: hre_report.provinces_in_hre,
+        provinces_outside_hre: hre_report.provinces_outside_hre,
+        preferences_imported: preferences.len(),
+    })
 }
 
 fn read_states(parsed: &ParsedText<'_>) -> Result<BTreeSet<(String, String)>, Error> {
@@ -319,15 +617,7 @@ pub fn compare_administration_save(
             "loaded world must use the 1444.11.11 baseline",
         ));
     }
-    let mut bytes = std::fs::read(path).map_err(|e| Error::caused_by(path, e))?;
-    if !bytes.starts_with(b"EU4txt") {
-        return Err(Error::message(
-            path,
-            "expected uncompressed plaintext EU4txt save",
-        ));
-    }
-    bytes[..6].fill(b' ');
-    let document = TextDocument::from_bytes(path, bytes, TextEncoding::Windows1252);
+    let document = plaintext_save_document(path)?;
     let parsed = document.parse()?;
     let expansion_count = check_metadata(&parsed)?;
     let provinces = read_provinces(&parsed)?;
@@ -449,6 +739,33 @@ mod tests {
         )
     }
 
+    fn hre_save(loaded: &VanillaWorld) -> String {
+        let base = save();
+        let prefix = base.split("provinces=").next().unwrap();
+        let provinces = loaded
+            .initial
+            .provinces()
+            .iter()
+            .map(|province| {
+                let owner = province
+                    .owner
+                    .as_ref()
+                    .map(|owner| format!(" owner={owner}"))
+                    .unwrap_or_default();
+                let membership = if province.id == 1 { "yes" } else { "no" };
+                format!("-{}={{{owner} history={{hre={membership}}}}}", province.id)
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("{prefix}provinces={{ {provinces} }}\n")
+    }
+
+    fn preference_save(loaded: &VanillaWorld, countries: &str) -> String {
+        let save = hre_save(loaded);
+        let (prefix, provinces) = save.split_once("provinces=").unwrap();
+        format!("{prefix}countries={{ {countries} }}\nprovinces={provinces}")
+    }
+
     fn compare(loaded: &VanillaWorld, bytes: &[u8]) -> Result<AdministrationComparison, Error> {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("self_authored.eu4");
@@ -459,6 +776,161 @@ mod tests {
         assert_eq!(std::fs::read(path).unwrap(), before);
         assert_eq!(*loaded.initial.world(), world_before);
         result
+    }
+
+    fn save_to_temp(bytes: &[u8]) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("self_authored.eu4");
+        std::fs::write(&path, bytes).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn imports_explicit_hre_membership_from_a_supported_unadvanced_save() {
+        let mut loaded = fixture();
+        let (dir, path) = save_to_temp(hre_save(&loaded).as_bytes());
+        let report = apply_saved_hre_membership(&mut loaded, &path).unwrap();
+        let north = loaded.initial.province_entity(1).unwrap();
+        let east = loaded.initial.province_entity(2).unwrap();
+        let province_count = loaded.initial.provinces().len();
+
+        assert_eq!(report.save_date, "1444.11.11");
+        assert_eq!(report.provinces_checked, province_count);
+        assert_eq!(report.provinces_in_hre, 1);
+        assert_eq!(report.provinces_outside_hre, province_count - 1);
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .affiliations()
+                .belongs_to("imperial_membership", north, "hre"),
+            Some(true)
+        );
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .affiliations()
+                .belongs_to("imperial_membership", east, "hre"),
+            Some(false)
+        );
+        assert!(dir.path().exists());
+    }
+
+    #[test]
+    fn imports_and_replaces_saved_imperial_emperor_preferences() {
+        let mut loaded = fixture();
+        let input = preference_save(&loaded, "AAA={ preferred_emperor=BBB } BBB={}");
+        let (dir, path) = save_to_temp(input.as_bytes());
+        let before = std::fs::read(&path).unwrap();
+        let report = apply_saved_office_preferences(&mut loaded, &path).unwrap();
+        let aaa = loaded.initial.country_entity("AAA").unwrap();
+        let bbb = loaded.initial.country_entity("BBB").unwrap();
+
+        assert_eq!(report.save_date, "1444.11.11");
+        assert_eq!(report.preferences_imported, 1);
+        assert_eq!(
+            loaded.initial.world().politics().countries[&aaa]
+                .office_preferences
+                .get(IMPERIAL_EMPEROR_OFFICE),
+            Some(&bbb)
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+
+        let no_preferences = preference_save(&loaded, "AAA={} BBB={}");
+        std::fs::write(&path, no_preferences).unwrap();
+        let report = apply_saved_office_preferences(&mut loaded, &path).unwrap();
+        assert_eq!(report.preferences_imported, 0);
+        assert!(
+            loaded.initial.world().politics().countries[&aaa]
+                .office_preferences
+                .is_empty()
+        );
+        assert!(dir.path().exists());
+    }
+
+    #[test]
+    fn imports_hre_membership_and_preferences_as_one_baseline_state() {
+        let mut loaded = fixture();
+        let input = preference_save(&loaded, "AAA={ preferred_emperor=BBB } BBB={}");
+        let (dir, path) = save_to_temp(input.as_bytes());
+        let report = apply_saved_imperial_baseline(&mut loaded, &path).unwrap();
+        let north = loaded.initial.province_entity(1).unwrap();
+        let aaa = loaded.initial.country_entity("AAA").unwrap();
+        let bbb = loaded.initial.country_entity("BBB").unwrap();
+
+        assert_eq!(report.save_date, "1444.11.11");
+        assert_eq!(report.provinces_checked, 6);
+        assert_eq!(report.provinces_in_hre, 1);
+        assert_eq!(report.provinces_outside_hre, 5);
+        assert_eq!(report.preferences_imported, 1);
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .affiliations()
+                .belongs_to("imperial_membership", north, "hre"),
+            Some(true)
+        );
+        assert_eq!(
+            loaded.initial.world().politics().countries[&aaa]
+                .office_preferences
+                .get(IMPERIAL_EMPEROR_OFFICE),
+            Some(&bbb)
+        );
+        assert!(dir.path().exists());
+
+        let invalid = input.replace("preferred_emperor=BBB", "preferred_emperor=XXX");
+        let mut unchanged = fixture();
+        let before = unchanged.initial.world().clone();
+        let (invalid_dir, invalid_path) = save_to_temp(invalid.as_bytes());
+        assert!(apply_saved_imperial_baseline(&mut unchanged, &invalid_path).is_err());
+        assert_eq!(unchanged.initial.world(), &before);
+        assert!(invalid_dir.path().exists());
+    }
+
+    #[test]
+    fn invalid_saved_emperor_preferences_fail_without_mutating_the_world() {
+        let source = fixture();
+        let valid = preference_save(&source, "AAA={ preferred_emperor=BBB } BBB={}");
+        let cases = [
+            valid.replace("preferred_emperor=BBB", "preferred_emperor=XXX"),
+            valid.replace(
+                "preferred_emperor=BBB",
+                "preferred_emperor=BBB preferred_emperor=BBB",
+            ),
+            valid.replace("AAA={", "aaA={"),
+            valid.replace("countries=", "missing_countries="),
+        ];
+        for input in cases {
+            let mut loaded = fixture();
+            let before = loaded.initial.world().clone();
+            let (dir, path) = save_to_temp(input.as_bytes());
+            assert!(apply_saved_office_preferences(&mut loaded, &path).is_err());
+            assert_eq!(loaded.initial.world(), &before);
+            assert!(dir.path().exists());
+        }
+    }
+
+    #[test]
+    fn invalid_hre_save_imports_fail_without_mutating_the_world() {
+        let source = fixture();
+        let valid = hre_save(&source);
+        let cases = [
+            valid.replace("date=1444.11.11", "date=1444.11.12"),
+            valid.replace("history={hre=yes}", "history={}"),
+            valid.replace("-2={", "-999={"),
+            valid.replace("third=5", "third=4"),
+            valid.replace("\"Domination\"", ""),
+        ];
+        for input in cases {
+            let mut loaded = fixture();
+            let before = loaded.initial.world().clone();
+            let (dir, path) = save_to_temp(input.as_bytes());
+            assert!(apply_saved_hre_membership(&mut loaded, &path).is_err());
+            assert_eq!(loaded.initial.world(), &before);
+            assert!(dir.path().exists());
+        }
     }
 
     #[test]

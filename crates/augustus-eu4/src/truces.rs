@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use crate::{ContentView, Error, FileEntry, SetupReport};
+use crate::{Error, FileEntry, SetupReport};
 
 pub(super) fn bind(
-    root: &impl ContentView,
     files: &[FileEntry],
+    defines: &crate::Defines,
     report: &mut SetupReport,
 ) -> Result<(), Error> {
     if !files
@@ -14,9 +14,7 @@ pub(super) fn bind(
     {
         return Ok(());
     }
-    if let Some((value, source)) =
-        crate::defines::optional_literal(root, files, "NDiplomacy", "TRUCE_YEARS")?
-    {
+    if let Some((value, source)) = defines.optional("NDiplomacy", "TRUCE_YEARS")? {
         if value % 1_000_000 != 0 || value <= 0 {
             return Err(Error::message(
                 &source.path,

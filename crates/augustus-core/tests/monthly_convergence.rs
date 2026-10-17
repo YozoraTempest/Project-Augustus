@@ -403,6 +403,7 @@ fn accrual_and_convergence_cannot_own_the_same_stock_in_either_install_order() {
                         channels: vec![],
                         minimum_micros: None,
                         maximum_micros: None,
+                        result_quantum_micros: None,
                         unresolved: Default::default(),
                     },
                 )]

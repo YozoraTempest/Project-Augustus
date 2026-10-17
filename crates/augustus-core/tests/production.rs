@@ -1,0 +1,250 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Project Augustus contributors
+
+use augustus_core::{
+    AttributeBase, AttributeFormula, Attributes, Calendar, CountryResources, EntityId, EntityKind,
+    MonthlyExternalCashflows, MonthlyProduction, Schema, Taxation, VanillaProductionInput,
+    VanillaProductionInputState, World, WorldDate,
+};
+use std::collections::{BTreeMap, BTreeSet};
+
+fn calendar() -> Calendar {
+    Calendar {
+        start: WorldDate {
+            year: 1444,
+            month: 11,
+            day: 11,
+        },
+        month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+    }
+}
+
+fn known_input() -> VanillaProductionInputState {
+    VanillaProductionInputState {
+        input: Some(VanillaProductionInput {
+            base_value_milli: 1000,
+            country_modifier_milli: 20,
+            legacy_province_modifier_milli: 0,
+            queried_province_modifier_milli: -10,
+        }),
+        unresolved: BTreeSet::new(),
+    }
+}
+
+fn world(input: VanillaProductionInputState) -> (World, augustus_core::EntityId) {
+    let mut world = World::new(Schema::new([] as [&str; 0]).unwrap());
+    let country = world.add_entity("AAA", EntityKind::Country);
+    let province = world.add_entity("1", EntityKind::Province);
+    world.set_owner(province, country).unwrap();
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(10_000),
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+        )
+        .unwrap();
+    world.set_calendar(calendar()).unwrap();
+    world
+        .set_monthly_production(MonthlyProduction::new(BTreeMap::from([(province, input)])))
+        .unwrap();
+    (world, country)
+}
+
+#[test]
+fn monthly_production_credits_known_income_and_round_trips() {
+    let (mut world, country) = world(known_input());
+    world.advance_to(20).unwrap();
+
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(10_084)
+    );
+    let settlement = world
+        .monthly_production()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap();
+    let account = &settlement.accounts[&country];
+    assert_eq!(account.annual_value_milli, Some(1009));
+    assert_eq!(account.monthly_value_milli, Some(84));
+    assert_eq!(account.credited_milli, Some(84));
+
+    let snapshot = world.save("production").unwrap();
+    let restored = World::restore(&snapshot, "production", world.schema()).unwrap();
+    assert_eq!(restored, world);
+}
+
+#[test]
+fn monthly_production_inputs_refresh_after_a_settlement_without_resetting_receipts() {
+    let (mut world, _) = world(known_input());
+    world.advance_to(20).unwrap();
+    let replacement = VanillaProductionInputState {
+        input: Some(VanillaProductionInput {
+            base_value_milli: 2_000,
+            country_modifier_milli: 0,
+            legacy_province_modifier_milli: 0,
+            queried_province_modifier_milli: 0,
+        }),
+        unresolved: BTreeSet::new(),
+    };
+
+    world
+        .set_monthly_production_inputs(BTreeMap::from([(EntityId(1), replacement.clone())]))
+        .unwrap();
+
+    let production = world.monthly_production().unwrap();
+    assert_eq!(production.settlement_count, 1);
+    assert_eq!(production.inputs[&EntityId(1)], replacement);
+    assert!(
+        world
+            .set_monthly_production_inputs(BTreeMap::from([(EntityId(99), replacement.clone(),)]))
+            .is_err()
+    );
+    assert_eq!(
+        world.monthly_production().unwrap().inputs[&EntityId(1)],
+        replacement
+    );
+    let saved = world.save("production-refresh").unwrap();
+    let restored = World::restore(&saved, "production-refresh", world.schema()).unwrap();
+    assert_eq!(restored, world);
+}
+
+#[test]
+fn monthly_production_preserves_known_unknown_inputs_without_crediting_them() {
+    let (mut world, country) = world(VanillaProductionInputState {
+        input: None,
+        unresolved: ["native_source_unresolved".into()].into(),
+    });
+    world.advance_to(20).unwrap();
+
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(10_000)
+    );
+    let account = &world
+        .monthly_production()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.known_monthly_value_milli, 0);
+    assert_eq!(account.monthly_value_milli, None);
+    assert_eq!(account.credited_milli, None);
+    assert!(
+        account
+            .unresolved
+            .contains("province_input:native_source_unresolved")
+    );
+}
+
+#[test]
+fn monthly_production_adds_after_a_known_tax_settlement() {
+    let (mut world, country) = world(known_input());
+    let mut attributes = Attributes::default();
+    attributes.formulas.insert(
+        EntityId(1),
+        [(
+            "annual_tax".into(),
+            AttributeFormula {
+                base: AttributeBase::Constant { micros: 12_000_000 },
+                channels: Vec::new(),
+                minimum_micros: None,
+                maximum_micros: None,
+                result_quantum_micros: None,
+                unresolved: BTreeSet::new(),
+            },
+        )]
+        .into_iter()
+        .collect(),
+    );
+    world.set_attributes(attributes).unwrap();
+    world
+        .set_taxation(Taxation::new("annual_tax", [EntityId(0)].into()))
+        .unwrap();
+    world.advance_to(20).unwrap();
+
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(11_084)
+    );
+    let production = &world
+        .monthly_production()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(production.treasury_before_milli, Some(11_000));
+    assert_eq!(production.credited_milli, Some(84));
+}
+
+#[test]
+fn external_cashflows_settle_after_production_and_round_trip() {
+    let (mut world, country) = world(known_input());
+    world
+        .set_monthly_cashflows(Some(MonthlyExternalCashflows::new(BTreeMap::from([(
+            country,
+            Some(250),
+        )]))))
+        .unwrap();
+    world.advance_to(20).unwrap();
+
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(10_334)
+    );
+    let account = &world
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.treasury_before_milli, Some(10_084));
+    assert_eq!(account.treasury_after_milli, Some(10_334));
+    assert_eq!(account.credited_milli, Some(250));
+
+    world
+        .set_monthly_cashflow_inputs(BTreeMap::from([(country, Some(500))]))
+        .unwrap();
+    assert_eq!(
+        world.monthly_cashflows().unwrap().amounts_milli[&country],
+        Some(500)
+    );
+
+    let saved = world.save("external-cashflows").unwrap();
+    let restored = World::restore(&saved, "external-cashflows", world.schema()).unwrap();
+    assert_eq!(restored, world);
+}
+
+#[test]
+fn unknown_external_cashflow_keeps_treasury_unknown_after_known_production() {
+    let (mut world, country) = world(known_input());
+    world
+        .set_monthly_cashflows(Some(MonthlyExternalCashflows::new(BTreeMap::from([(
+            country, None,
+        )]))))
+        .unwrap();
+    world.advance_to(20).unwrap();
+
+    assert_eq!(world.country_resources()[&country].treasury_milli, None);
+    let account = &world
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert!(account.unresolved.contains("unknown_cashflow"));
+    assert_eq!(account.treasury_before_milli, Some(10_084));
+    assert_eq!(account.treasury_after_milli, None);
+    assert_eq!(account.credited_milli, None);
+}

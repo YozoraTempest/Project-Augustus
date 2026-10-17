@@ -4,7 +4,8 @@
 use augustus_core::{
     AttributeBase, AttributeChannel, AttributeFormula, AttributeTerm, Attributes, Calendar,
     CountryResources, EntityId, EntityKind, EstateDefinition, EstateEffect, EstateInfluenceBand,
-    EstatePrivilege, EstateRules, EstateState, Estates, Schema, Target, Taxation, World, WorldDate,
+    EstateLoyaltyDecay, EstatePrivilege, EstateRules, EstateState, Estates, Schema, Target,
+    Taxation, World, WorldDate,
 };
 
 fn effect(value: i64) -> EstateEffect {
@@ -62,6 +63,8 @@ fn world() -> World {
                 })
                 .collect(),
             ),
+            loyalty_target_base_milli: None,
+            loyalty_decay: None,
         },
         countries: [
             (
@@ -71,6 +74,7 @@ fn world() -> World {
                     EstateState {
                         active: Some(true),
                         loyalty_milli: Some(50_000),
+                        loyalty_target_milli: None,
                         influence_milli: Some(40_000),
                         land_share_micros: Some(250_000),
                         privileges: Some(["charter".into()].into_iter().collect()),
@@ -114,6 +118,7 @@ fn world() -> World {
                         }],
                         minimum_micros: None,
                         maximum_micros: None,
+                        result_quantum_micros: None,
                         unresolved: Default::default(),
                     },
                 )]
@@ -126,6 +131,30 @@ fn world() -> World {
         })
         .unwrap();
     world
+}
+
+#[test]
+fn estate_loyalty_decay_matches_original_monthly_adjustments() {
+    let decay = EstateLoyaltyDecay {
+        base_min_annual_milli: 2_000,
+        base_max_annual_milli: 5_000,
+    };
+
+    for (current, target, expected) in [
+        (49_571, 40_300, 49_358),
+        (49_615, 44_600, 49_424),
+        (49_513, 34_400, 49_271),
+        (40_300, 49_571, 40_513),
+        (50_000, 50_000, 50_000),
+        (99_990, 100_000, 100_000),
+        (10, 0, 0),
+    ] {
+        assert_eq!(
+            decay.next_loyalty_milli(current, target).unwrap(),
+            expected,
+            "current={current}, target={target}"
+        );
+    }
 }
 
 fn tax(world: &World) -> augustus_core::AttributeEvaluation {
@@ -325,7 +354,7 @@ fn unexecuted_privilege_effects_taint_properties_and_invalid_replacements_are_at
             .contains("estates:guild:privilege:charter:unexecuted:callback")
     );
     let before = world.clone();
-    for kind in 0..5 {
+    for kind in 0..6 {
         let mut invalid = estates.clone();
         match kind {
             0 => invalid.rules.influence_bands.as_mut().unwrap().reverse(),
@@ -353,6 +382,9 @@ fn unexecuted_privilege_effects_taint_properties_and_invalid_replacements_are_at
                     .unwrap()
                     .insert("other".into());
             }
+            4 => {
+                invalid.rules.loyalty_target_base_milli = Some(i64::from(i32::MAX) + 1);
+            }
             _ => {
                 invalid
                     .privileges
@@ -378,5 +410,460 @@ fn unexecuted_privilege_effects_taint_properties_and_invalid_replacements_are_at
             .unwrap()
             .estates()
             .is_empty()
+    );
+}
+
+#[test]
+fn estate_conditions_read_live_privileges_and_metrics_without_defaulting_unknowns() {
+    let current = world();
+    let a = EntityId(0);
+    let b = EntityId(1);
+    assert!(
+        augustus_core::Condition::EstatePrivilege {
+            target: Target::Current,
+            privilege: "charter".into(),
+        }
+        .evaluate(&current, a)
+        .unwrap()
+    );
+    assert!(
+        !augustus_core::Condition::EstatePrivilege {
+            target: Target::Current,
+            privilege: "charter".into(),
+        }
+        .evaluate(&current, b)
+        .unwrap()
+    );
+    assert!(
+        augustus_core::Condition::EstateLoyaltyAtLeast {
+            target: Target::Current,
+            estate: "guild".into(),
+            loyalty_milli: 50_000,
+        }
+        .evaluate(&current, a)
+        .unwrap()
+    );
+    assert!(
+        !augustus_core::Condition::EstateLoyaltyAtLeast {
+            target: Target::Current,
+            estate: "guild".into(),
+            loyalty_milli: 50_001,
+        }
+        .evaluate(&current, a)
+        .unwrap()
+    );
+    assert!(
+        augustus_core::Condition::EstateInfluenceAtLeast {
+            target: Target::Current,
+            estate: "guild".into(),
+            influence_milli: 40_000,
+        }
+        .evaluate(&current, a)
+        .unwrap()
+    );
+
+    let mut live = world();
+    live.execute(
+        a,
+        &[
+            augustus_core::Action::ChangeEstateMetric {
+                estate: "guild".into(),
+                metric: augustus_core::EstateMetric::Loyalty,
+                amount: 10_000,
+                minimum: None,
+            },
+            augustus_core::Action::If {
+                condition: augustus_core::Condition::EstateLoyaltyAtLeast {
+                    target: Target::Current,
+                    estate: "guild".into(),
+                    loyalty_milli: 60_000,
+                },
+                then: vec![augustus_core::Action::Emit("loyalty-updated".into())],
+                otherwise: Vec::new(),
+            },
+            augustus_core::Action::SetEstatePrivilege {
+                estate: "guild".into(),
+                privilege: "charter".into(),
+                granted: false,
+            },
+            augustus_core::Action::If {
+                condition: augustus_core::Condition::EstatePrivilege {
+                    target: Target::Current,
+                    privilege: "charter".into(),
+                },
+                then: vec![augustus_core::Action::Emit("privilege-retained".into())],
+                otherwise: vec![augustus_core::Action::Emit("privilege-removed".into())],
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        live.events()
+            .iter()
+            .map(|event| event.2.as_str())
+            .collect::<Vec<_>>(),
+        ["loyalty-updated", "privilege-removed"]
+    );
+
+    let mut unknown = world();
+    let mut estates = unknown.estates().clone();
+    estates
+        .countries
+        .get_mut(&a)
+        .unwrap()
+        .get_mut("guild")
+        .unwrap()
+        .influence_milli = None;
+    unknown.set_estates(estates).unwrap();
+    assert!(
+        augustus_core::Condition::EstateInfluenceAtLeast {
+            target: Target::Current,
+            estate: "guild".into(),
+            influence_milli: 1,
+        }
+        .evaluate(&unknown, a)
+        .is_err()
+    );
+}
+
+#[test]
+fn conditional_privilege_modifiers_use_documented_scales_and_keep_unknowns() {
+    let mut current = world();
+    let country = EntityId(0);
+    let mut estates = current.estates().clone();
+    estates
+        .privileges
+        .get_mut("charter")
+        .unwrap()
+        .effect
+        .conditional_modifiers = vec![
+        (
+            augustus_core::EstateConditionalScale::Fixed,
+            augustus_core::Condition::EstatePrivilege {
+                target: Target::Current,
+                privilege: "charter".into(),
+            },
+        ),
+        (
+            augustus_core::EstateConditionalScale::Influence,
+            augustus_core::Condition::EstateLoyaltyAtLeast {
+                target: Target::Current,
+                estate: "guild".into(),
+                loyalty_milli: 30_000,
+            },
+        ),
+        (
+            augustus_core::EstateConditionalScale::Loyalty,
+            augustus_core::Condition::EstateInfluenceAtLeast {
+                target: Target::Current,
+                estate: "guild".into(),
+                influence_milli: 30_000,
+            },
+        ),
+    ]
+    .into_iter()
+    .map(
+        |(scale, condition)| augustus_core::EstateConditionalModifier {
+            condition,
+            scale,
+            modifier: augustus_core::ModifierDefinition {
+                values_micros: [("tax".into(), 1_000_000)].into_iter().collect(),
+                ..Default::default()
+            },
+            unresolved_properties: Default::default(),
+        },
+    )
+    .collect();
+    current.set_estates(estates.clone()).unwrap();
+
+    let evaluation = current
+        .estates()
+        .property_effects_with_world(&current, country, "tax")
+        .unwrap();
+    let conditional_values = evaluation
+        .contributions
+        .iter()
+        .filter(|contribution| contribution.source.contains(":conditional:"))
+        .map(|contribution| contribution.micros)
+        .collect::<Vec<_>>();
+    assert_eq!(conditional_values, [1_000_000, 400_000, 500_000]);
+    let saved = current.save("conditional-estates").unwrap();
+    let restored = World::restore(&saved, "conditional-estates", current.schema()).unwrap();
+    let restored = restored
+        .estates()
+        .property_effects_with_world(&restored, country, "tax")
+        .unwrap();
+    assert_eq!(
+        restored
+            .contributions
+            .iter()
+            .filter(|contribution| contribution.source.contains(":conditional:"))
+            .map(|contribution| contribution.micros)
+            .collect::<Vec<_>>(),
+        [1_000_000, 400_000, 500_000]
+    );
+
+    estates
+        .countries
+        .get_mut(&country)
+        .unwrap()
+        .get_mut("guild")
+        .unwrap()
+        .influence_milli = None;
+    current.set_estates(estates).unwrap();
+    let evaluation = current
+        .estates()
+        .property_effects_with_world(&current, country, "tax")
+        .unwrap();
+    assert_eq!(
+        evaluation
+            .contributions
+            .iter()
+            .filter(|contribution| contribution.source.contains(":conditional:"))
+            .map(|contribution| contribution.micros)
+            .collect::<Vec<_>>(),
+        Vec::<i64>::new()
+    );
+    assert!(evaluation.unresolved.iter().any(|reason| {
+        reason.contains("conditional:1:unknown_scale")
+            || reason.contains("conditional:2:condition:")
+    }));
+
+    let static_query = current.estates().property_effects(country, "tax").unwrap();
+    assert!(
+        static_query
+            .unresolved
+            .iter()
+            .any(|reason| reason.contains("conditional:") && reason.contains("world_required:tax"))
+    );
+}
+
+#[test]
+fn conditional_estate_modifiers_reject_attribute_dependencies_on_replace_and_restore() {
+    let mut current = world();
+    let mut estates = current.estates().clone();
+    estates
+        .privileges
+        .get_mut("charter")
+        .unwrap()
+        .effect
+        .conditional_modifiers = vec![augustus_core::EstateConditionalModifier {
+        condition: augustus_core::Condition::Always(false),
+        scale: augustus_core::EstateConditionalScale::Fixed,
+        modifier: effect(100_000).modifier,
+        unresolved_properties: Default::default(),
+    }];
+    current.set_estates(estates.clone()).unwrap();
+    let before = current.clone();
+    let saved = current.save("estate-dependencies").unwrap();
+
+    for comparison in [
+        augustus_core::Condition::NumericCompare {
+            target: Target::Current,
+            slot: augustus_core::NumericSlot::Attribute {
+                name: "annual".into(),
+                divisor: 1,
+            },
+            comparison: augustus_core::NumericComparison::AtLeast,
+            value: 0,
+        },
+        augustus_core::Condition::NumericCompareEntities {
+            first: augustus_core::EntityRef::Relative(Target::Current),
+            second: augustus_core::EntityRef::Relative(Target::Current),
+            slot: augustus_core::NumericSlot::Attribute {
+                name: "annual".into(),
+                divisor: 1,
+            },
+            comparison: augustus_core::NumericComparison::Equal,
+        },
+    ] {
+        let condition = augustus_core::Condition::All(vec![
+            augustus_core::Condition::Always(false),
+            augustus_core::Condition::Not(Box::new(augustus_core::Condition::AnyOwnedProvince {
+                target: Target::Current,
+                condition: Box::new(comparison),
+            })),
+        ]);
+        let mut invalid = estates.clone();
+        invalid
+            .privileges
+            .get_mut("charter")
+            .unwrap()
+            .effect
+            .conditional_modifiers[0]
+            .condition = condition.clone();
+        let error = current.set_estates(invalid).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("cannot depend on another attribute")
+        );
+        assert_eq!(current, before);
+
+        let mut corrupt: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        corrupt["estates"]["privileges"]["charter"]["effect"]["conditional_modifiers"][0]["condition"] =
+            serde_json::to_value(condition).unwrap();
+        assert!(
+            World::restore(
+                &corrupt.to_string(),
+                "estate-dependencies",
+                current.schema()
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn estate_replacement_validates_conditions_against_candidate_state_and_rolls_back_overflow() {
+    let mut current = world();
+    let country = EntityId(0);
+    let mut estates = current.estates().clone();
+    estates
+        .countries
+        .get_mut(&country)
+        .unwrap()
+        .get_mut("guild")
+        .unwrap()
+        .privileges
+        .as_mut()
+        .unwrap()
+        .clear();
+    current.set_estates(estates.clone()).unwrap();
+    let before = current.clone();
+    estates
+        .countries
+        .get_mut(&country)
+        .unwrap()
+        .get_mut("guild")
+        .unwrap()
+        .privileges
+        .as_mut()
+        .unwrap()
+        .insert("charter".into());
+    estates
+        .privileges
+        .get_mut("charter")
+        .unwrap()
+        .effect
+        .conditional_modifiers = vec![augustus_core::EstateConditionalModifier {
+        condition: augustus_core::Condition::EstatePrivilege {
+            target: Target::Current,
+            privilege: "charter".into(),
+        },
+        scale: augustus_core::EstateConditionalScale::Fixed,
+        modifier: effect(i64::MAX).modifier,
+        unresolved_properties: Default::default(),
+    }];
+    assert!(matches!(
+        current.set_estates(estates),
+        Err(augustus_core::Error::Overflow)
+    ));
+    assert_eq!(current, before);
+}
+
+#[test]
+fn component_replacement_preserves_registries_used_by_estate_conditions() {
+    use augustus_core::{
+        Condition, GovernmentMetric, GovernmentState, Governments, MetricDefinition, Metrics,
+        NumericComparison, NumericSlot,
+    };
+    let mut current = world();
+    let country = EntityId(0);
+    current
+        .set_governments(Governments {
+            metrics: [(
+                "authority".into(),
+                GovernmentMetric {
+                    minimum_milli: 0,
+                    maximum_milli: 100_000,
+                    baseline_milli: 0,
+                    divisor_milli: 100_000,
+                    modifier: None,
+                    unresolved_properties: Default::default(),
+                },
+            )]
+            .into(),
+            countries: [(
+                country,
+                GovernmentState {
+                    kind: Some("civic".into()),
+                    reforms: Some(Default::default()),
+                    metrics: Some([("authority".into(), Some(50_000))].into()),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        })
+        .unwrap();
+    current
+        .set_metrics(Metrics {
+            definitions: [(
+                "capacity".into(),
+                MetricDefinition {
+                    kind: EntityKind::Country,
+                    minimum: 0,
+                    maximum: 100,
+                    baseline: 0,
+                    divisor: 100,
+                    modifier: None,
+                    unresolved_properties: Default::default(),
+                    below_baseline: None,
+                    growth_ceiling: false,
+                },
+            )]
+            .into(),
+            entities: [(country, [("capacity".into(), Some(50))].into())].into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let mut estates = current.estates().clone();
+    estates
+        .privileges
+        .get_mut("charter")
+        .unwrap()
+        .effect
+        .conditional_modifiers = vec![augustus_core::EstateConditionalModifier {
+        condition: Condition::All(vec![
+            Condition::NumericCompare {
+                target: Target::Current,
+                slot: NumericSlot::Government("authority".into()),
+                comparison: NumericComparison::AtLeast,
+                value: 50_000,
+            },
+            Condition::NumericCompare {
+                target: Target::Current,
+                slot: NumericSlot::Metric("capacity".into()),
+                comparison: NumericComparison::AtLeast,
+                value: 50,
+            },
+        ]),
+        scale: augustus_core::EstateConditionalScale::Fixed,
+        modifier: effect(100_000).modifier,
+        unresolved_properties: Default::default(),
+    }];
+    current.set_estates(estates).unwrap();
+    let before = current.clone();
+    assert!(
+        current
+            .set_governments(Governments::default())
+            .unwrap_err()
+            .to_string()
+            .contains("government metric")
+    );
+    assert_eq!(current, before);
+    assert!(
+        current
+            .set_metrics(Metrics::default())
+            .unwrap_err()
+            .to_string()
+            .contains("metric")
+    );
+    assert_eq!(current, before);
+    let saved = current.save("estate-registries").unwrap();
+    assert_eq!(
+        World::restore(&saved, "estate-registries", current.schema()).unwrap(),
+        current
     );
 }

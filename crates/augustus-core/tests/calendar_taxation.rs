@@ -2,10 +2,13 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, AttributeBase, AttributeFormula, Attributes, Calendar, CountryResources, EntityId,
-    EntityKind, FieldId, MonthlySystem, Schema, Target, Taxation, World, WorldDate,
+    Action, Administration, AdministrationRules, AreaStatus, AttributeBase, AttributeChannel,
+    AttributeFormula, AttributeTerm, Attributes, Calendar, CoreType, CountryResource,
+    CountryResources, EntityId, EntityKind, FieldId, MONTHLY_AUTONOMY_DELTA_ATTRIBUTE,
+    MonthlyExternalCashflows, MonthlyStocks, MonthlySystem, ProvinceAdministration, Schema,
+    StockRule, Target, Taxation, World, WorldDate,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn date(year: i16, month: u8, day: u8) -> WorldDate {
     WorldDate { year, month, day }
@@ -40,6 +43,7 @@ fn scenario() -> World {
                     channels: vec![],
                     minimum_micros: None,
                     maximum_micros: None,
+                    result_quantum_micros: None,
                     unresolved: BTreeSet::new(),
                 },
             )]
@@ -76,6 +80,477 @@ fn scenario() -> World {
 
 fn balance(world: &World, id: usize) -> Option<i64> {
     world.country_resources()[&EntityId(id)].treasury_milli
+}
+
+fn with_country_tax(mut world: World, unknown: bool) -> World {
+    let mut attributes = world.attributes().clone();
+    for (country, micros) in [(EntityId(0), 6_006_000), (EntityId(1), 18_000_000)] {
+        attributes.formulas.entry(country).or_default().insert(
+            "country_tax".into(),
+            AttributeFormula {
+                base: if unknown && country == EntityId(0) {
+                    AttributeBase::Unknown {
+                        reason: "unresolved_country_tax".into(),
+                    }
+                } else {
+                    AttributeBase::Constant { micros }
+                },
+                channels: vec![],
+                minimum_micros: None,
+                maximum_micros: None,
+                result_quantum_micros: None,
+                unresolved: BTreeSet::new(),
+            },
+        );
+    }
+    world.set_attributes(attributes).unwrap();
+    world
+        .set_taxation(
+            Taxation::new("annual_tax", [EntityId(0), EntityId(1)].into())
+                .with_country_annual_attribute("country_tax"),
+        )
+        .unwrap();
+    world
+}
+
+#[test]
+fn country_tax_is_added_once_and_resumes_with_the_same_monthly_receipts() {
+    let mut continuous = with_country_tax(scenario(), false);
+    let east = continuous.add_entity("East", EntityKind::Province);
+    continuous.set_owner(east, EntityId(0)).unwrap();
+    continuous.set(east, FieldId(0), 12_000).unwrap();
+    let mut attributes = continuous.attributes().clone();
+    attributes
+        .formulas
+        .insert(east, attributes.formulas[&EntityId(2)].clone());
+    continuous.set_attributes(attributes).unwrap();
+    let mut segmented = continuous.clone();
+    continuous.advance_to(51).unwrap();
+    segmented.advance_to(20).unwrap();
+    assert_eq!(balance(&segmented, 0), Some(12_500));
+    assert_eq!(balance(&segmented, 1), Some(23_500));
+    let snapshot = segmented.save("country-tax").unwrap();
+    let mut resumed = World::restore(&snapshot, "country-tax", segmented.schema()).unwrap();
+    resumed.advance_to(51).unwrap();
+    assert_eq!(continuous, resumed);
+    assert_eq!(balance(&continuous, 0), Some(15_000));
+    assert_eq!(balance(&continuous, 1), Some(27_000));
+}
+
+#[test]
+fn country_tax_overflow_does_not_credit_an_earlier_country() {
+    let mut current = with_country_tax(scenario(), false);
+    let mut attributes = current.attributes().clone();
+    attributes
+        .formulas
+        .get_mut(&EntityId(1))
+        .unwrap()
+        .get_mut("country_tax")
+        .unwrap()
+        .base = AttributeBase::Constant { micros: i64::MAX };
+    current.set_attributes(attributes).unwrap();
+    assert!(current.advance_to(20).is_err());
+    assert_eq!(balance(&current, 0), Some(10_000));
+    assert_eq!(balance(&current, 1), Some(20_000));
+    assert_eq!(current.taxation().unwrap().settlement_count, 0);
+}
+
+#[test]
+fn unresolved_country_tax_keeps_the_known_province_subtotal_uncredited() {
+    let mut current = with_country_tax(scenario(), true);
+    current.advance_to(20).unwrap();
+    let account = &current
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&EntityId(0)];
+    assert_eq!(account.known_subtotal_milli, 1000);
+    assert_eq!(account.income_milli, None);
+    assert_eq!(account.credited_milli, None);
+    assert!(account.unresolved.contains("unresolved_country_tax"));
+    assert_eq!(balance(&current, 1), Some(23_500));
+}
+
+#[test]
+fn external_country_annual_tax_overrides_content_source_without_double_counting() {
+    let mut current = with_country_tax(scenario(), false);
+    current
+        .set_taxation(
+            Taxation::new("annual_tax", [EntityId(0), EntityId(1)].into())
+                .with_country_annual_attribute("country_tax")
+                .with_external_country_annual_milli(BTreeMap::from([(EntityId(0), Some(24_000))])),
+        )
+        .unwrap();
+
+    current.advance_to(20).unwrap();
+    let account = &current
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&EntityId(0)];
+    assert_eq!(account.known_subtotal_milli, 3_000);
+    assert_eq!(account.income_milli, Some(3_000));
+    assert_eq!(account.treasury_after_milli, Some(13_000));
+
+    let saved = current.save("external-country-tax").unwrap();
+    assert!(saved.contains("external_country_annual_milli"));
+    let restored = World::restore(&saved, "external-country-tax", current.schema()).unwrap();
+    assert_eq!(restored, current);
+}
+
+#[test]
+fn external_province_annual_tax_replaces_content_value() {
+    let mut current = scenario();
+    current
+        .set_taxation(
+            Taxation::new(
+                "annual_tax",
+                [EntityId(0), EntityId(1)].into_iter().collect(),
+            )
+            .with_external_province_annual_milli(BTreeMap::from([(EntityId(2), Some(36_000))])),
+        )
+        .unwrap();
+
+    current.advance_to(20).unwrap();
+    let account = &current
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&EntityId(0)];
+    assert_eq!(account.known_subtotal_milli, 3_000);
+    assert_eq!(account.income_milli, Some(3_000));
+    assert_eq!(account.treasury_after_milli, Some(13_000));
+
+    let saved = current.save("external-province-tax").unwrap();
+    assert!(saved.contains("external_province_annual_milli"));
+    let restored = World::restore(&saved, "external-province-tax", current.schema()).unwrap();
+    assert_eq!(restored, current);
+}
+
+#[test]
+fn unresolved_external_province_annual_tax_keeps_other_provinces_usable() {
+    let mut current = scenario();
+    let extra = current.add_entity("Extra", EntityKind::Province);
+    current.set_owner(extra, EntityId(0)).unwrap();
+    current.set(extra, FieldId(0), 6_000).unwrap();
+    let mut attributes = current.attributes().clone();
+    attributes
+        .formulas
+        .insert(extra, attributes.formulas[&EntityId(2)].clone());
+    current.set_attributes(attributes).unwrap();
+    current
+        .set_taxation(
+            Taxation::new(
+                "annual_tax",
+                [EntityId(0), EntityId(1)].into_iter().collect(),
+            )
+            .with_external_province_annual_milli(BTreeMap::from([(EntityId(2), None)])),
+        )
+        .unwrap();
+
+    current.advance_to(20).unwrap();
+    let account = &current
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&EntityId(0)];
+    assert_eq!(account.known_subtotal_milli, 500);
+    assert_eq!(account.income_milli, None);
+    assert!(
+        account
+            .unresolved
+            .contains("province:North:unknown_external_annual_tax")
+    );
+    assert_eq!(account.treasury_after_milli, None);
+}
+
+#[test]
+fn unresolved_external_country_annual_tax_preserves_known_province_subtotal() {
+    let mut current = with_country_tax(scenario(), false);
+    current
+        .set_taxation(
+            Taxation::new("annual_tax", [EntityId(0), EntityId(1)].into())
+                .with_country_annual_attribute("country_tax")
+                .with_external_country_annual_milli(BTreeMap::from([(EntityId(0), None)])),
+        )
+        .unwrap();
+
+    current.advance_to(20).unwrap();
+    let account = &current
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&EntityId(0)];
+    assert_eq!(account.known_subtotal_milli, 1_000);
+    assert_eq!(account.income_milli, None);
+    assert!(
+        account
+            .unresolved
+            .contains("unknown_external_country_annual_tax")
+    );
+    assert_eq!(account.treasury_after_milli, None);
+}
+
+#[test]
+fn monthly_autonomy_updates_before_tax_and_survives_save_resume() {
+    let mut world = World::new(Schema::new(["annual_tax"]).unwrap());
+    let country = world.add_entity("Alpha", EntityKind::Country);
+    let province = world.add_entity("North", EntityKind::Province);
+    world.set_owner(province, country).unwrap();
+    world.set(province, FieldId(0), 24_000).unwrap();
+
+    let mut attributes = Attributes::default();
+    attributes.formulas.insert(
+        province,
+        [
+            (
+                "annual_tax".into(),
+                AttributeFormula {
+                    base: AttributeBase::Field {
+                        field: FieldId(0),
+                        micros_per_unit: 1_000,
+                    },
+                    channels: vec![AttributeChannel {
+                        flat: vec![],
+                        rates: vec![AttributeTerm::Autonomy],
+                    }],
+                    minimum_micros: None,
+                    maximum_micros: None,
+                    result_quantum_micros: None,
+                    unresolved: BTreeSet::new(),
+                },
+            ),
+            (
+                MONTHLY_AUTONOMY_DELTA_ATTRIBUTE.into(),
+                AttributeFormula {
+                    base: AttributeBase::Constant { micros: -1_000 },
+                    channels: vec![],
+                    minimum_micros: None,
+                    maximum_micros: None,
+                    result_quantum_micros: None,
+                    unresolved: BTreeSet::new(),
+                },
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    attributes.formulas.insert(
+        country,
+        [(
+            "stock_income".into(),
+            AttributeFormula {
+                base: AttributeBase::Constant { micros: 0 },
+                channels: vec![],
+                minimum_micros: None,
+                maximum_micros: None,
+                result_quantum_micros: None,
+                unresolved: BTreeSet::new(),
+            },
+        )]
+        .into_iter()
+        .collect(),
+    );
+    world.set_attributes(attributes).unwrap();
+    world
+        .set_administration(Administration {
+            areas: ["test".into()].into(),
+            country_areas: [(country, [("test".into(), AreaStatus::State)].into())].into(),
+            provinces: [(
+                province,
+                ProvinceAdministration {
+                    area: Some("test".into()),
+                    cores_known: true,
+                    cores: [(country, CoreType::Full)].into(),
+                    raw_autonomy_micros: Some(35_000),
+                    history_autonomy_delta_micros: 0,
+                    unresolved: BTreeSet::new(),
+                },
+            )]
+            .into(),
+            rules: AdministrationRules {
+                state_full_minimum_micros: Some(0),
+                capital_maximum_micros: Some(1_000_000),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .unwrap();
+    world.set_calendar(calendar(date(1444, 11, 11))).unwrap();
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(0),
+                    manpower_milli: Some(0),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    world
+        .set_taxation(Taxation::new("annual_tax", [country].into()))
+        .unwrap();
+    world
+        .set_monthly_stocks(Some(MonthlyStocks {
+            rules: [(
+                country,
+                [(
+                    CountryResource::Manpower,
+                    StockRule {
+                        income_attribute: "stock_income".into(),
+                        divisor: 1,
+                        ceiling_attribute: None,
+                        condition: None,
+                    },
+                )]
+                .into(),
+            )]
+            .into(),
+            settlement_count: 0,
+            last_settlement: None,
+        }))
+        .unwrap();
+    world
+        .set_monthly_cashflows(Some(MonthlyExternalCashflows::new(
+            [(country, Some(0))].into(),
+        )))
+        .unwrap();
+
+    let mut continuous = world.clone();
+    let mut resumed = world;
+    continuous.advance_to(51).unwrap();
+    resumed.advance_to(20).unwrap();
+    assert_eq!(
+        resumed.administration().provinces[&province].raw_autonomy_micros,
+        Some(34_000)
+    );
+    assert_eq!(
+        resumed
+            .taxation()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&country]
+            .income_milli,
+        Some(1_932)
+    );
+    let snapshot = resumed.save("monthly-autonomy-tax-order:1").unwrap();
+    resumed = World::restore(&snapshot, "monthly-autonomy-tax-order:1", resumed.schema()).unwrap();
+    resumed.advance_to(51).unwrap();
+
+    assert_eq!(
+        resumed.administration().provinces[&province].raw_autonomy_micros,
+        Some(33_000)
+    );
+    assert_eq!(
+        resumed
+            .taxation()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&country]
+            .income_milli,
+        Some(1_934)
+    );
+    assert_eq!(
+        resumed.country_resources()[&country].treasury_milli,
+        Some(3_866)
+    );
+    assert_eq!(resumed, continuous);
+}
+
+#[test]
+fn country_tax_configuration_rejects_missing_or_empty_attributes() {
+    let mut current = scenario();
+    let before = current.clone();
+    for attribute in ["", "missing"] {
+        assert!(
+            current
+                .set_taxation(
+                    Taxation::new("annual_tax", [EntityId(0), EntityId(1)].into())
+                        .with_country_annual_attribute(attribute),
+                )
+                .is_err()
+        );
+        assert_eq!(current, before);
+    }
+    assert!(
+        !current
+            .save("unchanged-tax")
+            .unwrap()
+            .contains("country_annual_attribute")
+    );
+}
+
+#[test]
+fn unknown_ownership_blocks_monthly_credit_until_the_missing_relation_is_resolved() {
+    let mut current = scenario();
+    let unknown = current.add_entity("Unresolved", EntityKind::Province);
+    let snapshot = current.save("tax-ownership").unwrap();
+    current.advance_to(20).unwrap();
+    for country in [EntityId(0), EntityId(1)] {
+        let account = &current
+            .taxation()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&country];
+        assert_eq!(account.income_milli, None);
+        assert_eq!(account.credited_milli, None);
+        assert_eq!(account.treasury_after_milli, None);
+        assert!(account.unresolved.contains("unknown_province_ownership"));
+    }
+    assert_eq!(
+        current
+            .taxation()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&EntityId(0)]
+            .known_subtotal_milli,
+        1000
+    );
+    let mut resumed = World::restore(&snapshot, "tax-ownership", current.schema()).unwrap();
+    resumed.advance_to(20).unwrap();
+    assert_eq!(current, resumed);
+    current.mark_target_absent(unknown, Target::Owner).unwrap();
+    current.advance_to(51).unwrap();
+    let account = &current
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&EntityId(0)];
+    assert_eq!(account.income_milli, Some(1000));
+    assert_eq!(account.credited_milli, None);
+    assert!(account.unresolved.contains("unknown_treasury"));
+
+    let mut resolved_before_settlement =
+        World::restore(&snapshot, "tax-ownership", resumed.schema()).unwrap();
+    resolved_before_settlement
+        .mark_target_absent(unknown, Target::Owner)
+        .unwrap();
+    resolved_before_settlement.advance_to(20).unwrap();
+    assert_eq!(balance(&resolved_before_settlement, 0), Some(11_000));
+    assert_eq!(balance(&resolved_before_settlement, 1), Some(22_000));
 }
 
 #[test]

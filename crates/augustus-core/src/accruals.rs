@@ -244,6 +244,7 @@ impl MonthlySystem for MonthlyEconomy {
         if world.monthly_accruals().is_none()
             && world.monthly_convergence().is_none()
             && world.monthly_stocks().is_none()
+            && world.monthly_production().is_none()
         {
             return Err(Error::Invalid("missing monthly metric state".into()));
         }
@@ -256,6 +257,12 @@ impl MonthlySystem for MonthlyEconomy {
         if let Some(stocks) = world.monthly_stocks() {
             stocks.validate(world)?;
         }
+        if let Some(production) = world.monthly_production() {
+            production.validate(world)?;
+        }
+        if let Some(cashflows) = world.monthly_cashflows() {
+            cashflows.validate(world)?;
+        }
         if let Some(taxation) = world.taxation() {
             taxation.validate(world)?;
         }
@@ -263,49 +270,84 @@ impl MonthlySystem for MonthlyEconomy {
     }
 
     fn settle(&self, world: &mut World) -> Result<(), Error> {
-        let taxes = world
-            .taxation()
-            .map(|taxation| taxation.prepare(world))
+        let previous_administration = world
+            .prepare_monthly_autonomy()?
+            .map(|administration| world.replace_administration(administration))
             .transpose()?;
-        let receipts = world
-            .monthly_accruals()
-            .map(|accruals| accruals.prepare(world))
-            .transpose()?;
-        let convergence_receipts = world
-            .monthly_convergence()
-            .map(|convergence| convergence.prepare(world))
-            .transpose()?;
-        let stock_receipts = world
-            .monthly_stocks()
-            .map(|stocks| stocks.prepare(world))
-            .transpose()?;
-        if let Some(taxes) = taxes {
-            let mut taxation = world.taxation.take().expect("prepared taxation");
-            taxation.commit(world, taxes);
-            world.taxation = Some(taxation);
+        let result = (|| {
+            let taxes = world
+                .taxation()
+                .map(|taxation| taxation.prepare(world))
+                .transpose()?;
+            let receipts = world
+                .monthly_accruals()
+                .map(|accruals| accruals.prepare(world))
+                .transpose()?;
+            let convergence_receipts = world
+                .monthly_convergence()
+                .map(|convergence| convergence.prepare(world))
+                .transpose()?;
+            let stock_receipts = world
+                .monthly_stocks()
+                .map(|stocks| stocks.prepare(world))
+                .transpose()?;
+            let production_receipts = world
+                .monthly_production()
+                .map(|production| production.prepare(world, taxes.as_ref()))
+                .transpose()?;
+            let cashflow_receipts = world
+                .monthly_cashflows()
+                .map(|cashflows| {
+                    cashflows.prepare(world, taxes.as_ref(), production_receipts.as_ref())
+                })
+                .transpose()?;
+            if let Some(taxes) = taxes {
+                let mut taxation = world.taxation.take().expect("prepared taxation");
+                taxation.commit(world, taxes);
+                world.taxation = Some(taxation);
+            }
+            if let Some(receipts) = production_receipts {
+                let mut production = world
+                    .monthly_production
+                    .take()
+                    .expect("prepared production");
+                production.commit(world, receipts);
+                world.monthly_production = Some(production);
+            }
+            if let Some(receipts) = cashflow_receipts {
+                let mut cashflows = world.monthly_cashflows.take().expect("prepared cashflows");
+                cashflows.commit(world, receipts);
+                world.monthly_cashflows = Some(cashflows);
+            }
+            if let Some(receipts) = receipts {
+                let mut accruals = world.monthly_accruals.take().expect("prepared accruals");
+                accruals.commit(world, receipts);
+                world.monthly_accruals = Some(accruals);
+            }
+            if let Some(receipts) = convergence_receipts {
+                let mut convergence = world
+                    .monthly_convergence
+                    .take()
+                    .expect("prepared convergence");
+                convergence.commit(world, receipts);
+                world.monthly_convergence = Some(convergence);
+            }
+            if let Some(receipts) = stock_receipts {
+                let mut stocks = world
+                    .monthly_stocks
+                    .take()
+                    .expect("prepared monthly stocks");
+                stocks.commit(world, receipts);
+                world.monthly_stocks = Some(stocks);
+            }
+            Ok(())
+        })();
+        if result.is_err()
+            && let Some(previous) = previous_administration
+        {
+            world.restore_administration(previous);
         }
-        if let Some(receipts) = receipts {
-            let mut accruals = world.monthly_accruals.take().expect("prepared accruals");
-            accruals.commit(world, receipts);
-            world.monthly_accruals = Some(accruals);
-        }
-        if let Some(receipts) = convergence_receipts {
-            let mut convergence = world
-                .monthly_convergence
-                .take()
-                .expect("prepared convergence");
-            convergence.commit(world, receipts);
-            world.monthly_convergence = Some(convergence);
-        }
-        if let Some(receipts) = stock_receipts {
-            let mut stocks = world
-                .monthly_stocks
-                .take()
-                .expect("prepared monthly stocks");
-            stocks.commit(world, receipts);
-            world.monthly_stocks = Some(stocks);
-        }
-        Ok(())
+        result
     }
 }
 

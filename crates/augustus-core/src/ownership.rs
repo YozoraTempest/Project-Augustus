@@ -13,6 +13,17 @@ pub(crate) struct OwnershipIndex {
 }
 
 impl OwnershipIndex {
+    pub(crate) fn known_members(&self, country: EntityId) -> &[EntityId] {
+        self.members
+            .get(&country)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn has_unknown(&self) -> bool {
+        self.unknown != 0
+    }
+
     pub(crate) fn add_province(&mut self) {
         self.unknown += 1;
     }
@@ -86,12 +97,7 @@ impl World {
                 "unknown province ownership prevents a member selection".into(),
             ));
         }
-        Ok(self
-            .ownership
-            .members
-            .get(&country)
-            .map(Vec::as_slice)
-            .unwrap_or_default())
+        Ok(self.ownership.known_members(country))
     }
 
     /// Positive ownership is known immediately; zero remains unknown when a

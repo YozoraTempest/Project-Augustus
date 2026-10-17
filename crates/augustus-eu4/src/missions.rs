@@ -37,15 +37,9 @@ impl MissionDraft {
             .filter(|f| direct_txt(&f.relative_path, "missions"))
             .map(|file| root.read_text(&file.relative_path, TextEncoding::Windows1252))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut objectives = ScriptCompiler::new(world.schema(), &library, true)
-            .with_subject_type_ids(world.subjects().types.clone())
+        let mut objectives = ScriptCompiler::for_world(world, &library, true)
             .with_mission_ids(ids.clone())
-            .with_modifier_ids(world.modifiers().definitions.keys().cloned().collect())
-            .with_metric_ids(world.metrics().definitions.keys().cloned().collect())
-            .with_government_metric_ids(world.governments().metrics.keys().cloned().collect())
-            .with_government_form_ids(world.governments().forms.keys().cloned().collect())
             .with_area_scopes(areas.clone())
-            .with_religious_school_groups(world.affiliations().0["religious_school"].groups.clone())
             .compile_missions(&documents)?;
         // Persistent conditions use content paths, independent of the player's installation.
         for source_root in root.source_roots() {
@@ -55,6 +49,15 @@ impl MissionDraft {
             }
         }
         Ok(Self { ids, objectives })
+    }
+
+    pub(crate) fn register_identifiers(&self, initial: &mut InitialWorld) -> Result<(), Error> {
+        initial
+            .set_completions(Completions {
+                identifiers: self.ids.clone(),
+                ..Default::default()
+            })
+            .map_err(|e| Error::caused_by("missions", e))
     }
 
     pub(crate) fn bind(self, initial: &mut InitialWorld) -> Result<MissionReport, Error> {
@@ -122,6 +125,15 @@ impl MissionDraft {
 
 fn relative_reasons(condition: &mut Condition, prefix: &str) {
     match condition {
+        Condition::If {
+            condition,
+            then,
+            otherwise,
+        } => {
+            for child in [condition.as_mut(), then.as_mut(), otherwise.as_mut()] {
+                relative_reasons(child, prefix);
+            }
+        }
         Condition::Unavailable(reason) => *reason = reason.replace(prefix, ""),
         Condition::All(children) | Condition::Any(children) => {
             for child in children {

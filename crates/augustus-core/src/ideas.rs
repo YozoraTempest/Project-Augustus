@@ -81,6 +81,48 @@ impl Ideas {
         self.evaluate(entity, Some(property))
     }
 
+    pub(crate) fn has_idea(&self, entity: EntityId, idea: &str) -> Result<bool, Error> {
+        if idea.is_empty() {
+            return Err(Error::Invalid("empty idea identifier".into()));
+        }
+        let candidates: Vec<_> = self
+            .groups
+            .iter()
+            .flat_map(|(group_id, group)| {
+                group
+                    .ideas
+                    .iter()
+                    .enumerate()
+                    .filter(move |(_, definition)| definition.id == idea)
+                    .map(move |(index, _)| (group_id.as_str(), index))
+            })
+            .collect();
+        if candidates.is_empty() {
+            return Err(Error::Invalid(format!("unknown idea {idea}")));
+        }
+        let Some(groups) = self
+            .countries
+            .get(&entity)
+            .and_then(|state| state.groups.as_ref())
+        else {
+            return Err(Error::Invalid("unknown country idea selection".into()));
+        };
+        let mut unknown = false;
+        for (group, index) in candidates {
+            match groups.get(group) {
+                None => (),
+                Some(Some(progress)) if usize::from(*progress) > index => return Ok(true),
+                Some(Some(_)) => (),
+                Some(None) => unknown = true,
+            }
+        }
+        if unknown {
+            Err(Error::Invalid(format!("unknown idea progress for {idea}")))
+        } else {
+            Ok(false)
+        }
+    }
+
     fn evaluate(&self, entity: EntityId, property: Option<&str>) -> Result<IdeaEvaluation, Error> {
         let mut result = IdeaEvaluation::default();
         let Some(groups) = self.countries.get(&entity).and_then(|s| s.groups.as_ref()) else {

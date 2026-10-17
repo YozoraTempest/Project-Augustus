@@ -48,6 +48,72 @@ fn reform_effects_compile_as_country_state_actions() {
 }
 
 #[test]
+fn government_rank_condition_and_effect_compile_and_run_in_country_scope() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/rank.txt",
+        r#"
+        on_startup={if={limit={tag=AAA}
+            set_government_rank=3
+            if={limit={government_rank=3} log=rank_three}
+            if={limit={government_rank=2} log=wrong_rank}
+            set_government_rank=1
+            if={limit={government_rank=1} log=rank_one}
+        }}
+    "#,
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().government_rank(country).unwrap(),
+        1,
+        "events: {:?}; unresolved: {:?}",
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|row| row.2.as_str())
+            .collect::<Vec<_>>(),
+        loaded.report.estates.startup_unresolved
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|row| row.2.as_str())
+            .collect::<Vec<_>>(),
+        ["rank_three", "rank_one"]
+    );
+
+    let schema = Schema::new(["base"]).unwrap();
+    let library = ScriptLibrary::new();
+    for script in [
+        "set_government_rank=0",
+        "set_government_rank=4",
+        "set_government_rank=2.5",
+    ] {
+        assert!(
+            ScriptCompiler::new(&schema, &library, true)
+                .compile(&document(script), EntityKind::Country)
+                .is_err(),
+            "{script}"
+        );
+    }
+    for script in ["government_rank=2", "set_government_rank=2"] {
+        assert!(
+            ScriptCompiler::new(&schema, &library, true)
+                .compile(&document(script), EntityKind::Province)
+                .is_err(),
+            "{script}"
+        );
+    }
+}
+
+#[test]
 fn startup_reform_add_replaces_the_selected_reform_and_updates_state() {
     let temp = fixture();
     let reforms_path = temp

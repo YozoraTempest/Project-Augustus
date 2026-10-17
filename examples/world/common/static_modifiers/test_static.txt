@@ -12,6 +12,8 @@ territory_core = { min_local_autonomy = 80 }
 territory_non_core = { min_local_autonomy = 80 }
 same_culture_group = { local_tax_modifier = -0.15 local_manpower_modifier = -0.15 }
 non_accepted_culture = { local_tax_modifier = -0.33 local_manpower_modifier = -0.33 }
+war = { global_autonomy = 0 }
+peace = { global_autonomy = -0.1 }
 
 positive_stability = { global_tax_modifier = 0.125 global_manpower_modifier = 0.032 global_unrest = -1 }
 negative_stability = { global_tax_modifier = 0.075 global_manpower_modifier = 0.021 global_unrest = -2 }

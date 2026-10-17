@@ -69,6 +69,39 @@ fn native_input_rejects_duplicate_identity_and_unresolved_references() {
 }
 
 #[test]
+fn initial_world_exposes_port_checked_naval_creation() {
+    let mut provinces = provinces();
+    provinces[0].has_port = Some(true);
+    let mut initial = InitialWorld::new(countries(), provinces).unwrap();
+    let owner = initial.country_entity("AAA").unwrap();
+    let port = initial.province_entity(2).unwrap();
+
+    let id = initial
+        .create_naval_unit(owner, port, "light_ship")
+        .unwrap();
+    assert_eq!(initial.naval_units().len(), 1);
+    assert_eq!(initial.naval_units()[0].id, id);
+    assert_eq!(initial.naval_units()[0].owner, owner);
+    assert_eq!(initial.naval_units()[0].location, port);
+}
+
+#[test]
+fn initial_world_exposes_army_creation_and_query() {
+    let mut initial = InitialWorld::new(countries(), provinces()).unwrap();
+    let owner = initial.country_entity("AAA").unwrap();
+    let location = initial.province_entity(2).unwrap();
+    let unit_types = vec!["western_infantry".into()];
+
+    let id = initial
+        .create_army(owner, location, "First Army", &unit_types)
+        .unwrap();
+    assert_eq!(initial.armies().len(), 1);
+    assert_eq!(initial.armies()[0].id, id);
+    assert_eq!(initial.armies()[0].owner, owner);
+    assert_eq!(initial.armies()[0].location, location);
+}
+
+#[test]
 fn province_views_follow_live_core_and_owner_relations_and_restore_input_order() {
     use augustus_core::{
         Action, Administration, CoreType, EntityKind, EntityRef, ProvinceAdministration,

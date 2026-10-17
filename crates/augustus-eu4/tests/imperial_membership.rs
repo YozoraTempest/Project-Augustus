@@ -215,7 +215,7 @@ fn unexecuted_history_changes_and_failed_startup_cannot_establish_membership() {
     write(
         temp.path(),
         "common/scripted_effects/membership.txt",
-        "custom_membership_change={set_in_empire=no}",
+        "custom_membership_change={set_in_empire=no} wrapper_membership_change={custom_membership_change=yes}",
     );
     let entity = VanillaWorld::load(temp.path(), "1444.11.11")
         .unwrap()
@@ -254,6 +254,7 @@ fn unexecuted_history_changes_and_failed_startup_cannot_establish_membership() {
         "if={limit={always=yes} hre=no}",
         "effect={set_in_empire=no}",
         "custom_membership_change=yes",
+        "wrapper_membership_change=yes",
     ] {
         write(temp.path(), path, &(original.to_owned() + " " + effect));
         let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
@@ -292,6 +293,36 @@ fn unexecuted_history_changes_and_failed_startup_cannot_establish_membership() {
             .affiliations()
             .present("imperial_membership", outside),
         None
+    );
+}
+
+#[test]
+fn unrelated_country_history_effect_does_not_hide_explicit_membership() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "history/provinces/2 - East.txt",
+        "owner=AAA hre=no",
+    );
+    write(
+        temp.path(),
+        "common/scripted_effects/unrelated.txt",
+        "unrelated_country_setup={add_prestige=1}",
+    );
+    let country_history = temp.path().join("history/countries/AAA - Alpha.txt");
+    let mut history = fs::read_to_string(&country_history).unwrap();
+    history.push_str("\neffect={unrelated_country_setup=yes}\n");
+    write(temp.path(), "history/countries/AAA - Alpha.txt", &history);
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let province = loaded.initial.province_entity(2).unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .affiliations()
+            .present("imperial_membership", province),
+        Some(false)
     );
 }
 

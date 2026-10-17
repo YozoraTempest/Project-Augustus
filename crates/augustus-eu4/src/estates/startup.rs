@@ -4,6 +4,7 @@
 use super::initialization::HistoryMetric;
 use super::{Condition, ENCODING, EstateReport, Reader};
 use crate::bootstrap::{direct_txt, equal, source};
+use crate::country_conditions::ConditionCompileOptions;
 use crate::setup::{PropertyDiagnostics, block, micros};
 use crate::{ContentView, Error, FileEntry, LoadedSource, ParsedText, TextDocument};
 use augustus_core::{Action, EntityKind, EventCatalog, InitialWorld, Schema, ScopeSelector};
@@ -51,6 +52,7 @@ struct Compiler {
     government_form_ids: BTreeSet<String>,
     metric_ids: BTreeSet<String>,
     truce_months: Option<u32>,
+    age_rules: crate::country_conditions::AgeRules,
     area_scopes: BTreeMap<String, Vec<u32>>,
     religious_school_groups: BTreeMap<String, Option<String>>,
     casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
@@ -99,6 +101,7 @@ impl Compiler {
                 | "add_dip_power"
                 | "add_mil_power"
                 | "change_government"
+                | "set_government_rank"
                 | "add_government_reform"
                 | "remove_government_reform"
                 | "custom_tooltip"
@@ -239,6 +242,7 @@ impl Compiler {
                     }
                 }
                 "country_event"
+                | "random_country"
                 | "every_owned_province"
                 | "every_subject_country"
                 | "random_owned_province"
@@ -247,6 +251,7 @@ impl Compiler {
                 | "remove_casus_belli"
                 | "reverse_remove_casus_belli"
                 | "set_religious_school"
+                | "set_school_opinion"
                 | "tooltip"
                 | "add_country_modifier"
                 | "set_variable"
@@ -362,14 +367,17 @@ impl Compiler {
                     if limits.len() != 1 {
                         return Err(fail("startup branch requires one limit"));
                     }
-                    let condition = Condition::All(Condition::compile(
+                    let condition = Condition::All(Condition::compile_with_age_rules(
                         parsed,
                         block(&limits[0].2, &fail)?,
                         report,
                         0,
                         true,
-                        Some(&self.triggers),
-                        false,
+                        ConditionCompileOptions::new(
+                            Some(&self.triggers),
+                            Some(&self.age_rules),
+                            false,
+                        ),
                     )?);
                     let effects = self.effects(parsed, body, report, depth + 1, true)?;
                     if name == "if" {
@@ -405,14 +413,17 @@ impl Compiler {
                         return Err(fail("duplicate country iterator limit"));
                     }
                     let condition = match limits.first() {
-                        Some((_, _, value)) => Condition::All(Condition::compile(
+                        Some((_, _, value)) => Condition::All(Condition::compile_with_age_rules(
                             parsed,
                             block(value, &fail)?,
                             report,
                             0,
                             true,
-                            Some(&self.triggers),
-                            false,
+                            ConditionCompileOptions::new(
+                                Some(&self.triggers),
+                                Some(&self.age_rules),
+                                false,
+                            ),
                         )?),
                         None => Condition::Literal(true),
                     };
@@ -430,6 +441,46 @@ impl Compiler {
                     ));
                 }
                 _ if self.effect_index.contains_key(&name) => {
+                    let Some(index) = self.effect_index[&name] else {
+                        result.push(Step::Pending(format!("ambiguous_effect:{name}"), location));
+                        continue;
+                    };
+                    if value.read_object().is_ok() {
+                        let compiled =
+                            crate::ScriptCompiler::new(&self.schema, &self.library, true)
+                                .with_government_form_ids(self.government_form_ids.clone())
+                                .with_modifier_ids(self.modifier_ids.clone())
+                                .with_mission_ids(self.mission_ids.clone())
+                                .with_casus_belli_types(self.casus_belli_types.clone())
+                                .with_religious_school_groups(self.religious_school_groups.clone())
+                                .with_subject_type_ids(self.subject_type_ids.clone())
+                                .with_hidden_descriptions(self.hidden_descriptions)
+                                .with_government_metric_ids(self.government_metric_ids.clone())
+                                .with_metric_ids(self.metric_ids.clone())
+                                .with_truce_months(self.truce_months)
+                                .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
+                                    augustus_core::CountryResource::Treasury,
+                                )))
+                                .with_area_scopes(self.area_scopes.clone())
+                                .compile_effect_reader(
+                                    parsed,
+                                    &name,
+                                    block(&value, &fail)?,
+                                    at,
+                                    EntityKind::Country,
+                                );
+                        match compiled {
+                            Ok(plan) => result.extend(
+                                plan.into_iter()
+                                    .map(|action| Step::Metric(action, location.clone())),
+                            ),
+                            Err(error) => result.push(Step::Pending(
+                                format!("uncompiled_startup_effect:{error}"),
+                                source(parsed, error.location().unwrap_or(at)),
+                            )),
+                        }
+                        continue;
+                    }
                     if value.read_string().ok().as_deref() != Some("yes") {
                         result.push(Step::Pending(
                             format!("parameterized_effect:{name}"),
@@ -437,10 +488,6 @@ impl Compiler {
                         ));
                         continue;
                     }
-                    let Some(index) = self.effect_index[&name] else {
-                        result.push(Step::Pending(format!("ambiguous_effect:{name}"), location));
-                        continue;
-                    };
                     if self.visiting.contains(&name) {
                         result.push(Step::Pending(format!("recursive_effect:{name}"), location));
                         continue;
@@ -489,6 +536,7 @@ impl EstateStartup {
             self.events.pictures(),
             self.events.option_weights(),
             self.events.locations(),
+            self.events.unavailable_options(),
         ))?;
         fn remove_diagnostics(value: &mut serde_json::Value) {
             match value {
@@ -513,6 +561,17 @@ impl EstateStartup {
         serde_json::to_vec(&identity).map(Some)
     }
 
+    pub(crate) fn global_marker_references(&self) -> BTreeSet<String> {
+        let mut names = self.events.global_marker_references();
+        collect_global_marker_references(&self.steps, &mut names);
+        for callback in self.callbacks.values() {
+            callback.valid.collect_global_marker_references(&mut names);
+            collect_global_marker_references(&callback.granted, &mut names);
+            collect_global_marker_references(&callback.revoked, &mut names);
+        }
+        names
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn load(
         root: &impl ContentView,
@@ -529,6 +588,7 @@ impl EstateStartup {
         casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
+        let age_rules = crate::country_conditions::AgeRules::load(root, files)?;
         let mut compiler = Compiler {
             hidden_descriptions: false,
             schema: schema.clone(),
@@ -546,6 +606,7 @@ impl EstateStartup {
             government_form_ids,
             metric_ids,
             truce_months,
+            age_rules,
             area_scopes,
             religious_school_groups,
             casus_belli_types,
@@ -665,14 +726,17 @@ impl EstateStartup {
                         }
                         match key.read_string().as_str() {
                             "is_valid" => {
-                                callback.valid = Condition::All(Condition::compile(
+                                callback.valid = Condition::All(Condition::compile_with_age_rules(
                                     &parsed,
                                     block(&value, &fail)?,
                                     report,
                                     0,
                                     true,
-                                    Some(&compiler.triggers),
-                                    false,
+                                    ConditionCompileOptions::new(
+                                        Some(&compiler.triggers),
+                                        Some(&compiler.age_rules),
+                                        false,
+                                    ),
                                 )?)
                             }
                             "on_granted" => {
@@ -745,6 +809,8 @@ impl EstateStartup {
         &self,
         initial: &mut InitialWorld,
         report: &mut EstateReport,
+        country_order: &[String],
+        clock_origin: std::time::Instant,
     ) -> Result<(), Error> {
         let mut candidate = initial.clone();
         if self.steps.is_empty() {
@@ -754,11 +820,12 @@ impl EstateStartup {
         let events = if candidate.world().country_controllers().is_empty() {
             self.events.clone()
         } else {
+            let decisions =
+                crate::event_ai::Eu4EventDecisionSystem::new(country_order, clock_origin)
+                    .map_err(|error| Error::caused_by("events", error))?;
             self.events
                 .clone()
-                .with_decision_system(Arc::new(augustus_core::WeightedEventDecisions {
-                    empty: augustus_core::EmptyWeightChoice::FirstDeclared,
-                }))
+                .with_decision_system(Arc::new(decisions))
                 .map_err(|e| Error::caused_by("events", e))?
         };
         candidate
@@ -1163,6 +1230,31 @@ impl EstateStartup {
     }
 }
 
+fn collect_global_marker_references(steps: &[Step], names: &mut BTreeSet<String>) {
+    for step in steps {
+        match step {
+            Step::Metric(action, _) => names.extend(action.global_marker_references()),
+            Step::Branch(branches, otherwise, _) => {
+                for (condition, body) in branches {
+                    condition.collect_global_marker_references(names);
+                    collect_global_marker_references(body, names);
+                }
+                if let Some(body) = otherwise {
+                    collect_global_marker_references(body, names);
+                }
+            }
+            Step::Countries(condition, body, _) => {
+                condition.collect_global_marker_references(names);
+                collect_global_marker_references(body, names);
+            }
+            Step::Country(_, body, _) | Step::Scoped(_, body, _) | Step::Group(body) => {
+                collect_global_marker_references(body, names);
+            }
+            Step::Privilege(_, _, _) | Step::Pending(_, _) => (),
+        }
+    }
+}
+
 fn collect_references(steps: &[Step], references: &mut BTreeSet<String>) {
     for step in steps {
         match step {
@@ -1215,6 +1307,7 @@ fn load_events(
     let mut pictures = BTreeMap::new();
     let mut locations = BTreeMap::new();
     let mut once_events = BTreeSet::new();
+    let mut unavailable_options = BTreeMap::new();
     while !needed.is_empty() {
         let requested = std::mem::take(&mut needed);
         let mut found = BTreeSet::new();
@@ -1223,21 +1316,40 @@ fn load_events(
             .filter(|file| direct_txt(&file.relative_path, "events"))
         {
             let document = root.read_text(&file.relative_path, ENCODING)?;
-            let compiled = crate::ScriptCompiler::new(&compiler.schema, &library, true)
-                .with_government_form_ids(compiler.government_form_ids.clone())
-                .with_subject_type_ids(compiler.subject_type_ids.clone())
-                .with_government_metric_ids(compiler.government_metric_ids.clone())
-                .with_metric_ids(compiler.metric_ids.clone())
-                .with_truce_months(compiler.truce_months)
-                .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
-                    augustus_core::CountryResource::Treasury,
-                )))
-                .with_area_scopes(compiler.area_scopes.clone())
-                .with_mission_ids(compiler.mission_ids.clone())
-                .with_modifier_ids(compiler.modifier_ids.clone())
-                .with_religious_school_groups(compiler.religious_school_groups.clone())
-                .with_casus_belli_types(compiler.casus_belli_types.clone())
-                .compile_selected_events(&document, &requested)?;
+            let (compiled, deferred_options) =
+                crate::ScriptCompiler::new(&compiler.schema, &library, true)
+                    .with_government_form_ids(compiler.government_form_ids.clone())
+                    .with_subject_type_ids(compiler.subject_type_ids.clone())
+                    .with_government_metric_ids(compiler.government_metric_ids.clone())
+                    .with_metric_ids(compiler.metric_ids.clone())
+                    .with_truce_months(compiler.truce_months)
+                    .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
+                        augustus_core::CountryResource::Treasury,
+                    )))
+                    .with_area_scopes(compiler.area_scopes.clone())
+                    .with_mission_ids(compiler.mission_ids.clone())
+                    .with_modifier_ids(compiler.modifier_ids.clone())
+                    .with_religious_school_groups(compiler.religious_school_groups.clone())
+                    .with_casus_belli_types(compiler.casus_belli_types.clone())
+                    .compile_selected_events_with_unavailable_options(&document, &requested)?;
+            for (event, options) in deferred_options {
+                for (option, issue) in options {
+                    let key = format!("startup_event_option:{}", issue.reason);
+                    *report.unsupported_fields.entry(key.clone()).or_default() += 1;
+                    report
+                        .unsupported_examples
+                        .entry(key)
+                        .or_insert_with(|| LoadedSource {
+                            path: issue.path,
+                            line: issue.location.line,
+                            column: issue.location.column,
+                        });
+                    unavailable_options
+                        .entry(event.clone())
+                        .or_insert_with(BTreeMap::new)
+                        .insert(option, issue.reason);
+                }
+            }
             for definition in compiled.definitions {
                 if !found.insert(definition.id.clone()) {
                     return Err(Error::message(
@@ -1275,6 +1387,7 @@ fn load_events(
         .and_then(|catalog| catalog.with_pictures(pictures))
         .and_then(|catalog| catalog.with_locations(locations))
         .and_then(|catalog| catalog.with_once_events(once_events))
+        .and_then(|catalog| catalog.with_unavailable_options(unavailable_options))
         .map_err(|e| Error::caused_by("events", e))
 }
 

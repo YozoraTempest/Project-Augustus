@@ -13,8 +13,10 @@ func check(condition: bool, message: String) -> void:
 
 func _initialize() -> void:
 	var session := AugustusWorldSession.new()
+	var no_mods: Array[String] = []
 	check(not JSON.parse_string(session.query_country("AAA")).ok, "queries require a loaded world")
 	check(not JSON.parse_string(session.advance(1)).ok, "advancement requires a loaded world")
+	check(JSON.parse_string(session.load_world_with_content(fixture, "1444.11.11", no_mods, "", "")).ok, "load fixture through shared installation resolver")
 	check(JSON.parse_string(session.load_world(fixture, "1444.11.11")).ok, "load independent fixture")
 	var alpha: Dictionary = JSON.parse_string(session.query_country("AAA"))
 	check(alpha.value.bound_capital == 2, "country query uses core capital relation")
@@ -34,9 +36,9 @@ func _initialize() -> void:
 	check(north.value.trade_good_definition.base_price_milli == 2125, "base price preserves precision")
 	check(north.value.trade_node == "river" and north.value.trade_node_outgoing == ["harbor"], "province query follows the trade graph")
 	check(north.value.modifiers == ["test_harbor", "test_river"] and north.value.declared_modifier_totals_micros.test_growth == -2500, "permanent modifier bindings retain signed precision")
-	check(north.value.attributes.tax_basis.known_subtotal_micros == 2337500 and north.value.attributes.tax_basis.value_micros == null, "attribute query separates known calculation from complete result")
+	check(north.value.attributes.tax_basis.known_subtotal_micros == 212000 and north.value.attributes.tax_basis.value_micros == null, "attribute query separates known calculation from complete result")
 	check(north.value.attributes.manpower_contribution.known_subtotal_micros == 831250000, "manpower calculation includes trade good and culture effects")
-	check(alpha.value.province_attribute_totals.tax_basis.known_subtotal_micros == 5100000, "country aggregation includes buildings and trade goods")
+	check(alpha.value.province_attribute_totals.tax_basis.known_subtotal_micros == 1100000, "country aggregation includes buildings and trade goods")
 	check(not JSON.parse_string(session.advance(-1)).ok, "negative advancement is rejected")
 	var first_month: Dictionary = JSON.parse_string(session.advance(20))
 	check(first_month.ok and first_month.value.date.year == 1444 and first_month.value.date.month == 12 and first_month.value.date.day == 1, "calendar reaches the first month boundary")
@@ -53,23 +55,80 @@ func _initialize() -> void:
 	check(north.value.administration.area == "north_area" and north.value.administration.area_status == "state", "capital area reaches administration query")
 	check(north.value.administration.history_autonomy_delta_micros == 0 and north.value.administration.raw_autonomy_micros == 300000, "initial autonomy includes ordered history effects")
 	check(north.value.administration.effective_autonomy_micros == 0 and north.value.administration.owner_core == "full" and north.value.administration.minimum_autonomy_micros == 0, "baseline full core and capital ceiling reach the query")
-	check(north.value.attributes.tax_after_autonomy.steps.size() == 2 and north.value.attributes.tax_after_autonomy.value_micros == null, "autonomy is an additional stage with explicit missing sources")
+	check(north.value.attributes.tax_after_autonomy.steps.size() == 1 and north.value.attributes.tax_after_autonomy.value_micros == null, "tax efficiency and autonomy compose with explicit missing sources")
 	check(not JSON.parse_string(session.query_province(-1)).ok, "negative province query fails")
 	check(not JSON.parse_string(session.query_province(999)).ok, "unknown province query fails")
 	var before_failed_load: Dictionary = JSON.parse_string(session.query_country("AAA"))
 	check(not JSON.parse_string(session.load_world(fixture, "1444.13.1")).ok, "invalid replacement fails")
 	check(JSON.parse_string(session.query_country("AAA")) == before_failed_load, "failed replacement preserves loaded state")
-	check(JSON.parse_string(session.query_province(1)) == north, "queries do not mutate state")
+	var province_query_before: Dictionary = JSON.parse_string(session.query_province(1))
+	var province_query_after: Dictionary = JSON.parse_string(session.query_province(1))
+	check(province_query_after == province_query_before, "repeated province queries do not mutate state")
+	var baseline_save_path := write_baseline_save()
+	check(not baseline_save_path.is_empty(), "create a self-authored EU4 baseline save")
+	if not baseline_save_path.is_empty():
+		var imported: Dictionary = JSON.parse_string(session.load_world_with_baseline_save(
+			fixture, "1444.11.11", no_mods, "", "", baseline_save_path
+		))
+		check(imported.ok, "load HRE membership and office preferences from a baseline save: %s" % imported.get("error", ""))
+		if imported.ok:
+			check(imported.value.saved_imperial_baseline.provinces_checked == 6, "report imported HRE province count")
+			check(imported.value.saved_imperial_baseline.preferences_imported == 1, "report imported preference count")
+			var modded_directories: Array[String] = ["unused-mod"]
+			var rejected: Dictionary = JSON.parse_string(session.load_world_with_baseline_save(
+				fixture, "1444.11.11", modded_directories, "", "", baseline_save_path
+			))
+			check(not rejected.ok and rejected.error.contains("without Mods"), "reject baseline import over Mod content")
+			var voter: Dictionary = JSON.parse_string(session.query_country("AAA"))
+			check(voter.value.politics.office_preferences.has("imperial_emperor"), "saved preference reaches the country view")
+			var preference_snapshot: Dictionary = JSON.parse_string(session.save_snapshot())
+			check(preference_snapshot.ok, "save imported office preference")
+			check(JSON.parse_string(session.restore_snapshot(preference_snapshot.value)).ok, "restore imported office preference")
+			voter = JSON.parse_string(session.query_country("AAA"))
+			check(voter.value.politics.office_preferences.has("imperial_emperor"), "restored preference remains visible")
+		DirAccess.remove_absolute(baseline_save_path)
 	var ui = load("res://world.tscn").instantiate()
 	root.add_child.call_deferred(ui)
 	verify_ui.call_deferred(ui)
+
+func write_baseline_save() -> String:
+	var expansions := [
+		"Conquest of Paradise", "Wealth of Nations", "Res Publica", "Art of War",
+		"El Dorado", "Common Sense", "The Cossacks", "Mare Nostrum", "Rights of Man",
+		"Mandate of Heaven", "Third Rome", "Cradle of Civilization", "Rule Britannia",
+		"Dharma", "Golden Century", "Emperor", "Leviathan", "Origins",
+		"Lions of the North", "Domination", "King of Kings", "Winds of Change",
+	]
+	var dlc_list := ""
+	for expansion in expansions:
+		if not dlc_list.is_empty():
+			dlc_list += " "
+		dlc_list += "\"%s\"" % expansion
+	var path := ProjectSettings.globalize_path("user://augustus-baseline-save-%d.eu4" % OS.get_process_id())
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return ""
+	file.store_string("EU4txt\ndate=1444.11.11\nstart_date=1444.11.11\ncampaign_length=0\nsavegame_version={ first=1 second=37 third=5 forth=0 }\ndlc_enabled={ %s }\ncountries={ AAA={ preferred_emperor=BBB } BBB={} }\nprovinces={ -1={ owner=BBB history={hre=yes} } -2={ owner=AAA history={hre=no} } -3={ history={hre=no} } -4={ history={hre=no} } -5={ history={hre=no} } -6={ history={hre=no} } }\n" % dlc_list)
+	var error := file.get_error()
+	file.close()
+	if error != OK:
+		DirAccess.remove_absolute(path)
+		return ""
+	return path
 
 func verify_ui(ui: Control) -> void:
 	await process_frame
 	await process_frame
 	if ui.overview.is_empty():
 		ui.game_path.text = fixture
-		check(ui.load_world(), "UI loads shared fixture")
+		var baseline_save_path := write_baseline_save()
+		ui.baseline_save.text = baseline_save_path
+		var loaded_ok: bool = ui.load_world()
+		check(loaded_ok, "UI loads shared fixture: %s" % ui.status.text)
+		if loaded_ok:
+			check(ui.status.text.contains("6 个 HRE 省份归属和 1 条帝位偏好"), "UI reports imported baseline state")
+		if not baseline_save_path.is_empty():
+			DirAccess.remove_absolute(baseline_save_path)
 	await process_frame
 	await process_frame
 	check(not ui.overview.is_empty(), "UI has a loaded world")
@@ -92,13 +151,26 @@ func verify_ui(ui: Control) -> void:
 		check(ui.country_details.text.contains("test_court") and ui.country_details.text.contains("合法性（历史初值）：75.125"), "country panel displays selected reforms and precise legitimacy")
 		check(ui.country_details.text.contains("国家理念 test_alpha · 已解锁 0 项"), "country panel displays selected ideas and progress")
 		check(ui.country_details.text.contains("3 / 3 / 3") and ui.country_details.text.contains("18.500000"), "country panel displays technology and declared resources")
+		var infantry_choice: OptionButton = ui.unit_option_controls["infantry"]
+		check(infantry_choice.item_count == 2 and infantry_choice.get_item_metadata(1) == "test_infantry", "country panel lists unlocked unit templates")
+		ui.choose_unit_template(1, "infantry")
+		var selected_units: Dictionary = JSON.parse_string(ui.session.query_unit_templates("AAA")).value
+		check(selected_units.selected.infantry == "test_infantry", "unit selection updates the Rust world state")
+		var unit_snapshot: Dictionary = JSON.parse_string(ui.session.save_snapshot())
+		if unit_snapshot.ok:
+			ui.session.restore_snapshot(unit_snapshot.value)
+			selected_units = JSON.parse_string(ui.session.query_unit_templates("AAA")).value
+			check(selected_units.selected.infantry == "test_infantry", "unit selection survives save and restore")
+		ui.choose_unit_template(0, "infantry")
+		selected_units = JSON.parse_string(ui.session.query_unit_templates("AAA")).value
+		check(selected_units.selected.infantry == null, "unit selector can clear a country selection")
 		check(ui.diplomacy_details.text.contains("贸易联盟成员 BBB"), "country panel preserves trade league meaning")
 		check(ui.province_details.text.contains("North · 1"), "map click follows BMP orientation and letterboxing")
 		check(ui.province_details.text.contains("BBB"), "clicked province displays current owner")
 		check(ui.province_details.text.contains("test_fort") and ui.province_details.text.contains("2.125"), "province panel displays buildings and declared prices")
 		check(ui.province_details.text.contains("river") and ui.province_details.text.contains("harbor"), "province panel displays trade routes")
 		check(ui.province_details.text.contains("test_growth") and ui.province_details.text.contains("-0.002500"), "province panel displays signed modifier declarations")
-		check(ui.province_details.text.contains("2.337500") and ui.province_details.text.contains("831.250000") and ui.province_details.text.contains("同组未接受文化：-15.0000%") and ui.province_details.text.contains("城市：25.0000%"), "province panel explains calculated contributions")
+		check(ui.province_details.text.contains("0.212000") and ui.province_details.text.contains("831.250000") and ui.province_details.text.contains("同组未接受文化：-15.0000%") and ui.province_details.text.contains("城市：25.0000%"), "province panel explains calculated contributions")
 		check(ui.province_details.text.contains("行政状态") and ui.province_details.text.contains("north_area") and ui.province_details.text.contains("30.0000%") and ui.province_details.text.contains("完整核心"), "province panel displays initialized autonomy and cores")
 		check(ui.province_details.text.contains("原始自治度：30.0000%") and not ui.province_details.text.contains("历史自治追加"), "applied history is displayed as part of raw autonomy")
 		ui.select_country(0)

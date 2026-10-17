@@ -51,7 +51,7 @@ fn dependencies_and_source_priority_choose_the_first_matching_file() {
             .iter()
             .map(ContentSource::name)
             .collect::<Vec<_>>(),
-        ["Pack", "Patch", "EU4 base"]
+        ["Patch", "Pack", "EU4 base"]
     );
     let trace = content
         .trace("common/buildings/example.txt")
@@ -71,13 +71,13 @@ fn dependencies_and_source_priority_choose_the_first_matching_file() {
     let document = content
         .read_text("common/buildings/example.txt", TextEncoding::Utf8)
         .unwrap();
-    assert_eq!(document.parse().unwrap().root_fields()[0].name, "middle");
+    assert_eq!(document.parse().unwrap().root_fields()[0].name, "new");
     assert_eq!(document.source(), trace.effective().unwrap().physical_path);
     assert_eq!(
         fs::read(vanilla.join("common/buildings/example.txt")).unwrap(),
         b"old={ cost=1 }"
     );
-    fs::remove_file(pack.join("common/buildings/example.txt")).unwrap();
+    fs::remove_file(patch.join("common/buildings/example.txt")).unwrap();
     assert!(
         content
             .read_text("common/buildings/example.txt", TextEncoding::Utf8)
@@ -141,8 +141,8 @@ fn replacement_keeps_higher_priority_files_and_cuts_lower_priority_sources() {
         "descriptor.mod",
         r#"name="Middle Pack" replace_path="COMMON/BUILDINGS/""#,
     );
-    write(&overlay, "descriptor.mod", "name=\"Z Overlay\"");
-    write(&fallback, "descriptor.mod", "name=\"A Fallback\"");
+    write(&overlay, "descriptor.mod", "name=\"A Overlay\"");
+    write(&fallback, "descriptor.mod", "name=\"Z Fallback\"");
     write(&vanilla, "common/buildings/same.txt", "base={}");
     write(&pack, "common/buildings/same.txt", "pack={}");
     write(&overlay, "common/buildings/same.txt", "overlay={}");
@@ -216,7 +216,7 @@ fn directory_replacement_removes_lower_priority_mods_and_base() {
     write(
         &patch,
         "descriptor.mod",
-        "name=\"Z Patch\" replace_path=events",
+        "name=\"A Patch\" replace_path=events",
     );
     write(&vanilla, "events/example.txt", "base={}");
     write(&pack, "events/example.txt", "pack={}");
@@ -289,7 +289,7 @@ fn dependencies_reorder_mods_and_source_identity_is_validated() {
             .iter()
             .map(ContentSource::name)
             .collect::<Vec<_>>(),
-        ["Pack", "Patch", "EU4 base"]
+        ["Patch", "Pack", "EU4 base"]
     );
     write(&patch, "descriptor.mod", "name=Patch");
     let name_order =
@@ -300,7 +300,7 @@ fn dependencies_reorder_mods_and_source_identity_is_validated() {
             .iter()
             .map(ContentSource::name)
             .collect::<Vec<_>>(),
-        ["Patch", "Pack", "EU4 base"]
+        ["Pack", "Patch", "EU4 base"]
     );
     let root_mod = directory(fixture.path(), "root-mod");
     let middle_mod = directory(fixture.path(), "middle-mod");
@@ -329,7 +329,7 @@ fn dependencies_reorder_mods_and_source_identity_is_validated() {
             .iter()
             .map(ContentSource::name)
             .collect::<Vec<_>>(),
-        ["M Base", "A Middle", "Z Root", "EU4 base"]
+        ["Z Root", "A Middle", "M Base", "EU4 base"]
     );
     write(&patch, "descriptor.mod", "name=Patch dependencies={ Pack }");
     write(&pack, "descriptor.mod", "name=Pack dependencies={ Patch }");
@@ -389,6 +389,126 @@ fn user_directory_precedes_mods_and_base_content() {
         .read_text("common/defines.lua", TextEncoding::Utf8)
         .unwrap();
     assert_eq!(document.parse().unwrap().root_fields()[0].name, "from_user");
+}
+
+#[test]
+fn launcher_config_filters_mods_before_dependency_ordering() {
+    let fixture = tempfile::tempdir().unwrap();
+    let vanilla = directory(fixture.path(), "base");
+    let dependency = directory(fixture.path(), "dependency");
+    let patch = directory(fixture.path(), "patch");
+    let inactive_cycle = directory(fixture.path(), "inactive-cycle");
+    write(&dependency, "descriptor.mod", "name=Pack");
+    write(&patch, "descriptor.mod", "name=Patch dependencies={ Pack }");
+    write(
+        &inactive_cycle,
+        "descriptor.mod",
+        "name=Inactive dependencies={ Inactive }",
+    );
+    write(&vanilla, "common/defines.lua", "from_base = true");
+    write(&dependency, "common/defines.lua", "from_pack = true");
+    write(&patch, "common/defines.lua", "from_patch = true");
+    let config = fixture.path().join("dlc_load.json");
+    fs::write(
+        &config,
+        r#"{"ENABLED_MODS":["Patch","Pack"],"disabled_dlcs":[]}"#,
+    )
+    .unwrap();
+
+    let content = ContentSet::resolve_with_launcher_config(
+        vec![
+            base(&vanilla),
+            mod_source(&inactive_cycle),
+            mod_source(&dependency),
+            mod_source(&patch),
+        ],
+        &config,
+    )
+    .unwrap();
+
+    assert_eq!(
+        content
+            .sources()
+            .iter()
+            .map(ContentSource::name)
+            .collect::<Vec<_>>(),
+        ["Patch", "Pack", "EU4 base"]
+    );
+    assert_eq!(
+        content
+            .read_text("common/defines.lua", TextEncoding::Utf8)
+            .unwrap()
+            .parse()
+            .unwrap()
+            .root_fields()[0]
+            .name,
+        "from_patch"
+    );
+
+    fs::write(&config, r#"{"enabled_mods":["Missing"]}"#).unwrap();
+    let error = ContentSet::resolve_with_launcher_config(
+        vec![base(&vanilla), mod_source(&dependency)],
+        &config,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("no supplied directory source: Missing")
+    );
+
+    fs::write(&config, r#"{"enabled_mods":["Pack",1]}"#).unwrap();
+    let error = ContentSet::resolve_with_launcher_config(
+        vec![base(&vanilla), mod_source(&dependency)],
+        &config,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("invalid type"));
+}
+
+#[test]
+fn installation_resolver_builds_the_shared_user_mod_and_base_source_stack() {
+    let fixture = tempfile::tempdir().unwrap();
+    let vanilla = directory(fixture.path(), "base");
+    let user = directory(fixture.path(), "user");
+    let selected = directory(fixture.path(), "selected");
+    let unselected = directory(fixture.path(), "unselected");
+    write(&selected, "descriptor.mod", "name=Selected");
+    write(&unselected, "descriptor.mod", "name=Unselected");
+    write(&vanilla, "common/defines.lua", "from_base = true");
+    write(&user, "common/defines.lua", "from_user = true");
+    write(&selected, "common/defines.lua", "from_mod = true");
+    write(&unselected, "common/defines.lua", "from_unselected = true");
+    let config = fixture.path().join("dlc_load.json");
+    fs::write(&config, r#"{"enabled_mods":["Selected"]}"#).unwrap();
+
+    let content = ContentSet::from_installation(
+        &vanilla,
+        &[selected, unselected],
+        Some(&user),
+        Some(&config),
+        TextEncoding::Utf8,
+    )
+    .unwrap();
+
+    assert_eq!(
+        content
+            .sources()
+            .iter()
+            .map(ContentSource::name)
+            .collect::<Vec<_>>(),
+        ["EU4 user directory", "Selected", "EU4 base"]
+    );
+    assert_eq!(
+        content
+            .read_text("common/defines.lua", TextEncoding::Utf8)
+            .unwrap()
+            .parse()
+            .unwrap()
+            .root_fields()[0]
+            .name,
+        "from_user"
+    );
 }
 
 #[test]

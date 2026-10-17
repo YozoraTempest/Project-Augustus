@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_eu4::{
-    ContentRoot, ContentSet, ContentSource, DefinitionIndex, DefinitionKind, FileTrace,
-    ModDescriptor, ScriptLibrary, Suppression, TextDocument, TextEncoding,
+    ContentRoot, ContentSet, DefinitionIndex, DefinitionKind, FileTrace, ModDescriptor,
+    ScriptLibrary, Suppression, TextDocument, TextEncoding,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::{collections::BTreeMap, path::PathBuf, process::ExitCode};
@@ -17,6 +17,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Evaluate effective Lua definition files without starting a game.
+    Defines {
+        #[command(flatten)]
+        sources: SourcesArgs,
+        #[arg(long, value_enum, default_value_t = DifficultyArg::Normal)]
+        difficulty: DifficultyArg,
+    },
     /// Catalogue an explicitly selected game or mod directory.
     Catalog {
         root: PathBuf,
@@ -79,31 +86,49 @@ enum Command {
 struct SourcesArgs {
     /// EU4 installation root; locally present DLC archives are discovered here.
     base: PathBuf,
-    /// Mod directory containing descriptor.mod; repeat for every active mod.
+    /// Mod directory containing descriptor.mod; repeat for each candidate mod.
     #[arg(long = "mod", value_name = "DIRECTORY")]
     mods: Vec<PathBuf>,
     /// EU4 user directory mounted above mods and base game content.
     #[arg(long, value_name = "DIRECTORY")]
     user_directory: Option<PathBuf>,
+    /// EU4 launcher dlc_load.json; filters the supplied Mod directories by descriptor name.
+    #[arg(long, value_name = "FILE")]
+    launcher_config: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = EncodingArg::Utf8)]
     descriptor_encoding: EncodingArg,
 }
 
 impl SourcesArgs {
     fn resolve(self) -> Result<ContentSet, augustus_eu4::Error> {
-        let base = ContentRoot::open(self.base)?;
-        let mut sources = vec![ContentSource::base(base.clone())];
-        sources.extend(ContentSource::installed_dlc_archives(base.path())?);
-        if let Some(root) = self.user_directory {
-            sources.push(ContentSource::user_directory(root)?);
+        ContentSet::from_installation(
+            self.base,
+            &self.mods,
+            self.user_directory.as_deref(),
+            self.launcher_config.as_deref(),
+            self.descriptor_encoding.into(),
+        )
+    }
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum DifficultyArg {
+    VeryEasy,
+    Easy,
+    Normal,
+    Hard,
+    VeryHard,
+}
+
+impl From<DifficultyArg> for augustus_eu4::DefineDifficulty {
+    fn from(value: DifficultyArg) -> Self {
+        match value {
+            DifficultyArg::VeryEasy => Self::VeryEasy,
+            DifficultyArg::Easy => Self::Easy,
+            DifficultyArg::Normal => Self::Normal,
+            DifficultyArg::Hard => Self::Hard,
+            DifficultyArg::VeryHard => Self::VeryHard,
         }
-        for root in self.mods {
-            sources.push(ContentSource::mod_directory(
-                root,
-                self.descriptor_encoding.into(),
-            )?);
-        }
-        ContentSet::resolve(sources)
     }
 }
 
@@ -141,6 +166,14 @@ impl From<EncodingArg> for TextEncoding {
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
+        Command::Defines {
+            sources,
+            difficulty,
+        } => {
+            let content = sources.resolve()?;
+            let defines = augustus_eu4::Defines::from_content(&content, difficulty.into())?;
+            println!("{}", serde_json::to_string_pretty(&defines)?);
+        }
         Command::Catalog { root, list } => {
             let root = ContentRoot::open(root)?;
             let files = root.files()?;

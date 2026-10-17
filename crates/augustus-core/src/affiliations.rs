@@ -59,6 +59,19 @@ impl Affiliations {
         }
     }
 
+    /// Whether an entity is assigned to this member. Missing or unknown
+    /// membership remains `None` so callers do not treat it as absence.
+    pub fn belongs_to(&self, dimension: &str, entity: EntityId, member: &str) -> Option<bool> {
+        let data = self.0.get(dimension)?;
+        if data.absent_members.contains(&entity) {
+            return Some(false);
+        }
+        match data.members.get(&entity) {
+            Some(Some(current)) => Some(current == member),
+            Some(None) | None => None,
+        }
+    }
+
     pub fn group(&self, dimension: &str, entity: EntityId) -> Option<&str> {
         let data = self.0.get(dimension)?;
         data.groups.get(self.member(dimension, entity)?)?.as_deref()

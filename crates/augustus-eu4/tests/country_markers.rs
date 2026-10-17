@@ -2,8 +2,14 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{EntityId, EntityKind, GlobalMarkers, Markers, Schema, World};
-use augustus_eu4::{ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding, VanillaWorld};
-use std::{fs, path::Path};
+use augustus_eu4::{
+    ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding, VanillaExternalState, VanillaWorld,
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 fn document(text: &str) -> TextDocument {
     TextDocument::from_bytes(
@@ -238,6 +244,79 @@ fn history_markers_feed_ideas_estates_startup_events_and_resumable_state() {
         assert_eq!(state.initial.world().events().last().unwrap().2, "after");
     }
     assert_eq!(loaded.save().unwrap(), resumed.save().unwrap());
+}
+
+#[test]
+fn external_country_markers_resolve_startup_content_conditions() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/estates/external-markers.txt",
+        "estate_external = { trigger = { has_country_flag = external_ready } }",
+    );
+    let state = VanillaExternalState {
+        country_markers: BTreeMap::from([(
+            "AAA".into(),
+            Some(BTreeSet::from(["external_ready".into()])),
+        )]),
+        ..Default::default()
+    };
+
+    let loaded = VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &state).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap()["estate_external"].active,
+        Some(true)
+    );
+    assert!(
+        loaded
+            .initial
+            .world()
+            .marker_namespace_known(country)
+            .unwrap()
+    );
+    assert!(
+        loaded
+            .initial
+            .world()
+            .has_marker(country, "external_ready")
+            .unwrap()
+    );
+}
+
+#[test]
+fn external_unknown_country_markers_preserve_unknown_namespace() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/estates/external-markers.txt",
+        "estate_external = { trigger = { has_country_flag = external_ready } }",
+    );
+    let state = VanillaExternalState {
+        country_markers: BTreeMap::from([("AAA".into(), None)]),
+        ..Default::default()
+    };
+
+    let loaded = VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &state).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .marker_namespace_known(country)
+            .unwrap()
+    );
+    assert!(
+        loaded
+            .initial
+            .world()
+            .has_marker(country, "external_ready")
+            .is_err()
+    );
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap()["estate_external"].active,
+        None
+    );
 }
 
 #[test]

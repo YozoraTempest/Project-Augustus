@@ -2,11 +2,16 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
 
-use augustus_eu4::VanillaWorld;
+use augustus_core::{
+    EstateDefinition, EstateEffect, EstatePrivilege, EstateState, Estates,
+    MONTHLY_AUTONOMY_DELTA_ATTRIBUTE, ModifierDefinition, ModifierInstance,
+};
+use augustus_eu4::{VanillaExternalState, VanillaWorld};
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world")
@@ -34,27 +39,28 @@ fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
     let north = loaded.province(1).unwrap();
     let tax = &north.attributes["tax_basis"];
     assert_eq!(tax.base_micros, Some(2_125_000));
-    assert_eq!(tax.known_subtotal_micros, Some(2_337_500));
+    assert_eq!(tax.known_subtotal_micros, Some(212_000));
     assert_eq!(tax.value_micros, None);
-    assert_eq!(
-        tax.steps[0]
-            .contributions
-            .iter()
-            .map(|effect| (effect.source.as_str(), effect.micros))
-            .collect::<Vec<_>>(),
-        [
-            ("metric:stability", 0),
-            ("static:same_culture_group", -150_000),
-            ("static:city", 250_000)
-        ]
-    );
+    assert_eq!(tax.steps[0].rate_micros, -900_000);
+    for (source, micros) in [
+        ("metric:stability", 0),
+        ("static:same_culture_group", -150_000),
+        ("static:city", 250_000),
+    ] {
+        assert!(
+            tax.steps[0]
+                .contributions
+                .iter()
+                .any(|effect| effect.source == source && effect.micros == micros)
+        );
+    }
     assert_eq!(
         north.attributes["manpower_contribution"].known_subtotal_micros,
         Some(831_250_000)
     );
     assert_eq!(
         loaded.country("AAA").unwrap().province_attribute_totals["tax_basis"].known_subtotal_micros,
-        5_100_000
+        1_100_000
     );
     assert!(loaded.province(3).unwrap().attributes.is_empty());
     assert_eq!(
@@ -90,12 +96,378 @@ fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
     let occupied = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     assert_eq!(
         occupied.province(1).unwrap().attributes["tax_basis"].known_subtotal_micros,
-        Some(1_275_000)
+        Some(0)
     );
 }
 
 #[test]
-fn translated_core_effects_join_existing_rates_before_the_autonomy_channel() {
+fn monthly_autonomy_preserves_known_sources_when_war_status_is_unknown() {
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let mut world = loaded.initial.world().clone();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let province = loaded.initial.province_entity(2).unwrap();
+    world.set_government_rank(country, Some(3)).unwrap();
+
+    let mut modifiers = world.modifiers().clone();
+    modifiers.definitions.insert(
+        "test_national_autonomy".into(),
+        ModifierDefinition {
+            values_micros: [("global_autonomy".into(), -50_000)].into(),
+            ..Default::default()
+        },
+    );
+    modifiers.definitions.insert(
+        "test_local_autonomy".into(),
+        ModifierDefinition {
+            values_micros: [("local_autonomy".into(), -100_000)].into(),
+            ..Default::default()
+        },
+    );
+    modifiers
+        .active
+        .entry(country)
+        .or_default()
+        .insert("test_national_autonomy".into(), ModifierInstance::default());
+    modifiers
+        .active
+        .entry(province)
+        .or_default()
+        .insert("test_local_autonomy".into(), ModifierInstance::default());
+    world.set_modifiers(modifiers).unwrap();
+
+    let monthly = world
+        .attributes()
+        .evaluate(&world, province, MONTHLY_AUTONOMY_DELTA_ATTRIBUTE)
+        .unwrap();
+    assert_eq!(monthly.steps[0].flat_micros, -2_000);
+    assert_eq!(monthly.value_micros, None);
+    assert!(
+        monthly
+            .unresolved
+            .iter()
+            .any(|reason| reason.contains("unknown political status at_war"))
+    );
+    assert!(monthly.unresolved.contains("city_status"));
+}
+
+#[test]
+fn external_country_statuses_resolve_live_political_conditions() {
+    let state = VanillaExternalState {
+        country_statuses: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([("at_war".into(), Some(false))]),
+        )]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let province = loaded.initial.province_entity(2).unwrap();
+    assert_eq!(
+        loaded.initial.world().politics().status(country, "at_war"),
+        Some(false)
+    );
+    let monthly = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(
+            loaded.initial.world(),
+            province,
+            MONTHLY_AUTONOMY_DELTA_ATTRIBUTE,
+        )
+        .unwrap();
+    assert!(
+        !monthly
+            .unresolved
+            .iter()
+            .any(|reason| reason.contains("unknown political status at_war"))
+    );
+}
+
+#[test]
+fn monthly_autonomy_combines_rank_peace_and_estate_sources() {
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let mut world = loaded.initial.world().clone();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let province = loaded.initial.province_entity(2).unwrap();
+    world.set_government_rank(country, Some(3)).unwrap();
+
+    let mut politics = world.politics().clone();
+    politics
+        .countries
+        .entry(country)
+        .or_default()
+        .statuses
+        .insert("at_war".into(), Some(false));
+    world.set_politics(politics).unwrap();
+
+    let privilege = "test_autonomy_favor";
+    let mut estates = Estates::default();
+    estates.definitions.insert(
+        "estate_nobles".into(),
+        EstateDefinition {
+            privileges: [privilege.into()].into_iter().collect(),
+            ..Default::default()
+        },
+    );
+    estates.privileges.insert(
+        privilege.into(),
+        EstatePrivilege {
+            effect: EstateEffect {
+                modifier: ModifierDefinition {
+                    values_micros: [("global_autonomy".into(), 50_000)].into_iter().collect(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    estates.countries.insert(
+        country,
+        [(
+            "estate_nobles".into(),
+            EstateState {
+                active: Some(true),
+                privileges: Some([privilege.into()].into_iter().collect()),
+                ..Default::default()
+            },
+        )]
+        .into_iter()
+        .collect(),
+    );
+    world.set_estates(estates).unwrap();
+
+    let monthly = world
+        .attributes()
+        .evaluate(&world, province, MONTHLY_AUTONOMY_DELTA_ATTRIBUTE)
+        .unwrap();
+    let contribution = |source: &str| {
+        monthly
+            .steps
+            .iter()
+            .flat_map(|step| &step.contributions)
+            .find(|effect| effect.source == source && effect.property == "global_autonomy")
+            .map(|effect| effect.micros)
+    };
+
+    let rank = contribution("government_rank:3").unwrap();
+    let peace = contribution("static:peace").unwrap();
+    let estate = contribution("estates:estate_nobles:privilege:test_autonomy_favor").unwrap();
+    assert_eq!((rank, peace, estate), (-500, -1_000, 500));
+    assert_eq!(rank + peace + estate, -1_000);
+}
+
+#[test]
+fn monthly_settlement_applies_the_estate_global_autonomy_delta_to_province_state() {
+    let build = |include_privilege| {
+        let temp = copy_fixture();
+        let country_history = temp.path().join("history/countries/AAA - Alpha.txt");
+        let country = fs::read_to_string(&country_history).unwrap();
+        fs::write(
+            &country_history,
+            country.replace("1440.1.1 = { capital = 2 }", "1440.1.1 = { capital = 1 }"),
+        )
+        .unwrap();
+        let capital_history = temp.path().join("history/provinces/1 - North.txt");
+        let history = fs::read_to_string(&capital_history).unwrap();
+        fs::write(
+            &capital_history,
+            history.replace(
+                "1440.1.1 = { owner = BBB controller = BBB remove_core = AAA }",
+                "1440.1.1 = { owner = AAA controller = AAA }",
+            ),
+        )
+        .unwrap();
+        let province_history = temp.path().join("history/provinces/2 - East.txt");
+        let history = fs::read_to_string(&province_history).unwrap();
+        fs::write(&province_history, format!("{history}\nis_city = yes\n")).unwrap();
+
+        let privilege = "estate_nobles_habsburg_disunity";
+        let estate_dir = temp.path().join("common/estates");
+        let privilege_dir = temp.path().join("common/estate_privileges");
+        fs::create_dir_all(&estate_dir).unwrap();
+        fs::create_dir_all(&privilege_dir).unwrap();
+        fs::write(
+            estate_dir.join("nobles.txt"),
+            format!(
+                "estate_nobles = {{ trigger = {{ tag = AAA }} base_influence = 10 privileges = {{ {privilege} }} }}"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            privilege_dir.join("nobles.txt"),
+            format!(
+                "{privilege} = {{ benefits = {{ global_autonomy = 0.05 }} is_valid = {{ always = yes }} on_granted = {{}} }}"
+            ),
+        )
+        .unwrap();
+        if include_privilege {
+            let history = fs::read_to_string(&country_history).unwrap();
+            fs::write(
+                &country_history,
+                format!("{history}\nset_estate_privilege = {privilege}\n"),
+            )
+            .unwrap();
+        }
+
+        let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+        let country = loaded.initial.country_entity("AAA").unwrap();
+        let province = loaded.initial.province_entity(2).unwrap();
+        let mut world = loaded.initial.world().clone();
+        world.set_government_rank(country, Some(3)).unwrap();
+
+        let mut politics = world.politics().clone();
+        politics
+            .countries
+            .entry(country)
+            .or_default()
+            .statuses
+            .insert("at_war".into(), Some(false));
+        world.set_politics(politics).unwrap();
+        assert_eq!(
+            world.estates().countries[&country]["estate_nobles"]
+                .privileges
+                .as_ref()
+                .unwrap()
+                .contains(privilege),
+            include_privilege
+        );
+        assert_eq!(
+            world.estates().privileges[privilege]
+                .effect
+                .modifier
+                .values_micros["global_autonomy"],
+            50_000
+        );
+
+        let mut administration = world.administration().clone();
+        administration
+            .provinces
+            .get_mut(&province)
+            .unwrap()
+            .raw_autonomy_micros = Some(35_000);
+        world.set_administration(administration).unwrap();
+        assert!(
+            !world
+                .administration()
+                .evaluate(&world, province)
+                .unwrap()
+                .is_capital
+        );
+        let monthly = world
+            .attributes()
+            .evaluate(&world, province, MONTHLY_AUTONOMY_DELTA_ATTRIBUTE)
+            .unwrap();
+        assert_eq!(
+            monthly.value_micros,
+            Some(if include_privilege { -1_000 } else { -1_500 }),
+            "unresolved={:?}, steps={:?}",
+            monthly.unresolved,
+            monthly.steps
+        );
+        (world, country, province)
+    };
+
+    let (mut without_privilege, country, province) = build(false);
+    let (mut with_privilege, _, _) = build(true);
+    without_privilege.advance_to(20).unwrap();
+    with_privilege.advance_to(20).unwrap();
+
+    assert_eq!(
+        without_privilege.administration().provinces[&province].raw_autonomy_micros,
+        Some(33_500)
+    );
+    assert_eq!(
+        with_privilege.administration().provinces[&province].raw_autonomy_micros,
+        Some(34_000)
+    );
+    let settlement = with_privilege
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap();
+    assert_eq!(settlement.day, 20);
+    assert!(settlement.accounts.contains_key(&country));
+}
+
+#[test]
+fn monthly_autonomy_selects_war_or_peace_modifier_from_dated_war_history() {
+    let temp = copy_fixture();
+    let war_history = temp.path().join("history/wars/test_war.txt");
+    fs::create_dir_all(war_history.parent().unwrap()).unwrap();
+    fs::write(
+        war_history,
+        "1444.1.1 = { add_attacker = AAA add_defender = BBB }\n1444.12.1 = { rem_attacker = AAA rem_defender = BBB }\n",
+    )
+    .unwrap();
+    let static_modifiers = temp.path().join("common/static_modifiers/test_static.txt");
+    let text = fs::read_to_string(&static_modifiers).unwrap();
+    assert!(text.contains("war = { global_autonomy = 0 }"));
+    fs::write(
+        &static_modifiers,
+        text.replace(
+            "war = { global_autonomy = 0 }",
+            "war = { global_autonomy = 0.2 }",
+        ),
+    )
+    .unwrap();
+
+    let at_war = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let aaa = at_war.initial.country_entity("AAA").unwrap();
+    let bbb = at_war.initial.country_entity("BBB").unwrap();
+    assert_eq!(
+        at_war.initial.world().politics().status(aaa, "at_war"),
+        Some(true)
+    );
+    assert_eq!(
+        at_war.initial.world().politics().status(bbb, "at_war"),
+        Some(true)
+    );
+    let province = at_war.initial.province_entity(2).unwrap();
+    let monthly = at_war
+        .initial
+        .world()
+        .attributes()
+        .evaluate(
+            at_war.initial.world(),
+            province,
+            MONTHLY_AUTONOMY_DELTA_ATTRIBUTE,
+        )
+        .unwrap();
+    assert!(
+        monthly.steps[0].contributions.iter().any(|effect| {
+            effect.source == "static:war" && effect.property == "global_autonomy"
+        })
+    );
+
+    let at_peace = VanillaWorld::load(temp.path(), "1444.12.1").unwrap();
+    let aaa = at_peace.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        at_peace.initial.world().politics().status(aaa, "at_war"),
+        Some(false)
+    );
+    let province = at_peace.initial.province_entity(2).unwrap();
+    let monthly = at_peace
+        .initial
+        .world()
+        .attributes()
+        .evaluate(
+            at_peace.initial.world(),
+            province,
+            MONTHLY_AUTONOMY_DELTA_ATTRIBUTE,
+        )
+        .unwrap();
+    assert!(
+        monthly.steps[0].contributions.iter().any(|effect| {
+            effect.source == "static:peace" && effect.property == "global_autonomy"
+        })
+    );
+}
+
+#[test]
+fn translated_core_effects_join_direct_tax_efficiency_before_autonomy() {
     let temp = copy_fixture();
     let path = temp.path().join("common/static_modifiers/test_static.txt");
     let text = fs::read_to_string(&path).unwrap();
@@ -110,8 +482,8 @@ fn translated_core_effects_join_existing_rates_before_the_autonomy_channel() {
     let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     let north = loaded.province(1).unwrap();
     let tax = &north.attributes["tax_after_autonomy"];
-    assert_eq!(tax.steps[0].output_micros, Some(2_762_500));
-    assert_eq!(tax.steps[1].output_micros, Some(2_762_500));
+    assert_eq!(tax.steps.len(), 1);
+    assert_eq!(tax.steps[0].output_micros, Some(637_000));
     assert!(
         tax.steps[0]
             .contributions
@@ -144,7 +516,98 @@ fn translated_core_effects_join_existing_rates_before_the_autonomy_channel() {
             .iter()
             .any(|source| source.source == "static:core")
     );
-    assert_eq!(changed.known_subtotal_micros, Some(2_337_500));
+    assert_eq!(changed.known_subtotal_micros, Some(212_000));
+}
+
+#[test]
+fn fort_buildings_keep_their_role_but_skip_standard_province_attributes() {
+    use augustus_core::BuildingRole;
+
+    let temp = copy_fixture();
+    let path = temp.path().join("common/buildings/test_buildings.txt");
+    let text = fs::read_to_string(&path).unwrap();
+    let updated = text.replace(
+        "test_fort = { cost = 200 time = 18 }",
+        "test_fort = { cost = 200 time = 18 influencing_fort = yes modifier = { fort_level = 3 tax_income = 7 local_tax_modifier = 0.5 } }",
+    );
+    assert_ne!(updated, text);
+    fs::write(path, updated).unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let fort = &loaded.initial.world().economy().buildings["test_fort"];
+    assert_eq!(fort.role, BuildingRole::Fortification);
+    assert_eq!(fort.fort_level_milli, Some(3_000));
+    assert!(
+        !loaded
+            .report
+            .economy
+            .unapplied_definition_fields
+            .contains_key("buildings:influencing_fort")
+    );
+    assert!(
+        !loaded
+            .report
+            .attributes
+            .unmapped_properties
+            .contains_key("buildings:fort_level")
+    );
+
+    let province = loaded.initial.province_entity(1).unwrap();
+    let tax = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(loaded.initial.world(), province, "tax_basis")
+        .unwrap();
+    assert_eq!(tax.known_subtotal_micros, Some(212_000));
+    assert!(
+        tax.steps[0]
+            .contributions
+            .iter()
+            .all(|contribution| contribution.source != "building:test_fort")
+    );
+
+    let save = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&save).unwrap();
+    assert_eq!(
+        restored.initial.world().economy().buildings["test_fort"],
+        *fort
+    );
+}
+
+#[test]
+fn non_fort_buildings_remain_in_standard_province_attributes() {
+    use augustus_core::BuildingRole;
+
+    let temp = copy_fixture();
+    let path = temp.path().join("common/buildings/test_buildings.txt");
+    let text = fs::read_to_string(&path).unwrap();
+    let updated = text.replace(
+        "test_fort = { cost = 200 time = 18 }",
+        "test_fort = { cost = 200 time = 18 influencing_fort = no modifier = { fort_level = 3 tax_income = 7 local_tax_modifier = 0.5 } }",
+    );
+    assert_ne!(updated, text);
+    fs::write(path, updated).unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.initial.world().economy().buildings["test_fort"].role,
+        BuildingRole::Standard
+    );
+    let province = loaded.initial.province_entity(1).unwrap();
+    let tax = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(loaded.initial.world(), province, "tax_basis")
+        .unwrap();
+    assert!(tax.steps[0].contributions.iter().any(|contribution| {
+        contribution.source == "building:test_fort" && contribution.property == "tax_income"
+    }));
+    assert!(tax.steps[0].contributions.iter().any(|contribution| {
+        contribution.source == "building:test_fort" && contribution.property == "local_tax_modifier"
+    }));
 }
 
 #[test]
@@ -188,7 +651,7 @@ fn ambiguous_administrative_properties_only_taint_the_selected_category() {
             .unresolved
             .contains("administration:unresolved_property:territory_core:local_tax_modifier")
     );
-    assert_eq!(query(&world).known_subtotal_micros, Some(2_337_500));
+    assert_eq!(query(&world).known_subtotal_micros, Some(212_000));
     assert_eq!(loaded.report.attributes.ambiguous_properties["static_modifiers:territory_core:local_tax_modifier"].len(), 2);
     let saved = world.save("administrative-effects").unwrap();
     let restored =
@@ -214,7 +677,7 @@ fn unclassified_or_missing_administrative_effects_remain_unknown() {
         tax.unresolved
             .contains("administration:missing_definition:core")
     );
-    assert_eq!(tax.known_subtotal_micros, Some(2_337_500));
+    assert_eq!(tax.known_subtotal_micros, Some(212_000));
 }
 
 #[test]
@@ -241,7 +704,7 @@ fn duplicate_static_definitions_and_properties_preserve_ambiguity_without_guessi
             .contains_key("city")
     );
     let tax = &loaded.province(1).unwrap().attributes["tax_basis"];
-    assert_eq!(tax.known_subtotal_micros, Some(1_806_250));
+    assert_eq!(tax.known_subtotal_micros, Some(0));
     assert!(tax.unresolved.contains("ambiguous_static:city"));
     let temp = copy_fixture();
     let path = temp.path().join("common/buildings/test_buildings.txt");
@@ -256,7 +719,7 @@ fn duplicate_static_definitions_and_properties_preserve_ambiguity_without_guessi
     .unwrap();
     let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     let tax = &loaded.province(2).unwrap().attributes["tax_basis"];
-    assert_eq!(tax.known_subtotal_micros, Some(4_600_000));
+    assert_eq!(tax.known_subtotal_micros, Some(600_000));
     assert!(
         tax.unresolved
             .contains("ambiguous:buildings:test_market:local_tax_modifier")
@@ -264,25 +727,19 @@ fn duplicate_static_definitions_and_properties_preserve_ambiguity_without_guessi
 }
 
 #[test]
-fn expressions_overrides_and_invalid_attribute_shapes_are_rejected() {
+fn invalid_define_values_and_attribute_shapes_are_rejected() {
     for (path, from, to, message) in [
         (
             "common/defines.lua",
             "0.25,",
-            "0.25 * 2,",
-            "nonnegative literal",
-        ),
-        (
-            "common/defines.lua",
-            "0.25,",
             "-0.25,",
-            "nonnegative literal",
+            "nonnegative define",
         ),
         (
             "common/defines.lua",
             "BASE_MP_TO_MANPOWER = 0.25,",
-            "BASE_MP_TO_MANPOWER = 0.25,\nBASE_MP_TO_MANPOWER = 0.5,",
-            "unique literal",
+            "BASE_MP_TO_MANPOWER = '0.25',",
+            "numeric define",
         ),
         (
             "common/buildings/test_buildings.txt",
@@ -311,12 +768,16 @@ fn expressions_overrides_and_invalid_attribute_shapes_are_rejected() {
         "NDefines.NMilitary.BASE_MP_TO_MANPOWER = 0.5\n",
     )
     .unwrap();
-    let error = VanillaWorld::load(temp.path(), "1444.11.11").unwrap_err();
-    assert!(
-        error.to_string().contains("unsupported Lua evaluation"),
-        "{error}"
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.report.attributes.manpower_per_base_micros,
+        500_000_000
     );
-    assert!(error.location().is_some());
+    assert!(
+        loaded.report.attributes.definition_sources["define:manpower_per_base"]
+            .path
+            .ends_with("common/defines/override.lua")
+    );
 }
 
 #[test]
@@ -342,7 +803,7 @@ fn accepted_cultures_unions_and_current_owners_select_cultural_sources() {
             .evaluate(&world, north, "tax_basis")
             .unwrap()
             .known_subtotal_micros,
-        Some(2_656_250)
+        Some(531_000)
     );
     let temp = copy_fixture();
     let path = temp.path().join("history/countries/BBB - Beta.txt");
@@ -350,7 +811,7 @@ fn accepted_cultures_unions_and_current_owners_select_cultural_sources() {
     let accepted = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     assert_eq!(
         accepted.province(1).unwrap().attributes["tax_basis"].known_subtotal_micros,
-        Some(2_656_250)
+        Some(531_000)
     );
     let future = VanillaWorld::load(temp.path(), "1450.1.1").unwrap();
     assert!(
@@ -381,7 +842,7 @@ fn accepted_cultures_unions_and_current_owners_select_cultural_sources() {
     let foreign = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     assert_eq!(
         foreign.province(1).unwrap().attributes["tax_basis"].known_subtotal_micros,
-        Some(1_955_000)
+        Some(0)
     );
 }
 
@@ -406,10 +867,10 @@ fn religion_scopes_apply_direct_effects_without_secondary_or_tolerance_shortcuts
     .unwrap();
     let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     let north = loaded.province(1).unwrap();
-    // (2.125 + 1) * (1 + .25 - .15 + .05 + .30)
+    // (2.125 + 1) * (.25 - .15 + .05 + .30)
     assert_eq!(
         north.attributes["tax_basis"].known_subtotal_micros,
-        Some(4_531_250)
+        Some(1_406_000)
     );
     assert_eq!(
         north.attributes["manpower_contribution"].known_subtotal_micros,
@@ -449,7 +910,7 @@ fn religion_scopes_apply_direct_effects_without_secondary_or_tolerance_shortcuts
             .evaluate(&world, province, "tax_basis")
             .unwrap()
             .known_subtotal_micros,
-        Some(3_906_250)
+        Some(781_000)
     );
 }
 
@@ -459,7 +920,7 @@ fn ambiguous_religion_effects_and_unknown_culture_members_remain_unresolved() {
     fs::write(temp.path().join("common/religions/test.txt"), "group = { test_faith = { country = { global_tax_modifier = 0.1 global_tax_modifier = 0.2 } } }").unwrap();
     let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     let tax = &loaded.province(1).unwrap().attributes["tax_basis"];
-    assert_eq!(tax.known_subtotal_micros, Some(2_337_500));
+    assert_eq!(tax.known_subtotal_micros, Some(212_000));
     assert!(
         tax.unresolved
             .contains("affiliation:religion:country:test_faith:ambiguous:global_tax_modifier")
@@ -476,7 +937,7 @@ fn ambiguous_religion_effects_and_unknown_culture_members_remain_unresolved() {
     .unwrap();
     let duplicate = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     let tax = &duplicate.province(1).unwrap().attributes["tax_basis"];
-    assert_eq!(tax.known_subtotal_micros, Some(2_656_250));
+    assert_eq!(tax.known_subtotal_micros, Some(531_000));
     assert!(
         tax.unresolved
             .contains("affiliation:culture:unknown_relation")

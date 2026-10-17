@@ -5,12 +5,12 @@ use std::collections::BTreeMap;
 
 use augustus_core::{EntityKind, InitialWorld, MetricDefinition, Metrics};
 
-use crate::{ContentView, Error, FileEntry, SetupReport};
+use crate::{Error, FileEntry, SetupReport};
 
 /// Declare stocks without inventing initialization or unresolved country caps.
 pub(super) fn bind(
-    root: &impl ContentView,
     files: &[FileEntry],
+    defines: &crate::Defines,
     initial: &InitialWorld,
     report: &mut SetupReport,
 ) -> Result<Metrics, Error> {
@@ -19,9 +19,7 @@ pub(super) fn bind(
         .iter()
         .any(|f| f.relative_path == std::path::Path::new("common/defines.lua"))
     {
-        if let Some((value, source)) =
-            crate::defines::optional_signed_literal(root, files, "NCountry", "DEBT_LIMIT_DIP")?
-        {
+        if let Some((value, source)) = defines.optional_signed("NCountry", "DEBT_LIMIT_DIP")? {
             let minimum = value / 1_000_000;
             if value % 1_000_000 != 0 || minimum > 0 || i32::try_from(minimum).is_err() {
                 return Err(Error::message(
@@ -34,9 +32,7 @@ pub(super) fn bind(
                 .definition_sources
                 .insert("monarch_power:dip_minimum".into(), source);
         }
-        if let Some((value, source)) =
-            crate::defines::optional_literal(root, files, "NCountry", "POWER_MAX")?
-        {
+        if let Some((value, source)) = defines.optional("NCountry", "POWER_MAX")? {
             if value % 1_000_000 != 0 || i32::try_from(value / 1_000_000).is_err() {
                 return Err(Error::message(
                     &source.path,

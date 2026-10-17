@@ -17,11 +17,14 @@ mod country_markers;
 mod country_metrics;
 mod country_status;
 mod defines;
+pub use defines::{DefineDifficulty, DefineValue, Defines, EvaluatedDefine};
 mod definitions;
 mod descriptor;
 mod diagnostic;
 mod economy;
 mod estates;
+mod eu4_rng;
+mod event_ai;
 mod geography;
 mod governments;
 mod ideas;
@@ -33,6 +36,7 @@ mod monarch_power;
 mod power_income;
 mod prestige;
 mod truces;
+mod unit_templates;
 pub use missions::MissionReport;
 mod politics;
 mod province_map;
@@ -45,11 +49,31 @@ mod text;
 pub use administration::AdministrationReport;
 pub use administration_validation::{
     AdministrationCheckCount, AdministrationComparison, AdministrationDifference,
+    SavedImperialBaselineReport, SavedImperialMembershipReport, SavedOfficePreferenceReport,
+    apply_saved_hre_membership, apply_saved_imperial_baseline, apply_saved_office_preferences,
     compare_administration_save,
 };
 pub use attributes::AttributeReport;
+pub use augustus_core::{
+    VanillaDerivedModifierInput, VanillaDerivedModifierResult, VanillaModifierAggregationInput,
+    VanillaModifierAggregationResult, VanillaProductionCountryResult, VanillaProductionInputState,
+    VanillaProductionProvinceResult, VanillaTradeCandidate, VanillaTradeDistributionCandidate,
+    VanillaTradeDistributionInput, VanillaTradeDistributionResult,
+    VanillaTradeDistributionRouteInput, VanillaTradeDistributionRouteResult,
+    VanillaTradeGoodPriceInput, VanillaTradeGoodPriceResult, VanillaTradePropagationInput,
+    VanillaTradePropagationResult, VanillaTradeRetentionInput, VanillaTradeRetentionResult,
+    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightResult,
+    aggregate_vanilla_modifier_contributions, calculate_vanilla_derived_modifier,
+    calculate_vanilla_production_for_country, calculate_vanilla_trade_distribution,
+    calculate_vanilla_trade_good_price, calculate_vanilla_trade_propagation,
+    calculate_vanilla_trade_retention, calculate_vanilla_trade_route_weights,
+    sort_vanilla_trade_candidates,
+};
 pub use bootstrap::{
-    BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView, VanillaWorld,
+    BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView, VanillaExternalArmy,
+    VanillaExternalCountryMarkers, VanillaExternalCountryStatuses, VanillaExternalNavalUnit,
+    VanillaExternalProductionInput, VanillaExternalState, VanillaProvinceProductionBaseValueInput,
+    VanillaWorld,
 };
 pub use casus_belli::{CasusBelliReport, CasusBelliType, CasusBelliTypes};
 pub use content::{ContentRoot, ContentView, FileEntry};
@@ -58,6 +82,8 @@ pub use descriptor::ModDescriptor;
 pub use diagnostic::{Error, SourceLocation};
 pub use economy::EconomyReport;
 pub use estates::EstateReport;
+pub use eu4_rng::Eu4Random;
+pub use event_ai::{evaluate_ai_event_weight, select_ai_event_option};
 pub use governments::GovernmentReport;
 pub use ideas::IdeaReport;
 pub use load::{ContentSet, ContentSource, FileCandidate, FileOrigin, FileTrace, Suppression};

@@ -352,6 +352,88 @@ fn missing_ambiguous_or_conditional_school_inputs_remain_unknown() {
 }
 
 #[test]
+fn random_country_scopes_set_school_opinion_against_the_previous_country_school() {
+    let temp = fixture("religion=test_faith religious_school=first");
+    write(
+        temp.path(),
+        "history/countries/BBB - Beta.txt",
+        "capital=2 primary_culture=beta religion=test_faith religious_school=second",
+    );
+    write(
+        temp.path(),
+        "history/countries/BBB - Beta alternate.txt",
+        "capital=2 primary_culture=beta religion=test_faith religious_school=second",
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA} random_country={limit={religious_school={group=test_religions school=second}} set_school_opinion={who=PREV opinion=-1}}}}",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    let beta = loaded.initial.country_entity("BBB").unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .school_opinion(beta, "first")
+            .unwrap(),
+        -1
+    );
+}
+
+#[test]
+fn duplicate_country_histories_keep_agreed_school_state_and_reject_disagreement() {
+    let temp = fixture("religion=test_faith religious_school=first");
+    write(
+        temp.path(),
+        "history/countries/AAA - Alternate.txt",
+        "capital=1 primary_culture=alpha religion=test_faith religious_school=first",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let id = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .affiliations()
+            .member("religious_school", id),
+        Some("first")
+    );
+    assert!(
+        loaded
+            .report
+            .ambiguous_country_histories
+            .contains_key("AAA")
+    );
+    assert!(
+        !loaded
+            .report
+            .religious_schools
+            .unknown_countries
+            .contains(&"AAA".into())
+    );
+
+    let temp = fixture("religion=test_faith religious_school=first");
+    write(
+        temp.path(),
+        "history/countries/AAA - Alternate.txt",
+        "capital=1 primary_culture=alpha religion=test_faith religious_school=second",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let id = loaded.initial.country_entity("AAA").unwrap();
+    assert!(presence().evaluate(loaded.initial.world(), id).is_err());
+    assert!(
+        loaded
+            .report
+            .religious_schools
+            .unknown_countries
+            .contains(&"AAA".into())
+    );
+}
+
+#[test]
 fn startup_candidates_school_queries_and_saved_delays_use_loaded_memberships() {
     let temp = fixture("religion=test_faith religious_school=first");
     write(

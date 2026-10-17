@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_core::{Action, EntityId, EntityKind, EventCatalog, EventChoice, Schema, World};
+use augustus_core::{
+    Action, EntityId, EntityKind, EventCatalog, EventChoice, Politics, Schema, World,
+};
 use augustus_eu4::{ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding};
 
 fn document(text: &str) -> TextDocument {
@@ -22,6 +24,68 @@ fn event_call_fields_compile_to_direct_calls_or_existing_scheduled_plans() {
     assert!(
         matches!(&compiled.plan[2],Action::Schedule { delay:2,plan } if matches!(&plan[0],Action::TryEvent {event} if event=="probe.3"))
     );
+}
+
+#[test]
+fn set_emperor_compiles_only_for_country_scope_with_yes_value() {
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let compiled = ScriptCompiler::new(&schema, &ScriptLibrary::new(), true)
+        .compile(&document("set_emperor = yes"), EntityKind::Country)
+        .unwrap();
+    assert!(matches!(
+        compiled.plan.as_slice(),
+        [Action::SetOfficeHolder { office }] if office == "imperial_emperor"
+    ));
+
+    let mut world = World::new(schema.clone());
+    let previous = world.add_entity("AAA", EntityKind::Country);
+    let current = world.add_entity("BBB", EntityKind::Country);
+    world
+        .set_politics(Politics {
+            offices: [("imperial_emperor".into(), previous)].into(),
+            ..Default::default()
+        })
+        .unwrap();
+    world.execute(current, &compiled.plan).unwrap();
+    assert_eq!(
+        world.politics().offices.get("imperial_emperor"),
+        Some(&current)
+    );
+
+    for (text, scope) in [
+        ("set_emperor = no", EntityKind::Country),
+        ("set_emperor = yes", EntityKind::Province),
+    ] {
+        assert!(
+            ScriptCompiler::new(&schema, &ScriptLibrary::new(), true)
+                .compile(&document(text), scope)
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn hidden_event_metadata_is_validated_without_changing_simulation_effects() {
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let compiled = ScriptCompiler::new(&schema, &ScriptLibrary::new(), true)
+        .compile_events(&document(
+            "country_event={id=probe.hidden is_triggered_only=yes hidden=yes title=none desc=none picture=none immediate={log=hidden_effect} option={ai_chance={factor=50} log=first} option={ai_chance={factor=50} log=second}}",
+        ))
+        .unwrap();
+    assert!(matches!(
+        compiled.definitions[0].immediate.as_slice(),
+        [Action::Emit(message)] if message == "hidden_effect"
+    ));
+    assert!(ScriptCompiler::new(&schema, &ScriptLibrary::new(), true)
+        .compile_events(&document(
+            "country_event={id=probe.hidden is_triggered_only=yes hidden=no option={log=unnamed_option}}",
+        ))
+        .is_err());
+    assert!(ScriptCompiler::new(&schema, &ScriptLibrary::new(), true)
+        .compile_events(&document(
+            "country_event={id=probe.hidden is_triggered_only=yes hidden=maybe option={name=accept}}",
+        ))
+        .is_err());
 }
 
 #[test]
@@ -166,7 +230,6 @@ fn unsupported_event_semantics_are_diagnostics_even_in_unselected_options() {
         "mean_time_to_happen={months=10 modifier={factor=1 unsupported_trigger=yes}}",
         "fire_only_once=invalid",
         "fire_only_once=yes fire_only_once=no",
-        "hidden=yes",
         "option={name=other ai_chance={unknown=1} log=unsupported}",
         "option={name=other trigger={always=no unsupported_trigger=yes} log=unsupported}",
         "option={name=other ROOT={unsupported_effect=yes}}",

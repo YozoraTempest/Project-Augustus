@@ -9,6 +9,7 @@ use std::{
 use rand_chacha::{ChaCha8Rng, rand_core::SeedableRng};
 use serde::{Deserialize, Serialize};
 
+use crate::rng::{Eu4Rng, RandomSource};
 use crate::{
     Action, Administration, Affiliations, Attributes, Calendar, CountryResources, Economy, Error,
     Governments, Ideas, Modifiers, MonthlySystem, MonthlyTax, Plan, Politics, Target, Taxation,
@@ -85,6 +86,8 @@ struct Task {
 pub struct World {
     schema: Schema,
     entities: Vec<Entity>,
+    pub(crate) armies: crate::army::Armies,
+    pub(crate) naval_units: crate::naval::NavalUnits,
     pub(crate) ownership: Arc<crate::ownership::OwnershipIndex>,
     pub(crate) entity_names: BTreeMap<String, Vec<EntityId>>,
     day: u64,
@@ -104,6 +107,8 @@ pub struct World {
     pub(crate) known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
     economy: Economy,
     technology: Technology,
+    pub(crate) unit_selections: crate::unit_selections::UnitSelections,
+    unit_templates: crate::UnitTemplates,
     pub(crate) modifiers: Modifiers,
     pub(crate) modifier_expirations: BTreeMap<u64, BTreeSet<(EntityId, String)>>,
     pub(crate) justifications: crate::Justifications,
@@ -113,10 +118,13 @@ pub struct World {
     pub(crate) monthly_accruals: Option<crate::MonthlyAccruals>,
     pub(crate) monthly_convergence: Option<crate::MonthlyConvergence>,
     pub(crate) monthly_stocks: Option<crate::MonthlyStocks>,
+    pub(crate) monthly_production: Option<crate::MonthlyProduction>,
+    pub(crate) monthly_cashflows: Option<crate::MonthlyExternalCashflows>,
     pub(crate) monthly_system_id: Option<String>,
     attributes: Attributes,
     pub(crate) administration: Arc<Administration>,
     pub(crate) affiliations: Affiliations,
+    pub(crate) school_opinions: crate::SchoolOpinions,
     pub(crate) governments: Governments,
     pub(crate) metrics: crate::Metrics,
     ideas: Ideas,
@@ -129,6 +137,8 @@ pub struct World {
     pub(crate) failed: bool,
     pub(crate) rules: Vec<Plan>,
     pub(crate) random: ChaCha8Rng,
+    pub(crate) eu4_random: Option<Eu4Rng>,
+    pub(crate) eu4_event_seed: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -138,6 +148,10 @@ struct Snapshot {
     content: String,
     schema: Schema,
     entities: Vec<Entity>,
+    #[serde(default, skip_serializing_if = "crate::army::Armies::is_empty")]
+    armies: crate::army::Armies,
+    #[serde(default, skip_serializing_if = "crate::naval::NavalUnits::is_empty")]
+    naval_units: crate::naval::NavalUnits,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     owned_province_order: BTreeMap<EntityId, Vec<EntityId>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -146,7 +160,12 @@ struct Snapshot {
     next_sequence: u64,
     tasks: Vec<Task>,
     events: Vec<(u64, EntityId, String)>,
-    random: ChaCha8Rng,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    random: Option<ChaCha8Rng>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    eu4_random: Option<Eu4Rng>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    eu4_event_seed: Option<u32>,
     #[serde(default, skip_serializing_if = "Politics::is_empty")]
     politics: Politics,
     #[serde(default, skip_serializing_if = "crate::Truces::is_empty")]
@@ -163,6 +182,13 @@ struct Snapshot {
     economy: Economy,
     #[serde(default, skip_serializing_if = "Technology::is_empty")]
     technology: Technology,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::unit_selections::UnitSelections::is_empty"
+    )]
+    unit_selections: crate::unit_selections::UnitSelections,
+    #[serde(default, skip_serializing_if = "crate::UnitTemplates::is_empty")]
+    unit_templates: crate::UnitTemplates,
     #[serde(default, skip_serializing_if = "Modifiers::is_empty")]
     modifiers: Modifiers,
     #[serde(default, skip_serializing_if = "crate::Justifications::is_empty")]
@@ -180,6 +206,10 @@ struct Snapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     monthly_stocks: Option<crate::MonthlyStocks>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    monthly_production: Option<crate::MonthlyProduction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    monthly_cashflows: Option<crate::MonthlyExternalCashflows>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     monthly_system_id: Option<String>,
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
     attributes: Attributes,
@@ -187,6 +217,8 @@ struct Snapshot {
     administration: Administration,
     #[serde(default, skip_serializing_if = "Affiliations::is_empty")]
     affiliations: Affiliations,
+    #[serde(default, skip_serializing_if = "crate::SchoolOpinions::is_empty")]
+    school_opinions: crate::SchoolOpinions,
     #[serde(default, skip_serializing_if = "Governments::is_empty")]
     governments: Governments,
     #[serde(default, skip_serializing_if = "crate::Metrics::is_empty")]
@@ -226,6 +258,8 @@ impl World {
         Self {
             schema,
             entities: Vec::new(),
+            armies: crate::army::Armies::default(),
+            naval_units: crate::naval::NavalUnits::default(),
             ownership: Arc::default(),
             entity_names: BTreeMap::new(),
             day: 0,
@@ -245,6 +279,8 @@ impl World {
             known_absent_targets: BTreeMap::new(),
             economy: Economy::default(),
             technology: Technology::default(),
+            unit_selections: crate::unit_selections::UnitSelections::default(),
+            unit_templates: crate::UnitTemplates::default(),
             modifiers: Modifiers::default(),
             modifier_expirations: BTreeMap::new(),
             justifications: crate::Justifications::default(),
@@ -254,10 +290,13 @@ impl World {
             monthly_accruals: None,
             monthly_convergence: None,
             monthly_stocks: None,
+            monthly_production: None,
+            monthly_cashflows: None,
             monthly_system_id: None,
             attributes: Attributes::default(),
             administration: Arc::default(),
             affiliations: Affiliations::default(),
+            school_opinions: crate::SchoolOpinions::default(),
             governments: Governments::default(),
             metrics: crate::Metrics::default(),
             ideas: Ideas::default(),
@@ -270,7 +309,69 @@ impl World {
             failed: false,
             rules,
             random: ChaCha8Rng::from_seed(seed),
+            eu4_random: None,
+            eu4_event_seed: None,
         }
+    }
+
+    /// Creates a world whose random stream follows the EU4 seed and state rules.
+    pub fn eu4_seeded(schema: Schema, rules: Vec<Plan>, seed: u32) -> Self {
+        Self::eu4_seeded_from_saved_count(schema, rules, seed, 0)
+    }
+
+    /// Reconstructs an EU4 random stream from its saved seed and draw count.
+    pub fn eu4_seeded_from_saved_count(
+        schema: Schema,
+        rules: Vec<Plan>,
+        seed: u32,
+        count: u32,
+    ) -> Self {
+        let mut world = Self::seeded(schema, rules, [0; 32]);
+        world.eu4_random = Some(Eu4Rng::from_saved_count(seed, count));
+        world.eu4_event_seed = Some(seed);
+        world
+    }
+
+    pub(crate) fn random_source(&mut self) -> RandomSource<'_> {
+        match self.eu4_random.as_mut() {
+            Some(random) => RandomSource::Eu4(random),
+            None => RandomSource::ChaCha(&mut self.random),
+        }
+    }
+
+    /// Draws one raw random value from the world's selected random stream.
+    pub fn draw_random_u32(&mut self) -> u32 {
+        use rand_chacha::rand_core::TryRng;
+
+        match self.random_source().try_next_u32() {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
+    }
+
+    pub fn eu4_random_state(&self) -> Option<(u32, u32, u16)> {
+        self.eu4_random
+            .as_ref()
+            .map(|random| (random.seed(), random.count(), random.index()))
+    }
+
+    pub fn eu4_event_seed(&self) -> Option<u32> {
+        self.eu4_event_seed
+    }
+
+    pub fn set_eu4_event_seed(&mut self, seed: Option<u32>) {
+        self.eu4_event_seed = seed;
+    }
+
+    pub fn fill_eu4_random_batch(&mut self, forbidden: bool) -> Result<[u32; 1000], Error> {
+        self.require_running()?;
+        let random = self
+            .eu4_random
+            .as_mut()
+            .ok_or_else(|| Error::Invalid("EU4 random stream is not active".into()))?;
+        let mut output = [0; 1000];
+        random.fill_batch_1000(&mut output, forbidden);
+        Ok(output)
     }
 
     pub fn schema(&self) -> &Schema {
@@ -295,8 +396,69 @@ impl World {
 
     pub fn set_estates(&mut self, estates: crate::Estates) -> Result<(), Error> {
         self.require_running()?;
+        let previous = std::mem::replace(&mut self.estates, estates);
+        if let Err(error) = self.estates.validate(self) {
+            self.estates = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Applies the scheduled loyalty update for one country. Targets are
+    /// supplied by the content or compatibility layer; an unknown target does
+    /// not turn into the default loyalty value.
+    pub fn update_estate_loyalty(&mut self, country: EntityId) -> Result<(), Error> {
+        self.require_running()?;
+        if self.entity(country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid("estate loyalty requires a country".into()));
+        }
+        let Some(decay) = self.estates.rules.loyalty_decay else {
+            return Ok(());
+        };
+        let mut estates = self.estates.clone();
+        if let Some(states) = estates.countries.get_mut(&country) {
+            for state in states.values_mut() {
+                if state.active != Some(true) {
+                    continue;
+                }
+                let (Some(current), Some(target)) =
+                    (state.loyalty_milli, state.loyalty_target_milli)
+                else {
+                    continue;
+                };
+                state.loyalty_milli = Some(decay.next_loyalty_milli(current, target)?);
+            }
+        }
         estates.validate(self)?;
         self.estates = estates;
+        Ok(())
+    }
+
+    /// Runs the country-indexed daily estate schedule observed in EU4. The
+    /// registration order is retained by the loader; native worlds fall back
+    /// to entity order when no explicit order was supplied.
+    fn update_daily_estate_loyalty(&mut self) -> Result<(), Error> {
+        let Some(calendar) = &self.calendar else {
+            return Ok(());
+        };
+        let date = calendar.date(self.day)?;
+        let month_length = usize::from(calendar.month_lengths[usize::from(date.month - 1)]);
+        let day_in_month = usize::from(date.day - 1);
+        let countries = if self.subject_country_order.is_empty() {
+            self.entities
+                .iter()
+                .enumerate()
+                .filter(|(_, entity)| entity.kind == EntityKind::Country)
+                .map(|(index, _)| EntityId(index))
+                .collect::<Vec<_>>()
+        } else {
+            self.subject_country_order.clone()
+        };
+        for (index, country) in countries.into_iter().enumerate() {
+            if index % month_length == day_in_month {
+                self.update_estate_loyalty(country)?;
+            }
+        }
         Ok(())
     }
 
@@ -322,7 +484,9 @@ impl World {
         let validation = self
             .event_catalog
             .validate(self)
-            .and_then(|()| self.validate_event_content(&self.event_catalog));
+            .and_then(|()| self.validate_event_content(&self.event_catalog))
+            .and_then(|()| self.objectives.validate(self))
+            .and_then(|()| self.estates.validate(self));
         if let Err(error) = validation {
             self.governments = previous;
             return Err(error);
@@ -333,7 +497,15 @@ impl World {
     pub fn set_affiliations(&mut self, affiliations: Affiliations) -> Result<(), Error> {
         self.require_running()?;
         affiliations.validate(self)?;
-        self.affiliations = affiliations;
+        let previous = std::mem::replace(&mut self.affiliations, affiliations);
+        let validation = self
+            .school_opinions
+            .validate(self)
+            .and_then(|()| self.unit_selections.validate(self));
+        if let Err(error) = validation {
+            self.affiliations = previous;
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -342,10 +514,23 @@ impl World {
     }
 
     pub fn set_administration(&mut self, administration: Administration) -> Result<(), Error> {
+        self.replace_administration(administration).map(|_| ())
+    }
+
+    pub(crate) fn replace_administration(
+        &mut self,
+        administration: Administration,
+    ) -> Result<Arc<Administration>, Error> {
         self.require_running()?;
         administration.validate(self)?;
-        self.administration = Arc::new(administration);
-        Ok(())
+        Ok(std::mem::replace(
+            &mut self.administration,
+            Arc::new(administration),
+        ))
+    }
+
+    pub(crate) fn restore_administration(&mut self, administration: Arc<Administration>) {
+        self.administration = administration;
     }
 
     pub fn set_attributes(&mut self, attributes: Attributes) -> Result<(), Error> {
@@ -385,7 +570,29 @@ impl World {
     pub fn set_technology(&mut self, technology: Technology) -> Result<(), Error> {
         self.require_running()?;
         technology.validate(self)?;
-        self.technology = technology;
+        let previous = std::mem::replace(&mut self.technology, technology);
+        if let Err(error) = self.unit_selections.validate(self) {
+            self.technology = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub fn unit_templates(&self) -> &crate::UnitTemplates {
+        &self.unit_templates
+    }
+
+    pub fn set_unit_templates(
+        &mut self,
+        unit_templates: crate::UnitTemplates,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        unit_templates.validate()?;
+        let previous = std::mem::replace(&mut self.unit_templates, unit_templates);
+        if let Err(error) = self.unit_selections.validate(self) {
+            self.unit_templates = previous;
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -474,6 +681,8 @@ impl World {
         self.monthly_accruals = None;
         self.monthly_convergence = None;
         self.monthly_stocks = None;
+        self.monthly_production = None;
+        self.monthly_cashflows = None;
         self.monthly_system_id = Some(system.id().into());
         Ok(())
     }
@@ -520,6 +729,8 @@ impl World {
             if self.monthly_accruals.is_some()
                 || self.monthly_convergence.is_some()
                 || self.monthly_stocks.is_some()
+                || self.monthly_production.is_some()
+                || self.monthly_cashflows.is_some()
             {
                 crate::MonthlyEconomy.id()
             } else {
@@ -768,17 +979,26 @@ impl World {
             } else {
                 Some(self.day.checked_add(1).ok_or(Error::Overflow)?)
             };
+            let daily_estate_tick = self
+                .estates
+                .rules
+                .loyalty_decay
+                .is_some()
+                .then(|| self.day.checked_add(1).ok_or(Error::Overflow))
+                .transpose()?;
             let next = task_day
                 .into_iter()
                 .chain(month)
                 .chain(expiration)
                 .chain(truce_retirement)
                 .chain(grant_tick)
+                .chain(daily_estate_tick)
                 .min();
             let Some(next) = next.filter(|&next| next <= day) else {
                 break;
             };
             self.day = next;
+            self.update_daily_estate_loyalty()?;
             self.expire_modifiers(next);
             self.retire_truces(next, false);
             if let Err(error) = self.maintain_justifications(false) {
@@ -826,18 +1046,23 @@ impl World {
 
     pub fn save(&self, content: &str) -> Result<String, Error> {
         self.require_running()?;
+        let eu4_random = self.eu4_random.clone();
         Ok(serde_json::to_string_pretty(&Snapshot {
-            format: 1,
+            format: if eu4_random.is_some() { 2 } else { 1 },
             content: content.into(),
             schema: self.schema.clone(),
             entities: self.entities.clone(),
+            armies: self.armies.clone(),
+            naval_units: self.naval_units.clone(),
             owned_province_order: self.ownership.order_overrides(),
             subject_country_order: self.subject_country_order.clone(),
             day: self.day,
             next_sequence: self.next_sequence,
             tasks: self.tasks.values().cloned().collect(),
             events: self.events.clone(),
-            random: self.random.clone(),
+            random: eu4_random.is_none().then(|| self.random.clone()),
+            eu4_random,
+            eu4_event_seed: self.eu4_event_seed,
             politics: self.politics.clone(),
             truces: self.truces.clone(),
             subjects: self.subjects.clone(),
@@ -846,6 +1071,8 @@ impl World {
             known_absent_targets: self.known_absent_targets.clone(),
             economy: self.economy.clone(),
             technology: self.technology.clone(),
+            unit_selections: self.unit_selections.clone(),
+            unit_templates: self.unit_templates.clone(),
             modifiers: self.modifiers.clone(),
             justifications: self.justifications.clone(),
             country_resources: self.country_resources.clone(),
@@ -854,10 +1081,13 @@ impl World {
             monthly_accruals: self.monthly_accruals.clone(),
             monthly_convergence: self.monthly_convergence.clone(),
             monthly_stocks: self.monthly_stocks.clone(),
+            monthly_production: self.monthly_production.clone(),
+            monthly_cashflows: self.monthly_cashflows.clone(),
             monthly_system_id: self.monthly_system_id.clone(),
             attributes: self.attributes.clone(),
             administration: self.administration.as_ref().clone(),
             affiliations: self.affiliations.clone(),
+            school_opinions: self.school_opinions.clone(),
             governments: self.governments.clone(),
             metrics: self.metrics.clone(),
             ideas: self.ideas.clone(),
@@ -869,6 +1099,22 @@ impl World {
             global_markers: self.global_markers.clone(),
             event_queue: self.event_queue.clone(),
         })?)
+    }
+
+    pub(crate) fn content_identity_state(&self) -> Result<String, Error> {
+        let mut world = self.clone();
+        world.random = ChaCha8Rng::from_seed([0; 32]);
+        world.eu4_random = None;
+        world.eu4_event_seed = None;
+        // These fields describe the running session, not immutable content. In
+        // particular, AI event choices can vary with the session seed and must
+        // not make an otherwise identical save refuse to load.
+        world.day = 0;
+        world.next_sequence = 0;
+        world.tasks.clear();
+        world.events.clear();
+        world.event_queue = crate::event_choices::EventQueue::default();
+        world.save("")
     }
 
     pub fn restore(json: &str, content: &str, schema: &Schema) -> Result<Self, Error> {
@@ -893,14 +1139,31 @@ impl World {
         catalog: crate::EventCatalog,
     ) -> Result<Self, Error> {
         let snapshot: Snapshot = serde_json::from_str(json)?;
-        if snapshot.format != 1 || snapshot.content != content || &snapshot.schema != schema {
-            return Err(Error::Invalid(
-                "save format, content or schema does not match".into(),
-            ));
+        if !matches!(snapshot.format, 1 | 2) {
+            return Err(Error::Invalid("unsupported save format".into()));
         }
+        if snapshot.content != content {
+            return Err(Error::Invalid("save content does not match".into()));
+        }
+        if &snapshot.schema != schema {
+            return Err(Error::Invalid("save schema does not match".into()));
+        }
+        let (random, eu4_random) = match (snapshot.format, snapshot.random, snapshot.eu4_random) {
+            (1, Some(random), None) => (random, None),
+            (2, None, Some(random)) if random.is_valid() => {
+                (ChaCha8Rng::from_seed([0; 32]), Some(random))
+            }
+            _ => {
+                return Err(Error::Invalid(
+                    "save random state does not match its format".into(),
+                ));
+            }
+        };
         let mut world = Self {
             schema: snapshot.schema,
             entities: snapshot.entities,
+            armies: snapshot.armies,
+            naval_units: snapshot.naval_units,
             ownership: Arc::default(),
             entity_names: BTreeMap::new(),
             day: snapshot.day,
@@ -911,7 +1174,9 @@ impl World {
             event_queue: snapshot.event_queue,
             failed: false,
             rules,
-            random: snapshot.random,
+            random,
+            eu4_random,
+            eu4_event_seed: snapshot.eu4_event_seed,
             politics: snapshot.politics,
             truces: snapshot.truces,
             truce_expirations: Default::default(),
@@ -923,6 +1188,8 @@ impl World {
             known_absent_targets: snapshot.known_absent_targets,
             economy: snapshot.economy,
             technology: snapshot.technology,
+            unit_selections: snapshot.unit_selections,
+            unit_templates: snapshot.unit_templates,
             modifier_expirations: snapshot.modifiers.expiration_index(),
             modifiers: snapshot.modifiers,
             justifications: snapshot.justifications,
@@ -932,10 +1199,13 @@ impl World {
             monthly_accruals: snapshot.monthly_accruals,
             monthly_convergence: snapshot.monthly_convergence,
             monthly_stocks: snapshot.monthly_stocks,
+            monthly_production: snapshot.monthly_production,
+            monthly_cashflows: snapshot.monthly_cashflows,
             monthly_system_id: snapshot.monthly_system_id,
             attributes: snapshot.attributes,
             administration: Arc::new(snapshot.administration),
             affiliations: snapshot.affiliations,
+            school_opinions: snapshot.school_opinions,
             governments: snapshot.governments,
             metrics: snapshot.metrics,
             ideas: snapshot.ideas,
@@ -957,6 +1227,10 @@ impl World {
                 .or_default()
                 .push(EntityId(id));
         }
+        world.armies.validate(&world.entities)?;
+        world.naval_units.validate(&world.entities)?;
+        world.unit_templates.validate()?;
+        world.unit_selections.validate(&world)?;
         for rule in &world.rules {
             validate_plan(
                 rule,
@@ -1009,6 +1283,7 @@ impl World {
         world.validate_resources(&world.country_resources)?;
         world.administration.validate(&world)?;
         world.affiliations.validate(&world)?;
+        world.school_opinions.validate(&world)?;
         world.governments.validate(&world)?;
         world.metrics.validate(&world)?;
         world.ideas.validate(&world)?;
@@ -1034,22 +1309,34 @@ impl World {
         if let Some(stocks) = &world.monthly_stocks {
             stocks.validate(&world)?;
         }
+        if let Some(production) = &world.monthly_production {
+            production.validate(&world)?;
+        }
+        if let Some(cashflows) = &world.monthly_cashflows {
+            cashflows.validate(&world)?;
+        }
         match world.monthly_system_id() {
             None if world.taxation.is_none()
                 && world.monthly_accruals.is_none()
                 && world.monthly_convergence.is_none()
-                && world.monthly_stocks.is_none() => {}
+                && world.monthly_stocks.is_none()
+                && world.monthly_production.is_none()
+                && world.monthly_cashflows.is_none() => {}
             Some(id)
                 if id == crate::MonthlyEconomy.id()
                     && (world.monthly_accruals.is_some()
                         || world.monthly_convergence.is_some()
-                        || world.monthly_stocks.is_some()) => {}
+                        || world.monthly_stocks.is_some()
+                        || world.monthly_production.is_some()
+                        || world.monthly_cashflows.is_some()) => {}
             Some(id)
                 if !id.is_empty()
                     && world.calendar.is_some()
                     && world.monthly_accruals.is_none()
                     && world.monthly_convergence.is_none()
                     && world.monthly_stocks.is_none()
+                    && world.monthly_production.is_none()
+                    && world.monthly_cashflows.is_none()
                     && (world.taxation.is_some() == (id == MonthlyTax.id())) => {}
             _ => {
                 return Err(Error::Invalid(
@@ -1186,7 +1473,39 @@ pub(crate) fn validate_plan(
             Action::AddGovernmentReform { id, .. } | Action::RemoveGovernmentReform { id, .. } => {
                 governments.reform_definition(id)?;
             }
+            Action::SetGovernmentRank { rank, .. } if !(1..=3).contains(rank) => {
+                return Err(Error::Invalid(
+                    "government rank must be between 1 and 3".into(),
+                ));
+            }
+            Action::SetOfficeHolder { office } if office.is_empty() => {
+                return Err(Error::Invalid("empty political office".into()));
+            }
             Action::SetOwner { owner, .. } => owner.validate()?,
+            Action::CreateNavalUnit { owner, unit_type } => {
+                owner.validate()?;
+                crate::naval::NavalUnits::validate_type(unit_type)?;
+            }
+            Action::CreateArmy {
+                owner,
+                location,
+                regiments,
+                ..
+            } => {
+                owner.validate()?;
+                location.validate()?;
+                crate::army::Armies::validate_regiment_types(regiments)?;
+            }
+            Action::CreateArmyFromCategories {
+                owner,
+                location,
+                categories,
+                ..
+            } => {
+                owner.validate()?;
+                location.validate()?;
+                crate::army::Armies::validate_categories(categories)?;
+            }
             Action::ForEachSubjectCountry {
                 condition, plan, ..
             }
@@ -1195,7 +1514,8 @@ pub(crate) fn validate_plan(
             }
             | Action::RandomOwnedProvince {
                 condition, plan, ..
-            } => {
+            }
+            | Action::RandomCountry { condition, plan } => {
                 validate_condition(
                     condition,
                     schema,
@@ -1256,6 +1576,11 @@ pub(crate) fn validate_plan(
             } => {
                 crate::affiliations::validate_condition(dimension, member.as_deref())?;
             }
+            Action::SetSchoolOpinion {
+                target: crate::SchoolOpinionTarget::Country(target),
+                ..
+            } => target.validate()?,
+            Action::SetSchoolOpinion { .. } => {}
             Action::GrantJustification {
                 issuer,
                 target,
@@ -1535,6 +1860,9 @@ pub(crate) fn validate_condition(
         crate::Condition::GovernmentKind { kind, .. } => {
             crate::governments::validate_identifier(kind)
         }
+        crate::Condition::GovernmentRank { rank, .. } if !(1..=3).contains(rank) => Err(
+            Error::Invalid("government rank must be between 1 and 3".into()),
+        ),
         crate::Condition::GovernmentReform { id, .. } => {
             governments.reform_definition(id).map(|_| ())
         }
@@ -1545,8 +1873,31 @@ pub(crate) fn validate_condition(
         | crate::Condition::GovernmentMetricStored { name, .. } => {
             governments.metric_definition(name).map(|_| ())
         }
+        crate::Condition::EstatePrivilege { privilege, .. } if privilege.is_empty() => {
+            Err(Error::Invalid("empty estate privilege identifier".into()))
+        }
+        crate::Condition::HasIdea { id, .. } if id.is_empty() => {
+            Err(Error::Invalid("empty idea identifier".into()))
+        }
+        crate::Condition::EstateLoyaltyAtLeast {
+            estate,
+            loyalty_milli,
+            ..
+        } if estate.is_empty() || !(0..=100_000).contains(loyalty_milli) => {
+            Err(Error::Invalid("invalid estate loyalty condition".into()))
+        }
+        crate::Condition::EstateInfluenceAtLeast {
+            estate,
+            influence_milli,
+            ..
+        } if estate.is_empty() || *influence_milli < 0 => {
+            Err(Error::Invalid("invalid estate influence condition".into()))
+        }
         crate::Condition::HasMarker { name, .. } | crate::Condition::HasGlobalMarker { name } => {
             crate::markers::validate_name(name)
+        }
+        crate::Condition::PoliticalStatus { name, .. } if name.is_empty() => {
+            Err(Error::Invalid("empty political status name".into()))
         }
         crate::Condition::HasModifier { name, .. } => modifiers.identifier(name),
         crate::Condition::NumericCompare { slot, .. } => {
@@ -1602,6 +1953,25 @@ pub(crate) fn validate_condition(
         ),
         crate::Condition::AtLeast { field, .. } if field.0 >= schema.fields.len() => {
             Err(Error::Invalid("invalid saved condition field".into()))
+        }
+        crate::Condition::If {
+            condition,
+            then,
+            otherwise,
+        } => {
+            for child in [condition.as_ref(), then.as_ref(), otherwise.as_ref()] {
+                validate_condition(
+                    child,
+                    schema,
+                    completions,
+                    modifiers,
+                    governments,
+                    metrics,
+                    justifications,
+                    subjects,
+                )?;
+            }
+            Ok(())
         }
         crate::Condition::All(conditions) | crate::Condition::Any(conditions) => {
             for condition in conditions {

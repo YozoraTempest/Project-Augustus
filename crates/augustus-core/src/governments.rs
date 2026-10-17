@@ -34,6 +34,9 @@ pub struct GovernmentMetric {
 #[serde(deny_unknown_fields)]
 pub struct GovernmentState {
     pub kind: Option<String>,
+    /// Current rank, when its initialization is known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rank: Option<u8>,
     /// None means selection is unknown; an empty set means no selected reforms.
     pub reforms: Option<BTreeSet<String>>,
     /// Only active metrics are listed. None means their selection is unknown.
@@ -343,6 +346,7 @@ impl Governments {
         for (&entity, state) in &self.countries {
             if world.entity(entity)?.kind != EntityKind::Country
                 || state.kind.as_ref().is_some_and(String::is_empty)
+                || state.rank.is_some_and(|rank| !(1..=3).contains(&rank))
                 || state
                     .reforms
                     .as_ref()
@@ -403,6 +407,20 @@ impl Governments {
 }
 
 impl World {
+    pub fn set_government_rank(&mut self, entity: EntityId, rank: Option<u8>) -> Result<(), Error> {
+        self.require_running()?;
+        if self.entity(entity)?.kind != EntityKind::Country {
+            return Err(Error::Invalid("government rank requires a country".into()));
+        }
+        if rank.is_some_and(|rank| !(1..=3).contains(&rank)) {
+            return Err(Error::Invalid(
+                "government rank must be between 1 and 3".into(),
+            ));
+        }
+        self.governments.countries.entry(entity).or_default().rank = rank;
+        Ok(())
+    }
+
     pub(crate) fn add_government_reform(
         &mut self,
         entity: EntityId,
@@ -472,11 +490,18 @@ impl World {
         before: &crate::Plan,
         budget: &mut usize,
         depth: usize,
+        previous: Option<EntityId>,
     ) -> Result<(), Error> {
         // Validate the request before the callback can write anything.
         self.governments.form_definition(kind)?;
         self.government_kind(entity)?;
-        self.execute_inner(crate::ScopeContext::new(entity), before, budget, depth + 1)?;
+        self.execute_inner(
+            crate::ScopeContext::new(entity),
+            before,
+            budget,
+            depth + 1,
+            previous,
+        )?;
         // Callbacks may change the current state. Apply the outer request to the
         // state that remains when the callback returns.
         if self.government_kind(entity)? == kind {
@@ -518,6 +543,12 @@ impl World {
             .ok_or_else(|| {
                 Error::Invalid(format!("unknown government kind for entity {}", entity.0))
             })
+    }
+
+    pub fn government_rank(&self, entity: EntityId) -> Result<u8, Error> {
+        self.government_country(entity)?.rank.ok_or_else(|| {
+            Error::Invalid(format!("unknown government rank for entity {}", entity.0))
+        })
     }
 
     pub fn government_reform_selected(&self, entity: EntityId, id: &str) -> Result<bool, Error> {

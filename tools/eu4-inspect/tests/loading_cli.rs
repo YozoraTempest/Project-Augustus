@@ -12,6 +12,59 @@ fn write(root: &Path, file: &str, contents: &str) {
 }
 
 #[test]
+fn define_inspection_evaluates_overlay_and_selected_difficulty_without_editing_input() {
+    let fixture = tempfile::tempdir().unwrap();
+    let base = fixture.path().join("base");
+    let pack = fixture.path().join("pack");
+    write(&base, "common/defines.lua", "NDefines={NTest={VALUE=2}}");
+    write(
+        &base,
+        "common/defines/difficulty_hard.lua",
+        "NDefines.NTest.VALUE=NDefines.NTest.VALUE*3",
+    );
+    write(&pack, "descriptor.mod", "name=Patch");
+    write(&pack, "common/defines/patch.lua", "NDefines.NTest.VALUE=5");
+    let output = Command::new(env!("CARGO_BIN_EXE_eu4-inspect"))
+        .arg("defines")
+        .arg(&base)
+        .arg("--mod")
+        .arg(&pack)
+        .args(["--difficulty", "hard"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["difficulty"], "hard");
+    assert_eq!(
+        report["values"]["NDefines.NTest.VALUE"]["value"]["value"],
+        15.0
+    );
+    assert_eq!(report["executed_files"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        fs::read_to_string(base.join("common/defines.lua")).unwrap(),
+        "NDefines={NTest={VALUE=2}}"
+    );
+    write(
+        &pack,
+        "common/defines/patch.lua",
+        "NDefines.NTest.VALUE = error('test failure')",
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_eu4-inspect"))
+        .arg("defines")
+        .arg(&base)
+        .arg("--mod")
+        .arg(&pack)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("patch.lua"));
+}
+
+#[test]
 fn resolved_parse_reports_provenance_and_parses_the_winner() {
     let fixture = tempfile::tempdir().unwrap();
     let base = fixture.path().join("base");
@@ -75,6 +128,44 @@ fn user_directory_overlays_mod_and_base_files() {
     assert!(report.contains("from_user = true"));
     assert!(!report.contains("from_mod = true"));
     assert!(!report.contains("from_base = true"));
+}
+
+#[test]
+fn launcher_config_selects_only_supplied_enabled_mod_directories() {
+    let fixture = tempfile::tempdir().unwrap();
+    let base = fixture.path().join("base");
+    let active = fixture.path().join("active");
+    let inactive = fixture.path().join("inactive");
+    let launcher_config = fixture.path().join("dlc_load.json");
+    write(&base, "common/defines.lua", "from_base = true");
+    write(&active, "descriptor.mod", "name=Active");
+    write(&active, "common/defines.lua", "from_active = true");
+    write(&inactive, "descriptor.mod", "name=Inactive");
+    write(&inactive, "common/defines.lua", "from_inactive = true");
+    fs::write(&launcher_config, r#"{"enabled_mods":["Active"]}"#).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_eu4-inspect"))
+        .arg("resolve")
+        .arg(&base)
+        .arg("--mod")
+        .arg(&inactive)
+        .arg("--mod")
+        .arg(&active)
+        .arg("--launcher-config")
+        .arg(&launcher_config)
+        .args(["--file", "common/defines.lua", "--parse"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("Effective source: Active"));
+    assert!(report.contains("from_active = true"));
+    assert!(!report.contains("Inactive"));
+    assert!(!report.contains("from_inactive"));
 }
 
 #[test]

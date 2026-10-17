@@ -4,7 +4,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use augustus_core::{
-    BuildingDefinition, Economy, InitialWorld, ProvinceEconomy, TradeGoodDefinition, TradeNode,
+    BuildingDefinition, BuildingRole, Economy, InitialWorld, ProvinceEconomy, TradeGoodDefinition,
+    TradeNode,
 };
 use jomini::text::{ObjectReader, ValueReader};
 use serde::Serialize;
@@ -24,6 +25,8 @@ pub struct EconomyReport {
     pub building_instances: usize,
     pub provinces_with_trade_goods: usize,
     pub definition_sources: BTreeMap<String, LoadedSource>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub overridden_definition_sources: BTreeMap<String, Vec<LoadedSource>>,
     pub building_history_sources: BTreeMap<String, LoadedSource>,
     pub unapplied_definition_fields: BTreeMap<String, usize>,
     pub unapplied_examples: BTreeMap<String, LoadedSource>,
@@ -139,14 +142,21 @@ fn definitions(
             if name.is_empty() || name.starts_with('@') {
                 return Err(fail("unsupported economic definition identifier"));
             }
-            if report
-                .definition_sources
-                .insert(format!("{kind}:{name}"), source(&parsed, location))
-                .is_some()
-            {
+            let key = format!("{kind}:{name}");
+            if report.definition_sources.contains_key(&key) && kind != "buildings" {
                 return Err(fail(
                     "duplicate economic definition; selection is not validated",
                 ));
+            }
+            if let Some(previous) = report
+                .definition_sources
+                .insert(key.clone(), source(&parsed, location))
+            {
+                report
+                    .overridden_definition_sources
+                    .entry(key)
+                    .or_default()
+                    .push(previous);
             }
             let reader = value
                 .read_object()
@@ -184,14 +194,14 @@ impl EconomyDraft {
                     let field = key.read_string();
                     let location = parsed.field_location(&key);
                     let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
-                    if matches!(field.as_str(), "cost" | "time") {
+                    if matches!(field.as_str(), "cost" | "time" | "influencing_fort") {
                         equal(op, &fail)?;
                         if !seen.insert(field.clone()) {
                             return Err(fail("duplicate building scalar"));
                         }
                         if field == "cost" {
                             building.cost_milli = Some(amount(value, &fail)?);
-                        } else {
+                        } else if field == "time" {
                             let months = scalar(value, &fail)?
                                 .parse::<u32>()
                                 .map_err(|_| fail("invalid construction months"))?;
@@ -199,6 +209,29 @@ impl EconomyDraft {
                                 return Err(fail("construction months must be positive"));
                             }
                             building.construction_months = Some(months);
+                        } else if field == "influencing_fort" && flag(value, &fail)? {
+                            building.role = BuildingRole::Fortification;
+                        }
+                    } else if field == "modifier" {
+                        equal(op, &fail)?;
+                        unapplied(parsed, "buildings", &field, location, report);
+                        let modifier = value
+                            .read_object()
+                            .map_err(|_| fail("building modifier requires a block"))?;
+                        for (modifier_key, modifier_op, modifier_value) in modifier
+                            .fields()
+                            .filter(|(key, _, _)| key.read_string() == "fort_level")
+                        {
+                            let modifier_at = parsed.field_location(&modifier_key);
+                            let modifier_fail = |message: &str| {
+                                Error::message(parsed.source(), message).with_location(modifier_at)
+                            };
+                            equal(modifier_op, &modifier_fail)?;
+                            if !seen.insert("fort_level".into()) {
+                                return Err(modifier_fail("duplicate fort level"));
+                            }
+                            building.fort_level_milli =
+                                Some(amount(modifier_value, &modifier_fail)?);
                         }
                     } else {
                         unapplied(parsed, "buildings", &field, location, report);
@@ -214,9 +247,19 @@ impl EconomyDraft {
             "tradegoods",
             report,
             |name, parsed, reader, report| {
-                draft
-                    .goods
-                    .insert(name.into(), TradeGoodDefinition::default());
+                let runtime_index = u32::try_from(draft.goods.len() + 1).map_err(|_| {
+                    Error::message(
+                        parsed.source(),
+                        "trade-good runtime index exceeds the supported range",
+                    )
+                })?;
+                draft.goods.insert(
+                    name.into(),
+                    TradeGoodDefinition {
+                        runtime_index: Some(runtime_index),
+                        ..Default::default()
+                    },
+                );
                 for (key, _, _) in reader.fields() {
                     unapplied(
                         parsed,

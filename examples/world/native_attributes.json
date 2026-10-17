@@ -44,6 +44,18 @@
       },
       "flags": {}
     },
+    "war": {
+      "values_micros": {
+        "global_autonomy": 0
+      },
+      "flags": {}
+    },
+    "peace": {
+      "values_micros": {
+        "global_autonomy": -100000
+      },
+      "flags": {}
+    },
     "base_values": {
       "values_micros": {
         "global_manpower": 8000000
@@ -93,6 +105,24 @@
     "legitimacy": {
       "values_micros": {
         "test_authority": 750000
+      },
+      "flags": {}
+    }
+  },
+  "government_rank_modifiers": {
+    "1": {
+      "values_micros": {},
+      "flags": {}
+    },
+    "2": {
+      "values_micros": {
+        "global_autonomy": -25000
+      },
+      "flags": {}
+    },
+    "3": {
+      "values_micros": {
+        "global_autonomy": -50000
       },
       "flags": {}
     }
@@ -982,6 +1012,61 @@
       }
     },
     "2": {
+      "province_autonomy_monthly_delta": {
+        "base": { "kind": "constant", "micros": 0 },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "scale",
+                "factor_micros": 10000,
+                "term": {
+                  "kind": "truncated_sum",
+                  "source": "eu4_monthly_autonomy_modifiers",
+                  "quantum_micros": 1,
+                  "terms": [
+                    { "kind": "administration", "mapping": "province_status", "property": "local_autonomy" },
+                    { "kind": "metrics", "target": "Current", "property": "local_autonomy" },
+                    { "kind": "metrics", "target": "Owner", "property": "global_autonomy" },
+                    { "kind": "buildings", "property": "local_autonomy" },
+                    { "kind": "trade_good", "property": "local_autonomy" },
+                    { "kind": "modifiers", "target": "Current", "property": "local_autonomy" },
+                    { "kind": "modifiers", "target": "Owner", "property": "global_autonomy" },
+                    { "kind": "estates", "target": "Owner", "property": "global_autonomy" },
+                    { "kind": "ideas", "target": "Owner", "property": "global_autonomy" },
+                    { "kind": "government", "target": "Owner", "property": "global_autonomy" },
+                    {
+                      "kind": "affiliation_relation",
+                      "dimension": "culture",
+                      "target": "Owner",
+                      "definitions": {
+                        "same_group": "same_culture_group",
+                        "other_group": "non_accepted_culture"
+                      },
+                      "property": "local_autonomy"
+                    },
+                    { "kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_autonomy" },
+                    { "kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_autonomy" },
+                    { "kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_autonomy" },
+                    { "kind": "static", "definition": "city", "property": "local_autonomy" },
+                    {
+                      "kind": "conditional",
+                      "condition": { "PoliticalStatus": { "target": "Owner", "name": "at_war" } },
+                      "then": [ { "kind": "static", "definition": "war", "property": "global_autonomy" } ],
+                      "otherwise": [ { "kind": "static", "definition": "peace", "property": "global_autonomy" } ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "result_quantum_micros": 10,
+        "unresolved": []
+      },
       "tax_basis": {
         "base": {
           "kind": "field",
@@ -1014,94 +1099,111 @@
             ],
             "rates": [
               {
-                "kind": "administration",
-                "mapping": "province_status",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "metrics",
-                "target": "Current",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "metrics",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "buildings",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "trade_good",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "modifiers",
-                "target": "Current",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "modifiers",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "estates",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "ideas",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "government",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "affiliation_relation",
-                "dimension": "culture",
-                "target": "Owner",
-                "definitions": {
-                  "same_group": "same_culture_group",
-                  "other_group": "non_accepted_culture"
-                },
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religion",
-                "target": "Current",
-                "scope": "province",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religion",
-                "target": "Owner",
-                "scope": "country",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religious_school",
-                "target": "Owner",
-                "scope": "country",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "static",
-                "definition": "city",
-                "property": "local_tax_modifier"
+                "kind": "product_of_sums",
+                "source": "province_tax_efficiency",
+                "factors": [
+                  [
+                    {
+                      "kind": "administration",
+                      "mapping": "province_status",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Current",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "buildings",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "trade_good",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "estates",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "ideas",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "government",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_relation",
+                      "dimension": "culture",
+                      "target": "Owner",
+                      "definitions": {
+                        "same_group": "same_culture_group",
+                        "other_group": "non_accepted_culture"
+                      },
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Current",
+                      "scope": "province",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religious_school",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "static",
+                      "definition": "city",
+                      "property": "local_tax_modifier"
+                    }
+                  ],
+                  [
+                    {
+                      "kind": "constant",
+                      "source": "tax_efficiency_baseline",
+                      "micros": 1000000
+                    }
+                  ]
+                ],
+                "quantum_micros": 1000
               }
             ]
           }
         ],
-        "minimum_micros": null,
+        "minimum_micros": 0,
         "maximum_micros": null,
+        "result_quantum_micros": 1000,
         "unresolved": [
           "autonomy_and_state_rules",
           "other_government_estate_and_country_effects",
@@ -1251,106 +1353,117 @@
             ],
             "rates": [
               {
-                "kind": "administration",
-                "mapping": "province_status",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "metrics",
-                "target": "Current",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "metrics",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "buildings",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "trade_good",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "modifiers",
-                "target": "Current",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "modifiers",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "estates",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "ideas",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "government",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "affiliation_relation",
-                "dimension": "culture",
-                "target": "Owner",
-                "definitions": {
-                  "same_group": "same_culture_group",
-                  "other_group": "non_accepted_culture"
-                },
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religion",
-                "target": "Current",
-                "scope": "province",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religion",
-                "target": "Owner",
-                "scope": "country",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religious_school",
-                "target": "Owner",
-                "scope": "country",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "static",
-                "definition": "city",
-                "property": "local_tax_modifier"
-              }
-            ]
-          },
-          {
-            "flat": [],
-            "rates": [
-              {
-                "kind": "autonomy"
+                "kind": "product_of_sums",
+                "source": "province_tax_efficiency_and_autonomy",
+                "factors": [
+                  [
+                    {
+                      "kind": "administration",
+                      "mapping": "province_status",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Current",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "buildings",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "trade_good",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "estates",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "ideas",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "government",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_relation",
+                      "dimension": "culture",
+                      "target": "Owner",
+                      "definitions": {
+                        "same_group": "same_culture_group",
+                        "other_group": "non_accepted_culture"
+                      },
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Current",
+                      "scope": "province",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religious_school",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "static",
+                      "definition": "city",
+                      "property": "local_tax_modifier"
+                    }
+                  ],
+                  [
+                    {
+                      "kind": "constant",
+                      "source": "autonomy_factor_base",
+                      "micros": 1000000
+                    },
+                    {
+                      "kind": "autonomy"
+                    }
+                  ]
+                ],
+                "quantum_micros": 1000
               }
             ]
           }
         ],
-        "minimum_micros": null,
+        "minimum_micros": 0,
         "maximum_micros": null,
+        "result_quantum_micros": 1000,
         "unresolved": [
           "other_government_estate_and_country_effects",
           "building_retention_conditions",
-          "original_runtime_comparison",
           "culture_government_effects",
           "tolerance_and_religious_mechanics"
         ]
@@ -1472,6 +1585,60 @@
       }
     },
     "3": {
+      "province_autonomy_monthly_delta": {
+        "base": { "kind": "constant", "micros": 0 },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "scale",
+                "factor_micros": 10000,
+                "term": {
+                  "kind": "truncated_sum",
+                  "source": "eu4_monthly_autonomy_modifiers",
+                  "quantum_micros": 1,
+                  "terms": [
+                    { "kind": "administration", "mapping": "province_status", "property": "local_autonomy" },
+                    { "kind": "metrics", "target": "Current", "property": "local_autonomy" },
+                    { "kind": "metrics", "target": "Owner", "property": "global_autonomy" },
+                    { "kind": "buildings", "property": "local_autonomy" },
+                    { "kind": "trade_good", "property": "local_autonomy" },
+                    { "kind": "modifiers", "target": "Current", "property": "local_autonomy" },
+                    { "kind": "modifiers", "target": "Owner", "property": "global_autonomy" },
+                    { "kind": "estates", "target": "Owner", "property": "global_autonomy" },
+                    { "kind": "ideas", "target": "Owner", "property": "global_autonomy" },
+                    { "kind": "government", "target": "Owner", "property": "global_autonomy" },
+                    {
+                      "kind": "affiliation_relation",
+                      "dimension": "culture",
+                      "target": "Owner",
+                      "definitions": {
+                        "same_group": "same_culture_group",
+                        "other_group": "non_accepted_culture"
+                      },
+                      "property": "local_autonomy"
+                    },
+                    { "kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_autonomy" },
+                    { "kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_autonomy" },
+                    { "kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_autonomy" },
+                    {
+                      "kind": "conditional",
+                      "condition": { "PoliticalStatus": { "target": "Owner", "name": "at_war" } },
+                      "then": [ { "kind": "static", "definition": "war", "property": "global_autonomy" } ],
+                      "otherwise": [ { "kind": "static", "definition": "peace", "property": "global_autonomy" } ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "result_quantum_micros": 10,
+        "unresolved": ["city_status"]
+      },
       "tax_basis": {
         "base": {
           "kind": "field",
@@ -1504,89 +1671,106 @@
             ],
             "rates": [
               {
-                "kind": "administration",
-                "mapping": "province_status",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "metrics",
-                "target": "Current",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "metrics",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "buildings",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "trade_good",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "modifiers",
-                "target": "Current",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "modifiers",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "estates",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "ideas",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "government",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "affiliation_relation",
-                "dimension": "culture",
-                "target": "Owner",
-                "definitions": {
-                  "same_group": "same_culture_group",
-                  "other_group": "non_accepted_culture"
-                },
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religion",
-                "target": "Current",
-                "scope": "province",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religion",
-                "target": "Owner",
-                "scope": "country",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religious_school",
-                "target": "Owner",
-                "scope": "country",
-                "property": "global_tax_modifier"
+                "kind": "product_of_sums",
+                "source": "province_tax_efficiency",
+                "factors": [
+                  [
+                    {
+                      "kind": "administration",
+                      "mapping": "province_status",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Current",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "buildings",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "trade_good",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "estates",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "ideas",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "government",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_relation",
+                      "dimension": "culture",
+                      "target": "Owner",
+                      "definitions": {
+                        "same_group": "same_culture_group",
+                        "other_group": "non_accepted_culture"
+                      },
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Current",
+                      "scope": "province",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religious_school",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_tax_modifier"
+                    }
+                  ],
+                  [
+                    {
+                      "kind": "constant",
+                      "source": "tax_efficiency_baseline",
+                      "micros": 1000000
+                    }
+                  ]
+                ],
+                "quantum_micros": 1000
               }
             ]
           }
         ],
-        "minimum_micros": null,
+        "minimum_micros": 0,
         "maximum_micros": null,
+        "result_quantum_micros": 1000,
         "unresolved": [
           "autonomy_and_state_rules",
           "other_government_estate_and_country_effects",
@@ -1733,101 +1917,112 @@
             ],
             "rates": [
               {
-                "kind": "administration",
-                "mapping": "province_status",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "metrics",
-                "target": "Current",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "metrics",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "buildings",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "trade_good",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "modifiers",
-                "target": "Current",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "modifiers",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "estates",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "ideas",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "government",
-                "target": "Owner",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "affiliation_relation",
-                "dimension": "culture",
-                "target": "Owner",
-                "definitions": {
-                  "same_group": "same_culture_group",
-                  "other_group": "non_accepted_culture"
-                },
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religion",
-                "target": "Current",
-                "scope": "province",
-                "property": "local_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religion",
-                "target": "Owner",
-                "scope": "country",
-                "property": "global_tax_modifier"
-              },
-              {
-                "kind": "affiliation_modifiers",
-                "dimension": "religious_school",
-                "target": "Owner",
-                "scope": "country",
-                "property": "global_tax_modifier"
-              }
-            ]
-          },
-          {
-            "flat": [],
-            "rates": [
-              {
-                "kind": "autonomy"
+                "kind": "product_of_sums",
+                "source": "province_tax_efficiency_and_autonomy",
+                "factors": [
+                  [
+                    {
+                      "kind": "administration",
+                      "mapping": "province_status",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Current",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "buildings",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "trade_good",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "estates",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "ideas",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "government",
+                      "target": "Owner",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_relation",
+                      "dimension": "culture",
+                      "target": "Owner",
+                      "definitions": {
+                        "same_group": "same_culture_group",
+                        "other_group": "non_accepted_culture"
+                      },
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Current",
+                      "scope": "province",
+                      "property": "local_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_tax_modifier"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religious_school",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_tax_modifier"
+                    }
+                  ],
+                  [
+                    {
+                      "kind": "constant",
+                      "source": "autonomy_factor_base",
+                      "micros": 1000000
+                    },
+                    {
+                      "kind": "autonomy"
+                    }
+                  ]
+                ],
+                "quantum_micros": 1000
               }
             ]
           }
         ],
-        "minimum_micros": null,
+        "minimum_micros": 0,
         "maximum_micros": null,
+        "result_quantum_micros": 1000,
         "unresolved": [
           "other_government_estate_and_country_effects",
           "building_retention_conditions",
-          "original_runtime_comparison",
           "city_status",
           "culture_government_effects",
           "tolerance_and_religious_mechanics"

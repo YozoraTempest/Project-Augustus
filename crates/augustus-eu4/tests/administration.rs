@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_eu4::VanillaWorld;
+use augustus_eu4::{VanillaExternalState, VanillaWorld};
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -44,6 +45,16 @@ fn raw(world: &VanillaWorld, province: u32) -> Option<i64> {
         .administration
         .unwrap()
         .raw_autonomy_micros
+}
+
+#[test]
+fn external_raw_autonomy_binds_before_monthly_rules_run() {
+    let state = VanillaExternalState {
+        province_raw_autonomy_milli: BTreeMap::from([(1, Some(3_500))]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    assert_eq!(raw(&loaded, 1), Some(35_000));
 }
 
 fn identities(root: &Path) {
@@ -114,12 +125,130 @@ fn cultural_religious_core_and_rank_inputs_generate_initial_values() {
             ),
         );
         let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+        assert!(
+            !loaded
+                .report
+                .unapplied_country_fields
+                .contains_key("government_rank")
+        );
+        assert!(
+            !loaded
+                .report
+                .unapplied_country_fields
+                .contains_key("add_accepted_culture")
+        );
         assert_eq!(
             raw(&loaded, 1),
             Some(expected),
             "rank={rank}, culture={culture}, religion={religion}, {accepted}"
         );
     }
+}
+
+#[test]
+fn initial_autonomy_uses_rank_global_autonomy_value_not_rank_number() {
+    let temp = copy_fixture();
+    identities(temp.path());
+    write(
+        temp.path(),
+        "history/countries/BBB - Beta.txt",
+        "capital = 1 primary_culture = beta religion = test_faith government_rank = 3 add_accepted_culture = alpha",
+    );
+    write(
+        temp.path(),
+        "history/provinces/1 - North.txt",
+        "owner = BBB controller = BBB add_core = BBB add_core = AAA culture = alpha religion = test_faith",
+    );
+
+    let negative_rank_modifier = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        negative_rank_modifier
+            .report
+            .administration
+            .initial_country_ranks["BBB"],
+        3
+    );
+    assert_eq!(raw(&negative_rank_modifier, 1), Some(35_000));
+    assert_eq!(
+        negative_rank_modifier
+            .report
+            .attributes
+            .government_rank_definitions,
+        2
+    );
+    assert!(
+        !negative_rank_modifier
+            .report
+            .attributes
+            .unmapped_properties
+            .contains_key("government_ranks:global_autonomy")
+    );
+
+    write(
+        temp.path(),
+        "common/government_ranks/test.txt",
+        "2 = { global_autonomy = -0.025 } 3 = { global_autonomy = 0 }",
+    );
+    let zero_rank_modifier = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        zero_rank_modifier
+            .report
+            .administration
+            .initial_country_ranks["BBB"],
+        3
+    );
+    assert_eq!(raw(&zero_rank_modifier, 1), Some(70_000));
+
+    write(
+        temp.path(),
+        "common/government_ranks/test.txt",
+        "2 = { global_autonomy = -0.025 } 3 = { global_autonomy = 0.05 }",
+    );
+    let positive_rank_modifier = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        positive_rank_modifier
+            .report
+            .administration
+            .initial_country_ranks["BBB"],
+        3
+    );
+    assert_eq!(raw(&positive_rank_modifier, 1), Some(70_000));
+}
+
+#[test]
+fn duplicate_government_rank_definition_keeps_initial_autonomy_unknown() {
+    let temp = copy_fixture();
+    identities(temp.path());
+    write(
+        temp.path(),
+        "history/countries/BBB - Beta.txt",
+        "capital = 1 primary_culture = beta religion = test_faith government_rank = 3 add_accepted_culture = alpha",
+    );
+    write(
+        temp.path(),
+        "history/provinces/1 - North.txt",
+        "owner = BBB controller = BBB add_core = BBB add_core = AAA culture = alpha religion = test_faith",
+    );
+    write(
+        temp.path(),
+        "common/government_ranks/duplicate.txt",
+        "3 = { global_autonomy = 0 }",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(loaded.report.attributes.government_rank_definitions, 1);
+    assert_eq!(
+        loaded.report.attributes.ambiguous_definitions["government_ranks:3"].len(),
+        2
+    );
+    assert_eq!(raw(&loaded, 1), None);
+    assert!(
+        loaded
+            .report
+            .administration
+            .unknown_initial_autonomy
+            .contains(&1)
+    );
 }
 
 #[test]
@@ -237,6 +366,10 @@ fn fixed_reforms_subject_inheritance_and_emperor_rank_affect_initialization() {
     let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     assert_eq!(raw(&loaded, 1), Some(275_000));
     assert_eq!(loaded.report.administration.initial_country_ranks["BBB"], 3);
+    assert_eq!(
+        loaded.country("BBB").unwrap().government.unwrap().rank,
+        Some(3)
+    );
     // Conflicting fixed ranks remain ambiguous rather than selecting an arbitrary reform.
     append(
         temp.path(),
@@ -389,7 +522,7 @@ fn initialized_noncapital_autonomy_reduces_shared_attribute_subtotals() {
     assert_eq!(administration.effective_autonomy_micros, Some(300_000));
     assert_eq!(
         north.attributes["tax_after_autonomy"].known_subtotal_micros,
-        Some(1_636_250)
+        Some(148_000)
     );
     assert_eq!(
         north.attributes["manpower_after_autonomy"].known_subtotal_micros,

@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use augustus_core::{
     AdministrativeCategory, AffiliationEffect, AffiliationRelation, AttributeBase,
-    AttributeChannel, AttributeFormula, AttributeTerm, Attributes, InitialWorld, ProvinceClass,
-    Target,
+    AttributeChannel, AttributeFormula, AttributeTerm, Attributes, Condition, InitialWorld,
+    ProvinceClass, Target,
 };
 use serde::Serialize;
 
@@ -18,16 +18,24 @@ use crate::{
 };
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
+const ATTRIBUTE_ONE_MICROS: i64 = 1_000_000;
+const AUTONOMY_MONTHLY_SCALE_MICROS: i64 = 10_000;
+// One game autonomy tick is 0.001 percentage points, or 10 ratio millionths.
+const AUTONOMY_MONTHLY_QUANTUM_MICROS: i64 = 10;
 pub(super) const ATTRIBUTE_NAMES: [&str; 4] = [
     "tax_basis",
     "manpower_contribution",
     "tax_after_autonomy",
     "manpower_after_autonomy",
 ];
+pub(super) const COUNTRY_ANNUAL_TAX: &str = "country_annual_tax";
+
+const GLOBAL_TAX_INCOME: &str = "global_tax_income";
 
 #[derive(Debug, Default, Serialize)]
 pub struct AttributeReport {
     pub static_definitions: usize,
+    pub government_rank_definitions: usize,
     pub building_definitions: usize,
     pub trade_good_definitions: usize,
     pub religion_definitions: usize,
@@ -35,6 +43,8 @@ pub struct AttributeReport {
     pub province_calculations: usize,
     pub manpower_per_base_micros: i64,
     pub definition_sources: BTreeMap<String, LoadedSource>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub overridden_definition_sources: BTreeMap<String, Vec<LoadedSource>>,
     pub unapplied_definition_fields: BTreeMap<String, usize>,
     pub unapplied_examples: BTreeMap<String, LoadedSource>,
     pub unmapped_properties: BTreeMap<String, usize>,
@@ -82,18 +92,13 @@ pub(super) struct AttributeDraft {
     manpower_per_base: i64,
 }
 
-/// Reads only the selected literal in the base file's explicit NMilitary block.
-/// Expressions and assignments in additional define files require Lua support.
-fn manpower_define(
-    root: &impl ContentView,
-    files: &[FileEntry],
-    report: &mut AttributeReport,
-) -> Result<i64, Error> {
-    let (value, at) = crate::defines::literal(root, files, "NMilitary", "BASE_MP_TO_MANPOWER")?;
+/// Reads the selected numeric result from the evaluated define session.
+fn manpower_define(defines: &crate::Defines, report: &mut AttributeReport) -> Result<i64, Error> {
+    let (value, at) = defines.required("NMilitary", "BASE_MP_TO_MANPOWER")?;
     let amount = value
         .checked_mul(1000)
         .filter(|v| *v > 0)
-        .ok_or_else(|| Error::message(&at.path, "expected positive literal manpower define"))?;
+        .ok_or_else(|| Error::message(&at.path, "expected positive manpower define"))?;
     report
         .definition_sources
         .insert("define:manpower_per_base".into(), at);
@@ -107,8 +112,11 @@ fn used_property(name: &str) -> bool {
         "local_tax_modifier"
             | "global_tax_modifier"
             | "tax_income"
+            | GLOBAL_TAX_INCOME
             | "local_manpower_modifier"
             | "global_manpower_modifier"
+            | "local_autonomy"
+            | "global_autonomy"
     )
 }
 
@@ -125,6 +133,7 @@ impl AttributeDraft {
     pub(super) fn load(
         root: &impl ContentView,
         files: &[FileEntry],
+        defines: &crate::Defines,
         report: &mut AttributeReport,
     ) -> Result<Self, Error> {
         let mut attributes = Attributes::default();
@@ -145,7 +154,7 @@ impl AttributeDraft {
                         return Err(fail("unsupported attribute definition identifier"));
                     }
                     let reader = block(&value, &fail)?;
-                    let definition = if kind == "static_modifiers" {
+                    let (definition, effect_field, effect_source) = if kind == "static_modifiers" {
                         let definition = properties(&parsed, reader.clone(), kind, &name, report)?;
                         static_unresolved.insert(
                             name.clone(),
@@ -158,7 +167,7 @@ impl AttributeDraft {
                                 })
                                 .collect(),
                         );
-                        definition
+                        (definition, None, None)
                     } else {
                         let field = if kind == "buildings" {
                             "modifier"
@@ -166,6 +175,7 @@ impl AttributeDraft {
                             "province"
                         };
                         let mut definition = None;
+                        let mut effect_source = None;
                         for (key, op, value) in
                             reader.fields().filter(|(k, _, _)| k.read_string() == field)
                         {
@@ -183,17 +193,22 @@ impl AttributeDraft {
                                 &name,
                                 report,
                             )?);
-                            report
-                                .definition_sources
-                                .insert(format!("{kind}:{name}:{field}"), source(&parsed, at));
+                            effect_source = Some(source(&parsed, at));
                         }
-                        definition.unwrap_or_default()
+                        (
+                            definition.unwrap_or_default(),
+                            Some(field.to_owned()),
+                            effect_source,
+                        )
                     };
                     for property in definition
                         .values_micros
                         .keys()
                         .chain(definition.flags.keys())
-                        .filter(|p| !used_property(p))
+                        .filter(|p| {
+                            !used_property(p)
+                                && !(kind == "buildings" && p.as_str() == "fort_level")
+                        })
                     {
                         *report
                             .unmapped_properties
@@ -219,15 +234,118 @@ impl AttributeDraft {
                             continue;
                         }
                     }
-                    if catalog.insert(name.clone(), definition).is_some() {
+                    if kind == "buildings" && catalog.contains_key(&name) {
+                        for source_key in [identifier.clone(), format!("{identifier}:modifier")] {
+                            if let Some(previous) = report.definition_sources.remove(&source_key) {
+                                report
+                                    .overridden_definition_sources
+                                    .entry(source_key)
+                                    .or_default()
+                                    .push(previous);
+                            }
+                        }
+                    } else if catalog.contains_key(&name) {
                         return Err(fail("duplicate attribute definition"));
                     }
+                    catalog.insert(name.clone(), definition);
                     report
                         .definition_sources
-                        .insert(identifier, source(&parsed, at));
+                        .insert(identifier.clone(), source(&parsed, at));
+                    if let (Some(field), Some(effect_source)) = (effect_field, effect_source) {
+                        report
+                            .definition_sources
+                            .insert(format!("{identifier}:{field}"), effect_source);
+                    }
                 }
             }
         }
+        let mut government_rank_definitions = 0_usize;
+        for file in files
+            .iter()
+            .filter(|f| direct_txt(&f.relative_path, "common/government_ranks"))
+        {
+            let doc = root.read_text(&file.relative_path, ENCODING)?;
+            let parsed = doc.parse()?;
+            for (key, op, value) in parsed.reader().fields() {
+                let name = key.read_string();
+                let at = parsed.field_location(&key);
+                let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
+                equal(op, &fail)?;
+                let rank = name
+                    .parse::<u8>()
+                    .ok()
+                    .filter(|rank| (1..=3).contains(rank))
+                    .ok_or_else(|| fail("unsupported government rank identifier"))?;
+                let rank_name = rank.to_string();
+                let identifier = format!("government_ranks:{rank}");
+                let reader = block(&value, &fail)?;
+                let definition = properties(
+                    &parsed,
+                    reader.clone(),
+                    "government_ranks",
+                    &rank_name,
+                    report,
+                )?;
+                let unresolved = reader
+                    .fields()
+                    .map(|(key, _, _)| key.read_string())
+                    .filter(|property| {
+                        !definition.values_micros.contains_key(property)
+                            && !definition.flags.contains_key(property)
+                    })
+                    .collect::<BTreeSet<_>>();
+                let origin = source(&parsed, at);
+                if let Some(origins) = report.ambiguous_definitions.get_mut(&identifier) {
+                    origins.push(origin);
+                    continue;
+                }
+                if let Some(first) = report.definition_sources.remove(&identifier) {
+                    attributes.government_rank_modifiers.remove(&rank);
+                    attributes
+                        .government_rank_unresolved_properties
+                        .remove(&rank);
+                    government_rank_definitions = government_rank_definitions.saturating_sub(1);
+                    report
+                        .ambiguous_definitions
+                        .insert(identifier, vec![first, origin]);
+                    continue;
+                }
+                for property in definition
+                    .values_micros
+                    .keys()
+                    .chain(definition.flags.keys())
+                    .filter(|property| {
+                        property.as_str() != "global_autonomy" && !used_property(property)
+                    })
+                {
+                    *report
+                        .unmapped_properties
+                        .entry(format!("government_ranks:{property}"))
+                        .or_default() += 1;
+                }
+                attributes
+                    .government_rank_modifiers
+                    .insert(rank, definition);
+                if !unresolved.is_empty() {
+                    attributes
+                        .government_rank_unresolved_properties
+                        .insert(rank, unresolved);
+                }
+                report.definition_sources.insert(identifier, origin);
+                government_rank_definitions += 1;
+            }
+        }
+        if government_rank_definitions > 0
+            && !attributes.government_rank_modifiers.contains_key(&1)
+            && !report
+                .ambiguous_definitions
+                .contains_key("government_ranks:1")
+        {
+            attributes
+                .government_rank_modifiers
+                .insert(1, augustus_core::ModifierDefinition::default());
+        }
+        report.government_rank_definitions = government_rank_definitions;
         report.static_definitions = attributes.static_modifiers.len();
         report.building_definitions = attributes.building_modifiers.len();
         report.trade_good_definitions = attributes.trade_good_modifiers.len();
@@ -240,7 +358,7 @@ impl AttributeDraft {
             })
             .map(|(name, properties)| (name.clone(), properties.clone()))
             .collect();
-        let manpower_per_base = manpower_define(root, files, report)?;
+        let manpower_per_base = manpower_define(defines, report)?;
         Ok(Self {
             attributes,
             static_unresolved,
@@ -414,9 +532,14 @@ impl AttributeDraft {
                     },
                 );
                 match province.is_city {
-                    Some(true) => {
-                        self.static_term(&mut channel, "city", local_rate, report, &mut unresolved)?
-                    }
+                    Some(true) => self.static_term(
+                        &mut channel,
+                        "city",
+                        local_rate,
+                        true,
+                        report,
+                        &mut unresolved,
+                    )?,
                     None => {
                         unresolved.insert("city_status".into());
                     }
@@ -427,6 +550,7 @@ impl AttributeDraft {
                         &mut channel,
                         "occupied",
                         local_rate,
+                        true,
                         report,
                         &mut unresolved,
                     )?,
@@ -436,6 +560,20 @@ impl AttributeDraft {
                     _ => (),
                 }
                 Self::ambiguities(initial, entity, &channel, report, setup, &mut unresolved);
+                let tax_efficiency_terms = (name == "tax_basis").then(|| channel.rates.clone());
+                if let Some(terms) = &tax_efficiency_terms {
+                    channel.rates = vec![AttributeTerm::ProductOfSums {
+                        source: "province_tax_efficiency".into(),
+                        factors: vec![
+                            terms.clone(),
+                            vec![AttributeTerm::Constant {
+                                source: "tax_efficiency_baseline".into(),
+                                micros: ATTRIBUTE_ONE_MICROS,
+                            }],
+                        ],
+                        quantum_micros: 1000,
+                    }];
+                }
                 let formula = AttributeFormula {
                     base: if base.is_some() {
                         AttributeBase::Field {
@@ -448,26 +586,178 @@ impl AttributeDraft {
                         }
                     },
                     channels: vec![channel],
-                    minimum_micros: None,
+                    minimum_micros: (name == "tax_basis").then_some(0),
                     maximum_micros: None,
+                    result_quantum_micros: tax_efficiency_terms.as_ref().map(|_| 1000),
                     unresolved,
                 };
                 let mut after_autonomy = formula.clone();
-                after_autonomy.channels.push(AttributeChannel {
-                    flat: Vec::new(),
-                    rates: vec![AttributeTerm::Autonomy],
-                });
                 after_autonomy.unresolved.remove("autonomy_and_state_rules");
                 let derived = if name == "tax_basis" {
                     "tax_after_autonomy"
                 } else {
                     "manpower_after_autonomy"
                 };
+                if let Some(efficiency_terms) = tax_efficiency_terms {
+                    after_autonomy.channels[0].rates = vec![AttributeTerm::ProductOfSums {
+                        source: "province_tax_efficiency_and_autonomy".into(),
+                        factors: vec![
+                            efficiency_terms,
+                            vec![
+                                AttributeTerm::Constant {
+                                    source: "autonomy_factor_base".into(),
+                                    micros: ATTRIBUTE_ONE_MICROS,
+                                },
+                                AttributeTerm::Autonomy,
+                            ],
+                        ],
+                        quantum_micros: 1000,
+                    }];
+                    after_autonomy.result_quantum_micros = Some(1000);
+                    after_autonomy
+                        .unresolved
+                        .remove("original_runtime_comparison");
+                } else {
+                    after_autonomy.channels.push(AttributeChannel {
+                        flat: Vec::new(),
+                        rates: vec![AttributeTerm::Autonomy],
+                    });
+                }
                 formulas.insert(derived.into(), after_autonomy);
                 formulas.insert(name.into(), formula);
             }
+            formulas.insert(
+                augustus_core::MONTHLY_AUTONOMY_DELTA_ATTRIBUTE.into(),
+                self.monthly_autonomy_formula(initial, entity, province, report, setup)?,
+            );
             report.province_calculations += formulas.len();
             self.attributes.formulas.insert(entity, formulas);
+        }
+
+        let all_nations_ambiguous = report
+            .ambiguous_definitions
+            .contains_key("static_modifiers:all_nations");
+        let all_nations_tax_ambiguous = report
+            .ambiguous_properties
+            .contains_key(&format!("static_modifiers:all_nations:{GLOBAL_TAX_INCOME}"));
+        let all_nations_tax_unsupported = self
+            .static_unresolved
+            .get("all_nations")
+            .is_some_and(|properties| properties.contains(GLOBAL_TAX_INCOME));
+        let all_nations_tax_is_flag = self
+            .attributes
+            .static_modifiers
+            .get("all_nations")
+            .is_some_and(|definition| definition.flags.contains_key(GLOBAL_TAX_INCOME));
+        let has_all_nations_source =
+            self.attributes.static_modifiers.contains_key("all_nations") || all_nations_ambiguous;
+
+        if has_all_nations_source {
+            let free_city_tax_key =
+                format!("static_modifiers:free_cities_in_hre:{GLOBAL_TAX_INCOME}");
+            let free_city_definition_ambiguous = report
+                .ambiguous_definitions
+                .contains_key("static_modifiers:free_cities_in_hre");
+            let free_city_tax_ambiguous =
+                report.ambiguous_properties.contains_key(&free_city_tax_key);
+            let free_city_tax_unsupported = self
+                .static_unresolved
+                .get("free_cities_in_hre")
+                .is_some_and(|properties| properties.contains(GLOBAL_TAX_INCOME));
+            let free_city_tax_is_flag = self
+                .attributes
+                .static_modifiers
+                .get("free_cities_in_hre")
+                .is_some_and(|definition| definition.flags.contains_key(GLOBAL_TAX_INCOME));
+            let free_city_tax_unknown = free_city_definition_ambiguous
+                || free_city_tax_ambiguous
+                || free_city_tax_unsupported
+                || free_city_tax_is_flag;
+            let free_city_value_present = self
+                .attributes
+                .static_modifiers
+                .get("free_cities_in_hre")
+                .is_some_and(|definition| definition.values_micros.contains_key(GLOBAL_TAX_INCOME));
+            let free_city_tax_term = if free_city_tax_unknown {
+                Some(AttributeTerm::Unknown {
+                    reason: "emperor_free_city_tax_source_unresolved".into(),
+                })
+            } else if free_city_value_present {
+                Some(AttributeTerm::CountedStaticModifier {
+                    definition: "free_cities_in_hre".into(),
+                    property: GLOBAL_TAX_INCOME.into(),
+                    reform: "free_city".into(),
+                    affiliation_dimension: crate::imperial_membership::DIMENSION.into(),
+                    affiliation_member: "hre".into(),
+                })
+            } else {
+                None
+            };
+
+            for country in initial.countries() {
+                let entity = initial
+                    .country_entity(&country.id)
+                    .expect("registered country");
+                let mut formulas = self.attributes.formulas.remove(&entity).unwrap_or_default();
+                let mut unresolved = BTreeSet::new();
+
+                let source_unresolved = all_nations_ambiguous
+                    || all_nations_tax_ambiguous
+                    || all_nations_tax_unsupported
+                    || all_nations_tax_is_flag;
+                let (base, mut channels) = if source_unresolved {
+                    unresolved.insert("all_nations_tax_source_unresolved".into());
+                    (
+                        AttributeBase::Unknown {
+                            reason: "all_nations_tax_source_unresolved".into(),
+                        },
+                        Vec::new(),
+                    )
+                } else {
+                    (
+                        AttributeBase::Constant { micros: 0 },
+                        vec![AttributeChannel {
+                            flat: vec![AttributeTerm::Conditional {
+                                condition: Box::new(Condition::HasOwnedProvince {
+                                    target: Target::Current,
+                                }),
+                                then: vec![AttributeTerm::Static {
+                                    definition: "all_nations".into(),
+                                    property: GLOBAL_TAX_INCOME.into(),
+                                }],
+                                otherwise: vec![AttributeTerm::Unknown {
+                                    reason: "all_nations_landless_country_type_unresolved".into(),
+                                }],
+                            }],
+                            rates: Vec::new(),
+                        }],
+                    )
+                };
+                if free_city_tax_term.is_some() && channels.is_empty() {
+                    channels.push(AttributeChannel {
+                        flat: Vec::new(),
+                        rates: Vec::new(),
+                    });
+                }
+                if let Some(term) = &free_city_tax_term {
+                    channels[0].flat.push(AttributeTerm::OfficeScoped {
+                        office: "imperial_emperor".into(),
+                        term: Box::new(term.clone()),
+                    });
+                }
+                formulas.insert(
+                    COUNTRY_ANNUAL_TAX.into(),
+                    AttributeFormula {
+                        base,
+                        channels,
+                        minimum_micros: None,
+                        maximum_micros: None,
+                        result_quantum_micros: None,
+                        unresolved,
+                    },
+                );
+                self.attributes.formulas.insert(entity, formulas);
+            }
         }
         Ok(self.attributes)
     }
@@ -477,14 +767,20 @@ impl AttributeDraft {
         channel: &mut AttributeChannel,
         definition: &str,
         property: &str,
+        is_rate: bool,
         report: &AttributeReport,
         unresolved: &mut BTreeSet<String>,
     ) -> Result<(), Error> {
         if self.attributes.static_modifiers.contains_key(definition) {
-            channel.rates.push(AttributeTerm::Static {
+            let term = AttributeTerm::Static {
                 definition: definition.into(),
                 property: property.into(),
-            });
+            };
+            if is_rate {
+                channel.rates.push(term);
+            } else {
+                channel.flat.push(term);
+            }
         } else if report
             .ambiguous_definitions
             .contains_key(&format!("static_modifiers:{definition}"))
@@ -497,6 +793,162 @@ impl AttributeDraft {
             ));
         }
         Ok(())
+    }
+
+    fn monthly_autonomy_formula(
+        &self,
+        initial: &InitialWorld,
+        entity: augustus_core::EntityId,
+        province: &augustus_core::ProvinceState,
+        report: &mut AttributeReport,
+        setup: &SetupReport,
+    ) -> Result<AttributeFormula, Error> {
+        let mut unresolved = BTreeSet::new();
+        if !(1..=3).all(|rank| {
+            self.attributes
+                .government_rank_modifiers
+                .contains_key(&rank)
+        }) {
+            unresolved.insert("government_ranks:incomplete".into());
+        }
+        let mut sources = AttributeChannel {
+            flat: vec![
+                AttributeTerm::Administration {
+                    mapping: "province_status".into(),
+                    property: "local_autonomy".into(),
+                },
+                AttributeTerm::Metrics {
+                    target: Target::Current,
+                    property: "local_autonomy".into(),
+                },
+                AttributeTerm::Metrics {
+                    target: Target::Owner,
+                    property: "global_autonomy".into(),
+                },
+                AttributeTerm::Buildings {
+                    property: "local_autonomy".into(),
+                },
+                AttributeTerm::TradeGood {
+                    property: "local_autonomy".into(),
+                },
+                AttributeTerm::Modifiers {
+                    target: Target::Current,
+                    property: "local_autonomy".into(),
+                },
+                AttributeTerm::Modifiers {
+                    target: Target::Owner,
+                    property: "global_autonomy".into(),
+                },
+                AttributeTerm::Estates {
+                    target: Target::Owner,
+                    property: "global_autonomy".into(),
+                },
+                AttributeTerm::Ideas {
+                    target: Target::Owner,
+                    property: "global_autonomy".into(),
+                },
+                AttributeTerm::Government {
+                    target: Target::Owner,
+                    property: "global_autonomy".into(),
+                },
+                AttributeTerm::AffiliationRelation {
+                    dimension: "culture".into(),
+                    target: Target::Owner,
+                    definitions: [
+                        (AffiliationRelation::SameGroup, "same_culture_group".into()),
+                        (
+                            AffiliationRelation::OtherGroup,
+                            "non_accepted_culture".into(),
+                        ),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    property: "local_autonomy".into(),
+                },
+                AttributeTerm::AffiliationModifiers {
+                    dimension: "religion".into(),
+                    target: Target::Current,
+                    scope: "province".into(),
+                    property: "local_autonomy".into(),
+                },
+                AttributeTerm::AffiliationModifiers {
+                    dimension: "religion".into(),
+                    target: Target::Owner,
+                    scope: "country".into(),
+                    property: "global_autonomy".into(),
+                },
+                AttributeTerm::AffiliationModifiers {
+                    dimension: "religious_school".into(),
+                    target: Target::Owner,
+                    scope: "country".into(),
+                    property: "global_autonomy".into(),
+                },
+            ],
+            rates: Vec::new(),
+        };
+        match province.is_city {
+            Some(true) => self.static_term(
+                &mut sources,
+                "city",
+                "local_autonomy",
+                false,
+                report,
+                &mut unresolved,
+            )?,
+            None => {
+                unresolved.insert("city_status".into());
+            }
+            _ => (),
+        }
+        match (&province.owner, &province.controller) {
+            (Some(owner), Some(controller)) if owner != controller => self.static_term(
+                &mut sources,
+                "occupied",
+                "local_autonomy",
+                false,
+                report,
+                &mut unresolved,
+            )?,
+            (Some(_), None) => {
+                unresolved.insert("controller".into());
+            }
+            _ => (),
+        }
+        Self::ambiguities(initial, entity, &sources, report, setup, &mut unresolved);
+
+        let mut inputs = sources.flat;
+        inputs.push(AttributeTerm::Conditional {
+            condition: Box::new(Condition::PoliticalStatus {
+                target: Target::Owner,
+                name: "at_war".into(),
+            }),
+            then: vec![AttributeTerm::Static {
+                definition: "war".into(),
+                property: "global_autonomy".into(),
+            }],
+            otherwise: vec![AttributeTerm::Static {
+                definition: "peace".into(),
+                property: "global_autonomy".into(),
+            }],
+        });
+        Ok(AttributeFormula {
+            base: AttributeBase::Constant { micros: 0 },
+            channels: vec![AttributeChannel {
+                flat: vec![AttributeTerm::Scale {
+                    factor_micros: AUTONOMY_MONTHLY_SCALE_MICROS,
+                    term: Box::new(AttributeTerm::TruncatedSum {
+                        source: "eu4_monthly_autonomy_modifiers".into(),
+                        quantum_micros: 1,
+                        terms: inputs,
+                    }),
+                }],
+                rates: Vec::new(),
+            }],
+            minimum_micros: None,
+            maximum_micros: None,
+            result_quantum_micros: Some(AUTONOMY_MONTHLY_QUANTUM_MICROS),
+            unresolved,
+        })
     }
 
     fn religions(

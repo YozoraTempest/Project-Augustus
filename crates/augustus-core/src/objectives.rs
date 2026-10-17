@@ -71,6 +71,17 @@ impl Objectives {
 // branch is unavailable. Unresolved errors never become a false predicate.
 fn eligibility(condition: &Condition, world: &World, entity: EntityId) -> Result<bool, Error> {
     match condition {
+        Condition::If {
+            condition,
+            then,
+            otherwise,
+        } => {
+            if eligibility(condition, world, entity)? {
+                eligibility(then, world, entity)
+            } else {
+                eligibility(otherwise, world, entity)
+            }
+        }
         Condition::All(children) | Condition::Any(children) => {
             let all = matches!(condition, Condition::All(_));
             let mut pending = None;

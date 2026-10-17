@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use crate::bootstrap::equal;
+use crate::bootstrap::{direct_txt, equal};
 use crate::setup::{PropertyDiagnostics, block, flag};
-use crate::{Error, ParsedText, TextEncoding};
+use crate::{ContentView, Error, FileEntry, ParsedText, TextEncoding};
 
 type EstateLookup<'a> = Option<&'a dyn Fn(&str) -> Option<bool>>;
 use augustus_core::InitialWorld;
@@ -33,10 +33,218 @@ pub(super) enum Condition {
     If(Box<Self>, Box<Self>),
     Capital(Vec<Self>),
     Region(String, bool),
+    CurrentAge(CurrentAgePredicate),
+    MapSetup(String),
     Unknown(#[serde(skip)] String),
 }
 
+#[derive(Clone, Copy, serde::Serialize)]
+enum AgeCanStart {
+    Always,
+    Never,
+    Conditional,
+}
+
+#[derive(Clone, Copy, serde::Serialize)]
+struct AgeRule {
+    start_year: i16,
+    can_start: AgeCanStart,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct AgeRules {
+    ages: BTreeMap<String, Option<AgeRule>>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ConditionCompileOptions<'a> {
+    library: Option<&'a BTreeMap<String, Condition>>,
+    age_rules: Option<&'a AgeRules>,
+    skip_limit: bool,
+}
+
+impl<'a> ConditionCompileOptions<'a> {
+    pub(super) fn new(
+        library: Option<&'a BTreeMap<String, Condition>>,
+        age_rules: Option<&'a AgeRules>,
+        skip_limit: bool,
+    ) -> Self {
+        Self {
+            library,
+            age_rules,
+            skip_limit,
+        }
+    }
+
+    fn with_skip_limit(self, skip_limit: bool) -> Self {
+        Self { skip_limit, ..self }
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+pub(super) struct CurrentAgePredicate {
+    name: String,
+    ages: BTreeMap<String, Option<AgeRule>>,
+}
+
+impl AgeRules {
+    pub(crate) fn load(root: &impl ContentView, files: &[FileEntry]) -> Result<Self, Error> {
+        let mut rules = BTreeMap::new();
+        for file in files
+            .iter()
+            .filter(|file| direct_txt(&file.relative_path, "common/ages"))
+        {
+            let document = root.read_text(&file.relative_path, TextEncoding::Windows1252)?;
+            let parsed = document.parse()?;
+            for (key, operator, value) in parsed.reader().fields() {
+                let name = key.read_string();
+                if name.starts_with('@') {
+                    continue;
+                }
+                let at = parsed.field_location(&key);
+                let fail =
+                    |message: &str| Error::message(parsed.source(), message).with_location(at);
+                equal(operator, &fail)?;
+                let mut start_year = None;
+                let mut can_start = AgeCanStart::Conditional;
+                let mut has_can_start = false;
+                let mut invalid = false;
+                for (field, operator, value) in block(&value, &fail)?.fields() {
+                    let field_name = field.read_string();
+                    match field_name.as_str() {
+                        "start" if start_year.is_none() => {
+                            equal(operator, &fail)?;
+                            start_year = value
+                                .read_string()
+                                .ok()
+                                .and_then(|text| text.parse::<i16>().ok())
+                                .filter(|year| *year > 0);
+                            invalid |= start_year.is_none();
+                        }
+                        "start" => invalid = true,
+                        "can_start" if !has_can_start => {
+                            equal(operator, &fail)?;
+                            has_can_start = true;
+                            let conditions: Vec<_> = block(&value, &fail)?.fields().collect();
+                            can_start = match conditions.as_slice() {
+                                [(condition, operator, value)]
+                                    if condition.read_string() == "always"
+                                        && operator.is_none() =>
+                                {
+                                    match value.read_string().ok().as_deref() {
+                                        Some("yes") => AgeCanStart::Always,
+                                        Some("no") => AgeCanStart::Never,
+                                        _ => AgeCanStart::Conditional,
+                                    }
+                                }
+                                _ => AgeCanStart::Conditional,
+                            };
+                        }
+                        "can_start" => invalid = true,
+                        _ => (),
+                    }
+                }
+                let rule = if invalid {
+                    None
+                } else {
+                    start_year.map(|start_year| AgeRule {
+                        start_year,
+                        can_start,
+                    })
+                };
+                match rules.entry(name) {
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(rule);
+                    }
+                    std::collections::btree_map::Entry::Occupied(mut entry) => {
+                        entry.insert(None);
+                    }
+                }
+            }
+        }
+        Ok(Self { ages: rules })
+    }
+
+    fn predicate(&self, name: &str) -> Option<CurrentAgePredicate> {
+        self.ages.get(name)?.as_ref()?;
+        Some(CurrentAgePredicate {
+            name: name.into(),
+            ages: self.ages.clone(),
+        })
+    }
+}
+
+impl CurrentAgePredicate {
+    fn evaluate(&self, year: i16) -> Option<bool> {
+        let target = self.ages.get(&self.name)?.as_ref()?;
+        if year < target.start_year {
+            return Some(false);
+        }
+
+        let later_ages: Vec<_> = self
+            .ages
+            .iter()
+            .filter_map(|(name, rule)| {
+                rule.as_ref()
+                    .filter(|rule| rule.start_year >= target.start_year && name != &self.name)
+                    .map(|rule| (name, rule))
+            })
+            .collect();
+        if later_ages
+            .iter()
+            .any(|(_, rule)| rule.start_year == target.start_year)
+        {
+            return None;
+        }
+        if later_ages.iter().any(|(_, rule)| {
+            rule.start_year <= year && matches!(rule.can_start, AgeCanStart::Always)
+        }) {
+            return Some(false);
+        }
+        match target.can_start {
+            AgeCanStart::Never => return Some(false),
+            AgeCanStart::Conditional => return None,
+            AgeCanStart::Always => (),
+        }
+        if self.ages.values().any(Option::is_none) {
+            return None;
+        }
+        if later_ages.iter().any(|(_, rule)| {
+            rule.start_year <= year && matches!(rule.can_start, AgeCanStart::Conditional)
+        }) {
+            return None;
+        }
+        Some(true)
+    }
+}
+
 impl Condition {
+    pub(super) fn collect_global_marker_references(&self, names: &mut BTreeSet<String>) {
+        match self {
+            Self::All(conditions) | Self::Any(conditions) | Self::None(conditions) => {
+                for condition in conditions {
+                    condition.collect_global_marker_references(names);
+                }
+            }
+            Self::Numeric(condition)
+            | Self::Scoped(condition)
+            | Self::Subject(condition)
+            | Self::ProvinceCore(condition) => {
+                names.extend(condition.global_marker_references());
+            }
+            Self::If(condition, body) => {
+                condition.collect_global_marker_references(names);
+                body.collect_global_marker_references(names);
+            }
+            Self::Capital(conditions) => {
+                for condition in conditions {
+                    condition.collect_global_marker_references(names);
+                }
+            }
+            _ => (),
+        }
+    }
+
     pub(super) fn compile(
         parsed: &ParsedText<'_>,
         reader: ObjectReader<'_, '_, TextEncoding>,
@@ -46,6 +254,29 @@ impl Condition {
         library: Option<&BTreeMap<String, Condition>>,
         skip_limit: bool,
     ) -> Result<Vec<Self>, Error> {
+        Self::compile_with_age_rules(
+            parsed,
+            reader,
+            report,
+            depth,
+            country,
+            ConditionCompileOptions::new(library, None, skip_limit),
+        )
+    }
+
+    pub(super) fn compile_with_age_rules(
+        parsed: &ParsedText<'_>,
+        reader: ObjectReader<'_, '_, TextEncoding>,
+        report: &mut impl PropertyDiagnostics,
+        depth: usize,
+        country: bool,
+        options: ConditionCompileOptions<'_>,
+    ) -> Result<Vec<Self>, Error> {
+        let ConditionCompileOptions {
+            library,
+            age_rules,
+            skip_limit,
+        } = options;
         if depth > 64 {
             return Err(Error::message(
                 parsed.source(),
@@ -177,23 +408,21 @@ impl Condition {
                             return Err(fail("conditional trigger requires one limit"));
                         }
                         equal(limits[0].1, &fail)?;
-                        let limit = Self::All(Self::compile(
+                        let limit = Self::All(Self::compile_with_age_rules(
                             parsed,
                             block(&limits[0].2, &fail)?,
                             report,
                             depth + 1,
                             country,
-                            library,
-                            false,
+                            options.with_skip_limit(false),
                         )?);
-                        let children = Self::All(Self::compile(
+                        let children = Self::All(Self::compile_with_age_rules(
                             parsed,
                             body,
                             report,
                             depth + 1,
                             country,
-                            library,
-                            true,
+                            options.with_skip_limit(true),
                         )?);
                         Self::If(Box::new(limit), Box::new(children))
                     }
@@ -208,6 +437,53 @@ impl Condition {
                             report.unsupported(parsed, "trigger", &name, at);
                             Self::Unknown(name)
                         }
+                    }
+                    "current_age" if country => {
+                        let id = value
+                            .read_string()
+                            .map_err(|_| fail("expected age identifier"))?;
+                        if id.is_empty() {
+                            return Err(fail("empty age identifier"));
+                        }
+                        match age_rules.and_then(|rules| rules.predicate(&id)) {
+                            Some(predicate) => Self::CurrentAge(predicate),
+                            None => {
+                                report.unsupported(parsed, "trigger", &name, at);
+                                Self::Unknown(format!("current_age:{id}"))
+                            }
+                        }
+                    }
+                    "map_setup" => {
+                        let setup = value
+                            .read_string()
+                            .map_err(|_| fail("expected map setup identifier"))?;
+                        if setup.is_empty() {
+                            return Err(fail("empty map setup identifier"));
+                        }
+                        if setup == "map_setup_random" {
+                            Self::MapSetup(setup)
+                        } else {
+                            report.unsupported(parsed, "trigger", &name, at);
+                            Self::Unknown(format!("map_setup:{setup}"))
+                        }
+                    }
+                    "not_in_mission_preview_mode" if country => {
+                        let arguments = block(&value, &fail)?.fields().collect::<Vec<_>>();
+                        if arguments.len() != 1 || arguments[0].0.read_string() != "key" {
+                            return Err(fail("mission preview trigger requires exactly one key"));
+                        }
+                        equal(arguments[0].1, &fail)?;
+                        let key = arguments[0]
+                            .2
+                            .read_string()
+                            .map_err(|_| fail("expected mission preview key"))?;
+                        if key.is_empty()
+                            || key.chars().any(|character| matches!(character, '$' | '@'))
+                        {
+                            return Err(fail("mission preview key must be a literal identifier"));
+                        }
+                        // Augustus evaluates live game state, where mission preview mode is inactive.
+                        Self::Literal(true)
                     }
                     "has_mission" if country => {
                         let id = value
@@ -251,6 +527,7 @@ impl Condition {
                     "legitimacy"
                     | "republican_tradition"
                     | "devotion"
+                    | "government_rank"
                     | "stability"
                     | "liberty_desire"
                     | "adm_power"
@@ -370,14 +647,13 @@ impl Condition {
                         }
                     }
                     "AND" | "and" | "OR" | "or" | "NOT" | "not" => {
-                        let children = Self::compile(
+                        let children = Self::compile_with_age_rules(
                             parsed,
                             block(&value, &fail)?,
                             report,
                             depth + 1,
                             country,
-                            library,
-                            false,
+                            options.with_skip_limit(false),
                         )?;
                         match name.as_str() {
                             "AND" | "and" => Self::All(children),
@@ -385,14 +661,13 @@ impl Condition {
                             _ => Self::None(children),
                         }
                     }
-                    "capital_scope" if country => Self::Capital(Self::compile(
+                    "capital_scope" if country => Self::Capital(Self::compile_with_age_rules(
                         parsed,
                         block(&value, &fail)?,
                         report,
                         depth + 1,
                         false,
-                        library,
-                        false,
+                        options.with_skip_limit(false),
                     )?),
                     "owner" if !country => {
                         let schema =
@@ -502,7 +777,12 @@ impl Condition {
                         };
                         Self::Status(status.into(), expected)
                     }
-                    "government" | "has_reform" | "has_government_attribute" if country => {
+                    "government"
+                    | "has_reform"
+                    | "has_government_attribute"
+                    | "has_government_mechanic"
+                        if country =>
+                    {
                         let id = value
                             .read_string()
                             .map_err(|_| fail("expected government identifier"))?;
@@ -527,7 +807,7 @@ impl Condition {
                         .ok_or_else(|| fail("expected yes or no"))?,
                     ),
                     "tag" | "TAG" | "primary_culture" | "culture_group" | "religion"
-                    | "religion_group" | "technology_group" | "dynasty"
+                    | "religion_group" | "technology_group" | "unit_type" | "dynasty"
                         if country =>
                     {
                         let text = value
@@ -537,6 +817,17 @@ impl Condition {
                             return Err(fail("empty idea trigger value"));
                         }
                         Self::Match(if name == "TAG" { "tag".into() } else { name }, text)
+                    }
+                    "was_tag" if country => {
+                        let tag = value
+                            .read_string()
+                            .map_err(|_| fail("expected historical country identifier"))?;
+                        if !crate::script::country_identifier(&tag) {
+                            return Err(fail(
+                                "was_tag requires a literal three-character country identifier",
+                            ));
+                        }
+                        Self::Literal(false)
                     }
                     _ => {
                         if country && let Some(template) = library.and_then(|l| l.get(&name)) {
@@ -770,6 +1061,18 @@ impl Condition {
                 }
                 value
             }
+            Self::CurrentAge(predicate) => {
+                let Some(date) = initial.world().date().ok().flatten() else {
+                    reasons.insert(format!("unknown_current_age:{}", predicate.name));
+                    return None;
+                };
+                let value = predicate.evaluate(date.year);
+                if value.is_none() {
+                    reasons.insert(format!("unknown_current_age:{}", predicate.name));
+                }
+                value
+            }
+            Self::MapSetup(setup) => Some(setup != "map_setup_random"),
             Self::Literal(value) => Some(*value),
             Self::Unknown(name) => {
                 reasons.insert(format!("unsupported_trigger:{name}"));
@@ -886,6 +1189,7 @@ impl Condition {
                     "primary_culture" => country.primary_culture.as_deref(),
                     "religion" => country.religion.as_deref(),
                     "technology_group" => country.technology_group.as_deref(),
+                    "unit_type" => country.unit_type.as_deref(),
                     "dynasty" => world
                         .politics()
                         .countries
@@ -955,7 +1259,8 @@ impl Condition {
             | Self::Marker(id)
             | Self::Estate(id)
             | Self::EstatePrivilege(id)
-            | Self::Region(id, _) => replace(id),
+            | Self::Region(id, _)
+            | Self::MapSetup(id) => replace(id),
             _ => true,
         };
         if !complete {

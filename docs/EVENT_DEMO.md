@@ -96,6 +96,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/e
 
 日志依次为 `delay_start`、`direct_true`、`delay_end`，第二天追加 `was_false_now_true`。安排时满足条件、随后失去条件的另一项事件不会执行。原生条件保存在可选的 `conditions.json` 中；已有无条件场景无需增加这个文件。
 
+条件块支持连续的 `if`、`else_if` 和可选 `else`，每个条件分支以 `limit` 开头。使用首个命中分支的正文结果，正文为假时不继续尝试后续分支；没有命中且没有 `else` 时结果为真。分支读取当前状态，未执行分支的语法和定义引用也须有效。原生条件可以通过 `If` 的 `condition`、`then`、`otherwise` 表达同样的选择。
+
 `examples/once-events` 演示一次性事件。先安排两个相同的延迟调用并保存，再用原生输入继续：
 
 ```sh
@@ -267,6 +269,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 脚本输入支持显式触发的 `country_event`、`province_event`，要求 `id`、`is_triggered_only = yes` 和至少一个具备标量 `name` 的选项。`fire_only_once` 接受 `yes`、`no`，省略时允许重复触发。标量 `title`、`desc`、`picture` 可读取，但演示不展示本地化文字。事件标识按输入字符串保留；命名空间的数字登记和原版选项命令格式未实现。
 
 三个效果阶段复用已有编译器：`log`、国库操作、命名变量操作、`owner`、`capital_scope`、条件分支和无参数脚本调用。EU4 选项按声明顺序获得字符串标识 `0`、`1` 等；原生定义可以使用自己的选项标识。
+
+省份作用域支持 `heavy_ship = ROOT`、`light_ship = ROOT`、`galley = ROOT` 和 `transport = ROOT`，每条指令创建一条指定国家的船只记录，要求省份港口状态已知且为真。记录随项目存档保存。当前没有舰队编组、船只移动、士气、损耗、维护或战斗逻辑，重复指令也不会自动合并成舰队。
 
 场景可以显式提供 `treasury_slot = {"Resource": "Treasury"}`，让 `add_treasury` 和 `treasury` 访问共享的 `country_resources` 国库余额，原版世界入口使用此绑定。未指定绑定的已有场景继续访问注册的 `treasury` 字段。资源金额以千分位存储，每个最多六位小数字面量分别截断；余额允许为负，未知余额报告错误。国家间比较读取同一槽的实时值，支持字面国家、国家类型的 `ROOT`、`emperor` 与已声明类型的全局事件目标；原生输入使用 `NumericCompareEntities`。`taxation` 可显式选择国家和年度税收属性，余额与月度凭据随存档恢复。跨月顺序、交叉读档及限制见 [国库余额与月度税收](../examples/treasury/README.md)。完整原版初始余额、收支和贷款流程尚未接通。
 

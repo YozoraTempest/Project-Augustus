@@ -7,14 +7,17 @@ use std::{
 };
 
 use augustus_core::{
-    Calendar, CountryState, InitialWorld, ProvinceClass, ProvinceState, Taxation, WorldDate,
+    Calendar, CountryResources, CountryState, InitialWorld, MonthlyExternalCashflows,
+    MonthlyProduction, ProvinceClass, ProvinceState, Taxation, VanillaProductionBaseValueInput,
+    VanillaProductionBaseValueResult, VanillaProductionInput, VanillaTradeGoodPriceInput,
+    WorldDate, calculate_vanilla_production_base_value, calculate_vanilla_trade_good_price,
 };
 use jomini::{
     Encoding,
     common::{Date, PdsDate},
     text::{ObjectReader, Operator},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::administration::{AdministrationDraft, AdministrationReport};
@@ -27,8 +30,7 @@ use crate::ideas::{IdeaDraft, IdeaReport};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
 use crate::setup::{SetupDraft, SetupReport};
 use crate::{
-    ContentRoot, ContentSet, ContentSource, ContentView, Error, ParsedText, SourceLocation,
-    TextEncoding,
+    ContentRoot, ContentSet, ContentView, Error, ParsedText, SourceLocation, TextEncoding,
 };
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
@@ -110,6 +112,7 @@ pub struct CountryView<'a> {
     pub ideas: Option<&'a augustus_core::IdeaState>,
     pub declared_idea_effects: augustus_core::IdeaEvaluation,
     pub last_monthly_tax: Option<&'a augustus_core::MonthlyTaxAccount>,
+    pub last_monthly_production: Option<&'a augustus_core::ProductionCountryAccount>,
     pub government: Option<&'a augustus_core::GovernmentState>,
     pub declared_government_effects: augustus_core::GovernmentEvaluation,
     pub state: &'a CountryState,
@@ -134,6 +137,75 @@ pub struct MapEntry {
     pub display_color: [u8; 3],
 }
 
+/// Inputs for the ordinary production value stage after quantity has already
+/// been resolved by a compatibility provider. The trade-good base price is
+/// read from the loaded EU4 content rather than supplied by the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaProvinceProductionBaseValueInput {
+    pub goods_size_milli: i32,
+    pub flat_modifier_milli: i32,
+    pub external_flat_modifier_milli: i32,
+    pub rate_modifier_milli: i32,
+    pub external_rate_modifier_milli: i32,
+}
+
+/// Fully explicit production-stage inputs supplied by an external provider.
+/// The compatibility layer fills the price from the province's EU4 content,
+/// then keeps the downstream monthly-production modifiers explicit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalProductionInput {
+    pub goods_size_milli: i32,
+    pub flat_modifier_milli: i32,
+    pub external_flat_modifier_milli: i32,
+    pub rate_modifier_milli: i32,
+    pub external_rate_modifier_milli: i32,
+    pub country_modifier_milli: i32,
+    pub legacy_province_modifier_milli: i32,
+    pub queried_province_modifier_milli: i32,
+}
+
+/// A starting land stack translated by an external simulator or save reader.
+/// The EU4 compatibility boundary resolves the country tag and province ID;
+/// the shared core stores only the resulting regiment types.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalArmy {
+    pub owner: String,
+    pub location: u32,
+    #[serde(default)]
+    pub name: String,
+    pub regiments: Vec<String>,
+}
+
+/// A starting naval unit translated by an external simulator or save reader.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalNavalUnit {
+    pub owner: String,
+    pub location: u32,
+    pub unit_type: String,
+}
+
+/// Estate privilege sets supplied by a compatibility provider, keyed by EU4
+/// country tag and estate identifier. `Some(empty)` means the estate is known
+/// to have no privileges; `None` remains unresolved.
+pub type VanillaExternalEstatePrivileges =
+    BTreeMap<String, BTreeMap<String, Option<BTreeSet<String>>>>;
+
+/// Country flag namespaces supplied by a compatibility provider.
+///
+/// `Some(set)` means the namespace is complete and only the listed flags are
+/// present. `Some(empty)` is therefore a known empty namespace; `None` keeps
+/// the namespace unresolved.
+pub type VanillaExternalCountryMarkers = BTreeMap<String, Option<BTreeSet<String>>>;
+
+/// Current country boolean statuses supplied by a compatibility provider.
+/// Missing status entries are left as they were loaded; an explicit `None`
+/// keeps one status unresolved.
+pub type VanillaExternalCountryStatuses = BTreeMap<String, BTreeMap<String, Option<bool>>>;
+
 #[derive(Debug)]
 pub struct VanillaWorld {
     pub initial: InitialWorld,
@@ -144,11 +216,409 @@ pub struct VanillaWorld {
     content: String,
 }
 
+/// State supplied by a second simulation or an external save reader.
+///
+/// EU4 tags and province identifiers stay at the compatibility boundary. The
+/// shared core receives only the already translated numeric state and keeps
+/// omitted values unresolved.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalState {
+    #[serde(default)]
+    pub country_metric_values: BTreeMap<String, BTreeMap<String, Option<i64>>>,
+    /// Current per-country growth ceilings for metrics such as monarch power.
+    /// A missing country or metric remains unresolved; `Some(value)` is an
+    /// authoritative ceiling supplied by the compatibility provider.
+    #[serde(default)]
+    pub country_metric_ceilings: BTreeMap<String, BTreeMap<String, Option<i64>>>,
+    #[serde(default)]
+    pub country_resources: BTreeMap<String, CountryResources>,
+    #[serde(default)]
+    pub production_inputs: BTreeMap<u32, augustus_core::VanillaProductionInputState>,
+    #[serde(default)]
+    pub production_value_inputs: BTreeMap<u32, VanillaExternalProductionInput>,
+    /// Runtime price-impact totals keyed by the native trade-good table index.
+    /// An omitted index means an empty impact chain, matching the vanilla
+    /// zero-impact state rather than inventing a new price.
+    #[serde(default)]
+    pub trade_good_price_impacts_milli: BTreeMap<u32, i32>,
+    /// Verified annual country-tax sources keyed by EU4 country tag. A value
+    /// overrides the content-derived country attribute for that country;
+    /// `None` keeps its tax unresolved while retaining known province tax.
+    #[serde(default)]
+    pub country_annual_tax_milli: BTreeMap<String, Option<i64>>,
+    /// Verified annual province-tax sources keyed by EU4 province ID. A value
+    /// replaces the content-derived annual tax for that province; `None`
+    /// keeps that province unresolved while other provinces remain usable.
+    #[serde(default)]
+    pub province_annual_tax_milli: BTreeMap<u32, Option<i64>>,
+    /// Current raw province autonomy supplied by a save reader, in EU4's
+    /// thousandths. The core stores the same value in millionths and applies
+    /// monthly autonomy rules from that state on the next month boundary.
+    #[serde(default)]
+    pub province_raw_autonomy_milli: BTreeMap<u32, Option<i64>>,
+    /// Current estate privilege sets supplied by a save reader. `Some(empty)`
+    /// means the estate is known to have no privileges; `None` remains unknown.
+    #[serde(default)]
+    pub estate_privileges: VanillaExternalEstatePrivileges,
+    /// Current country flag namespaces supplied by a save reader. A complete
+    /// set replaces the historical namespace for that country.
+    #[serde(default)]
+    pub country_markers: VanillaExternalCountryMarkers,
+    /// Current country boolean statuses such as `at_war` supplied by a save
+    /// reader. Omitted statuses remain at their content-derived state.
+    #[serde(default)]
+    pub country_statuses: VanillaExternalCountryStatuses,
+    #[serde(default)]
+    pub estate_loyalty_targets: BTreeMap<String, BTreeMap<String, Option<i64>>>,
+    #[serde(default)]
+    pub country_monthly_cashflows_milli: BTreeMap<String, Option<i64>>,
+    /// Starting land and naval units supplied by another simulation. These
+    /// are bound before startup effects so scripts can query the same units.
+    #[serde(default)]
+    pub armies: Vec<VanillaExternalArmy>,
+    #[serde(default)]
+    pub naval_units: Vec<VanillaExternalNavalUnit>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct LoadOverrides<'a> {
+    country_metric_values: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
+    country_metric_ceilings: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
+    country_resources: Option<&'a BTreeMap<String, CountryResources>>,
+    production_inputs: Option<&'a BTreeMap<u32, augustus_core::VanillaProductionInputState>>,
+    production_value_inputs: Option<&'a BTreeMap<u32, VanillaExternalProductionInput>>,
+    trade_good_price_impacts_milli: Option<&'a BTreeMap<u32, i32>>,
+    country_annual_tax_milli: Option<&'a BTreeMap<String, Option<i64>>>,
+    province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
+    province_raw_autonomy_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
+    estate_privileges: Option<&'a VanillaExternalEstatePrivileges>,
+    country_markers: Option<&'a VanillaExternalCountryMarkers>,
+    country_statuses: Option<&'a VanillaExternalCountryStatuses>,
+    estate_loyalty_targets: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
+    country_monthly_cashflows_milli: Option<&'a BTreeMap<String, Option<i64>>>,
+    armies: Option<&'a [VanillaExternalArmy]>,
+    naval_units: Option<&'a [VanillaExternalNavalUnit]>,
+}
+
+impl<'a> LoadOverrides<'a> {
+    fn from_external_state(state: &'a VanillaExternalState) -> Self {
+        Self {
+            country_metric_values: (!state.country_metric_values.is_empty())
+                .then_some(&state.country_metric_values),
+            country_metric_ceilings: (!state.country_metric_ceilings.is_empty())
+                .then_some(&state.country_metric_ceilings),
+            country_resources: (!state.country_resources.is_empty())
+                .then_some(&state.country_resources),
+            production_inputs: (!state.production_inputs.is_empty())
+                .then_some(&state.production_inputs),
+            production_value_inputs: (!state.production_value_inputs.is_empty())
+                .then_some(&state.production_value_inputs),
+            trade_good_price_impacts_milli: (!state.trade_good_price_impacts_milli.is_empty())
+                .then_some(&state.trade_good_price_impacts_milli),
+            country_annual_tax_milli: (!state.country_annual_tax_milli.is_empty())
+                .then_some(&state.country_annual_tax_milli),
+            province_annual_tax_milli: (!state.province_annual_tax_milli.is_empty())
+                .then_some(&state.province_annual_tax_milli),
+            province_raw_autonomy_milli: (!state.province_raw_autonomy_milli.is_empty())
+                .then_some(&state.province_raw_autonomy_milli),
+            estate_privileges: (!state.estate_privileges.is_empty())
+                .then_some(&state.estate_privileges),
+            country_markers: (!state.country_markers.is_empty()).then_some(&state.country_markers),
+            country_statuses: (!state.country_statuses.is_empty())
+                .then_some(&state.country_statuses),
+            estate_loyalty_targets: (!state.estate_loyalty_targets.is_empty())
+                .then_some(&state.estate_loyalty_targets),
+            country_monthly_cashflows_milli: (!state.country_monthly_cashflows_milli.is_empty())
+                .then_some(&state.country_monthly_cashflows_milli),
+            armies: (!state.armies.is_empty()).then_some(state.armies.as_slice()),
+            naval_units: (!state.naval_units.is_empty()).then_some(state.naval_units.as_slice()),
+        }
+    }
+}
+
+fn bind_external_units(
+    initial: &mut InitialWorld,
+    armies: Option<&[VanillaExternalArmy]>,
+    naval_units: Option<&[VanillaExternalNavalUnit]>,
+) -> Result<(), Error> {
+    if let Some(armies) = armies {
+        for army in armies {
+            let owner = initial.country_entity(&army.owner).ok_or_else(|| {
+                Error::message(
+                    "external armies",
+                    format!("unknown army owner {}", army.owner),
+                )
+            })?;
+            let location = initial.province_entity(army.location).ok_or_else(|| {
+                Error::message(
+                    "external armies",
+                    format!("unknown army location {}", army.location),
+                )
+            })?;
+            initial
+                .create_army(owner, location, &army.name, &army.regiments)
+                .map_err(|error| Error::caused_by("external armies", error))?;
+        }
+    }
+    if let Some(naval_units) = naval_units {
+        for unit in naval_units {
+            let owner = initial.country_entity(&unit.owner).ok_or_else(|| {
+                Error::message(
+                    "external naval units",
+                    format!("unknown naval unit owner {}", unit.owner),
+                )
+            })?;
+            let location = initial.province_entity(unit.location).ok_or_else(|| {
+                Error::message(
+                    "external naval units",
+                    format!("unknown naval unit location {}", unit.location),
+                )
+            })?;
+            initial
+                .create_naval_unit(owner, location, &unit.unit_type)
+                .map_err(|error| Error::caused_by("external naval units", error))?;
+        }
+    }
+    Ok(())
+}
+
+fn bind_external_estate_privileges(
+    initial: &mut InitialWorld,
+    values: Option<&VanillaExternalEstatePrivileges>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut estates = initial.world().estates().clone();
+    for (country, estate_values) in values {
+        let entity = initial.country_entity(country).ok_or_else(|| {
+            Error::message(
+                "external estate privileges",
+                format!("unknown EU4 estate country {country}"),
+            )
+        })?;
+        let states = estates.countries.get_mut(&entity).ok_or_else(|| {
+            Error::message(
+                "external estate privileges",
+                format!("country {country} has no estate state"),
+            )
+        })?;
+        for (estate, privileges) in estate_values {
+            let state = states.get_mut(estate).ok_or_else(|| {
+                Error::message(
+                    "external estate privileges",
+                    format!("country {country} has no estate {estate}"),
+                )
+            })?;
+            state.privileges = privileges.clone();
+        }
+    }
+    initial
+        .set_estates(estates)
+        .map_err(|e| Error::caused_by("external estate privileges", e))
+}
+
+fn bind_external_country_markers(
+    initial: &mut InitialWorld,
+    values: Option<&VanillaExternalCountryMarkers>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut markers = initial.world().markers().clone();
+    for (country, names) in values {
+        let entity = initial.country_entity(country).ok_or_else(|| {
+            Error::message(
+                "external country markers",
+                format!("unknown EU4 marker country {country}"),
+            )
+        })?;
+        match names {
+            Some(names) => {
+                markers.entities.insert(
+                    entity,
+                    names.iter().map(|name| (name.clone(), true)).collect(),
+                );
+                markers.unknown_entities.remove(&entity);
+            }
+            None => markers.mark_unknown(entity),
+        }
+    }
+    initial
+        .set_markers(markers)
+        .map_err(|e| Error::caused_by("external country markers", e))
+}
+
+fn bind_external_country_statuses(
+    initial: &mut InitialWorld,
+    values: Option<&VanillaExternalCountryStatuses>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut politics = initial.world().politics().clone();
+    for (country, statuses) in values {
+        let entity = initial.country_entity(country).ok_or_else(|| {
+            Error::message(
+                "external country statuses",
+                format!("unknown EU4 status country {country}"),
+            )
+        })?;
+        let state = politics.countries.entry(entity).or_default();
+        for (name, value) in statuses {
+            if name.is_empty() {
+                return Err(Error::message(
+                    "external country statuses",
+                    format!("country {country} has an empty status name"),
+                ));
+            }
+            state.statuses.insert(name.clone(), *value);
+        }
+    }
+    initial
+        .set_politics(politics)
+        .map_err(|e| Error::caused_by("external country statuses", e))
+}
+
+fn bind_external_production_value_inputs(
+    initial: &InitialWorld,
+    inputs: &BTreeMap<u32, VanillaExternalProductionInput>,
+    price_impacts: Option<&BTreeMap<u32, i32>>,
+) -> Result<BTreeMap<augustus_core::EntityId, augustus_core::VanillaProductionInputState>, Error> {
+    let economy = initial.world().economy();
+    inputs
+        .iter()
+        .map(|(province, source)| {
+            let entity = initial.province_entity(*province).ok_or_else(|| {
+                Error::message(
+                    "external production value inputs",
+                    format!("unknown EU4 production province {province}"),
+                )
+            })?;
+            let definition = economy
+                .provinces
+                .get(&entity)
+                .and_then(|state| state.trade_good.as_deref())
+                .and_then(|trade_good| economy.trade_goods.get(trade_good));
+            let state = match definition.and_then(|definition| definition.base_price_milli) {
+                Some(price) => {
+                    let base_price = i32::try_from(price).map_err(|_| {
+                        Error::message(
+                            "external production value inputs",
+                            format!(
+                                "trade-good base price for province {province} is outside the production range"
+                            ),
+                        )
+                    })?;
+                    let price_impact_milli = definition
+                        .and_then(|definition| definition.runtime_index)
+                        .and_then(|index| {
+                            price_impacts.and_then(|impacts| impacts.get(&index))
+                        })
+                        .copied()
+                        .unwrap_or_default();
+                    let price = calculate_vanilla_trade_good_price(VanillaTradeGoodPriceInput {
+                        base_price_milli: base_price,
+                        price_impact_milli,
+                    })
+                    .effective_price_milli;
+                    let value = calculate_vanilla_production_base_value(
+                        VanillaProductionBaseValueInput {
+                            goods_size_milli: source.goods_size_milli,
+                            trade_good_price_milli: price,
+                            flat_modifier_milli: source.flat_modifier_milli,
+                            external_flat_modifier_milli: source.external_flat_modifier_milli,
+                            rate_modifier_milli: source.rate_modifier_milli,
+                            external_rate_modifier_milli: source.external_rate_modifier_milli,
+                        },
+                    );
+                    augustus_core::VanillaProductionInputState {
+                        input: Some(VanillaProductionInput {
+                            base_value_milli: value.value_milli,
+                            country_modifier_milli: source.country_modifier_milli,
+                            legacy_province_modifier_milli: source.legacy_province_modifier_milli,
+                            queried_province_modifier_milli: source.queried_province_modifier_milli,
+                        }),
+                        unresolved: Default::default(),
+                    }
+                }
+                None => augustus_core::VanillaProductionInputState {
+                    input: None,
+                    unresolved: ["missing_trade_good_base_price".into()].into(),
+                },
+            };
+            Ok((entity, state))
+        })
+        .collect()
+}
+
 impl VanillaWorld {
     /// Loads the supported initial-state fields and selects calendar/tax rules.
     /// Final-edition rules always target all expansion mechanics, independently of launcher switches.
     pub fn load(path: impl AsRef<Path>, date: &str) -> Result<Self, Error> {
-        Self::load_session(path, date, None)
+        Self::load_session(path, date, None, 0, None, LoadOverrides::default())
+    }
+
+    pub fn load_with_seed(path: impl AsRef<Path>, date: &str, seed: u32) -> Result<Self, Error> {
+        Self::load_session(path, date, None, seed, Some(seed), LoadOverrides::default())
+    }
+
+    /// Loads a world with externally supplied country metric values bound before
+    /// startup events execute.
+    pub fn load_with_country_metric_values(
+        path: impl AsRef<Path>,
+        date: &str,
+        values: &BTreeMap<String, BTreeMap<String, Option<i64>>>,
+    ) -> Result<Self, Error> {
+        Self::load_session(
+            path,
+            date,
+            None,
+            0,
+            None,
+            LoadOverrides {
+                country_metric_values: Some(values),
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Loads a world with externally supplied country resources bound before
+    /// startup events execute.
+    pub fn load_with_country_resources(
+        path: impl AsRef<Path>,
+        date: &str,
+        resources: &BTreeMap<String, CountryResources>,
+    ) -> Result<Self, Error> {
+        Self::load_session(
+            path,
+            date,
+            None,
+            0,
+            None,
+            LoadOverrides {
+                country_resources: Some(resources),
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Loads a world with state translated by an external simulation or save
+    /// reader before startup events execute.
+    pub fn load_with_external_state(
+        path: impl AsRef<Path>,
+        date: &str,
+        state: &VanillaExternalState,
+    ) -> Result<Self, Error> {
+        Self::load_session(
+            path,
+            date,
+            None,
+            0,
+            None,
+            LoadOverrides::from_external_state(state),
+        )
     }
 
     /// A supplied roster defines human countries; the remaining countries use AI control.
@@ -158,12 +628,146 @@ impl VanillaWorld {
         date: &str,
         players: &std::collections::BTreeSet<String>,
     ) -> Result<Self, Error> {
-        Self::load_session(path, date, Some(players))
+        Self::load_session(path, date, Some(players), 0, None, LoadOverrides::default())
+    }
+
+    pub fn load_with_players_and_seed(
+        path: impl AsRef<Path>,
+        date: &str,
+        players: &std::collections::BTreeSet<String>,
+        seed: u32,
+    ) -> Result<Self, Error> {
+        Self::load_session(
+            path,
+            date,
+            Some(players),
+            seed,
+            Some(seed),
+            LoadOverrides::default(),
+        )
     }
 
     /// Loads an initial world through the resolved EU4 virtual content order.
     pub fn load_from_content(content: &ContentSet, date: &str) -> Result<Self, Error> {
-        Self::load_from_view(content, content.base_root(), date, None)
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            date,
+            None,
+            0,
+            None,
+            LoadOverrides::default(),
+        )
+    }
+
+    pub fn load_from_content_with_seed(
+        content: &ContentSet,
+        date: &str,
+        seed: u32,
+    ) -> Result<Self, Error> {
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            date,
+            None,
+            seed,
+            Some(seed),
+            LoadOverrides::default(),
+        )
+    }
+
+    /// Loads resolved content with externally supplied country metric values
+    /// bound before startup events execute.
+    pub fn load_from_content_with_country_metric_values(
+        content: &ContentSet,
+        date: &str,
+        values: &BTreeMap<String, BTreeMap<String, Option<i64>>>,
+    ) -> Result<Self, Error> {
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            date,
+            None,
+            0,
+            None,
+            LoadOverrides {
+                country_metric_values: Some(values),
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Loads resolved content with externally supplied country resources bound
+    /// before startup events execute.
+    pub fn load_from_content_with_country_resources(
+        content: &ContentSet,
+        date: &str,
+        resources: &BTreeMap<String, CountryResources>,
+    ) -> Result<Self, Error> {
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            date,
+            None,
+            0,
+            None,
+            LoadOverrides {
+                country_resources: Some(resources),
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Loads resolved content with state translated by an external simulation
+    /// or save reader before startup events execute.
+    pub fn load_from_content_with_external_state(
+        content: &ContentSet,
+        date: &str,
+        state: &VanillaExternalState,
+    ) -> Result<Self, Error> {
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            date,
+            None,
+            0,
+            None,
+            LoadOverrides::from_external_state(state),
+        )
+    }
+
+    pub fn load_from_content_with_seed_and_external_state(
+        content: &ContentSet,
+        date: &str,
+        seed: u32,
+        state: &VanillaExternalState,
+    ) -> Result<Self, Error> {
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            date,
+            None,
+            seed,
+            Some(seed),
+            LoadOverrides::from_external_state(state),
+        )
+    }
+
+    pub fn load_from_content_with_players_and_external_state(
+        content: &ContentSet,
+        date: &str,
+        players: &std::collections::BTreeSet<String>,
+        state: &VanillaExternalState,
+    ) -> Result<Self, Error> {
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            date,
+            Some(players),
+            0,
+            None,
+            LoadOverrides::from_external_state(state),
+        )
     }
 
     /// Loads an initial world from resolved content with an explicit human roster.
@@ -172,19 +776,63 @@ impl VanillaWorld {
         date: &str,
         players: &std::collections::BTreeSet<String>,
     ) -> Result<Self, Error> {
-        Self::load_from_view(content, content.base_root(), date, Some(players))
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            date,
+            Some(players),
+            0,
+            None,
+            LoadOverrides::default(),
+        )
+    }
+
+    pub fn load_from_content_with_players_and_seed(
+        content: &ContentSet,
+        date: &str,
+        players: &std::collections::BTreeSet<String>,
+        seed: u32,
+    ) -> Result<Self, Error> {
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            date,
+            Some(players),
+            seed,
+            Some(seed),
+            LoadOverrides::default(),
+        )
+    }
+
+    pub fn load_from_content_with_players_and_seed_and_external_state(
+        content: &ContentSet,
+        date: &str,
+        players: &std::collections::BTreeSet<String>,
+        seed: u32,
+        state: &VanillaExternalState,
+    ) -> Result<Self, Error> {
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            date,
+            Some(players),
+            seed,
+            Some(seed),
+            LoadOverrides::from_external_state(state),
+        )
     }
 
     fn load_session(
         path: impl AsRef<Path>,
         date: &str,
         players: Option<&std::collections::BTreeSet<String>>,
+        seed: u32,
+        fixed_seed: Option<u32>,
+        overrides: LoadOverrides<'_>,
     ) -> Result<Self, Error> {
-        let root = ContentRoot::open(path)?;
-        let mut sources = vec![ContentSource::base(root.clone())];
-        sources.extend(ContentSource::installed_dlc_archives(root.path())?);
-        let content = ContentSet::resolve(sources)?;
-        Self::load_from_view(&content, &root, date, players)
+        let content = ContentSet::from_installation(path, &[], None, None, TextEncoding::Utf8)?;
+        let root = content.base_root();
+        Self::load_from_view(&content, root, date, players, seed, fixed_seed, overrides)
     }
 
     fn load_from_view(
@@ -192,7 +840,11 @@ impl VanillaWorld {
         metadata_root: &ContentRoot,
         date: &str,
         players: Option<&std::collections::BTreeSet<String>>,
+        seed: u32,
+        fixed_seed: Option<u32>,
+        overrides: LoadOverrides<'_>,
     ) -> Result<Self, Error> {
+        let clock_origin = std::time::Instant::now();
         let date = Date::parse(date).map_err(|e| Error::caused_by(root.path(), e))?;
         let metadata_path = metadata_root.path().join("launcher-settings.json");
         let metadata = metadata_root.read_text("launcher-settings.json", TextEncoding::Utf8)?;
@@ -420,6 +1072,7 @@ impl VanillaWorld {
                 .has_port = has_port;
         }
         let files = root.files()?;
+        let defines = crate::Defines::load(root, &files, crate::DefineDifficulty::Normal)?;
         let mut countries = BTreeMap::new();
         let mut country_order = Vec::new();
         let mut country_sources = BTreeMap::new();
@@ -469,6 +1122,7 @@ impl VanillaWorld {
                     religion: None,
                     government: None,
                     technology_group: None,
+                    unit_type: None,
                 };
                 if countries.insert(id.clone(), country).is_some() {
                     return Err(fail("duplicate country identifier"));
@@ -493,17 +1147,25 @@ impl VanillaWorld {
         let mut economy = EconomyDraft::load(&root, &files, &mut report.economy)?;
         let mut governments = GovernmentDraft::load(&root, &files, &mut report.governments)?;
         let mut status_draft = CountryStatusDraft::load(&root, &files, &mut report.ideas)?;
-        let mut estates = EstateDraft::load(&root, &files, &mut report.estates)?;
+        let mut estates = EstateDraft::load(&root, &files, &defines, &mut report.estates)?;
         let mut markers = crate::country_markers::CountryMarkers::default();
         let mut global_markers = augustus_core::GlobalMarkers {
             known: true,
             ..Default::default()
         };
+        let mut history_global_marker_names = BTreeSet::new();
+        let mut dynamic_global_marker_history = false;
         let mut ideas = IdeaDraft::load(&root, &files, &mut report.ideas)?;
         let mut setup = SetupDraft::load(&root, &files, &mut report.setup)?;
-        let attribute_draft = AttributeDraft::load(&root, &files, &mut report.attributes)?;
-        let mut administration =
-            AdministrationDraft::load(&root, &files, &map_parsed, &mut report.administration)?;
+        let attribute_draft =
+            AttributeDraft::load(&root, &files, &defines, &mut report.attributes)?;
+        let mut administration = AdministrationDraft::load(
+            &root,
+            &files,
+            &defines,
+            &map_parsed,
+            &mut report.administration,
+        )?;
         let mut political_drafts = BTreeMap::new();
         let mut religious_schools = crate::religious_schools::ReligiousSchoolsDraft::load(
             &root,
@@ -538,7 +1200,23 @@ impl VanillaWorld {
         let mut metric_scoped_history_unknown = false;
         let mut subject_history_unknown = false;
         let mut imperial_history_unknown = false;
-        let history_effect_names = politics::history_effect_names(&root, &files)?;
+        let imperial_membership_effect_names =
+            crate::imperial_membership::membership_effect_names(&root, &files)?;
+        let subject_history_effect_names = politics::subject_history_effect_names(&root, &files)?;
+        let (liberty_direct_history_effects, liberty_scoped_history_effects) =
+            crate::country_metrics::history_scripted_effects(
+                &root,
+                &files,
+                &["liberty_desire", "add_liberty_desire"],
+            )?;
+        let (stability_direct_history_effects, stability_scoped_history_effects) =
+            crate::country_metrics::history_scripted_effects(
+                &root,
+                &files,
+                &["stability", "add_stability"],
+            )?;
+        let mut stability_history_effects = stability_direct_history_effects.clone();
+        stability_history_effects.extend(stability_scoped_history_effects.iter().cloned());
         for file in files
             .iter()
             .filter(|f| direct_txt(&f.relative_path, "history/countries"))
@@ -551,11 +1229,74 @@ impl VanillaWorld {
                 ));
             };
             // Selection of duplicate history files has not been validated. Preserve the
-            // ambiguity and leave those history-derived fields unset instead of guessing.
+            // ambiguity for country fields, while allowing independent subsystems to inspect
+            // their own history and resolve only values that agree across every candidate.
             if history_groups[&id].len() > 1 {
-                global_markers.mark_unknown();
-                subject_history_unknown = true;
-                imperial_history_unknown = true;
+                let doc = root.read_text(&file.relative_path, ENCODING)?;
+                let parsed = doc.parse()?;
+                visit_history(&parsed, date, |reader| {
+                    match crate::country_markers::global_flag_mutations(&parsed, reader.clone(), 0)?
+                    {
+                        Some(names) if !names.is_empty() => {
+                            global_markers.mark_unknown();
+                            history_global_marker_names.extend(names);
+                        }
+                        Some(_) => (),
+                        None => {
+                            global_markers.mark_unknown();
+                            dynamic_global_marker_history = true;
+                        }
+                    }
+                    subject_history_unknown |= politics::has_subject_mutation(
+                        &parsed,
+                        reader.clone(),
+                        &subject_history_effect_names,
+                        0,
+                    )?;
+                    imperial_history_unknown |= crate::imperial_membership::has_unapplied_mutation(
+                        &parsed,
+                        reader.clone(),
+                        &imperial_membership_effect_names,
+                        false,
+                        0,
+                    )?;
+                    let (direct, scoped) =
+                        crate::province_metrics::history_mutations(reader.clone(), 0);
+                    metric_scoped_history_unknown |= direct || scoped;
+                    let (direct, scoped) =
+                        crate::country_metrics::named_history_mutations_with_scripts(
+                            reader.clone(),
+                            &stability_history_effects,
+                            0,
+                            &["stability", "add_stability"],
+                            &BTreeSet::new(),
+                            &BTreeSet::new(),
+                        );
+                    country_metric_scoped_history_unknown |= scoped;
+                    if direct {
+                        country_metric_history_unknown.insert(id.clone());
+                    }
+                    let (direct, scoped) =
+                        crate::country_metrics::named_history_mutations_with_scripts(
+                            reader.clone(),
+                            &BTreeSet::new(),
+                            0,
+                            &["liberty_desire", "add_liberty_desire"],
+                            &liberty_direct_history_effects,
+                            &liberty_scoped_history_effects,
+                        );
+                    liberty_scoped_history_unknown |= scoped;
+                    if direct {
+                        liberty_history_unknown.insert(id.clone());
+                    }
+                    religious_schools.country_history(
+                        &parsed,
+                        reader.clone(),
+                        &id,
+                        &mut report.religious_schools,
+                    )?;
+                    Ok(())
+                })?;
                 continue;
             }
             country_histories.insert(id.clone());
@@ -570,39 +1311,52 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
-                if crate::country_markers::has_global_mutation(&parsed, reader.clone(), 0)? {
-                    global_markers.mark_unknown();
+                match crate::country_markers::global_flag_mutations(&parsed, reader.clone(), 0)? {
+                    Some(names) if !names.is_empty() => {
+                        global_markers.mark_unknown();
+                        history_global_marker_names.extend(names);
+                    }
+                    Some(_) => (),
+                    None => {
+                        global_markers.mark_unknown();
+                        dynamic_global_marker_history = true;
+                    }
                 }
                 subject_history_unknown |= politics::has_subject_mutation(
                     &parsed,
                     reader.clone(),
-                    &history_effect_names,
+                    &subject_history_effect_names,
                     0,
                 )?;
                 imperial_history_unknown |= crate::imperial_membership::has_unapplied_mutation(
                     &parsed,
                     reader.clone(),
-                    &history_effect_names,
+                    &imperial_membership_effect_names,
                     false,
                     0,
                 )?;
                 let (direct, scoped) =
                     crate::province_metrics::history_mutations(reader.clone(), 0);
                 metric_scoped_history_unknown |= direct || scoped;
-                let (direct, scoped) = crate::country_metrics::history_mutations(
+                let (direct, scoped) = crate::country_metrics::named_history_mutations_with_scripts(
                     reader.clone(),
-                    &history_effect_names,
+                    &stability_history_effects,
                     0,
+                    &["stability", "add_stability"],
+                    &BTreeSet::new(),
+                    &BTreeSet::new(),
                 );
                 country_metric_scoped_history_unknown |= scoped;
                 if direct {
                     country_metric_history_unknown.insert(id.clone());
                 }
-                let (direct, scoped) = crate::country_metrics::named_history_mutations(
+                let (direct, scoped) = crate::country_metrics::named_history_mutations_with_scripts(
                     reader.clone(),
-                    &history_effect_names,
+                    &BTreeSet::new(),
                     0,
                     &["liberty_desire", "add_liberty_desire"],
+                    &liberty_direct_history_effects,
+                    &liberty_scoped_history_effects,
                 );
                 liberty_scoped_history_unknown |= scoped;
                 if direct {
@@ -614,9 +1368,10 @@ impl VanillaWorld {
                     &id,
                     &mut report.religious_schools,
                 )?;
-                markers.history(&parsed, reader.clone(), &id)?;
+                let marker_handled = markers.history(&parsed, reader.clone(), &id)?;
                 status_draft.country_history(&parsed, reader.clone(), &id, &mut report.ideas)?;
-                estates.country_history(&parsed, reader.clone(), &id, &mut report.estates)?;
+                let estate_handled =
+                    estates.country_history(&parsed, reader.clone(), &id, &mut report.estates)?;
                 ideas.country_history(&parsed, reader.clone(), &id, &mut report.ideas)?;
                 governments.country_history(
                     &parsed,
@@ -624,12 +1379,14 @@ impl VanillaWorld {
                     &id,
                     &mut report.governments,
                 )?;
-                administration.country_history(
+                let mut subsystem_handled = administration.country_history(
                     &parsed,
                     reader.clone(),
                     &id,
                     &mut report.administration,
                 )?;
+                subsystem_handled.extend(marker_handled);
+                subsystem_handled.extend(estate_handled);
                 apply_country(
                     &parsed,
                     reader,
@@ -641,9 +1398,13 @@ impl VanillaWorld {
                             ..Default::default()
                         }),
                     &mut setup,
+                    &subsystem_handled,
                     &mut report,
                 )
             })?;
+            if country.unit_type.is_none() {
+                country.unit_type = country.technology_group.clone();
+            }
         }
         let mut metric_history_unknown = BTreeSet::new();
         for file in files
@@ -678,36 +1439,49 @@ impl VanillaWorld {
                     column: 1,
                 });
             visit_history(&parsed, date, |reader| {
-                if crate::country_markers::has_global_mutation(&parsed, reader.clone(), 0)? {
-                    global_markers.mark_unknown();
+                match crate::country_markers::global_flag_mutations(&parsed, reader.clone(), 0)? {
+                    Some(names) if !names.is_empty() => {
+                        global_markers.mark_unknown();
+                        history_global_marker_names.extend(names);
+                    }
+                    Some(_) => (),
+                    None => {
+                        global_markers.mark_unknown();
+                        dynamic_global_marker_history = true;
+                    }
                 }
                 subject_history_unknown |= politics::has_subject_mutation(
                     &parsed,
                     reader.clone(),
-                    &history_effect_names,
+                    &subject_history_effect_names,
                     0,
                 )?;
                 imperial_history_unknown |= crate::imperial_membership::has_unapplied_mutation(
                     &parsed,
                     reader.clone(),
-                    &history_effect_names,
+                    &imperial_membership_effect_names,
                     true,
                     0,
                 )?;
                 if nested_owner(reader.clone(), 0) {
                     unresolved_ownership.insert(id);
                 }
-                let (direct, scoped) = crate::country_metrics::history_mutations(
+                let (direct, scoped) = crate::country_metrics::named_history_mutations_with_scripts(
                     reader.clone(),
-                    &history_effect_names,
+                    &stability_history_effects,
                     0,
+                    &["stability", "add_stability"],
+                    &BTreeSet::new(),
+                    &BTreeSet::new(),
                 );
                 country_metric_scoped_history_unknown |= direct || scoped;
-                let (direct, scoped) = crate::country_metrics::named_history_mutations(
+                let (direct, scoped) = crate::country_metrics::named_history_mutations_with_scripts(
                     reader.clone(),
-                    &history_effect_names,
+                    &BTreeSet::new(),
                     0,
                     &["liberty_desire", "add_liberty_desire"],
+                    &liberty_direct_history_effects,
+                    &liberty_scoped_history_effects,
                 );
                 liberty_scoped_history_unknown |= direct || scoped;
                 let (direct, scoped) =
@@ -739,11 +1513,13 @@ impl VanillaWorld {
             .filter(|id| !province_histories.contains(id))
             .copied()
             .collect();
-        let mut initial = InitialWorld::new(
+        let mut initial = InitialWorld::new_with_eu4_seed(
             countries.into_values().collect(),
             provinces.into_values().collect(),
+            seed,
         )
         .map_err(|e| Error::caused_by(root.path(), e))?;
+        initial.set_eu4_event_seed(fixed_seed);
         let unowned = initial
             .provinces()
             .iter()
@@ -767,12 +1543,13 @@ impl VanillaWorld {
         initial
             .set_markers(markers.bind(&initial))
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        bind_external_country_markers(&mut initial, overrides.country_markers)?;
         initial
             .set_global_markers(global_markers)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         let mut politics = politics::bind_people(&initial, political_drafts, date, &mut report)?;
         politics.ruler_skill_bounds =
-            politics::ruler_skill_bounds(&root, &files, &mut report.setup)?;
+            politics::ruler_skill_bounds(&root, &files, &defines, &mut report.setup)?;
         let subject_types =
             politics::load_diplomacy(&root, &files, &initial, date, &mut politics, &mut report)?;
         initial
@@ -840,6 +1617,21 @@ impl VanillaWorld {
             "religious_school".into(),
             religious_schools.bind(&initial, &mut report.religious_schools),
         );
+        let mut technology_groups = augustus_core::AffiliationDimension::default();
+        let mut unit_types = augustus_core::AffiliationDimension::default();
+        for country in initial.countries() {
+            let entity = initial
+                .country_entity(&country.id)
+                .expect("registered country");
+            technology_groups
+                .members
+                .insert(entity, country.technology_group.clone());
+            unit_types.members.insert(entity, country.unit_type.clone());
+        }
+        affiliations
+            .0
+            .insert("technology_group".into(), technology_groups);
+        affiliations.0.insert("unit_type".into(), unit_types);
         initial
             .set_affiliations(affiliations)
             .map_err(|e| Error::caused_by(root.path(), e))?;
@@ -877,7 +1669,7 @@ impl VanillaWorld {
         for (entity, values) in liberty_metrics.entities {
             metrics.entities.entry(entity).or_default().extend(values);
         }
-        let power = crate::monarch_power::bind(&root, &files, &initial, &mut report.setup)?;
+        let power = crate::monarch_power::bind(&files, &defines, &initial, &mut report.setup)?;
         metrics.definitions.extend(power.definitions);
         for (entity, values) in power.entities {
             metrics.entities.entry(entity).or_default().extend(values);
@@ -886,18 +1678,75 @@ impl VanillaWorld {
         initial
             .set_metrics(metrics)
             .map_err(|e| Error::caused_by("world metrics", e))?;
+        if let Some(values) = overrides.country_metric_values {
+            let bound = values
+                .iter()
+                .map(|(country, metrics)| {
+                    let entity = initial.country_entity(country).ok_or_else(|| {
+                        Error::message(
+                            "external country metrics",
+                            format!("unknown EU4 metric country {country}"),
+                        )
+                    })?;
+                    Ok((entity, metrics.clone()))
+                })
+                .collect::<Result<BTreeMap<_, _>, Error>>()?;
+            initial
+                .set_metric_values(bound)
+                .map_err(|e| Error::caused_by("external country metrics", e))?;
+        }
+        if let Some(values) = overrides.country_metric_ceilings {
+            let bound = values
+                .iter()
+                .map(|(country, metrics)| {
+                    let entity = initial.country_entity(country).ok_or_else(|| {
+                        Error::message(
+                            "external country metric ceilings",
+                            format!("unknown EU4 metric ceiling country {country}"),
+                        )
+                    })?;
+                    Ok((entity, metrics.clone()))
+                })
+                .collect::<Result<BTreeMap<_, _>, Error>>()?;
+            initial
+                .set_metric_ceilings(bound)
+                .map_err(|e| Error::caused_by("external country metric ceilings", e))?;
+        }
+        if let Some(resources) = overrides.country_resources {
+            let bound = resources
+                .iter()
+                .map(|(country, resources)| {
+                    let entity = initial.country_entity(country).ok_or_else(|| {
+                        Error::message(
+                            "external country resources",
+                            format!("unknown EU4 resource country {country}"),
+                        )
+                    })?;
+                    Ok((entity, resources.clone()))
+                })
+                .collect::<Result<BTreeMap<_, _>, Error>>()?;
+            initial
+                .set_country_resources(bound)
+                .map_err(|e| Error::caused_by("external country resources", e))?;
+        }
         let mut attributes =
             attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;
-        let mut accruals =
-            crate::power_income::bind(&root, &files, &initial, &mut attributes, &mut report.setup)?;
-        crate::prestige::bind(&initial, &mut attributes, &mut accruals);
-        let convergence = crate::liberty_desire::bind(
-            &root,
+        let mut accruals = crate::power_income::bind(
             &files,
+            &defines,
             &initial,
             &mut attributes,
             &mut report.setup,
         )?;
+        crate::prestige::bind(&initial, &mut attributes, &mut accruals);
+        let convergence = crate::liberty_desire::bind(
+            &files,
+            &defines,
+            &initial,
+            &mut attributes,
+            &mut report.setup,
+        )?;
+        administration.initialize_country_ranks(&mut initial, &mut report.administration)?;
         let administration = administration.bind(
             &initial,
             &province_histories,
@@ -909,10 +1758,41 @@ impl VanillaWorld {
         initial
             .set_administration(administration)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        if let Some(values) = overrides.province_raw_autonomy_milli {
+            let mut administration = initial.world().administration().clone();
+            for (province, value) in values {
+                let entity = initial.province_entity(*province).ok_or_else(|| {
+                    Error::message(
+                        "external province autonomy",
+                        format!("unknown EU4 autonomy province {province}"),
+                    )
+                })?;
+                let state = administration.provinces.get_mut(&entity).ok_or_else(|| {
+                    Error::message(
+                        "external province autonomy",
+                        format!("province {province} has no administration state"),
+                    )
+                })?;
+                state.raw_autonomy_micros = value
+                    .map(|value| {
+                        value.checked_mul(10).ok_or_else(|| {
+                            Error::message(
+                                "external province autonomy",
+                                format!("autonomy value for province {province} overflows"),
+                            )
+                        })
+                    })
+                    .transpose()?;
+            }
+            initial
+                .set_administration(administration)
+                .map_err(|e| Error::caused_by("external province autonomy", e))?;
+        }
         let politics = status_draft.bind(&initial, report.start_date, &mut report.ideas)?;
         initial
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        bind_external_country_statuses(&mut initial, overrides.country_statuses)?;
         initial
             .set_attributes(attributes.clone())
             .map_err(|e| Error::caused_by(root.path(), e))?;
@@ -940,7 +1820,8 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by("common/cb_types", e))?;
         let missions =
             crate::missions::MissionDraft::load(&root, &files, initial.world(), &area_scopes)?;
-        crate::truces::bind(&root, &files, &mut report.setup)?;
+        missions.register_identifiers(&mut initial)?;
+        crate::truces::bind(&files, &defines, &mut report.setup)?;
         let startup = crate::estates::EstateStartup::load(
             &root,
             &files,
@@ -987,6 +1868,7 @@ impl VanillaWorld {
         initial
             .set_estates(estates)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        bind_external_estate_privileges(&mut initial, overrides.estate_privileges)?;
         let ideas = ideas.bind(&initial, report.start_date, &mut report.ideas);
         initial
             .set_ideas(ideas)
@@ -1000,16 +1882,141 @@ impl VanillaWorld {
                 month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
             })
             .map_err(|e| Error::caused_by(root.path(), e))?;
-        initial
-            .set_taxation(Taxation::new(
-                "tax_after_autonomy",
+        if overrides.production_inputs.is_some() || overrides.production_value_inputs.is_some() {
+            let mut bound = BTreeMap::new();
+            if let Some(inputs) = overrides.production_inputs {
+                for (province, input) in inputs {
+                    let entity = initial.province_entity(*province).ok_or_else(|| {
+                        Error::message(
+                            "external production inputs",
+                            format!("unknown EU4 production province {province}"),
+                        )
+                    })?;
+                    bound.insert(entity, input.clone());
+                }
+            }
+            if let Some(inputs) = overrides.production_value_inputs {
+                for (entity, input) in bind_external_production_value_inputs(
+                    &initial,
+                    inputs,
+                    overrides.trade_good_price_impacts_milli,
+                )? {
+                    if bound.insert(entity, input).is_some() {
+                        return Err(Error::message(
+                            "external production inputs",
+                            "a province cannot provide both production_inputs and production_value_inputs",
+                        ));
+                    }
+                }
+            }
+            initial
+                .set_monthly_production(MonthlyProduction::new(bound))
+                .map_err(|e| Error::caused_by("external production inputs", e))?;
+        }
+        if let Some(targets) = overrides.estate_loyalty_targets {
+            let bound = targets
+                .iter()
+                .map(|(country, estates)| {
+                    let entity = initial.country_entity(country).ok_or_else(|| {
+                        Error::message(
+                            "external estate loyalty targets",
+                            format!("unknown EU4 estate target country {country}"),
+                        )
+                    })?;
+                    Ok((entity, estates.clone()))
+                })
+                .collect::<Result<BTreeMap<_, _>, Error>>()?;
+            initial
+                .set_estate_loyalty_targets(bound)
+                .map_err(|e| Error::caused_by("external estate loyalty targets", e))?;
+        }
+        let countries: std::collections::BTreeSet<_> = initial
+            .countries()
+            .iter()
+            .map(|country| {
                 initial
-                    .countries()
+                    .country_entity(&country.id)
+                    .expect("registered country")
+            })
+            .collect();
+        let has_country_tax_attribute = countries.iter().all(|entity| {
+            initial
+                .world()
+                .attributes()
+                .formulas
+                .get(entity)
+                .is_some_and(|formulas| {
+                    formulas.contains_key(crate::attributes::COUNTRY_ANNUAL_TAX)
+                })
+        });
+        let external_country_annual_tax = if let Some(values) = overrides.country_annual_tax_milli {
+            Some(
+                values
                     .iter()
-                    .map(|c| initial.country_entity(&c.id).expect("registered country"))
-                    .collect(),
-            ))
+                    .map(|(country, amount)| {
+                        let entity = initial.country_entity(country).ok_or_else(|| {
+                            Error::message(
+                                "external annual country tax",
+                                format!("unknown EU4 tax country {country}"),
+                            )
+                        })?;
+                        Ok((entity, *amount))
+                    })
+                    .collect::<Result<BTreeMap<_, _>, Error>>()?,
+            )
+        } else {
+            None
+        };
+        let external_province_annual_tax = if let Some(values) = overrides.province_annual_tax_milli
+        {
+            Some(
+                values
+                    .iter()
+                    .map(|(province, amount)| {
+                        let entity = initial.province_entity(*province).ok_or_else(|| {
+                            Error::message(
+                                "external annual province tax",
+                                format!("unknown EU4 tax province {province}"),
+                            )
+                        })?;
+                        Ok((entity, *amount))
+                    })
+                    .collect::<Result<BTreeMap<_, _>, _>>()?,
+            )
+        } else {
+            None
+        };
+        let mut taxation = Taxation::new("tax_after_autonomy", countries);
+        if let Some(values) = external_country_annual_tax {
+            taxation = taxation.with_external_country_annual_milli(values);
+        }
+        if let Some(values) = external_province_annual_tax {
+            taxation = taxation.with_external_province_annual_milli(values);
+        }
+        if has_country_tax_attribute {
+            taxation =
+                taxation.with_country_annual_attribute(crate::attributes::COUNTRY_ANNUAL_TAX);
+        }
+        initial
+            .set_taxation(taxation)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        if let Some(cashflows) = overrides.country_monthly_cashflows_milli {
+            let bound = cashflows
+                .iter()
+                .map(|(country, amount)| {
+                    let entity = initial.country_entity(country).ok_or_else(|| {
+                        Error::message(
+                            "external monthly cashflows",
+                            format!("unknown EU4 cashflow country {country}"),
+                        )
+                    })?;
+                    Ok((entity, *amount))
+                })
+                .collect::<Result<BTreeMap<_, _>, Error>>()?;
+            initial
+                .set_monthly_cashflows(Some(MonthlyExternalCashflows::new(bound)))
+                .map_err(|e| Error::caused_by("external monthly cashflows", e))?;
+        }
         initial
             .set_monthly_accruals(accruals)
             .map_err(|e| Error::caused_by(root.path(), e))?;
@@ -1064,8 +2071,31 @@ impl VanillaWorld {
                 })
                 .map_err(|e| Error::caused_by("variables", e))?;
         }
+        if !dynamic_global_marker_history && !initial.world().global_markers().known {
+            let mut global_markers = initial.world().global_markers().clone();
+            for name in startup.global_marker_references() {
+                if !history_global_marker_names.contains(&name) {
+                    global_markers.values.insert(name, false);
+                }
+            }
+            initial
+                .set_global_markers(global_markers)
+                .map_err(|e| Error::caused_by("common/on_actions", e))?;
+        }
+        bind_external_units(&mut initial, overrides.armies, overrides.naval_units)?;
         report.missions = missions.bind(&mut initial)?;
-        startup.run(&mut initial, &mut report.estates)?;
+        // Content identity is based on the bound initial world. Startup effects
+        // and AI choices are runtime state and must not vary the hash by seed.
+        let content_identity_initial = initial.clone();
+        startup.run(
+            &mut initial,
+            &mut report.estates,
+            &country_order,
+            clock_origin,
+        )?;
+        bind_external_country_statuses(&mut initial, overrides.country_statuses)?;
+        bind_external_country_markers(&mut initial, overrides.country_markers)?;
+        bind_external_estate_privileges(&mut initial, overrides.estate_privileges)?;
         report.missions.known_countries = initial.world().objectives().entities.len();
         report.missions.unresolved.retain(|tag, _| {
             !initial
@@ -1115,9 +2145,8 @@ impl VanillaWorld {
             digest.update(identity);
         }
         digest.update(
-            initial
-                .world()
-                .save("")
+            content_identity_initial
+                .content_identity_state()
                 .map_err(|e| Error::caused_by(root.path(), e))?
                 .as_bytes(),
         );
@@ -1265,6 +2294,64 @@ impl VanillaWorld {
         })
     }
 
+    /// Returns the content-defined base price for a province's current trade
+    /// good. This is the value loaded from `common/prices`; it is not a
+    /// runtime market price and does not imply that trade settlement has run.
+    pub fn province_trade_good_base_price_milli(
+        &self,
+        id: u32,
+    ) -> Result<Option<i64>, augustus_core::Error> {
+        let entity = self
+            .initial
+            .province_entity(id)
+            .ok_or_else(|| augustus_core::Error::Invalid("unknown province".into()))?;
+        let economy = self.initial.world().economy();
+        let Some(trade_good) = economy
+            .provinces
+            .get(&entity)
+            .and_then(|state| state.trade_good.as_deref())
+        else {
+            return Ok(None);
+        };
+        economy
+            .trade_goods
+            .get(trade_good)
+            .map(|definition| definition.base_price_milli)
+            .ok_or_else(|| {
+                augustus_core::Error::Invalid(format!(
+                    "province {id} references unknown trade good {trade_good}"
+                ))
+            })
+    }
+
+    /// Applies the verified ordinary-production value stage using the
+    /// province's content-defined trade-good base price. `None` means that
+    /// the province has no resolved trade-good price; no value is invented.
+    pub fn calculate_vanilla_province_production_base_value(
+        &self,
+        id: u32,
+        input: VanillaProvinceProductionBaseValueInput,
+    ) -> Result<Option<VanillaProductionBaseValueResult>, augustus_core::Error> {
+        let Some(price) = self.province_trade_good_base_price_milli(id)? else {
+            return Ok(None);
+        };
+        let price = i32::try_from(price).map_err(|_| {
+            augustus_core::Error::Invalid(format!(
+                "trade-good base price for province {id} is outside the production range"
+            ))
+        })?;
+        Ok(Some(calculate_vanilla_production_base_value(
+            VanillaProductionBaseValueInput {
+                goods_size_milli: input.goods_size_milli,
+                trade_good_price_milli: price,
+                flat_modifier_milli: input.flat_modifier_milli,
+                external_flat_modifier_milli: input.external_flat_modifier_milli,
+                rate_modifier_milli: input.rate_modifier_milli,
+                external_rate_modifier_milli: input.external_rate_modifier_milli,
+            },
+        )))
+    }
+
     pub fn country_attributes(
         &self,
         id: &str,
@@ -1292,6 +2379,194 @@ impl VanillaWorld {
             .collect()
     }
 
+    pub fn country_vanilla_production(
+        &self,
+        id: &str,
+        inputs: &std::collections::BTreeMap<u32, crate::VanillaProductionInputState>,
+    ) -> Result<crate::VanillaProductionCountryResult, augustus_core::Error> {
+        let country = self
+            .initial
+            .country_entity(id)
+            .ok_or_else(|| augustus_core::Error::Invalid("unknown country".into()))?;
+        augustus_core::calculate_vanilla_production_for_country(&self.initial, country, inputs)
+    }
+
+    /// Binds production inputs supplied by a compatibility provider.
+    ///
+    /// The provider owns the upstream EU4 or external-game translation. This
+    /// method only maps EU4 province ids to core entities and installs or
+    /// refreshes the monthly executor inputs; it does not infer missing
+    /// production inputs.
+    pub fn set_vanilla_production_inputs(
+        &mut self,
+        inputs: BTreeMap<u32, augustus_core::VanillaProductionInputState>,
+    ) -> Result<(), augustus_core::Error> {
+        let bound = inputs
+            .into_iter()
+            .map(|(province, state)| {
+                let entity = self.initial.province_entity(province).ok_or_else(|| {
+                    augustus_core::Error::Invalid(format!(
+                        "unknown EU4 production province {province}"
+                    ))
+                })?;
+                Ok((entity, state))
+            })
+            .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
+        let installed = self.initial.world().monthly_production().is_some();
+        if installed {
+            self.initial.set_monthly_production_inputs(bound)
+        } else {
+            self.initial
+                .set_monthly_production(MonthlyProduction::new(bound))
+        }
+    }
+
+    /// Binds or refreshes production inputs whose value stage still needs the
+    /// EU4 content-defined trade-good price. Upstream quantities and modifiers
+    /// remain explicit; a missing price becomes an unresolved production row.
+    pub fn set_vanilla_production_value_inputs(
+        &mut self,
+        inputs: BTreeMap<u32, VanillaExternalProductionInput>,
+    ) -> Result<(), augustus_core::Error> {
+        let translated = inputs
+            .into_iter()
+            .map(|(province, source)| {
+                let value = self.calculate_vanilla_province_production_base_value(
+                    province,
+                    VanillaProvinceProductionBaseValueInput {
+                        goods_size_milli: source.goods_size_milli,
+                        flat_modifier_milli: source.flat_modifier_milli,
+                        external_flat_modifier_milli: source.external_flat_modifier_milli,
+                        rate_modifier_milli: source.rate_modifier_milli,
+                        external_rate_modifier_milli: source.external_rate_modifier_milli,
+                    },
+                )?;
+                let state = match value {
+                    Some(value) => augustus_core::VanillaProductionInputState {
+                        input: Some(VanillaProductionInput {
+                            base_value_milli: value.value_milli,
+                            country_modifier_milli: source.country_modifier_milli,
+                            legacy_province_modifier_milli: source.legacy_province_modifier_milli,
+                            queried_province_modifier_milli: source.queried_province_modifier_milli,
+                        }),
+                        unresolved: Default::default(),
+                    },
+                    None => augustus_core::VanillaProductionInputState {
+                        input: None,
+                        unresolved: ["missing_trade_good_base_price".into()].into(),
+                    },
+                };
+                Ok((province, state))
+            })
+            .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
+        self.set_vanilla_production_inputs(translated)
+    }
+
+    /// Applies country metric values supplied by a compatibility provider.
+    ///
+    /// This is a state binding point for values obtained from another
+    /// simulation or an external save reader. Definitions and omitted values
+    /// remain unchanged; no EU4 metric producer is inferred here.
+    pub fn set_country_metric_values(
+        &mut self,
+        values: BTreeMap<String, BTreeMap<String, Option<i64>>>,
+    ) -> Result<(), augustus_core::Error> {
+        let bound = values
+            .into_iter()
+            .map(|(country, metrics)| {
+                let entity = self.initial.country_entity(&country).ok_or_else(|| {
+                    augustus_core::Error::Invalid(format!("unknown EU4 metric country {country}"))
+                })?;
+                Ok((entity, metrics))
+            })
+            .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
+        self.initial.set_metric_values(bound)
+    }
+
+    /// Applies per-country metric growth ceilings supplied by a compatibility
+    /// provider. Omitted countries and metrics keep their current knowledge.
+    pub fn set_country_metric_ceilings(
+        &mut self,
+        ceilings: BTreeMap<String, BTreeMap<String, Option<i64>>>,
+    ) -> Result<(), augustus_core::Error> {
+        let bound = ceilings
+            .into_iter()
+            .map(|(country, metrics)| {
+                let entity = self.initial.country_entity(&country).ok_or_else(|| {
+                    augustus_core::Error::Invalid(format!(
+                        "unknown EU4 metric ceiling country {country}"
+                    ))
+                })?;
+                Ok((entity, metrics))
+            })
+            .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
+        self.initial.set_metric_ceilings(bound)
+    }
+
+    /// Applies country resources supplied by a compatibility provider.
+    pub fn set_country_resources(
+        &mut self,
+        resources: BTreeMap<String, CountryResources>,
+    ) -> Result<(), augustus_core::Error> {
+        let bound = resources
+            .into_iter()
+            .map(|(country, resources)| {
+                let entity = self.initial.country_entity(&country).ok_or_else(|| {
+                    augustus_core::Error::Invalid(format!("unknown EU4 resource country {country}"))
+                })?;
+                Ok((entity, resources))
+            })
+            .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
+        self.initial.set_country_resources(bound)
+    }
+
+    /// Applies signed monthly cashflows supplied by another simulation or a
+    /// translated save reader. Positive values are receipts; negative values
+    /// are expenses. The core settles them after tax and production.
+    pub fn set_country_monthly_cashflows(
+        &mut self,
+        cashflows: BTreeMap<String, Option<i64>>,
+    ) -> Result<(), augustus_core::Error> {
+        let bound = cashflows
+            .into_iter()
+            .map(|(country, amount)| {
+                let entity = self.initial.country_entity(&country).ok_or_else(|| {
+                    augustus_core::Error::Invalid(format!("unknown EU4 cashflow country {country}"))
+                })?;
+                Ok((entity, amount))
+            })
+            .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
+        if self.initial.monthly_cashflows().is_some() {
+            self.initial.set_monthly_cashflow_inputs(bound)
+        } else {
+            self.initial
+                .set_monthly_cashflows(Some(MonthlyExternalCashflows::new(bound)))
+        }
+    }
+
+    /// Applies estate loyalty targets supplied by a compatibility provider.
+    ///
+    /// The provider owns the upstream EU4 or external-game translation. This
+    /// method only maps EU4 tags to core countries and requires each estate to
+    /// already exist in the current world; it never creates an estate state.
+    pub fn set_estate_loyalty_targets(
+        &mut self,
+        targets: BTreeMap<String, BTreeMap<String, Option<i64>>>,
+    ) -> Result<(), augustus_core::Error> {
+        let bound = targets
+            .into_iter()
+            .map(|(country, estates)| {
+                let entity = self.initial.country_entity(&country).ok_or_else(|| {
+                    augustus_core::Error::Invalid(format!(
+                        "unknown EU4 estate target country {country}"
+                    ))
+                })?;
+                Ok((entity, estates))
+            })
+            .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
+        self.initial.set_estate_loyalty_targets(bound)
+    }
+
     pub fn country(&self, id: &str) -> Option<CountryView<'_>> {
         self.initial.country(id).map(|state| CountryView {
             metrics: self
@@ -1310,8 +2585,14 @@ impl VanillaWorld {
                 .initial
                 .world()
                 .estates()
-                .declared_effects(self.initial.country_entity(id).expect("registered country"))
-                .expect("validated estate effects"),
+                .declared_effects_with_world(
+                    self.initial.world(),
+                    self.initial.country_entity(id).expect("registered country"),
+                )
+                .unwrap_or_else(|error| augustus_core::EstateEvaluation {
+                    unresolved: [format!("estates:evaluation_failed:{error}")].into(),
+                    ..Default::default()
+                }),
             ideas: self
                 .initial
                 .country_entity(id)
@@ -1327,6 +2608,15 @@ impl VanillaWorld {
                 .world()
                 .taxation()
                 .and_then(|t| t.last_settlement.as_ref())
+                .and_then(|last| {
+                    last.accounts
+                        .get(&self.initial.country_entity(id).expect("registered country"))
+                }),
+            last_monthly_production: self
+                .initial
+                .world()
+                .monthly_production()
+                .and_then(|p| p.last_settlement.as_ref())
                 .and_then(|last| {
                     last.accounts
                         .get(&self.initial.country_entity(id).expect("registered country"))
@@ -1400,7 +2690,15 @@ impl VanillaWorld {
                                 self.initial.country_entity(id).expect("registered country"),
                                 name,
                             )
-                            .expect("validated attribute totals"),
+                            .unwrap_or_else(|error| augustus_core::AttributeAggregate {
+                                province_count: self.initial.owned_provinces(id).len(),
+                                known_subtotal_micros: 0,
+                                value_micros: None,
+                                unresolved: [format!(
+                                    "attribute_aggregate:evaluation_failed:{name}:{error}"
+                                )]
+                                .into(),
+                            }),
                     )
                 })
                 .collect(),
@@ -1675,9 +2973,12 @@ fn apply_country(
     country: &mut CountryState,
     politics: &mut CountryDraft,
     setup: &mut SetupDraft,
+    subsystem_handled: &BTreeSet<String>,
     report: &mut BootstrapReport,
 ) -> Result<(), Error> {
-    let handled = setup.country_history(parsed, reader.clone(), &country.id, &mut report.setup)?;
+    let mut handled =
+        setup.country_history(parsed, reader.clone(), &country.id, &mut report.setup)?;
+    handled.extend(subsystem_handled.iter().cloned());
     for (key, op, value) in reader.fields() {
         let name = key.read_string();
         if dated_name(&name) || handled.contains(&name) {
@@ -1726,7 +3027,7 @@ fn apply_country(
                     .map_err(|_| fail("invalid capital identifier"))?;
                 country.declared_capital = (id != 0).then_some(id);
             }
-            "primary_culture" | "religion" | "government" | "technology_group" => {
+            "primary_culture" | "religion" | "government" | "technology_group" | "unit_type" => {
                 equal(op, &fail)?;
                 let text = value
                     .read_string()
@@ -1735,9 +3036,16 @@ fn apply_country(
                     "primary_culture" => &mut country.primary_culture,
                     "religion" => &mut country.religion,
                     "government" => &mut country.government,
-                    _ => &mut country.technology_group,
+                    "technology_group" => &mut country.technology_group,
+                    _ => &mut country.unit_type,
                 };
                 *slot = Some(text);
+                if name == "unit_type" {
+                    report.setup.history_sources.insert(
+                        format!("country:{}:unit_type", country.id),
+                        source(parsed, location),
+                    );
+                }
             }
             _ => {
                 if value

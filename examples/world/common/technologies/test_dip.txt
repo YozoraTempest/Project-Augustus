@@ -5,4 +5,4 @@ monarch_power = DIP
 technology = { year = 1300 }
 technology = { year = 1340 }
 technology = { year = 1390 }
-technology = { year = 1430 test_range = 7.125 }
+technology = { year = 1430 test_range = 7.125 enable = sample_light_ship }

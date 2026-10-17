@@ -6,9 +6,64 @@ use std::collections::BTreeSet;
 use augustus_core::{AffiliationDimension, Affiliations, InitialWorld};
 use jomini::text::ObjectReader;
 
-use crate::{Error, ParsedText, TextEncoding};
+use crate::{ContentView, Error, FileEntry, ParsedText, TextEncoding};
 
 pub(super) const DIMENSION: &str = "imperial_membership";
+
+/// Scripted history effects matter only when they can reach a membership write.
+pub(super) fn membership_effect_names(
+    root: &impl ContentView,
+    files: &[FileEntry],
+) -> Result<BTreeSet<String>, Error> {
+    let mut dependencies = std::collections::BTreeMap::<String, BTreeSet<String>>::new();
+    for file in files
+        .iter()
+        .filter(|file| crate::bootstrap::direct_txt(&file.relative_path, "common/scripted_effects"))
+    {
+        let document = root.read_text(&file.relative_path, TextEncoding::Windows1252)?;
+        let parsed = document.parse()?;
+        for (key, _, value) in parsed.reader().fields() {
+            let name = key.read_string();
+            if name.starts_with('@') {
+                continue;
+            }
+            let mut referenced = BTreeSet::new();
+            if let Ok(body) = value.read_object() {
+                collect_script_names(body, &mut referenced);
+            }
+            dependencies.entry(name).or_default().extend(referenced);
+        }
+    }
+
+    let direct_writes = BTreeSet::from(["set_in_empire", "dismantle_hre"]);
+    let mut affected = BTreeSet::new();
+    loop {
+        let newly_affected = dependencies
+            .iter()
+            .filter(|(name, references)| {
+                !affected.contains(*name)
+                    && references.iter().any(|reference| {
+                        direct_writes.contains(reference.as_str()) || affected.contains(reference)
+                    })
+            })
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+        if newly_affected.is_empty() {
+            break;
+        }
+        affected.extend(newly_affected);
+    }
+    Ok(affected)
+}
+
+fn collect_script_names(reader: ObjectReader<'_, '_, TextEncoding>, names: &mut BTreeSet<String>) {
+    for (key, _, value) in reader.fields() {
+        names.insert(key.read_string());
+        if let Ok(body) = value.read_object() {
+            collect_script_names(body, names);
+        }
+    }
+}
 
 /// Only a read history file establishes the default absence of membership.
 pub(super) fn bind(
@@ -55,7 +110,7 @@ pub(super) fn mark_unknown(affiliations: &mut Affiliations) {
     }
 }
 
-/// Unexecuted history effects may change membership or move a country's capital.
+/// Unexecuted history effects may change imperial membership.
 /// Date blocks are visited by the history loader at the selected date.
 pub(super) fn has_unapplied_mutation(
     parsed: &ParsedText<'_>,
@@ -76,12 +131,8 @@ pub(super) fn has_unapplied_mutation(
             continue;
         }
         if scripted_effects.contains(&name)
-            || matches!(
-                name.as_str(),
-                "effect" | "set_in_empire" | "dismantle_hre" | "set_capital"
-            )
+            || matches!(name.as_str(), "set_in_empire" | "dismantle_hre")
             || (name == "hre" && !province_scope)
-            || (name == "capital" && depth > 0)
         {
             return Ok(true);
         }

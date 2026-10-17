@@ -70,7 +70,7 @@ fn selected_reforms_and_live_ownership_feed_the_shared_attribute_calculator() {
     );
     assert_eq!(
         country.province_attribute_totals["tax_basis"].known_subtotal_micros,
-        5_600_000
+        1_600_000
     );
     let mut world = loaded.initial.world().clone();
     let province = loaded.initial.province_entity(2).unwrap();
@@ -104,7 +104,7 @@ fn selected_reforms_and_live_ownership_feed_the_shared_attribute_calculator() {
             .evaluate(&world, province, "tax_basis")
             .unwrap()
             .known_subtotal_micros,
-        Some(5_100_000)
+        Some(1_100_000)
     );
     let later = VanillaWorld::load(temp.path(), "1450.1.1").unwrap();
     assert!(
@@ -282,7 +282,7 @@ fn unsupported_conditions_and_duplicate_effects_remain_property_specific_unknown
     );
     assert_eq!(
         country.province_attribute_totals["tax_basis"].known_subtotal_micros,
-        5_600_000
+        1_600_000
     );
     assert!(
         country.province_attribute_totals["tax_basis"]
@@ -550,4 +550,8 @@ fn initialization_uses_the_current_tier_selection_for_fixed_government_ranks() {
     write(temp.path(), "history/diplomacy/test.txt", "");
     let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     assert_eq!(loaded.report.administration.initial_country_ranks["BBB"], 1);
+    assert_eq!(
+        loaded.country("BBB").unwrap().government.unwrap().rank,
+        Some(1)
+    );
 }

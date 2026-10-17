@@ -25,3 +25,5 @@ csv = "1.4"
 image = { version = "0.25", default-features = false, features = ["bmp"] }
 sha2 = "0.11"
 zip = { version = "9.0.3", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+mlua = { version = "0.12.2", default-features = false, features = ["lua51", "vendored"] }
+full_moon = { version = "3.0.0", default-features = false }

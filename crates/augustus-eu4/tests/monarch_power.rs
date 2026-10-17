@@ -3,7 +3,7 @@
 
 use augustus_core::*;
 use augustus_eu4::*;
-use std::{fs, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 fn document(text: &str) -> TextDocument {
     TextDocument::from_bytes(
@@ -165,7 +165,38 @@ fn loading_reads_signed_limits_and_keeps_uninitialized_stocks_unknown() {
         "NDefines.NCountry.DEBT_LIMIT_DIP = -77",
     )
     .unwrap();
-    let error = VanillaWorld::load(temp.path(), "1444.11.11").err().unwrap();
-    assert!(error.to_string().contains("Lua evaluation"));
-    assert!(error.to_string().contains("power.lua"));
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.initial.world().metrics().definitions["dip_power"].minimum,
+        -77
+    );
+    assert!(
+        loaded.report.setup.definition_sources["monarch_power:dip_minimum"]
+            .path
+            .ends_with("common/defines/power.lua")
+    );
+}
+
+#[test]
+fn external_metric_ceilings_bind_by_country_tag_without_filling_other_countries() {
+    let state = VanillaExternalState {
+        country_metric_ceilings: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([
+                ("adm_power".into(), Some(500)),
+                ("mil_power".into(), Some(300)),
+            ]),
+        )]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        "1444.11.11",
+        &state,
+    )
+    .unwrap();
+    let aaa = loaded.country("AAA").unwrap();
+    assert_eq!(aaa.metric_ceilings.unwrap()["adm_power"], Some(500));
+    assert_eq!(aaa.metric_ceilings.unwrap()["mil_power"], Some(300));
+    assert!(loaded.country("BBB").unwrap().metric_ceilings.unwrap()["adm_power"].is_none());
 }

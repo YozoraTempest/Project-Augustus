@@ -14,10 +14,23 @@ pub(super) fn literal_name(name: &str) -> bool {
     !name.is_empty() && !name.contains(['$', '@'])
 }
 
-pub(super) fn has_global_mutation(
+pub(super) fn global_flag_mutations(
     parsed: &ParsedText<'_>,
     reader: ObjectReader<'_, '_, TextEncoding>,
     depth: usize,
+) -> Result<Option<BTreeSet<String>>, Error> {
+    let mut names = BTreeSet::new();
+    if !collect_global_flag_mutations(parsed, reader, depth, &mut names)? {
+        return Ok(None);
+    }
+    Ok(Some(names))
+}
+
+fn collect_global_flag_mutations(
+    parsed: &ParsedText<'_>,
+    reader: ObjectReader<'_, '_, TextEncoding>,
+    depth: usize,
+    names: &mut BTreeSet<String>,
 ) -> Result<bool, Error> {
     if depth > 64 {
         return Err(Error::message(
@@ -31,15 +44,22 @@ pub(super) fn has_global_mutation(
             continue;
         }
         if matches!(name.as_str(), "set_global_flag" | "clr_global_flag") {
-            return Ok(true);
+            let Ok(flag) = value.read_string() else {
+                return Ok(false);
+            };
+            if !literal_name(&flag) {
+                return Ok(false);
+            }
+            names.insert(flag);
+            continue;
         }
         if let Ok(body) = value.read_object()
-            && has_global_mutation(parsed, body, depth + 1)?
+            && !collect_global_flag_mutations(parsed, body, depth + 1, names)?
         {
-            return Ok(true);
+            return Ok(false);
         }
     }
-    Ok(false)
+    Ok(true)
 }
 
 #[derive(Default)]
@@ -59,7 +79,8 @@ impl CountryMarkers {
         parsed: &ParsedText<'_>,
         reader: ObjectReader<'_, '_, TextEncoding>,
         tag: &str,
-    ) -> Result<(), Error> {
+    ) -> Result<BTreeSet<String>, Error> {
+        let mut handled = BTreeSet::new();
         let history = self.histories.entry(tag.into()).or_default();
         for (key, op, value) in reader.fields() {
             let name = key.read_string();
@@ -82,6 +103,7 @@ impl CountryMarkers {
                 } else {
                     history.values.remove(&id);
                 }
+                handled.insert(name);
             } else if let Ok(body) = value.read_object()
                 && contains_operation(body, 0)?
             {
@@ -89,7 +111,7 @@ impl CountryMarkers {
                 history.unknown = true;
             }
         }
-        Ok(())
+        Ok(handled)
     }
 
     pub(super) fn bind(self, initial: &InitialWorld) -> Markers {

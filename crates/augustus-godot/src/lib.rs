@@ -4,6 +4,7 @@
 use augustus_demo::{Demo, Error, Input, System, View};
 use godot::prelude::*;
 use serde::Serialize;
+use std::path::PathBuf;
 
 struct AugustusExtension;
 
@@ -43,6 +44,19 @@ impl AugustusSession {
 #[class(init, base=RefCounted)]
 struct AugustusWorldSession {
     loaded: Option<augustus_eu4::VanillaWorld>,
+    saved_imperial_baseline: Option<augustus_eu4::SavedImperialBaselineReport>,
+    saved_office_preferences: Option<augustus_eu4::SavedOfficePreferenceReport>,
+}
+
+enum SavedStateImport {
+    None,
+    OfficePreferences(PathBuf),
+    ImperialBaseline(PathBuf),
+}
+
+struct WorldLoadOptions {
+    saved_state_import: SavedStateImport,
+    external_state: Option<PathBuf>,
 }
 
 fn world_reply<T: Serialize>(result: Result<T, String>) -> GString {
@@ -55,6 +69,75 @@ fn world_reply<T: Serialize>(result: Result<T, String>) -> GString {
     .into()
 }
 
+fn load_world_from_content(
+    path: String,
+    date: String,
+    mod_directories: Vec<PathBuf>,
+    user_directory: Option<PathBuf>,
+    launcher_config: Option<PathBuf>,
+    saved_state_import: SavedStateImport,
+    external_state: Option<PathBuf>,
+) -> Result<
+    (
+        augustus_eu4::VanillaWorld,
+        Option<augustus_eu4::SavedImperialBaselineReport>,
+        Option<augustus_eu4::SavedOfficePreferenceReport>,
+    ),
+    String,
+> {
+    if !matches!(&saved_state_import, SavedStateImport::None)
+        && (!mod_directories.is_empty() || user_directory.is_some())
+    {
+        return Err(
+            "baseline save import requires vanilla content without Mods or user-directory overlays"
+                .into(),
+        );
+    }
+    let content = augustus_eu4::ContentSet::from_installation(
+        path,
+        &mod_directories,
+        user_directory.as_deref(),
+        launcher_config.as_deref(),
+        augustus_eu4::TextEncoding::Windows1252,
+    )
+    .map_err(|error| error.to_string())?;
+    let external_state = external_state
+        .map(|path| {
+            std::fs::read(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))
+                .and_then(|bytes| {
+                    serde_json::from_slice::<augustus_eu4::VanillaExternalState>(&bytes)
+                        .map_err(|error| format!("{}: {error}", path.display()))
+                })
+        })
+        .transpose()?;
+    let mut loaded = match external_state.as_ref() {
+        Some(state) => augustus_eu4::VanillaWorld::load_from_content_with_external_state(
+            &content, &date, state,
+        ),
+        None => augustus_eu4::VanillaWorld::load_from_content(&content, &date),
+    }
+    .map_err(|error| error.to_string())?;
+    let (saved_imperial_baseline, saved_office_preferences) = match saved_state_import {
+        SavedStateImport::None => (None, None),
+        SavedStateImport::OfficePreferences(path) => (
+            None,
+            Some(
+                augustus_eu4::apply_saved_office_preferences(&mut loaded, path)
+                    .map_err(|error| error.to_string())?,
+            ),
+        ),
+        SavedStateImport::ImperialBaseline(path) => (
+            Some(
+                augustus_eu4::apply_saved_imperial_baseline(&mut loaded, path)
+                    .map_err(|error| error.to_string())?,
+            ),
+            None,
+        ),
+    };
+    Ok((loaded, saved_imperial_baseline, saved_office_preferences))
+}
+
 impl AugustusWorldSession {
     fn loaded(&self) -> Result<&augustus_eu4::VanillaWorld, String> {
         self.loaded
@@ -65,6 +148,42 @@ impl AugustusWorldSession {
         self.loaded
             .as_mut()
             .ok_or_else(|| "load a world first".into())
+    }
+
+    fn load_world_with_content_internal(
+        &mut self,
+        path: GString,
+        date: GString,
+        mod_directories: Array<GString>,
+        user_directory: GString,
+        launcher_config: GString,
+        options: WorldLoadOptions,
+    ) -> GString {
+        let mod_directories = mod_directories
+            .iter_shared()
+            .map(|path| PathBuf::from(path.to_string()))
+            .collect::<Vec<_>>();
+        let user_directory = PathBuf::from(user_directory.to_string());
+        let user_directory = (!user_directory.as_os_str().is_empty()).then_some(user_directory);
+        let launcher_config = PathBuf::from(launcher_config.to_string());
+        let launcher_config = (!launcher_config.as_os_str().is_empty()).then_some(launcher_config);
+        match load_world_from_content(
+            path.to_string(),
+            date.to_string(),
+            mod_directories,
+            user_directory,
+            launcher_config,
+            options.saved_state_import,
+            options.external_state,
+        ) {
+            Ok((loaded, saved_imperial_baseline, saved_office_preferences)) => {
+                self.loaded = Some(loaded);
+                self.saved_imperial_baseline = saved_imperial_baseline;
+                self.saved_office_preferences = saved_office_preferences;
+                self.world_overview()
+            }
+            Err(error) => world_reply::<serde_json::Value>(Err(error)),
+        }
     }
 }
 
@@ -120,10 +239,116 @@ impl AugustusWorldSession {
         match augustus_eu4::VanillaWorld::load(path.to_string(), &date.to_string()) {
             Ok(loaded) => {
                 self.loaded = Some(loaded);
+                self.saved_imperial_baseline = None;
+                self.saved_office_preferences = None;
                 self.world_overview()
             }
             Err(e) => world_reply::<serde_json::Value>(Err(e.to_string())),
         }
+    }
+
+    #[func]
+    fn load_world_with_content(
+        &mut self,
+        path: GString,
+        date: GString,
+        mod_directories: Array<GString>,
+        user_directory: GString,
+        launcher_config: GString,
+    ) -> GString {
+        self.load_world_with_content_internal(
+            path,
+            date,
+            mod_directories,
+            user_directory,
+            launcher_config,
+            WorldLoadOptions {
+                saved_state_import: SavedStateImport::None,
+                external_state: None,
+            },
+        )
+    }
+
+    #[func]
+    fn load_world_with_content_and_external_state(
+        &mut self,
+        path: GString,
+        date: GString,
+        mod_directories: Array<GString>,
+        user_directory: GString,
+        launcher_config: GString,
+        external_state: GString,
+    ) -> GString {
+        let external_state = PathBuf::from(external_state.to_string());
+        let external_state = (!external_state.as_os_str().is_empty()).then_some(external_state);
+        self.load_world_with_content_internal(
+            path,
+            date,
+            mod_directories,
+            user_directory,
+            launcher_config,
+            WorldLoadOptions {
+                saved_state_import: SavedStateImport::None,
+                external_state,
+            },
+        )
+    }
+
+    #[func]
+    fn load_world_with_office_preferences(
+        &mut self,
+        path: GString,
+        date: GString,
+        mod_directories: Array<GString>,
+        user_directory: GString,
+        launcher_config: GString,
+        office_preference_save: GString,
+    ) -> GString {
+        let office_preference_save = PathBuf::from(office_preference_save.to_string());
+        let office_preference_save =
+            (!office_preference_save.as_os_str().is_empty()).then_some(office_preference_save);
+        self.load_world_with_content_internal(
+            path,
+            date,
+            mod_directories,
+            user_directory,
+            launcher_config,
+            WorldLoadOptions {
+                saved_state_import: office_preference_save
+                    .map(SavedStateImport::OfficePreferences)
+                    .unwrap_or(SavedStateImport::None),
+                external_state: None,
+            },
+        )
+    }
+
+    #[func]
+    fn load_world_with_baseline_save(
+        &mut self,
+        path: GString,
+        date: GString,
+        mod_directories: Array<GString>,
+        user_directory: GString,
+        launcher_config: GString,
+        baseline_save: GString,
+    ) -> GString {
+        let baseline_save = PathBuf::from(baseline_save.to_string());
+        let saved_state_import = if baseline_save.as_os_str().is_empty() {
+            SavedStateImport::None
+        } else {
+            SavedStateImport::ImperialBaseline(baseline_save)
+        };
+        self.load_world_with_content_internal(
+            path,
+            date,
+            mod_directories,
+            user_directory,
+            launcher_config,
+            WorldLoadOptions {
+                saved_state_import,
+                external_state: None,
+            },
+        )
     }
 
     #[func]
@@ -139,7 +364,9 @@ impl AugustusWorldSession {
                 })
                 .collect();
             serde_json::json!({"report": loaded.report, "countries": countries,
-                "palette": loaded.palette(), "province_bitmap": loaded.province_bitmap})
+                "palette": loaded.palette(), "province_bitmap": loaded.province_bitmap,
+                "saved_imperial_baseline": self.saved_imperial_baseline.as_ref(),
+                "saved_office_preferences": self.saved_office_preferences.as_ref()})
         }))
     }
 
@@ -169,6 +396,74 @@ impl AugustusWorldSession {
             }
             Ok(value)
         }))
+    }
+
+    #[func]
+    fn query_unit_templates(&self, id: GString) -> GString {
+        world_reply(self.loaded().and_then(|loaded| {
+            let id = id.to_string();
+            let country = loaded
+                .initial
+                .country_entity(&id)
+                .ok_or("unknown country")?;
+            let world = loaded.initial.world();
+            let available = world
+                .available_unit_templates(country)
+                .map_err(|error| error.to_string())?;
+            let selected = ["infantry", "cavalry", "artillery"]
+                .into_iter()
+                .map(|category| {
+                    (
+                        category,
+                        world.selected_unit(country, category).map(str::to_owned),
+                    )
+                })
+                .collect::<std::collections::BTreeMap<_, _>>();
+            Ok(serde_json::json!({"country": id, "available": available, "selected": selected}))
+        }))
+    }
+
+    #[func]
+    fn select_unit_template(
+        &mut self,
+        id: GString,
+        category: GString,
+        unit_type: GString,
+    ) -> GString {
+        let id = id.to_string();
+        let result = self.loaded_mut().and_then(|loaded| {
+            let country = loaded
+                .initial
+                .country_entity(&id)
+                .ok_or("unknown country")?;
+            loaded
+                .initial
+                .set_selected_unit(country, &category.to_string(), &unit_type.to_string())
+                .map_err(|error| error.to_string())
+        });
+        match result {
+            Ok(()) => self.query_unit_templates(id.as_str().into()),
+            Err(error) => world_reply::<serde_json::Value>(Err(error)),
+        }
+    }
+
+    #[func]
+    fn clear_unit_template(&mut self, id: GString, category: GString) -> GString {
+        let id = id.to_string();
+        let result = self.loaded_mut().and_then(|loaded| {
+            let country = loaded
+                .initial
+                .country_entity(&id)
+                .ok_or("unknown country")?;
+            loaded
+                .initial
+                .clear_selected_unit(country, &category.to_string())
+                .map_err(|error| error.to_string())
+        });
+        match result {
+            Ok(()) => self.query_unit_templates(id.as_str().into()),
+            Err(error) => world_reply::<serde_json::Value>(Err(error)),
+        }
     }
 
     #[func]

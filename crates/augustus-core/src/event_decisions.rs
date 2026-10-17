@@ -107,6 +107,9 @@ impl EventDecisionSystem for WeightedEventDecisions {
     }
 
     fn select(&self, world: &mut World, pending: &PendingEvent) -> Result<Option<String>, Error> {
+        if world.event_catalog.has_unavailable_options(&pending.event) {
+            return Ok(None);
+        }
         let weights = world.event_option_weights(pending)?;
         let total = weights.iter().try_fold(0_i64, |sum, (_, weight)| {
             sum.checked_add(*weight).ok_or(Error::Overflow)
@@ -126,7 +129,7 @@ impl EventDecisionSystem for WeightedEventDecisions {
                 "negative event weight with a positive total".into(),
             ));
         }
-        let mut draw = world.random.random_range(0..total);
+        let mut draw = world.random_source().random_range(0..total);
         for (option, weight) in weights {
             if draw < weight {
                 return Ok(Some(option));
@@ -138,6 +141,50 @@ impl EventDecisionSystem for WeightedEventDecisions {
 }
 
 impl World {
+    /// Evaluate one option at the time it is visited during AI selection.
+    pub fn event_option_weight(
+        &self,
+        pending: &PendingEvent,
+        option_index: usize,
+    ) -> Result<Option<i64>, Error> {
+        let definition = self
+            .event_catalog
+            .definitions()
+            .get(&pending.event)
+            .ok_or_else(|| Error::Invalid(format!("unknown event {}", pending.event)))?;
+        if self.entity(pending.current)?.kind != definition.scope {
+            return Err(Error::Invalid("event scope does not match entity".into()));
+        }
+        let option = definition
+            .options
+            .get(option_index)
+            .ok_or_else(|| Error::Invalid("event option index is out of range".into()))?;
+        if self
+            .event_catalog
+            .unavailable_option_reason(&pending.event, &option.id)
+            .is_some()
+        {
+            return Ok(None);
+        }
+        if let Some(condition) = self
+            .event_catalog
+            .option_conditions()
+            .get(&pending.event)
+            .and_then(|conditions| conditions.get(&option.id))
+            && !condition.evaluate(self, pending.current)?
+        {
+            return Ok(None);
+        }
+        let default_weight = EventWeight::default();
+        let weight = self
+            .event_catalog
+            .option_weights()
+            .get(&pending.event)
+            .and_then(|weights| weights.get(&option.id))
+            .unwrap_or(&default_weight);
+        Ok(Some(weight.evaluate(self, pending.current)?))
+    }
+
     /// Read weights in declaration order. Filtering leaves stable option identifiers intact.
     pub fn event_option_weights(
         &self,
@@ -151,26 +198,14 @@ impl World {
         if self.entity(pending.current)?.kind != definition.scope {
             return Err(Error::Invalid("event scope does not match entity".into()));
         }
-        let conditions = self.event_catalog.option_conditions().get(&pending.event);
-        let weights = self.event_catalog.option_weights().get(&pending.event);
-        let default_weight = EventWeight::default();
         definition
             .options
             .iter()
-            .map(|option| {
-                let eligible = conditions
-                    .and_then(|items| items.get(&option.id))
-                    .map(|condition| condition.evaluate(self, pending.current))
-                    .transpose()?
-                    .unwrap_or(true);
-                let weight = if eligible {
-                    weights
-                        .and_then(|items| items.get(&option.id))
-                        .unwrap_or(&default_weight)
-                        .evaluate(self, pending.current)?
-                } else {
-                    0
-                };
+            .enumerate()
+            .map(|(index, option)| {
+                let weight = self
+                    .event_option_weight(pending, index)?
+                    .unwrap_or_default();
                 Ok((option.id.clone(), weight))
             })
             .collect()
@@ -207,7 +242,28 @@ impl World {
                     return Err(Error::Invalid("instruction limit exceeded".into()));
                 }
                 budget -= 1;
-                self.choose_event_inner(&choice, &mut budget)?;
+                let context = self
+                    .pending_events()
+                    .iter()
+                    .find(|pending| pending.id.0 == choice.pending.0)
+                    .and_then(|pending| {
+                        self.entity(pending.current).ok().map(|entity| {
+                            format!(
+                                "event {} option {} for {} (entity {})",
+                                pending.event, choice.option, entity.name, pending.current.0
+                            )
+                        })
+                    });
+                if let Err(error) = self.choose_event_inner(&choice, &mut budget) {
+                    if let Some(context) = context {
+                        let message = match error {
+                            Error::Invalid(message) => message,
+                            error => error.to_string(),
+                        };
+                        return Err(Error::Invalid(format!("{context} failed: {message}")));
+                    }
+                    return Err(error);
+                }
             }
             Ok(())
         })();

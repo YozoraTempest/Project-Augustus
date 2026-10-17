@@ -3,7 +3,8 @@
 
 use augustus_core::{
     CountryResources, EntityId, EntityKind, ModifierDefinition, ModifierInstance, Modifiers,
-    Schema, Technology, TechnologyLevel, World,
+    Schema, Technology, TechnologyLevel, TechnologyProperty, UnitTemplate, UnitTemplateProperty,
+    UnitTemplates, World,
 };
 use std::collections::BTreeMap;
 
@@ -22,6 +23,8 @@ fn technology() -> Technology {
                 year: 1400,
                 values_micros: BTreeMap::new(),
                 flags: BTreeMap::new(),
+                enabled_units: Vec::new(),
+                unresolved_properties: Default::default(),
             }],
         )]
         .into_iter()
@@ -30,6 +33,38 @@ fn technology() -> Technology {
             .into_iter()
             .collect(),
     }
+}
+
+#[test]
+fn technology_property_query_keeps_absent_and_unknown_distinct() {
+    let mut technology = technology();
+    let level = &mut technology.tables.get_mut("research").unwrap()[0];
+    level
+        .values_micros
+        .insert("production_efficiency".into(), 20_000_000);
+    level.flags.insert("enabled".into(), true);
+    level.unresolved_properties.insert("unresolved".into());
+
+    assert_eq!(
+        technology.country_property(EntityId(0), "research", "production_efficiency"),
+        TechnologyProperty::Value(20_000_000)
+    );
+    assert_eq!(
+        technology.country_property(EntityId(0), "research", "enabled"),
+        TechnologyProperty::Flag(true)
+    );
+    assert_eq!(
+        technology.country_property(EntityId(0), "research", "missing"),
+        TechnologyProperty::Absent
+    );
+    assert_eq!(
+        technology.country_property(EntityId(0), "research", "unresolved"),
+        TechnologyProperty::Unknown
+    );
+    assert_eq!(
+        technology.country_property(EntityId(1), "research", "production_efficiency"),
+        TechnologyProperty::Unknown
+    );
 }
 
 fn modifiers() -> Modifiers {
@@ -59,6 +94,23 @@ fn modifiers() -> Modifiers {
     }
 }
 
+fn unit_templates() -> UnitTemplates {
+    UnitTemplates {
+        definitions: [(
+            "barque".into(),
+            UnitTemplate {
+                category: "light_ship".into(),
+                properties: vec![UnitTemplateProperty {
+                    name: "hull_size".into(),
+                    value: "8".into(),
+                }],
+            },
+        )]
+        .into_iter()
+        .collect(),
+    }
+}
+
 #[test]
 fn setup_roundtrips_and_preserves_old_demo_saves_and_unknown_stocks() {
     let mut world = world();
@@ -70,6 +122,7 @@ fn setup_roundtrips_and_preserves_old_demo_saves_and_unknown_stocks() {
     );
     assert_eq!(World::restore(&old, "test", world.schema()).unwrap(), world);
     world.set_technology(technology()).unwrap();
+    world.set_unit_templates(unit_templates()).unwrap();
     world.set_modifiers(modifiers()).unwrap();
     world
         .set_country_resources(

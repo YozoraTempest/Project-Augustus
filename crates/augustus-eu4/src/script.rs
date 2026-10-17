@@ -53,6 +53,70 @@ impl Field {
             _ => Err(self.error("expected block")),
         }
     }
+
+    fn substitute_parameters(
+        &mut self,
+        parameters: &BTreeMap<String, String>,
+    ) -> Option<BTreeSet<String>> {
+        let (name, used, complete_name) = substitute_script_parameters(&self.name, parameters);
+        self.name = name;
+        if !complete_name {
+            return None;
+        }
+        let mut used_parameters = used;
+        let complete_value = match &mut self.value {
+            Value::Scalar(value) => {
+                let (substituted, used, complete) = substitute_script_parameters(value, parameters);
+                *value = substituted;
+                used_parameters.extend(used);
+                complete
+            }
+            Value::Block(fields) => {
+                for field in fields {
+                    used_parameters.extend(field.substitute_parameters(parameters)?);
+                }
+                true
+            }
+            Value::Unsupported(_) => true,
+        };
+        complete_value.then_some(used_parameters)
+    }
+}
+
+fn substitute_script_parameters(
+    text: &str,
+    parameters: &BTreeMap<String, String>,
+) -> (String, BTreeSet<String>, bool) {
+    let mut substituted = text.to_owned();
+    let mut used = BTreeSet::new();
+    for (name, value) in parameters {
+        let placeholder = format!("${name}$");
+        if substituted.contains(&placeholder) {
+            substituted = substituted.replace(&placeholder, value);
+            used.insert(name.clone());
+        }
+    }
+    let complete = !substituted.contains('$');
+    (substituted, used, complete)
+}
+
+/// Owns parsed syntax until the world's registries are available for compilation.
+pub(crate) struct ConditionSource(Field);
+
+impl ConditionSource {
+    pub(crate) fn parse(
+        parsed: &ParsedText<'_>,
+        name: &str,
+        reader: ObjectReader<'_, '_, TextEncoding>,
+        location: SourceLocation,
+    ) -> Result<Self, Error> {
+        Ok(Self(Field {
+            name: name.into(),
+            value: Value::Block(read_fields(parsed, reader, 1, false)?),
+            path: parsed.source().into(),
+            location,
+        }))
+    }
 }
 
 fn read_fields(
@@ -283,6 +347,16 @@ pub struct CompiledEvents {
     pub folded_branches: usize,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct UnavailableEventOption {
+    pub reason: String,
+    pub path: PathBuf,
+    pub location: crate::SourceLocation,
+}
+
+type UnavailableEventOptions = BTreeMap<String, BTreeMap<String, UnavailableEventOption>>;
+type CompiledEventsWithUnavailableOptions = (CompiledEvents, UnavailableEventOptions);
+
 pub struct ScriptCompiler<'a> {
     schema: &'a Schema,
     library: &'a ScriptLibrary,
@@ -304,6 +378,8 @@ pub struct ScriptCompiler<'a> {
     religious_school_groups: BTreeMap<String, Option<String>>,
     hidden_descriptions: bool,
     root_scope: Option<EntityKind>,
+    defer_unsupported_event_options: bool,
+    unavailable_event_options: BTreeMap<String, BTreeMap<String, UnavailableEventOption>>,
 }
 
 impl<'a> ScriptCompiler<'a> {
@@ -329,7 +405,30 @@ impl<'a> ScriptCompiler<'a> {
             religious_school_groups: BTreeMap::new(),
             hidden_descriptions: false,
             root_scope: None,
+            defer_unsupported_event_options: false,
+            unavailable_event_options: BTreeMap::new(),
         }
+    }
+
+    pub(crate) fn for_world(
+        world: &'a augustus_core::World,
+        library: &'a ScriptLibrary,
+        optimise: bool,
+    ) -> Self {
+        let mut compiler = Self::new(world.schema(), library, optimise)
+            .with_subject_type_ids(world.subjects().types.clone())
+            .with_mission_ids(world.completions().identifiers.clone())
+            .with_modifier_ids(world.modifiers().definitions.keys().cloned().collect())
+            .with_metric_ids(world.metrics().definitions.keys().cloned().collect())
+            .with_government_metric_ids(world.governments().metrics.keys().cloned().collect())
+            .with_government_form_ids(world.governments().forms.keys().cloned().collect())
+            .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
+                augustus_core::CountryResource::Treasury,
+            )));
+        if let Some(schools) = world.affiliations().0.get("religious_school") {
+            compiler = compiler.with_religious_school_groups(schools.groups.clone());
+        }
+        compiler
     }
 
     pub(crate) fn with_hidden_descriptions(mut self, hidden: bool) -> Self {
@@ -451,23 +550,27 @@ impl<'a> ScriptCompiler<'a> {
     }
 
     pub(crate) fn compile_block_condition_reader(
-        mut self,
+        self,
         parsed: &ParsedText<'_>,
         name: &str,
         reader: ObjectReader<'_, '_, TextEncoding>,
         location: SourceLocation,
         scope: EntityKind,
     ) -> Result<Condition, Error> {
-        self.root_scope.get_or_insert(scope);
-        let Condition::All(mut conditions) = self.conditions(
-            &[Field {
-                name: name.into(),
-                value: Value::Block(read_fields(parsed, reader, 1, false)?),
-                path: parsed.source().into(),
-                location,
-            }],
+        self.compile_condition_source(
+            &ConditionSource::parse(parsed, name, reader, location)?,
             scope,
-        )?
+        )
+    }
+
+    pub(crate) fn compile_condition_source(
+        mut self,
+        source: &ConditionSource,
+        scope: EntityKind,
+    ) -> Result<Condition, Error> {
+        self.root_scope.get_or_insert(scope);
+        let Condition::All(mut conditions) =
+            self.conditions(std::slice::from_ref(&source.0), scope)?
         else {
             unreachable!()
         };
@@ -606,43 +709,41 @@ impl<'a> ScriptCompiler<'a> {
     }
 
     fn mission_condition(&mut self, fields: &[Field]) -> Condition {
-        Condition::All(
-            fields
-                .iter()
-                .map(|field| {
-                    let children = |compiler: &mut Self| -> Result<Condition, Error> {
-                        let body = field.block()?;
-                        if body.is_empty()
-                            && matches!(field.name.as_str(), "OR" | "or" | "NOT" | "not")
-                        {
-                            return Err(
-                                field.error("OR and NOT require at least one enclosed trigger")
-                            );
-                        }
-                        Ok(compiler.mission_condition(body))
+        let mut conditions = Vec::new();
+        let mut index = 0;
+        while index < fields.len() {
+            let field = &fields[index];
+            let children = |compiler: &mut Self| -> Result<Condition, Error> {
+                let body = field.block()?;
+                if body.is_empty() && matches!(field.name.as_str(), "OR" | "or" | "NOT" | "not") {
+                    return Err(field.error("OR and NOT require at least one enclosed trigger"));
+                }
+                Ok(compiler.mission_condition(body))
+            };
+            let stack = self.stack.clone();
+            let result = match field.name.as_str() {
+                "if" => self.condition_branch_chain(fields, &mut index, EntityKind::Country),
+                "AND" | "and" => children(self),
+                "OR" | "or" => children(self).map(|c| {
+                    let Condition::All(children) = c else {
+                        unreachable!()
                     };
-                    let stack = self.stack.clone();
-                    let result = match field.name.as_str() {
-                        "AND" | "and" => children(self),
-                        "OR" | "or" => children(self).map(|c| {
-                            let Condition::All(children) = c else {
-                                unreachable!()
-                            };
-                            Condition::Any(children)
-                        }),
-                        "NOT" | "not" => children(self).map(|c| {
-                            let Condition::All(children) = c else {
-                                unreachable!()
-                            };
-                            Condition::Not(Box::new(Condition::Any(children)))
-                        }),
-                        _ => self.conditions(std::slice::from_ref(field), EntityKind::Country),
+                    Condition::Any(children)
+                }),
+                "NOT" | "not" => children(self).map(|c| {
+                    let Condition::All(children) = c else {
+                        unreachable!()
                     };
-                    self.stack = stack;
-                    result.unwrap_or_else(|error| Condition::Unavailable(error.to_string()))
-                })
-                .collect(),
-        )
+                    Condition::Not(Box::new(Condition::Any(children)))
+                }),
+                _ => self.conditions(std::slice::from_ref(field), EntityKind::Country),
+            };
+            self.stack = stack;
+            conditions
+                .push(result.unwrap_or_else(|error| Condition::Unavailable(error.to_string())));
+            index += 1;
+        }
+        Condition::All(conditions)
     }
 
     pub fn with_mission_ids(mut self, ids: BTreeSet<String>) -> Self {
@@ -913,6 +1014,64 @@ impl<'a> ScriptCompiler<'a> {
         Ok(())
     }
 
+    fn condition_branch_chain(
+        &mut self,
+        fields: &[Field],
+        index: &mut usize,
+        scope: EntityKind,
+    ) -> Result<Condition, Error> {
+        let mut branches = Vec::new();
+        loop {
+            let field = &fields[*index];
+            if field.name == "else_if" {
+                self.sources.push((field.path.clone(), field.location));
+            }
+            let body = field.block()?;
+            let limit = body
+                .first()
+                .filter(|part| part.name == "limit")
+                .ok_or_else(|| field.error("conditional trigger requires a leading limit block"))?;
+            branches.push((
+                self.conditions(limit.block()?, scope)?,
+                self.conditions(&body[1..], scope)?,
+            ));
+            if fields
+                .get(*index + 1)
+                .is_some_and(|next| next.name == "else_if")
+            {
+                *index += 1;
+            } else {
+                break;
+            }
+        }
+        let mut otherwise = if fields
+            .get(*index + 1)
+            .is_some_and(|next| next.name == "else")
+        {
+            *index += 1;
+            let field = &fields[*index];
+            self.sources.push((field.path.clone(), field.location));
+            self.conditions(field.block()?, scope)?
+        } else {
+            Condition::Always(true)
+        };
+        for (condition, then) in branches.into_iter().rev() {
+            if self.optimise
+                && let Some(value) = constant(&condition)
+            {
+                self.folded += 1;
+                otherwise = if value { then } else { otherwise };
+            } else {
+                otherwise = Condition::If {
+                    condition: Box::new(condition),
+                    then: Box::new(then),
+                    otherwise: Box::new(otherwise),
+                };
+            }
+        }
+        Ok(otherwise)
+    }
+
     fn modifier_scope(&self, field: &Field, scope: EntityKind) -> Result<(), Error> {
         let (required, message) = match field.name.as_str() {
             "add_country_modifier" | "remove_country_modifier" | "has_country_modifier" => (
@@ -1046,11 +1205,22 @@ impl<'a> ScriptCompiler<'a> {
     }
 
     /// Only selected IDs are compiled; unrelated definitions are not bound content.
-    pub(crate) fn compile_selected_events(
+    pub(crate) fn compile_selected_events_with_unavailable_options(
         mut self,
         document: &TextDocument,
         selected: &BTreeSet<String>,
+    ) -> Result<CompiledEventsWithUnavailableOptions, Error> {
+        let compiled = self.compile_selected_events_inner(document, selected, true)?;
+        Ok((compiled, self.unavailable_event_options))
+    }
+
+    fn compile_selected_events_inner(
+        &mut self,
+        document: &TextDocument,
+        selected: &BTreeSet<String>,
+        defer_unsupported_event_options: bool,
     ) -> Result<CompiledEvents, Error> {
+        self.defer_unsupported_event_options = defer_unsupported_event_options;
         let parsed = document.parse()?;
         let mut fields = Vec::new();
         for (key, operator, value) in parsed.reader().fields() {
@@ -1125,6 +1295,13 @@ impl<'a> ScriptCompiler<'a> {
                 after: Vec::new(),
             };
             self.root_scope = Some(scope);
+            let hidden_event = field
+                .block()?
+                .iter()
+                .find(|part| part.name == "hidden")
+                .map(boolean)
+                .transpose()?
+                .unwrap_or(false);
             let mut seen = std::collections::BTreeSet::new();
             let mut explicit = false;
             let mut condition = None;
@@ -1133,6 +1310,7 @@ impl<'a> ScriptCompiler<'a> {
             let mut weighted_options = BTreeMap::new();
             let mut picture_variants = Vec::new();
             let mut event_locations = EventLocations::default();
+            let mut unavailable_options = BTreeMap::new();
             for part in field.block()? {
                 self.sources.push((part.path.clone(), part.location));
                 if !matches!(part.name.as_str(), "option" | "picture") && !seen.insert(&part.name) {
@@ -1148,6 +1326,9 @@ impl<'a> ScriptCompiler<'a> {
                     }
                     "fire_only_once" => once = boolean(part)?,
                     "mean_time_to_happen" => self.validate_event_wait(part, scope)?,
+                    "hidden" => {
+                        let _ = boolean(part)?;
+                    }
                     "title" | "desc" => {
                         part.scalar()?;
                     }
@@ -1190,7 +1371,7 @@ impl<'a> ScriptCompiler<'a> {
                                 effects.push(item.clone());
                             }
                         }
-                        if !name {
+                        if !name && !hidden_event {
                             return Err(part.error("option requires a scalar name"));
                         }
                         let id = definition.options.len().to_string();
@@ -1203,9 +1384,27 @@ impl<'a> ScriptCompiler<'a> {
                         if let Some(weight) = weight {
                             weighted_options.insert(id.clone(), weight);
                         }
+                        let compiled_effects = match self.effects(&effects, scope) {
+                            Ok(effects) => effects,
+                            Err(error)
+                                if self.defer_unsupported_event_options
+                                    && error.detail().starts_with("unsupported effect ") =>
+                            {
+                                unavailable_options.insert(
+                                    id.clone(),
+                                    UnavailableEventOption {
+                                        reason: error.detail().to_owned(),
+                                        path: error.path().to_path_buf(),
+                                        location: error.location().unwrap_or(part.location),
+                                    },
+                                );
+                                Vec::new()
+                            }
+                            Err(error) => return Err(error),
+                        };
                         definition.options.push(EventOption {
                             id,
-                            effects: self.effects(&effects, scope)?,
+                            effects: compiled_effects,
                         });
                     }
                     _ => return Err(part.error(format!("unsupported event field {}", part.name))),
@@ -1213,6 +1412,10 @@ impl<'a> ScriptCompiler<'a> {
             }
             if !explicit || definition.id.is_empty() || definition.options.is_empty() {
                 return Err(field.error("event requires id, is_triggered_only=yes and options"));
+            }
+            if !unavailable_options.is_empty() {
+                self.unavailable_event_options
+                    .insert(definition.id.clone(), unavailable_options);
             }
             if !picture_variants.is_empty() {
                 let fallback = Some(picture_variants[0].key.clone());
@@ -1493,10 +1696,15 @@ impl<'a> ScriptCompiler<'a> {
                         plan: self.effects(&body, EntityKind::Country)?,
                     });
                 }
-                "every_owned_province" | "random_owned_province" => {
+                "every_owned_province" | "random_owned_province" | "random_country" => {
                     if scope != EntityKind::Country {
-                        return Err(field.error("owned province effects require country scope"));
+                        return Err(field.error("country scope iteration requires country scope"));
                     }
+                    let nested_scope = if field.name == "random_country" {
+                        EntityKind::Country
+                    } else {
+                        EntityKind::Province
+                    };
                     let mut body = Vec::new();
                     let mut limit = None;
                     for part in field.block()? {
@@ -1504,25 +1712,28 @@ impl<'a> ScriptCompiler<'a> {
                             if limit.is_some() {
                                 return Err(part.error("duplicate owned province limit"));
                             }
-                            limit = Some(self.conditions(part.block()?, EntityKind::Province)?);
+                            limit = Some(self.conditions(part.block()?, nested_scope)?);
                         } else {
                             body.push(part.clone());
                         }
                     }
                     let condition = limit.unwrap_or(Condition::Always(true));
-                    let body = self.effects(&body, EntityKind::Province)?;
-                    plan.push(if field.name == "every_owned_province" {
-                        Action::ForEachOwnedProvince {
+                    let body = self.effects(&body, nested_scope)?;
+                    plan.push(match field.name.as_str() {
+                        "every_owned_province" => Action::ForEachOwnedProvince {
                             country: Target::Current,
                             condition,
                             plan: body,
-                        }
-                    } else {
-                        Action::RandomOwnedProvince {
+                        },
+                        "random_owned_province" => Action::RandomOwnedProvince {
                             country: Target::Current,
                             condition,
                             plan: body,
-                        }
+                        },
+                        _ => Action::RandomCountry {
+                            condition,
+                            plan: body,
+                        },
                     });
                 }
                 "custom_tooltip" => plan.push(Action::Description {
@@ -1539,6 +1750,26 @@ impl<'a> ScriptCompiler<'a> {
                             "add_territorial_core" => Some(augustus_core::CoreType::Territorial),
                             _ => None,
                         },
+                    });
+                }
+                name if matches!(name, "heavy_ship" | "light_ship" | "galley" | "transport") => {
+                    if scope != EntityKind::Province {
+                        return Err(field.error("naval unit creation requires province scope"));
+                    }
+                    plan.push(Action::CreateNavalUnit {
+                        owner: self.typed_country_reference(field)?,
+                        unit_type: name.into(),
+                    });
+                }
+                name if matches!(name, "infantry" | "cavalry" | "artillery") => {
+                    if scope != EntityKind::Province {
+                        return Err(field.error("land unit creation requires province scope"));
+                    }
+                    plan.push(Action::CreateArmyFromCategories {
+                        owner: self.typed_country_reference(field)?,
+                        location: augustus_core::EntityRef::Relative(Target::Current),
+                        name: String::new(),
+                        categories: vec![name.into()],
                     });
                 }
                 "add_truce_with" => {
@@ -1759,6 +1990,26 @@ impl<'a> ScriptCompiler<'a> {
                     };
                     plan.push(action);
                 }
+                "set_government_rank" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("government rank effects require country scope"));
+                    }
+                    plan.push(Action::SetGovernmentRank {
+                        target: Target::Current,
+                        rank: government_rank_value(field)?,
+                    });
+                }
+                "set_emperor" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("emperor assignment requires country scope"));
+                    }
+                    if field.scalar()? != "yes" {
+                        return Err(field.error("set_emperor only supports '= yes'"));
+                    }
+                    plan.push(Action::SetOfficeHolder {
+                        office: "imperial_emperor".into(),
+                    });
+                }
                 "add_legitimacy" | "add_republican_tradition" | "add_devotion" => {
                     let name = field.name.strip_prefix("add_").expect("metric effect");
                     self.government_metric(field, scope, name)?;
@@ -1913,6 +2164,43 @@ impl<'a> ScriptCompiler<'a> {
                             member: Some(school.into()),
                         }],
                         otherwise: Vec::new(),
+                    });
+                }
+                "set_school_opinion" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("school opinions require country scope"));
+                    }
+                    let mut target = None;
+                    let mut opinion = None;
+                    for part in field.block()? {
+                        self.sources.push((part.path.clone(), part.location));
+                        match part.name.as_str() {
+                            "who" if target.is_none() => {
+                                target = Some(if part.scalar()?.eq_ignore_ascii_case("PREV") {
+                                    augustus_core::SchoolOpinionTarget::Previous
+                                } else {
+                                    augustus_core::SchoolOpinionTarget::Country(
+                                        self.typed_country_reference(part)?,
+                                    )
+                                });
+                            }
+                            "opinion" if opinion.is_none() => {
+                                let value = decimal(part)?;
+                                if value % 1000 != 0 {
+                                    return Err(part.error("school opinion must be an integer"));
+                                }
+                                opinion = Some(value / 1000);
+                            }
+                            "who" | "opinion" => {
+                                return Err(part.error("duplicate school opinion field"));
+                            }
+                            _ => return Err(part.error("unexpected school opinion field")),
+                        }
+                    }
+                    plan.push(Action::SetSchoolOpinion {
+                        target: target.ok_or_else(|| field.error("school opinion requires who"))?,
+                        opinion: opinion
+                            .ok_or_else(|| field.error("school opinion requires opinion"))?,
                     });
                 }
                 "swap_non_generic_missions" => {
@@ -2108,15 +2396,42 @@ impl<'a> ScriptCompiler<'a> {
                     plan.extend(self.branch_chain(fields, &mut index, scope)?);
                 }
                 name if self.library.effects.contains_key(name) => {
-                    if field.scalar()? != "yes" {
-                        return Err(
-                            field.error("only parameterless '= yes' script calls are supported")
-                        );
+                    let mut definition = self.library.effects[name].clone();
+                    match &field.value {
+                        Value::Scalar(value) if value == "yes" => (),
+                        Value::Block(parameters) => {
+                            let mut bindings = BTreeMap::new();
+                            for parameter in parameters {
+                                let value = parameter.scalar()?.to_owned();
+                                if bindings.insert(parameter.name.clone(), value).is_some() {
+                                    return Err(
+                                        parameter.error("duplicate scripted effect parameter")
+                                    );
+                                }
+                            }
+                            let used =
+                                definition.substitute_parameters(&bindings).ok_or_else(|| {
+                                    field.error("scripted effect call has unbound parameters")
+                                })?;
+                            if used.is_empty() && !bindings.is_empty() {
+                                return Err(field.error("expected scalar"));
+                            }
+                            if bindings.keys().any(|name| !used.contains(name)) {
+                                return Err(
+                                    field.error("scripted effect call has unused parameters")
+                                );
+                            }
+                        }
+                        _ => {
+                            return Err(
+                                field.error("script call requires yes or a parameter block")
+                            );
+                        }
                     }
-                    let definition = self.library.effects[name].clone();
                     self.enter(field, format!("effect:{name}"))?;
-                    plan.extend(self.effects(definition.block()?, scope)?);
+                    let expanded = self.effects(definition.block()?, scope);
                     self.stack.pop();
+                    plan.extend(expanded?);
                 }
                 name => return Err(field.error(format!("unsupported effect {name}"))),
             }
@@ -2127,9 +2442,13 @@ impl<'a> ScriptCompiler<'a> {
 
     fn conditions(&mut self, fields: &[Field], scope: EntityKind) -> Result<Condition, Error> {
         let mut conditions = Vec::new();
-        for field in fields {
+        let mut index = 0;
+        while index < fields.len() {
+            let field = &fields[index];
             self.sources.push((field.path.clone(), field.location));
             conditions.push(match field.name.as_str() {
+                "if" => self.condition_branch_chain(fields, &mut index, scope)?,
+                "else" | "else_if" => return Err(field.error("conditional branch requires a preceding if")),
                 "ROOT" | "root" => {
                     let kind = self.root_kind(field)?;
                     Condition::InScope {
@@ -2460,12 +2779,113 @@ impl<'a> ScriptCompiler<'a> {
                         Condition::AffiliationGroup { target: Target::Current, dimension: "religion".into(), group: value.into() }
                     }
                 }
-                "government" | "has_reform" | "has_government_attribute" => {
+                "primary_culture" | "culture_group" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("culture conditions require country scope"));
+                    }
+                    let value = field.scalar()?;
+                    if value.trim().is_empty()
+                        || value.chars().any(|c| matches!(c, '$' | '@' | '[' | ']' | ':' | '.'))
+                        || value.bytes().all(|b| b.is_ascii_digit())
+                    {
+                        return Err(field.error("culture conditions require a literal identifier"));
+                    }
+                    if field.name == "primary_culture" {
+                        Condition::AffiliationMember {
+                            target: Target::Current,
+                            dimension: "culture".into(),
+                            member: value.into(),
+                        }
+                    } else {
+                        Condition::AffiliationGroup {
+                            target: Target::Current,
+                            dimension: "culture".into(),
+                            group: value.into(),
+                        }
+                    }
+                }
+                "technology_group" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("technology group conditions require country scope"));
+                    }
+                    let value = field.scalar()?;
+                    if value.trim().is_empty()
+                        || value.chars().any(|c| matches!(c, '$' | '@' | '[' | ']' | ':' | '.'))
+                        || value.bytes().all(|b| b.is_ascii_digit())
+                    {
+                        return Err(field.error("technology group requires a literal identifier"));
+                    }
+                    Condition::AffiliationMember {
+                        target: Target::Current,
+                        dimension: "technology_group".into(),
+                        member: value.into(),
+                    }
+                }
+                "government" | "has_reform" | "has_government_attribute" | "has_government_mechanic" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("government conditions require country scope"));
                     }
                     government_condition(&field.name, field.scalar()?)
                         .map_err(|message| field.error(message))?
+                }
+                "government_rank" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("government rank conditions require country scope"));
+                    }
+                    Condition::GovernmentRank {
+                        target: Target::Current,
+                        rank: government_rank_value(field)?,
+                    }
+                }
+                "has_idea" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("idea conditions require country scope"));
+                    }
+                    let id = field.scalar()?;
+                    if id.trim().is_empty()
+                        || id.chars().any(|c| matches!(c, '$' | '@' | '[' | ']'))
+                    {
+                        return Err(field.error("idea condition requires a literal identifier"));
+                    }
+                    Condition::HasIdea {
+                        target: Target::Current,
+                        id: id.into(),
+                    }
+                }
+                "has_estate_privilege" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("estate privilege conditions require country scope"));
+                    }
+                    let privilege = field.scalar()?;
+                    if privilege.trim().is_empty()
+                        || privilege.chars().any(|c| matches!(c, '$' | '@' | '[' | ']'))
+                    {
+                        return Err(field.error("estate privilege requires a literal identifier"));
+                    }
+                    Condition::EstatePrivilege {
+                        target: Target::Current,
+                        privilege: privilege.into(),
+                    }
+                }
+                "estate_loyalty" | "estate_influence" => {
+                    estate_metric_condition(field, scope)?
+                }
+                "mercantilism" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("mercantilism conditions require country scope"));
+                    }
+                    let value = decimal(field)?;
+                    if !(0..=100_000).contains(&value) {
+                        return Err(field.error("mercantilism threshold must be between 0 and 100"));
+                    }
+                    Condition::NumericCompare {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Resource(
+                            augustus_core::CountryResource::Mercantilism,
+                        ),
+                        comparison: augustus_core::NumericComparison::AtLeast,
+                        value,
+                    }
                 }
                 "legitimacy" | "republican_tradition" | "devotion" => {
                     let name = &field.name;
@@ -2521,6 +2941,12 @@ impl<'a> ScriptCompiler<'a> {
                     }
                     Condition::Always(true)
                 }
+                "map_setup" => {
+                    if field.scalar()? != "map_setup_random" {
+                        return Err(field.error("unsupported map setup identifier"));
+                    }
+                    Condition::Always(false)
+                }
                 "has_mission" => Condition::ObjectiveAvailable {
                     target: Target::Current,
                     id: self.mission_id(field, scope)?,
@@ -2529,6 +2955,21 @@ impl<'a> ScriptCompiler<'a> {
                     target: Target::Current,
                     id: self.mission_id(field, scope)?,
                 },
+                "not_in_mission_preview_mode" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("mission preview trigger requires country scope"));
+                    }
+                    let arguments = field.block()?;
+                    if arguments.len() != 1 || arguments[0].name != "key" {
+                        return Err(field.error("mission preview trigger requires exactly one key"));
+                    }
+                    let key = arguments[0].scalar()?;
+                    if key.is_empty() || key.chars().any(|character| matches!(character, '$' | '@')) {
+                        return Err(arguments[0].error("mission preview key must be a literal identifier"));
+                    }
+                    // Augustus evaluates live game state, where mission preview mode is inactive.
+                    Condition::Always(true)
+                }
                 "tag" | "TAG" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("tag trigger requires country scope"));
@@ -2543,6 +2984,16 @@ impl<'a> ScriptCompiler<'a> {
                         target: Target::Current,
                         name: tag.into(),
                     }
+                }
+                "was_tag" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("tag history conditions require country scope"));
+                    }
+                    let tag = field.scalar()?;
+                    if !country_identifier(tag) {
+                        return Err(field.error("was_tag requires a literal three-character country identifier"));
+                    }
+                    Condition::Always(false)
                 }
                 "is_year" => {
                     let year = field
@@ -2665,6 +3116,7 @@ impl<'a> ScriptCompiler<'a> {
                 }
                 name => return Err(field.error(format!("unsupported trigger {name}"))),
             });
+            index += 1;
         }
         Ok(Condition::All(conditions))
     }
@@ -2716,6 +3168,68 @@ fn localisation_key(field: &Field, purpose: &str) -> Result<String, Error> {
 /// Integer script operands discard fractional digits toward zero.
 fn stability_integer(field: &Field) -> Result<i64, Error> {
     script_integer(field, "stability")
+}
+
+fn government_rank_value(field: &Field) -> Result<u8, Error> {
+    let value = decimal(field)?;
+    if !(1000..=3000).contains(&value) || value % 1000 != 0 {
+        return Err(field.error("government rank must be an integer from 1 to 3"));
+    }
+    Ok((value / 1000) as u8)
+}
+
+fn estate_metric_condition(field: &Field, scope: EntityKind) -> Result<Condition, Error> {
+    if scope != EntityKind::Country {
+        return Err(field.error("estate metric conditions require country scope"));
+    }
+    let metric = match field.name.as_str() {
+        "estate_loyalty" => "loyalty",
+        "estate_influence" => "influence",
+        _ => unreachable!("caller selects an estate metric trigger"),
+    };
+    let mut estate = None;
+    let mut threshold = None;
+    for operand in field.block()? {
+        match operand.name.as_str() {
+            "estate" if estate.is_none() => {
+                let id = operand.scalar()?;
+                if !crate::country_markers::literal_name(id) {
+                    return Err(operand.error("estate metric requires a literal estate identifier"));
+                }
+                estate = Some(id.to_owned());
+            }
+            "estate" => return Err(operand.error("duplicate estate metric estate")),
+            name if name == metric && threshold.is_none() => {
+                let value = decimal(operand)?;
+                if value < 0 || (metric == "loyalty" && value > 100_000) {
+                    return Err(
+                        operand.error(format!("{metric} threshold is outside its supported range"))
+                    );
+                }
+                threshold = Some(value);
+            }
+            name if name == metric => {
+                return Err(operand.error(format!("duplicate estate {metric} threshold")));
+            }
+            _ => return Err(operand.error(format!("unexpected field in {metric} condition"))),
+        }
+    }
+    let estate = estate.ok_or_else(|| field.error("estate metric condition is missing estate"))?;
+    let threshold = threshold
+        .ok_or_else(|| field.error(format!("estate metric condition is missing {metric}")))?;
+    Ok(if metric == "loyalty" {
+        Condition::EstateLoyaltyAtLeast {
+            target: Target::Current,
+            estate,
+            loyalty_milli: threshold,
+        }
+    } else {
+        Condition::EstateInfluenceAtLeast {
+            target: Target::Current,
+            estate,
+            influence_milli: threshold,
+        }
+    })
 }
 
 fn script_integer(field: &Field, purpose: &str) -> Result<i64, Error> {
@@ -2825,6 +3339,11 @@ fn event_location(field: &Field) -> Result<String, Error> {
 
 fn constant(condition: &Condition) -> Option<bool> {
     match condition {
+        Condition::If {
+            condition,
+            then,
+            otherwise,
+        } => constant(condition).and_then(|value| constant(if value { then } else { otherwise })),
         Condition::Always(value) => Some(*value),
         Condition::Not(condition) => constant(condition).map(|value| !value),
         Condition::All(conditions) => conditions
@@ -2907,6 +3426,10 @@ pub(crate) fn government_condition(name: &str, value: &str) -> Result<Condition,
         "has_government_attribute" => Ok(Condition::GovernmentFeature {
             target,
             name: value.into(),
+        }),
+        "has_government_mechanic" => Ok(Condition::GovernmentFeature {
+            target,
+            name: crate::governments::mechanic_feature_name(value),
         }),
         _ => unreachable!("government trigger name"),
     }

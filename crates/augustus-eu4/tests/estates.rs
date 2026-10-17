@@ -62,6 +62,35 @@ fn loyalty(amount: i64) -> Action {
 }
 
 #[test]
+fn estate_trigger_matches_explicit_unit_type_and_preserves_missing_as_unknown() {
+    let temp = land_fixture();
+    append(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        "unit_type = eastern",
+    );
+    append(
+        temp.path(),
+        "common/estates/test.txt",
+        "estate_eastern = { trigger = { unit_type = eastern } base_influence = 4 }",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap()["estate_eastern"].active,
+        Some(true)
+    );
+    assert_eq!(
+        loaded.country("BBB").unwrap().estates.unwrap()["estate_eastern"].active,
+        None
+    );
+    assert!(
+        loaded.report.estates.unresolved_countries["BBB"]
+            .contains("estate_eastern:unknown_input:unit_type")
+    );
+}
+
+#[test]
 fn startup_named_values_share_candidates_choices_delays_and_rollback() {
     let temp = startup_fixture();
     write(
@@ -1534,6 +1563,8 @@ fn translated_content_matches_native_core_with_known_loyalty_and_unknown_influen
                 angry_below_milli: Some(30_000),
                 happy_from_milli: Some(60_000),
                 influence_bands: None,
+                loyalty_target_base_milli: None,
+                loyalty_decay: None,
             },
             countries: BTreeMap::from([
                 (
@@ -1727,6 +1758,737 @@ fn history_dates_scopes_and_land_deltas_do_not_invent_final_state() {
 }
 
 #[test]
+fn direct_privilege_history_is_reported_as_handled_but_scoped_changes_remain_unknown() {
+    let temp = copy_fixture();
+    append(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        "remove_estate_privilege = charter",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        !loaded
+            .report
+            .unapplied_country_fields
+            .contains_key("set_estate_privilege")
+    );
+    assert!(
+        !loaded
+            .report
+            .unapplied_country_fields
+            .contains_key("remove_estate_privilege")
+    );
+    assert!(
+        loaded.country("AAA").unwrap().estates.unwrap()["guild"]
+            .privileges
+            .as_ref()
+            .unwrap()
+            .is_empty()
+    );
+
+    append(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        "if = { limit = { unsupported_trigger = yes } set_estate_privilege = charter }",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.unapplied_country_fields.contains_key("if"));
+    assert!(
+        loaded.country("AAA").unwrap().estates.unwrap()["guild"]
+            .privileges
+            .is_none()
+    );
+}
+
+#[test]
+fn privilege_conditional_modifiers_compile_and_use_live_estate_state() {
+    let temp = land_fixture();
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        r#"
+        charter = {
+            benefits = { global_tax_modifier = 0.1 }
+            conditional_modifier = {
+                trigger = { has_estate_privilege = charter }
+                modifier = { global_tax_modifier = 0.2 }
+            }
+            loyalty_scaled_conditional_modifier = {
+                trigger = { estate_loyalty = { estate = estate_guild loyalty = 40 } }
+                modifier = { global_tax_modifier = 0.4 }
+            }
+            influence_scaled_conditional_modifier = {
+                trigger = { estate_loyalty = { estate = estate_guild loyalty = 30 } }
+                modifier = { global_tax_modifier = 0.6 }
+            }
+        }
+    "#,
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let mut world = loaded.initial.world().clone();
+    let mut estates = world.estates().clone();
+    estates
+        .countries
+        .get_mut(&loaded.initial.country_entity("AAA").unwrap())
+        .unwrap()
+        .get_mut("estate_guild")
+        .unwrap()
+        .influence_milli = Some(40_000);
+    world.set_estates(estates).unwrap();
+    let entity = loaded.initial.country_entity("AAA").unwrap();
+    let conditional_modifiers = &world.estates().privileges["charter"]
+        .effect
+        .conditional_modifiers;
+    assert_eq!(
+        conditional_modifiers.len(),
+        3,
+        "unsupported estate fields: {:?}",
+        loaded.report.estates.unsupported_fields
+    );
+    assert_eq!(
+        conditional_modifiers
+            .iter()
+            .map(|modifier| modifier.scale)
+            .collect::<Vec<_>>(),
+        [
+            augustus_core::EstateConditionalScale::Fixed,
+            augustus_core::EstateConditionalScale::Loyalty,
+            augustus_core::EstateConditionalScale::Influence,
+        ]
+    );
+
+    let evaluation = world
+        .estates()
+        .property_effects_with_world(&world, entity, "global_tax_modifier")
+        .unwrap();
+    assert_eq!(
+        evaluation
+            .contributions
+            .iter()
+            .filter(|contribution| contribution.source.contains(":conditional:"))
+            .map(|contribution| contribution.micros)
+            .collect::<Vec<_>>(),
+        [200_000, 200_000, 240_000]
+    );
+    assert!(evaluation.unresolved.is_empty());
+}
+
+#[test]
+fn country_views_evaluate_conditional_estate_modifiers_after_changes_and_restore() {
+    let temp = land_fixture();
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        r#"
+        charter = {
+            benefits = { global_tax_modifier = 0.1 }
+            conditional_modifier = {
+                trigger = { has_country_flag = enhanced_charter }
+                modifier = { global_tax_modifier = 0.2 }
+            }
+            loyalty_scaled_conditional_modifier = {
+                trigger = { always = yes }
+                modifier = { global_tax_modifier = 0.4 }
+            }
+        }
+        "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let entity = loaded.initial.country_entity("AAA").unwrap();
+    let verify = |loaded: &VanillaWorld, expected| {
+        let displayed = loaded.country("AAA").unwrap().declared_estate_effects;
+        let world = loaded.initial.world();
+        let calculated = world
+            .estates()
+            .declared_effects_with_world(world, entity)
+            .unwrap();
+        assert_eq!(displayed, calculated);
+        assert_eq!(
+            displayed.known_totals_micros["global_tax_modifier"],
+            expected
+        );
+        assert!(
+            displayed.unresolved.is_empty(),
+            "{:?}",
+            displayed.unresolved
+        );
+    };
+    verify(&loaded, 300_000);
+    loaded
+        .initial
+        .execute(
+            entity,
+            &[
+                Action::SetMarker {
+                    target: augustus_core::Target::Current,
+                    name: "enhanced_charter".into(),
+                    present: true,
+                },
+                Action::ChangeEstateMetric {
+                    estate: "estate_guild".into(),
+                    metric: EstateMetric::Loyalty,
+                    amount: 10_000,
+                    minimum: None,
+                },
+            ],
+        )
+        .unwrap();
+    verify(&loaded, 540_000);
+    let saved = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&saved).unwrap();
+    verify(&restored, 540_000);
+
+    restored
+        .initial
+        .execute(
+            entity,
+            &[Action::SetMarker {
+                target: augustus_core::Target::Current,
+                name: "enhanced_charter".into(),
+                present: false,
+            }],
+        )
+        .unwrap();
+    verify(&restored, 340_000);
+}
+
+#[test]
+fn conditional_privilege_missions_share_registered_content_and_live_completion_state() {
+    let temp = land_fixture();
+    write(
+        temp.path(),
+        "missions/test.txt",
+        "sample_series={slot=1 generic=no potential={tag=AAA} sample_first={trigger={always=yes} effect={}} sample_later={position=2 trigger={always=yes} effect={}}}",
+    );
+    let privilege = r#"
+        charter = {
+            benefits = { global_tax_modifier = 0.1 }
+            conditional_modifier = {
+                trigger = { mission_completed = sample_first }
+                modifier = { global_tax_modifier = 0.2 }
+            }
+            conditional_modifier = {
+                trigger = { has_mission = sample_first }
+                modifier = { global_tax_modifier = 0.05 }
+            }
+        }
+    "#;
+    write(temp.path(), "common/estate_privileges/test.txt", privilege);
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert!(
+        loaded
+            .report
+            .estates
+            .unsupported_conditional_triggers
+            .is_empty()
+    );
+    assert_eq!(
+        loaded.initial.world().estates().privileges["charter"]
+            .effect
+            .conditional_modifiers
+            .len(),
+        2
+    );
+    assert_eq!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .known_totals_micros["global_tax_modifier"],
+        150_000
+    );
+    loaded
+        .initial
+        .execute(
+            country,
+            &[Action::RecordCompletion {
+                id: "sample_first".into(),
+            }],
+        )
+        .unwrap();
+    assert_eq!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .known_totals_micros["global_tax_modifier"],
+        350_000
+    );
+    let saved = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&saved).unwrap();
+    assert_eq!(
+        restored.country("AAA").unwrap().declared_estate_effects,
+        loaded.country("AAA").unwrap().declared_estate_effects
+    );
+
+    let mut completions = loaded.initial.world().completions().clone();
+    completions.entities.remove(&country);
+    loaded.initial.set_completions(completions).unwrap();
+    let unknown = loaded.country("AAA").unwrap().declared_estate_effects;
+    assert!(
+        unknown
+            .unresolved
+            .iter()
+            .any(|reason| reason.contains("completion state is unknown"))
+    );
+    assert!(
+        !unknown
+            .known_totals_micros
+            .contains_key("global_tax_modifier")
+    );
+
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        &privilege.replace(
+            "mission_completed = sample_first",
+            "mission_completed = sample_later",
+        ),
+    );
+    let mut changed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(changed.restore(&saved).is_err());
+}
+
+#[test]
+fn country_view_reports_conditional_estate_overflow_instead_of_panicking() {
+    let temp = land_fixture();
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        r#"
+        charter = {
+            benefits = { global_tax_modifier = 0.1 }
+            conditional_modifier = {
+                trigger = { has_country_flag = enhanced_charter }
+                modifier = { global_tax_modifier = 9223372036854.775807 }
+            }
+        }
+        "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .known_totals_micros["global_tax_modifier"],
+        100_000
+    );
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    loaded
+        .initial
+        .execute(
+            country,
+            &[Action::SetMarker {
+                target: augustus_core::Target::Current,
+                name: "enhanced_charter".into(),
+                present: true,
+            }],
+        )
+        .unwrap();
+    let world = loaded.initial.world();
+    assert!(matches!(
+        world.estates().declared_effects_with_world(world, country),
+        Err(augustus_core::Error::Overflow)
+    ));
+    let view = loaded.country("AAA").unwrap();
+    let displayed = view.declared_estate_effects;
+    assert!(displayed.known_totals_micros.is_empty());
+    assert!(
+        displayed
+            .unresolved
+            .iter()
+            .any(|reason| reason.starts_with("estates:evaluation_failed:"))
+    );
+    let tax = &view.province_attribute_totals["tax_after_autonomy"];
+    assert_eq!(tax.value_micros, None);
+    assert!(
+        tax.unresolved
+            .iter()
+            .any(|reason| reason.starts_with("attribute_aggregate:evaluation_failed:"))
+    );
+}
+
+#[test]
+fn conditional_privilege_branches_use_first_match_and_restore_live_state() {
+    let temp = land_fixture();
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        r#"
+        charter={benefits={global_tax_modifier=0.1}
+            conditional_modifier={
+                trigger={if={limit={has_country_flag=gate} always=no}
+                    else_if={limit={tag=AAA} always=yes} else={always=no}}
+                modifier={global_tax_modifier=0.2}
+            }
+        }
+    "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .report
+            .estates
+            .unsupported_conditional_triggers
+            .is_empty()
+    );
+    assert_eq!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .known_totals_micros["global_tax_modifier"],
+        300_000
+    );
+    let entity = loaded.initial.country_entity("AAA").unwrap();
+    loaded
+        .initial
+        .execute(
+            entity,
+            &[Action::SetMarker {
+                target: augustus_core::Target::Current,
+                name: "gate".into(),
+                present: true,
+            }],
+        )
+        .unwrap();
+    assert_eq!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .known_totals_micros["global_tax_modifier"],
+        100_000
+    );
+    let saved = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&saved).unwrap();
+    assert_eq!(
+        restored
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .known_totals_micros["global_tax_modifier"],
+        100_000
+    );
+    restored
+        .initial
+        .execute(
+            entity,
+            &[Action::SetMarker {
+                target: augustus_core::Target::Current,
+                name: "gate".into(),
+                present: false,
+            }],
+        )
+        .unwrap();
+    assert_eq!(
+        restored
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .known_totals_micros["global_tax_modifier"],
+        300_000
+    );
+}
+
+#[test]
+fn conditional_privileges_bind_registered_metrics_and_read_live_scoped_values() {
+    let temp = land_fixture();
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        r#"
+        charter = {
+            benefits = { global_tax_modifier = 0.1 }
+            conditional_modifier = {
+                trigger = { legitimacy = 75.125 }
+                modifier = { global_tax_modifier = 0.2 }
+            }
+            conditional_modifier = {
+                trigger = { adm_power = 5 }
+                modifier = { global_tax_modifier = 0.3 }
+            }
+            conditional_modifier = {
+                trigger = { capital_scope = { owner = { legitimacy = 75.125 } } }
+                modifier = { global_manpower_modifier = 0.4 }
+            }
+        }
+        "#,
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .report
+            .estates
+            .unsupported_conditional_triggers
+            .is_empty()
+    );
+    assert_eq!(
+        loaded.initial.world().estates().privileges["charter"]
+            .effect
+            .conditional_modifiers
+            .len(),
+        3
+    );
+    let entity = loaded.initial.country_entity("AAA").unwrap();
+    let verify = |loaded: &VanillaWorld, tax, manpower| {
+        let effects = loaded.country("AAA").unwrap().declared_estate_effects;
+        assert!(effects.unresolved.is_empty(), "{:?}", effects.unresolved);
+        for (property, expected) in [
+            ("global_tax_modifier", tax),
+            ("global_manpower_modifier", manpower),
+        ] {
+            assert_eq!(
+                effects
+                    .known_totals_micros
+                    .get(property)
+                    .copied()
+                    .unwrap_or(0),
+                expected
+            );
+        }
+    };
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .unresolved
+            .iter()
+            .any(|reason| reason.contains("adm_power"))
+    );
+    let mut metrics = loaded.initial.world().metrics().clone();
+    let maximum = metrics.definitions["adm_power"].maximum;
+    metrics
+        .ceilings
+        .entry(entity)
+        .or_default()
+        .insert("adm_power".into(), Some(maximum));
+    metrics
+        .entities
+        .entry(entity)
+        .or_default()
+        .insert("adm_power".into(), Some(0));
+    loaded.initial.set_metrics(metrics).unwrap();
+    verify(&loaded, 300_000, 400_000);
+    loaded
+        .initial
+        .execute(
+            entity,
+            &[
+                Action::UpdateNumeric {
+                    target: augustus_core::Target::Current,
+                    slot: augustus_core::NumericSlot::Government("legitimacy".into()),
+                    operation: augustus_core::NumericOperation::Set,
+                    value: 75_124,
+                },
+                Action::UpdateNumeric {
+                    target: augustus_core::Target::Current,
+                    slot: augustus_core::NumericSlot::Metric("adm_power".into()),
+                    operation: augustus_core::NumericOperation::Set,
+                    value: 5,
+                },
+            ],
+        )
+        .unwrap();
+    verify(&loaded, 400_000, 0);
+    let snapshot = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&snapshot).unwrap();
+    verify(&restored, 400_000, 0);
+
+    let mut governments = loaded.initial.world().governments().clone();
+    governments
+        .countries
+        .get_mut(&entity)
+        .unwrap()
+        .metrics
+        .as_mut()
+        .unwrap()
+        .insert("legitimacy".into(), None);
+    loaded.initial.set_governments(governments).unwrap();
+    let effects = loaded.country("AAA").unwrap().declared_estate_effects;
+    assert!(
+        !effects
+            .known_totals_micros
+            .contains_key("global_tax_modifier")
+    );
+    assert!(
+        !effects
+            .known_totals_micros
+            .contains_key("global_manpower_modifier")
+    );
+    assert!(
+        effects
+            .unresolved
+            .iter()
+            .any(|reason| reason.contains("legitimacy"))
+    );
+}
+
+#[test]
+fn conditional_trigger_structure_cannot_be_hidden_by_unsupported_syntax() {
+    for (body, expected) in [
+        (
+            "trigger={unknown_trigger=yes} trigger={always=yes} modifier={global_tax_modifier=0.2}",
+            "duplicate conditional modifier trigger",
+        ),
+        (
+            "trigger={always>0} trigger={always=yes} modifier={global_tax_modifier=0.2}",
+            "duplicate conditional modifier trigger",
+        ),
+        (
+            "unknown_field=yes modifier={global_tax_modifier=0.2}",
+            "conditional modifier is missing its trigger block",
+        ),
+    ] {
+        let temp = land_fixture();
+        write(
+            temp.path(),
+            "common/estate_privileges/test.txt",
+            &format!("charter={{conditional_modifier={{{body}}}}}"),
+        );
+        let error = VanillaWorld::load(temp.path(), "1444.11.11")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{error}");
+        assert!(error.contains("estate_privileges"), "{error}");
+    }
+}
+
+#[test]
+fn mission_selection_uses_registered_treasury_and_refreshes_after_resource_changes() {
+    let temp = land_fixture();
+    write(
+        temp.path(),
+        "missions/test.txt",
+        "funded_series={slot=3 potential={treasury=5} funded_task={}} default_series={slot=3 generic=yes potential={always=yes} default_task={}} ",
+    );
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let entity = loaded.initial.country_entity("AAA").unwrap();
+    let mut conditions = serde_json::to_string(loaded.initial.world().objectives()).unwrap();
+    assert!(!conditions.contains("unregistered"), "{conditions}");
+    assert!(
+        loaded
+            .initial
+            .world()
+            .objective_available(entity, "funded_task")
+            .is_err()
+    );
+    for (treasury, funded) in [(5_000, true), (4_999, false)] {
+        loaded
+            .initial
+            .execute(
+                entity,
+                &[
+                    Action::UpdateNumeric {
+                        target: augustus_core::Target::Current,
+                        slot: augustus_core::NumericSlot::Resource(
+                            augustus_core::CountryResource::Treasury,
+                        ),
+                        operation: augustus_core::NumericOperation::Set,
+                        value: treasury,
+                    },
+                    Action::RefreshObjectives,
+                ],
+            )
+            .unwrap();
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .objective_available(entity, "funded_task")
+                .unwrap(),
+            funded
+        );
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .objective_available(entity, "default_task")
+                .unwrap(),
+            !funded
+        );
+    }
+    let snapshot = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    restored.restore(&snapshot).unwrap();
+    conditions = serde_json::to_string(restored.initial.world().objectives()).unwrap();
+    assert!(!conditions.contains("unregistered"), "{conditions}");
+    assert!(
+        !restored
+            .initial
+            .world()
+            .objective_available(entity, "funded_task")
+            .unwrap()
+    );
+    assert!(
+        restored
+            .initial
+            .world()
+            .objective_available(entity, "default_task")
+            .unwrap()
+    );
+}
+
+#[test]
+fn unsupported_conditional_privilege_triggers_remain_unresolved() {
+    let temp = land_fixture();
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        r#"
+        charter = {
+            conditional_modifier = {
+                trigger = { unknown_trigger = yes }
+                modifier = { global_tax_modifier = 0.2 }
+            }
+        }
+    "#,
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(
+        loaded
+            .report
+            .estates
+            .unsupported_fields
+            .contains_key("privilege:conditional_modifier_trigger")
+    );
+    assert!(
+        loaded
+            .report
+            .estates
+            .unsupported_conditional_triggers
+            .contains_key("unsupported trigger unknown_trigger")
+    );
+    assert!(
+        loaded.initial.world().estates().privileges["charter"]
+            .effect
+            .conditional_modifiers
+            .is_empty()
+    );
+
+    let world = loaded.initial.world();
+    let entity = loaded.initial.country_entity("AAA").unwrap();
+    let evaluation = world
+        .estates()
+        .property_effects_with_world(world, entity, "global_tax_modifier")
+        .unwrap();
+    assert!(
+        evaluation
+            .unresolved
+            .iter()
+            .any(|reason| reason.contains("global_tax_modifier"))
+    );
+}
+
+#[test]
 fn conditional_properties_and_unexecuted_callbacks_preserve_missing_sources() {
     let temp = copy_fixture();
     write(
@@ -1914,6 +2676,16 @@ fn land_distribution_and_dated_history_generate_resumable_core_state() {
     );
     assert_eq!(loaded.report.estates.initial_land_countries, 1);
     assert!(loaded.report.estates.pending_land_changes.is_empty());
+    for field in [
+        "set_estate_privilege",
+        "change_estate_land_share",
+        "add_estate_loyalty",
+    ] {
+        assert!(
+            !loaded.report.unapplied_country_fields.contains_key(field),
+            "{field} was already applied by estate history"
+        );
+    }
     let saved = loaded.save().unwrap();
     let mut restored = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     restored.restore(&saved).unwrap();
@@ -2178,6 +2950,133 @@ fn removed_or_unbound_privileges_cannot_hide_unexecuted_initialization() {
                     .as_ref()
                     .unwrap()
                     .is_empty()
+            );
+        }
+    }
+}
+
+#[test]
+fn estate_loyalty_target_and_decay_defines_load_as_milli_values() {
+    let temp = copy_fixture();
+    let path = "common/defines.lua";
+    let baseline = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let baseline_estates = baseline.country("AAA").unwrap().estates.unwrap().clone();
+    let defines = fs::read_to_string(temp.path().join(path)).unwrap();
+    write(
+        temp.path(),
+        path,
+        &defines.replace(
+            "ESTATE_HAPPY_THRESHOLD = 60,",
+            "ESTATE_HAPPY_THRESHOLD = 60,\n        ESTATE_DEFAULT_LOYALTY = 30.0,\n        ESTATE_LOYALTY_DECAY_BASE_MIN = 2.0,\n        ESTATE_LOYALTY_DECAY_BASE_MAX = 5.0,",
+        ),
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .estates()
+            .rules
+            .loyalty_target_base_milli,
+        Some(30_000)
+    );
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap(),
+        &baseline_estates
+    );
+    assert_eq!(
+        loaded.initial.world().estates().rules.loyalty_decay,
+        Some(augustus_core::EstateLoyaltyDecay {
+            base_min_annual_milli: 2_000,
+            base_max_annual_milli: 5_000,
+        })
+    );
+    assert!(
+        loaded
+            .report
+            .estates
+            .definition_sources
+            .contains_key("define:ESTATE_LOYALTY_DECAY_BASE_MIN")
+    );
+    assert!(
+        loaded
+            .report
+            .estates
+            .definition_sources
+            .contains_key("define:ESTATE_LOYALTY_DECAY_BASE_MAX")
+    );
+    assert!(
+        loaded
+            .report
+            .estates
+            .definition_sources
+            .contains_key("define:ESTATE_DEFAULT_LOYALTY")
+    );
+}
+
+#[test]
+fn estate_loyalty_target_base_rejects_unsupported_precision_and_range() {
+    for (value, expected) in [
+        (
+            "30.0005",
+            "estate loyalty target base define exceeds supported precision",
+        ),
+        (
+            "2147483.648",
+            "estate loyalty target base define exceeds supported range",
+        ),
+    ] {
+        let temp = copy_fixture();
+        let path = "common/defines.lua";
+        let defines = fs::read_to_string(temp.path().join(path)).unwrap();
+        write(
+            temp.path(),
+            path,
+            &defines.replace(
+                "ESTATE_HAPPY_THRESHOLD = 60,",
+                &format!("ESTATE_HAPPY_THRESHOLD = 60,\n        ESTATE_DEFAULT_LOYALTY = {value},"),
+            ),
+        );
+
+        assert!(
+            VanillaWorld::load(temp.path(), "1444.11.11")
+                .unwrap_err()
+                .to_string()
+                .contains(expected)
+        );
+    }
+}
+
+#[test]
+fn estate_loyalty_decay_defines_must_be_a_complete_valid_pair() {
+    for (replacement, expected) in [
+        ("ESTATE_LOYALTY_DECAY_BASE_MIN = 2.0,", None),
+        (
+            "ESTATE_LOYALTY_DECAY_BASE_MIN = 5.0,\n        ESTATE_LOYALTY_DECAY_BASE_MAX = 2.0,",
+            Some("invalid estate loyalty decay defines"),
+        ),
+    ] {
+        let temp = copy_fixture();
+        let path = "common/defines.lua";
+        let defines = fs::read_to_string(temp.path().join(path)).unwrap();
+        write(
+            temp.path(),
+            path,
+            &defines.replace(
+                "ESTATE_HAPPY_THRESHOLD = 60,",
+                &format!("ESTATE_HAPPY_THRESHOLD = 60,\n        {replacement}"),
+            ),
+        );
+        let result = VanillaWorld::load(temp.path(), "1444.11.11");
+        if let Some(expected) = expected {
+            assert!(result.unwrap_err().to_string().contains(expected));
+        } else {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("must be provided together")
             );
         }
     }

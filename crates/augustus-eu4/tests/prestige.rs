@@ -187,3 +187,112 @@ fn original_entry_keeps_unknown_initial_prestige_and_rolls_back_startup_changes(
     let mut changed = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
     assert!(changed.restore(&saved).is_err());
 }
+
+#[test]
+fn external_country_metric_values_bind_atomically_and_restore_as_state() {
+    use augustus_eu4::VanillaWorld;
+    use std::{collections::BTreeMap, fs, path::Path};
+
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let root = tempfile::tempdir().unwrap();
+    for entry in walkdir::WalkDir::new(&source) {
+        let entry = entry.unwrap();
+        let target = root
+            .path()
+            .join(entry.path().strip_prefix(&source).unwrap());
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(target).unwrap();
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
+
+    let mut loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    loaded
+        .set_country_metric_values(BTreeMap::from([
+            (
+                "AAA".into(),
+                BTreeMap::from([("prestige".into(), Some(26_942))]),
+            ),
+            ("BBB".into(), BTreeMap::from([("prestige".into(), None)])),
+        ]))
+        .unwrap();
+    assert_eq!(
+        loaded.initial.world().metrics().entities[&loaded.initial.country_entity("AAA").unwrap()]["prestige"],
+        Some(26_942)
+    );
+    assert_eq!(
+        loaded.initial.world().metrics().entities[&loaded.initial.country_entity("BBB").unwrap()]["prestige"],
+        None
+    );
+
+    let snapshot = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    restored.restore(&snapshot).unwrap();
+    assert_eq!(restored.initial.world(), loaded.initial.world());
+}
+
+#[test]
+fn external_country_metric_values_reject_unknown_names_without_partial_writes() {
+    use augustus_eu4::VanillaWorld;
+    use std::{collections::BTreeMap, path::Path};
+
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let mut loaded = VanillaWorld::load(source, "1444.11.11").unwrap();
+    let before = loaded.initial.world().clone();
+    let error = loaded
+        .set_country_metric_values(BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([("missing_metric".into(), Some(1))]),
+        )]))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown metric missing_metric"));
+    assert_eq!(loaded.initial.world(), &before);
+}
+
+#[test]
+fn external_country_metric_values_are_bound_before_startup_effects() {
+    use augustus_eu4::VanillaWorld;
+    use std::{collections::BTreeMap, fs, path::Path};
+
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let root = tempfile::tempdir().unwrap();
+    for entry in walkdir::WalkDir::new(&source) {
+        let entry = entry.unwrap();
+        let target = root
+            .path()
+            .join(entry.path().strip_prefix(&source).unwrap());
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(target).unwrap();
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
+    fs::create_dir_all(root.path().join("common/on_actions")).unwrap();
+    fs::write(
+        root.path().join("common/on_actions/metric_provider.txt"),
+        "on_startup={if={limit={tag=AAA} add_prestige=1}}",
+    )
+    .unwrap();
+
+    let values = BTreeMap::from([(
+        "AAA".into(),
+        BTreeMap::from([("prestige".into(), Some(26_942))]),
+    )]);
+    let loaded =
+        VanillaWorld::load_with_country_metric_values(root.path(), "1444.11.11", &values).unwrap();
+    let entity = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().metrics().entities[&entity]["prestige"],
+        Some(27_942)
+    );
+    assert!(
+        !loaded
+            .report
+            .estates
+            .startup_unresolved
+            .iter()
+            .any(|reason| reason.contains("prestige") && reason.contains("unknown"))
+    );
+}

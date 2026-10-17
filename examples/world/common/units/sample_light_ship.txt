@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+type = light_ship
+unit_type = sample_group
+hull_size = 11
+base_cannons = 7
+sail_speed = 6
+trade_power = 1.25
+sailors = 25

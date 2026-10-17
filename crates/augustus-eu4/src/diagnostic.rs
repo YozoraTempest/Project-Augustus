@@ -43,6 +43,10 @@ impl Error {
         &self.path
     }
 
+    pub(crate) fn detail(&self) -> &str {
+        &self.message
+    }
+
     pub fn location(&self) -> Option<SourceLocation> {
         self.location
     }

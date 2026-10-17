@@ -9,6 +9,48 @@ fn document(name: &str, text: &str) -> TextDocument {
 }
 
 #[test]
+fn conditional_potentials_consume_complete_chains_and_recheck_live_values() {
+    let schema = Schema::new(["variable/gate"]).unwrap();
+    let library = ScriptLibrary::new();
+    for optimise in [false, true] {
+        let objectives = ScriptCompiler::new(&schema, &library, optimise)
+            .with_mission_ids(["special".into(),"fallback".into()].into())
+            .compile_missions(&[document("conditional-series.txt", "special_series={slot=1 potential={if={limit={check_variable={which=gate value=1}} is_variable_equal={which=gate value=1}} else_if={limit={tag=AAA} always=no} else={always=no}} special={}} fallback_series={slot=1 generic=yes potential={always=yes} fallback={}}")]).unwrap();
+        assert!(
+            !serde_json::to_string(&objectives)
+                .unwrap()
+                .contains("Unavailable")
+        );
+        let mut world = World::new(schema.clone());
+        let country = world.add_entity("AAA", EntityKind::Country);
+        world
+            .set_completions(Completions {
+                identifiers: ["special".into(), "fallback".into()].into(),
+                entities: [(country, Default::default())].into(),
+            })
+            .unwrap();
+        world.set_objectives(objectives).unwrap();
+        for (value, selected) in [(0, false), (1000, true), (2000, false)] {
+            world.set(country, FieldId(0), value).unwrap();
+            world.refresh_objectives(country).unwrap();
+            assert_eq!(
+                world.objective_available(country, "special").unwrap(),
+                selected
+            );
+            assert_eq!(
+                world.objective_available(country, "fallback").unwrap(),
+                !selected
+            );
+        }
+        let saved = world.save("conditional-series").unwrap();
+        let mut restored = World::restore(&saved, "conditional-series", &schema).unwrap();
+        restored.set(country, FieldId(0), 1000).unwrap();
+        restored.refresh_objectives(country).unwrap();
+        assert!(restored.objective_available(country, "special").unwrap());
+    }
+}
+
+#[test]
 fn ordered_files_translate_range_shadowing_and_live_refresh_without_rewards() {
     let schema = Schema::new(["unused"]).unwrap();
     let library = ScriptLibrary::new();

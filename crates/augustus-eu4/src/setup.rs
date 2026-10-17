@@ -7,7 +7,7 @@ use crate::{
 };
 use augustus_core::{
     CountryResources, InitialWorld, ModifierDefinition, ModifierInstance, Modifiers, Technology,
-    TechnologyLevel,
+    TechnologyLevel, UnitTemplates,
 };
 use jomini::{
     common::Date,
@@ -38,6 +38,9 @@ pub struct SetupReport {
     pub definition_sources: BTreeMap<String, LoadedSource>,
     pub history_sources: BTreeMap<String, LoadedSource>,
     pub technology_sources: BTreeMap<String, LoadedSource>,
+    pub enabled_unit_sources: BTreeMap<String, Vec<LoadedSource>>,
+    pub unit_templates: usize,
+    pub unit_template_sources: BTreeMap<String, LoadedSource>,
     pub pending_timed_modifiers: BTreeMap<String, LoadedSource>,
     pub unapplied_definition_fields: BTreeMap<String, usize>,
     pub unapplied_examples: BTreeMap<String, LoadedSource>,
@@ -53,6 +56,7 @@ enum HistoryTarget {
 #[derive(Default)]
 pub(super) struct SetupDraft {
     technology: Technology,
+    unit_templates: UnitTemplates,
     groups: BTreeMap<String, u16>,
     modifiers: Modifiers,
     active: BTreeMap<HistoryTarget, BTreeMap<String, ModifierInstance>>,
@@ -171,12 +175,26 @@ pub(super) fn properties(
     id: &str,
     report: &mut impl PropertyDiagnostics,
 ) -> Result<ModifierDefinition, Error> {
+    properties_except(parsed, reader, kind, id, report, &[])
+}
+
+fn properties_except(
+    parsed: &ParsedText<'_>,
+    reader: ObjectReader<'_, '_, TextEncoding>,
+    kind: &str,
+    id: &str,
+    report: &mut impl PropertyDiagnostics,
+    ignored_fields: &[&str],
+) -> Result<ModifierDefinition, Error> {
     let mut definition = ModifierDefinition::default();
     let mut seen = BTreeMap::<String, LoadedSource>::new();
     for (key, op, value) in reader.fields() {
         let name = key.read_string();
         let location = parsed.field_location(&key);
         let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
+        if ignored_fields.contains(&name.as_str()) {
+            continue;
+        }
         if matches!(name.as_str(), "picture" | "desc") {
             report.unsupported(parsed, kind, &name, location);
             continue;
@@ -231,7 +249,10 @@ impl SetupDraft {
         files: &[FileEntry],
         report: &mut SetupReport,
     ) -> Result<Self, Error> {
-        let mut draft = Self::default();
+        let mut draft = Self {
+            unit_templates: crate::unit_templates::load(root, files, report)?,
+            ..Self::default()
+        };
         let doc = root.read_text("common/technology.txt", ENCODING)?;
         let parsed = doc.parse()?;
         let mut tables = BTreeMap::new();
@@ -350,14 +371,53 @@ impl SetupDraft {
                                     .map_err(|_| fail("invalid technology year"))?,
                             );
                         }
-                        let mut props = properties(
+                        let mut enabled_units = Vec::new();
+                        for (key, op, value) in reader
+                            .clone()
+                            .fields()
+                            .filter(|(key, _, _)| key.read_string() == "enable")
+                        {
+                            let at = parsed.field_location(&key);
+                            let fail =
+                                |m: &str| Error::message(parsed.source(), m).with_location(at);
+                            equal(op, &fail)?;
+                            let unit = scalar(&value, &fail)?;
+                            if unit.trim().is_empty()
+                                || unit.bytes().any(|byte| byte.is_ascii_whitespace())
+                            {
+                                return Err(fail("invalid enabled unit identifier"));
+                            }
+                            let source_key = format!("{branch}:{}:{unit}", levels.len());
+                            report
+                                .enabled_unit_sources
+                                .entry(source_key)
+                                .or_default()
+                                .push(source(&parsed, at));
+                            enabled_units.push(unit);
+                        }
+                        let declared_fields: BTreeSet<String> = reader
+                            .clone()
+                            .fields()
+                            .map(|(key, _, _)| key.read_string())
+                            .collect();
+                        let mut props = properties_except(
                             &parsed,
                             reader,
                             "technology.level",
                             &format!("{branch}:{}", levels.len()),
                             report,
+                            &["enable"],
                         )?;
                         props.values_micros.remove("year");
+                        let unresolved_properties = declared_fields
+                            .into_iter()
+                            .filter(|property| {
+                                property != "year"
+                                    && property != "enable"
+                                    && !props.values_micros.contains_key(property)
+                                    && !props.flags.contains_key(property)
+                            })
+                            .collect();
                         report.definition_sources.insert(
                             format!("table:{branch}:{}", levels.len()),
                             source(&parsed, location),
@@ -366,6 +426,8 @@ impl SetupDraft {
                             year: year.ok_or_else(|| fail("missing technology year"))?,
                             values_micros: props.values_micros,
                             flags: props.flags,
+                            enabled_units,
+                            unresolved_properties,
                         });
                     }
                     _ => unknown(&parsed, "technology.table", &name, location, report),
@@ -703,6 +765,9 @@ impl SetupDraft {
         }
         initial
             .set_technology(self.technology)
+            .map_err(|e| Error::caused_by("world", e))?;
+        initial
+            .set_unit_templates(self.unit_templates)
             .map_err(|e| Error::caused_by("world", e))?;
         initial
             .set_modifiers(self.modifiers)
