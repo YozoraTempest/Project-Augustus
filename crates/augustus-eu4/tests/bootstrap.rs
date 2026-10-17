@@ -1538,6 +1538,73 @@ fn external_monthly_power_income_overrides_unresolved_producers() {
 }
 
 #[test]
+fn runtime_monthly_power_income_refresh_replaces_only_selected_formulas() {
+    let root = copy_fixture();
+    let defines = root.path().join("common/defines.lua");
+    let text = fs::read_to_string(&defines).unwrap();
+    fs::write(
+        &defines,
+        text.replace(
+            "HRE_RANK = 3,",
+            "HRE_RANK = 3,\n        DEBT_LIMIT_DIP = -999,\n        POWER_MAX = 999,",
+        ),
+    )
+    .unwrap();
+    let external = VanillaExternalState {
+        country_metric_values: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([
+                ("adm_power".into(), Some(10)),
+                ("dip_power".into(), Some(10)),
+                ("mil_power".into(), Some(10)),
+            ]),
+        )]),
+        country_metric_ceilings: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([
+                ("adm_power".into(), Some(20)),
+                ("dip_power".into(), Some(20)),
+                ("mil_power".into(), Some(20)),
+            ]),
+        )]),
+        ..Default::default()
+    };
+    let mut loaded =
+        VanillaWorld::load_with_external_state(root.path(), "1444.11.11", &external).unwrap();
+    loaded
+        .set_country_monthly_power_income(BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([
+                ("adm_power".into(), Some(8)),
+                ("dip_power".into(), Some(9)),
+                ("mil_power".into(), Some(10)),
+            ]),
+        )]))
+        .unwrap();
+    let entity = loaded.initial.country_entity("AAA").unwrap();
+    let evaluation = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(loaded.initial.world(), entity, "monthly_adm")
+        .unwrap();
+    assert_eq!(evaluation.value_micros, Some(8_000_000));
+    loaded.advance(20).unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().metrics.unwrap()["adm_power"],
+        Some(18)
+    );
+    assert_eq!(
+        loaded.country("AAA").unwrap().metrics.unwrap()["dip_power"],
+        Some(19)
+    );
+    assert_eq!(
+        loaded.country("AAA").unwrap().metrics.unwrap()["mil_power"],
+        Some(20)
+    );
+}
+
+#[test]
 fn wrong_version_dimensions_and_dates_fail_before_publishing_a_world() {
     assert!(VanillaWorld::load(fixture(), "1444.2.30").is_err());
     let temp = copy_fixture();

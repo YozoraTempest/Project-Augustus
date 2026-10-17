@@ -2579,6 +2579,19 @@ impl VanillaWorld {
         }
     }
 
+    /// Refreshes verified monthly monarch-power income from a compatibility
+    /// provider. Omitted countries and metrics keep their current formulas;
+    /// explicit `None` keeps the selected income unresolved.
+    pub fn set_country_monthly_power_income(
+        &mut self,
+        income: BTreeMap<String, BTreeMap<String, Option<i64>>>,
+    ) -> Result<(), augustus_core::Error> {
+        let mut attributes = self.initial.world().attributes().clone();
+        crate::power_income::apply_external(&self.initial, &mut attributes, &income)
+            .map_err(|error| augustus_core::Error::Invalid(error.to_string()))?;
+        self.initial.set_attributes(attributes)
+    }
+
     /// Applies estate loyalty targets supplied by a compatibility provider.
     ///
     /// The provider owns the upstream EU4 or external-game translation. This
