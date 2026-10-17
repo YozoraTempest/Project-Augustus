@@ -254,9 +254,6 @@ func load_world() -> bool:
 	if not eu4_save.text.is_empty() and not external_state.text.is_empty():
 		status.text = "EU4 存档导入不能同时使用外部状态包。"
 		return false
-	if not baseline_save.text.is_empty() and not external_state.text.is_empty():
-		status.text = "基线存档导入不能同时使用外部状态包。"
-		return false
 	if not eu4_save.text.is_empty():
 		var save_packet: Dictionary = JSON.parse_string(candidate.load_world_with_eu4_save(
 			game_path.text,
@@ -275,7 +272,18 @@ func load_world() -> bool:
 		if not tag.is_empty():
 			players.append(tag)
 	var packet: Dictionary
-	if not external_state.text.is_empty() and players.is_empty():
+	if not external_state.text.is_empty() and not baseline_save.text.is_empty():
+		packet = JSON.parse_string(candidate.load_world_with_players_and_external_state_and_baseline_save(
+			game_path.text,
+			date_input.text,
+			mod_directories,
+			user_directory,
+			launcher_config,
+			players,
+			external_state.text,
+			baseline_save.text
+		))
+	elif not external_state.text.is_empty() and players.is_empty():
 		packet = JSON.parse_string(candidate.load_world_with_content_and_external_state(
 			game_path.text,
 			date_input.text,

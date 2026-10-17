@@ -99,6 +99,19 @@ func _initialize() -> void:
 			check(JSON.parse_string(session.restore_snapshot(preference_snapshot.value)).ok, "restore imported office preference")
 			voter = JSON.parse_string(session.query_country("AAA"))
 			check(voter.value.politics.office_preferences.has("imperial_emperor"), "restored preference remains visible")
+			var combined_state_path := write_external_state()
+			check(not combined_state_path.is_empty(), "create an external state for combined loading")
+			if not combined_state_path.is_empty():
+				var combined_players: Array[String] = ["AAA"]
+				var combined: Dictionary = JSON.parse_string(session.load_world_with_players_and_external_state_and_baseline_save(
+					fixture, "1444.11.11", no_mods, "", "", combined_players, combined_state_path, baseline_save_path
+				))
+				check(combined.ok, "load external state with baseline save: %s" % combined.get("error", ""))
+				if combined.ok:
+					var combined_country: Dictionary = JSON.parse_string(session.query_country("AAA"))
+					check(combined_country.value.resources.treasury_milli == 12345, "combined loading keeps external resources")
+					check(combined_country.value.politics.office_preferences.has("imperial_emperor"), "combined loading keeps baseline preferences")
+				DirAccess.remove_absolute(combined_state_path)
 		DirAccess.remove_absolute(baseline_save_path)
 	var ui = load("res://world.tscn").instantiate()
 	root.add_child.call_deferred(ui)

@@ -335,7 +335,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
 
 战役已经载入后，兼容提供者还可以调用 `VanillaWorld::set_estate_loyalty_targets` 更新已有阶层的目标。这个入口只修改现存国家和阶层，不会凭空创建阶层；未知标签或阶层会拒绝整个更新。
 
-Godot 页面提供状态包文件选择器，也接受 `--external-state "/path/to/external-state.json"`。状态包可以和玩家标签一起载入；页面会在启动事件前把它交给兼容层，未提供的字段继续保持未知。EU4 原版存档或基线存档导入与外部状态包不能同时使用。
+Godot 页面提供状态包文件选择器，也接受 `--external-state "/path/to/external-state.json"`。状态包可以和玩家标签、行政基线存档一起载入；页面会在启动事件前把它交给兼容层，未提供的字段继续保持未知。EU4 原版完整存档导入仍不能和外部状态包同时使用。
 
 入口读取 `common/cb_types`，在 `casus_belli` 报告中列出定义来源、显式授予类型数量及尚未编译的保留条件。受支持的启动授予使用核心的有向记录；启动初始化未完成时清除部分写入并将库存标为未知。其他书签的历史授予尚未导入，同样不能判成已知没有记录。自动生成、宣战权限和战争目标尚未运行。自制样本及接口见 [宣战理由记录演示](../examples/justifications/README.md)。
 
