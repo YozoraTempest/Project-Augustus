@@ -15,6 +15,7 @@ mod cashflows;
 mod completions;
 mod control;
 mod convergence;
+mod daily;
 mod economy;
 mod estate_actions;
 mod estate_initialization;
@@ -75,6 +76,7 @@ pub use control::CountryController;
 pub use convergence::{
     ConvergenceAccount, ConvergenceRule, ConvergenceSettlement, MonthlyConvergence,
 };
+pub use daily::DailySystem;
 pub use economy::{
     BuildingDefinition, BuildingRole, Economy, ProvinceEconomy, TradeGoodDefinition, TradeNode,
     TradeProductionInput, TradeProductionResult, VanillaDerivedModifierInput,

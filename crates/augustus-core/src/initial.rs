@@ -407,6 +407,14 @@ impl InitialWorld {
         self.world.set_calendar(calendar)
     }
 
+    pub fn select_daily_system(&mut self, system: &dyn crate::DailySystem) -> Result<(), Error> {
+        self.world.select_daily_system(system)
+    }
+
+    pub fn daily_system_id(&self) -> Option<&str> {
+        self.world.daily_system_id()
+    }
+
     pub fn set_taxation(&mut self, taxation: crate::Taxation) -> Result<(), Error> {
         self.world.set_taxation(taxation)
     }
@@ -472,6 +480,29 @@ impl InitialWorld {
         result
     }
 
+    pub fn advance_with_daily_system(
+        &mut self,
+        days: u64,
+        system: &dyn crate::DailySystem,
+    ) -> Result<(), Error> {
+        let day = self.world.day().checked_add(days).ok_or(Error::Overflow)?;
+        let result = self.world.advance_with_daily_system(day, system);
+        self.refresh_province_relations();
+        result
+    }
+
+    pub fn advance_with_systems(
+        &mut self,
+        days: u64,
+        daily: Option<&dyn crate::DailySystem>,
+        monthly: Option<&dyn crate::MonthlySystem>,
+    ) -> Result<(), Error> {
+        let day = self.world.day().checked_add(days).ok_or(Error::Overflow)?;
+        let result = self.world.advance_with_systems(day, daily, monthly);
+        self.refresh_province_relations();
+        result
+    }
+
     pub fn process_event_commands(&mut self) -> Result<(), Error> {
         let result = self.world.process_event_commands();
         self.refresh_province_relations();
@@ -492,6 +523,7 @@ impl InitialWorld {
             || restored.justifications().definitions != self.world.justifications().definitions
             || restored.calendar() != self.world.calendar()
             || restored.monthly_system_id() != self.world.monthly_system_id()
+            || restored.daily_system_id() != self.world.daily_system_id()
             || restored.monthly_accruals().map(|a| &a.rules)
                 != self.world.monthly_accruals().map(|a| &a.rules)
             || restored.monthly_production().map(|p| &p.inputs)
