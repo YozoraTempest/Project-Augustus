@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use augustus_core::{EntityKind, ProvinceClass, Schema, World};
+use augustus_core::{EntityKind, NationalFocus, ProvinceClass, RulerSkill, Schema, World};
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalArmy,
     VanillaExternalNavalUnit, VanillaExternalState, VanillaWorld,
@@ -1466,6 +1466,26 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
     loaded.restore(&snapshot).unwrap();
     assert_eq!(loaded.initial.armies().len(), 1);
     assert_eq!(loaded.initial.naval_units().len(), 1);
+}
+
+#[test]
+fn external_national_focus_replaces_the_content_value_before_startup() {
+    let mut external = VanillaExternalState::default();
+    external.country_national_focus.insert(
+        "AAA".into(),
+        NationalFocus {
+            skill: Some(RulerSkill::Military),
+        },
+    );
+    let loaded =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &external).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().national_focus(country).unwrap(),
+        NationalFocus {
+            skill: Some(RulerSkill::Military)
+        }
+    );
 }
 
 #[test]

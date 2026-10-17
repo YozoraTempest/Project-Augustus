@@ -226,6 +226,11 @@ pub struct VanillaWorld {
 pub struct VanillaExternalState {
     #[serde(default)]
     pub country_metric_values: BTreeMap<String, BTreeMap<String, Option<i64>>>,
+    /// Current national-focus selection supplied by a save reader or another
+    /// compatibility provider. A missing country remains unknown; a focus
+    /// with no skill records an explicitly cleared focus.
+    #[serde(default)]
+    pub country_national_focus: BTreeMap<String, augustus_core::NationalFocus>,
     /// Current per-country growth ceilings for metrics such as monarch power.
     /// A missing country or metric remains unresolved; `Some(value)` is an
     /// authoritative ceiling supplied by the compatibility provider.
@@ -289,6 +294,7 @@ pub struct VanillaExternalState {
 #[derive(Clone, Copy, Default)]
 struct LoadOverrides<'a> {
     country_metric_values: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
+    country_national_focus: Option<&'a BTreeMap<String, augustus_core::NationalFocus>>,
     country_metric_ceilings: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_resources: Option<&'a BTreeMap<String, CountryResources>>,
     production_inputs: Option<&'a BTreeMap<u32, augustus_core::VanillaProductionInputState>>,
@@ -312,6 +318,8 @@ impl<'a> LoadOverrides<'a> {
         Self {
             country_metric_values: (!state.country_metric_values.is_empty())
                 .then_some(&state.country_metric_values),
+            country_national_focus: (!state.country_national_focus.is_empty())
+                .then_some(&state.country_national_focus),
             country_metric_ceilings: (!state.country_metric_ceilings.is_empty())
                 .then_some(&state.country_metric_ceilings),
             country_resources: (!state.country_resources.is_empty())
@@ -487,6 +495,28 @@ fn bind_external_country_statuses(
     initial
         .set_politics(politics)
         .map_err(|e| Error::caused_by("external country statuses", e))
+}
+
+fn bind_external_national_focus(
+    initial: &mut InitialWorld,
+    values: Option<&BTreeMap<String, augustus_core::NationalFocus>>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut politics = initial.world().politics().clone();
+    for (country, focus) in values {
+        let entity = initial.country_entity(country).ok_or_else(|| {
+            Error::message(
+                "external national focus",
+                format!("unknown EU4 focus country {country}"),
+            )
+        })?;
+        politics.countries.entry(entity).or_default().national_focus = Some(*focus);
+    }
+    initial
+        .set_politics(politics)
+        .map_err(|e| Error::caused_by("external national focus", e))
 }
 
 fn bind_external_production_value_inputs(
@@ -1828,6 +1858,7 @@ impl VanillaWorld {
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         bind_external_country_statuses(&mut initial, overrides.country_statuses)?;
+        bind_external_national_focus(&mut initial, overrides.country_national_focus)?;
         initial
             .set_attributes(attributes.clone())
             .map_err(|e| Error::caused_by(root.path(), e))?;

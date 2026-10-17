@@ -7,12 +7,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use augustus_core::CountryResources;
+use augustus_core::{CountryResources, NationalFocus, RulerSkill};
 use jomini::{TextToken, text::ValueReader};
 use serde::Serialize;
 
 use crate::administration_validation::plaintext_save_document;
-use crate::bootstrap::{VanillaExternalState, VanillaWorld};
+use crate::bootstrap::{VanillaExternalArmy, VanillaExternalState, VanillaWorld};
 use crate::{Error, ParsedText, TextEncoding};
 
 type Object<'a, 'b> = jomini::text::ObjectReader<'a, 'b, TextEncoding>;
@@ -65,6 +65,11 @@ impl VanillaSaveState {
                     .country_resources
                     .insert((*country).into(), resources.clone());
             }
+            if let Some(focus) = self.external_state.country_national_focus.get(*country) {
+                state
+                    .country_national_focus
+                    .insert((*country).into(), *focus);
+            }
             if let Some(markers) = self.external_state.country_markers.get(*country) {
                 state
                     .country_markers
@@ -91,6 +96,14 @@ impl VanillaSaveState {
                 if !filtered.is_empty() {
                     state.estate_privileges.insert((*country).into(), filtered);
                 }
+            }
+        }
+
+        for army in &self.external_state.armies {
+            if countries.contains(army.owner.as_str())
+                && world.initial.province_entity(army.location).is_some()
+            {
+                state.armies.push(army.clone());
             }
         }
 
@@ -172,6 +185,30 @@ pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveStat
             .country_resources
             .insert(tag.clone(), resources);
 
+        if let Some(value) = optional_scalar(&parsed, &country, "national_focus")? {
+            let focus = match value.as_str() {
+                "ADM" => NationalFocus {
+                    skill: Some(RulerSkill::Administration),
+                },
+                "DIP" => NationalFocus {
+                    skill: Some(RulerSkill::Diplomacy),
+                },
+                "MIL" => NationalFocus {
+                    skill: Some(RulerSkill::Military),
+                },
+                "none" | "NONE" => NationalFocus { skill: None },
+                _ => {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {tag} has unsupported national focus {value}"),
+                    ));
+                }
+            };
+            external_state
+                .country_national_focus
+                .insert(tag.clone(), focus);
+        }
+
         let mut metrics = BTreeMap::new();
         if let Some(value) = optional_milli(&parsed, &country, "stability")? {
             if value % 1000 != 0 {
@@ -248,6 +285,23 @@ pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveStat
                 .insert(tag.clone(), estates);
         }
 
+        for (key, op, value) in country
+            .fields()
+            .filter(|(key, _, _)| key.read_string() == "army")
+        {
+            if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                return Err(Error::message(parsed.source(), "invalid saved army block"));
+            }
+            let (location, name, regiments) = saved_army(&parsed, &value)?;
+            external_state.armies.push(VanillaExternalArmy {
+                owner: tag.clone(),
+                location,
+                name,
+                regiments,
+            });
+            let _ = key;
+        }
+
         if optional_scalar(&parsed, &country, "human")?.as_deref() == Some("yes") {
             players.insert(tag);
         }
@@ -298,6 +352,65 @@ fn is_country_tag(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+}
+
+fn saved_army(
+    parsed: &ParsedText<'_>,
+    value: &Field<'_, '_>,
+) -> Result<(u32, String, Vec<String>), Error> {
+    let army = object(parsed, value)?;
+    let mut location = None;
+    let mut name = String::new();
+    let mut regiments = Vec::new();
+    for (key, op, value) in army.fields() {
+        let field = key.read_string();
+        if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("invalid saved army field {field}"),
+            ));
+        }
+        match field.as_str() {
+            "location" => {
+                let text = scalar(parsed, &value)?;
+                let id = text
+                    .parse::<u32>()
+                    .map_err(|error| Error::caused_by(parsed.source(), error))?;
+                if id == 0 {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "saved army location must be positive",
+                    ));
+                }
+                location = Some(id);
+            }
+            "name" => name = scalar(parsed, &value)?,
+            "regiment" => {
+                let regiment = object(parsed, &value)?;
+                let unit_type = optional_scalar(parsed, &regiment, "type")?.ok_or_else(|| {
+                    Error::message(parsed.source(), "saved regiment is missing its type")
+                })?;
+                if unit_type.is_empty() || unit_type.bytes().any(|byte| byte.is_ascii_whitespace())
+                {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "saved regiment has an invalid type",
+                    ));
+                }
+                regiments.push(unit_type);
+            }
+            _ => {}
+        }
+    }
+    let location = location
+        .ok_or_else(|| Error::message(parsed.source(), "saved army is missing its location"))?;
+    if regiments.is_empty() {
+        return Err(Error::message(
+            parsed.source(),
+            "saved army has no regiments",
+        ));
+    }
+    Ok((location, name, regiments))
 }
 
 fn optional_field<'a, 'b>(
@@ -489,7 +602,7 @@ fn privilege_names(value: &Field<'_, '_>) -> BTreeSet<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::read_vanilla_save_state;
+    use super::{NationalFocus, RulerSkill, read_vanilla_save_state};
 
     #[test]
     fn reads_startup_state_from_plaintext_save() {
@@ -502,6 +615,7 @@ date=1444.11.11
 player="AAA"
 countries={
 	AAA={
+		national_focus=DIP
 		treasury=59.802
 		manpower=9.754
 		mercantilism=10.000
@@ -525,6 +639,13 @@ countries={
 				{
 					estate_nobles_habsburg_disunity 1444.11.11
 				}
+			}
+		}
+		army={
+			name="Main Army"
+			location=1
+			regiment={
+				type="infantry"
 			}
 		}
 	}
@@ -557,6 +678,20 @@ provinces={
         assert_eq!(
             state.external_state.country_metric_values["AAA"]["prestige"],
             Some(5_125)
+        );
+        assert_eq!(
+            state.external_state.country_national_focus["AAA"],
+            NationalFocus {
+                skill: Some(RulerSkill::Diplomacy)
+            }
+        );
+        assert_eq!(state.external_state.armies.len(), 1);
+        assert_eq!(state.external_state.armies[0].owner, "AAA");
+        assert_eq!(state.external_state.armies[0].location, 1);
+        assert_eq!(state.external_state.armies[0].name, "Main Army");
+        assert_eq!(
+            state.external_state.armies[0].regiments,
+            vec!["infantry".to_owned()]
         );
         assert!(
             state.external_state.country_markers["AAA"]
