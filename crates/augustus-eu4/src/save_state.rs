@@ -13,7 +13,8 @@ use serde::Serialize;
 
 use crate::administration_validation::plaintext_save_document;
 use crate::bootstrap::{
-    VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalState, VanillaWorld,
+    VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalNavalUnit, VanillaExternalState,
+    VanillaWorld,
 };
 use crate::{Error, ParsedText, TextEncoding};
 
@@ -117,6 +118,23 @@ impl VanillaSaveState {
                 && world.initial.province_entity(army.location).is_some()
             {
                 state.armies.push(army.clone());
+            }
+        }
+
+        for naval_unit in &self.external_state.naval_units {
+            if !countries.contains(naval_unit.owner.as_str()) {
+                continue;
+            }
+            let Some(entity) = world.initial.province_entity(naval_unit.location) else {
+                continue;
+            };
+            if world
+                .initial
+                .world()
+                .province_has_port(entity)
+                .is_ok_and(|has_port| has_port)
+            {
+                state.naval_units.push(naval_unit.clone());
             }
         }
 
@@ -317,6 +335,24 @@ pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveStat
                 name,
                 regiments,
             });
+            let _ = key;
+        }
+
+        for (key, op, value) in country
+            .fields()
+            .filter(|(key, _, _)| key.read_string() == "navy")
+        {
+            if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                return Err(Error::message(parsed.source(), "invalid saved navy block"));
+            }
+            let (location, ships) = saved_navy(&parsed, &value)?;
+            for unit_type in ships {
+                external_state.naval_units.push(VanillaExternalNavalUnit {
+                    owner: tag.clone(),
+                    location,
+                    unit_type,
+                });
+            }
             let _ = key;
         }
 
@@ -524,6 +560,57 @@ fn saved_army(
         ));
     }
     Ok((location, name, regiments))
+}
+
+fn saved_navy(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<(u32, Vec<String>), Error> {
+    let navy = object(parsed, value)?;
+    let mut location = None;
+    let mut ships = Vec::new();
+    for (key, op, value) in navy.fields() {
+        let field = key.read_string();
+        if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("invalid saved navy field {field}"),
+            ));
+        }
+        match field.as_str() {
+            "location" => {
+                let text = scalar(parsed, &value)?;
+                let id = text
+                    .parse::<u32>()
+                    .map_err(|error| Error::caused_by(parsed.source(), error))?;
+                if id == 0 {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "saved navy location must be positive",
+                    ));
+                }
+                location = Some(id);
+            }
+            "ship" => {
+                let ship = object(parsed, &value)?;
+                let unit_type = optional_scalar(parsed, &ship, "type")?.ok_or_else(|| {
+                    Error::message(parsed.source(), "saved ship is missing its type")
+                })?;
+                if unit_type.is_empty() || unit_type.bytes().any(|byte| byte.is_ascii_whitespace())
+                {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "saved ship has an invalid type",
+                    ));
+                }
+                ships.push(unit_type);
+            }
+            _ => {}
+        }
+    }
+    let location = location
+        .ok_or_else(|| Error::message(parsed.source(), "saved navy is missing its location"))?;
+    if ships.is_empty() {
+        return Err(Error::message(parsed.source(), "saved navy has no ships"));
+    }
+    Ok((location, ships))
 }
 
 fn optional_field<'a, 'b>(
@@ -762,6 +849,13 @@ countries={
 				type="infantry"
 			}
 		}
+		navy={
+			name="Main Navy"
+			location=1
+			ship={
+				type="galley"
+			}
+		}
 	}
 }
 provinces={
@@ -823,6 +917,10 @@ provinces={
             state.external_state.armies[0].regiments,
             vec!["infantry".to_owned()]
         );
+        assert_eq!(state.external_state.naval_units.len(), 1);
+        assert_eq!(state.external_state.naval_units[0].owner, "AAA");
+        assert_eq!(state.external_state.naval_units[0].location, 1);
+        assert_eq!(state.external_state.naval_units[0].unit_type, "galley");
         assert_eq!(state.external_state.advisors["AAA"].len(), 1);
         assert_eq!(
             state.external_state.advisors["AAA"][0].type_name,
