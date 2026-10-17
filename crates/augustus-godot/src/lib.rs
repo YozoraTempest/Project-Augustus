@@ -423,6 +423,34 @@ impl AugustusWorldSession {
     }
 
     #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn load_world_with_content_and_players_and_external_state(
+        &mut self,
+        path: GString,
+        date: GString,
+        mod_directories: Array<GString>,
+        user_directory: GString,
+        launcher_config: GString,
+        players: Array<GString>,
+        external_state: GString,
+    ) -> GString {
+        let external_state = PathBuf::from(external_state.to_string());
+        let external_state = (!external_state.as_os_str().is_empty()).then_some(external_state);
+        self.load_world_with_content_internal(
+            path,
+            date,
+            mod_directories,
+            user_directory,
+            launcher_config,
+            WorldLoadOptions {
+                saved_state_import: SavedStateImport::None,
+                external_state,
+                players: Self::players(players),
+            },
+        )
+    }
+
+    #[func]
     fn load_world_with_office_preferences(
         &mut self,
         path: GString,

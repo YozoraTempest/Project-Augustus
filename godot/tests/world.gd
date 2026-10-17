@@ -17,6 +17,19 @@ func _initialize() -> void:
 	check(not JSON.parse_string(session.query_country("AAA")).ok, "queries require a loaded world")
 	check(not JSON.parse_string(session.advance(1)).ok, "advancement requires a loaded world")
 	check(JSON.parse_string(session.load_world_with_content(fixture, "1444.11.11", no_mods, "", "")).ok, "load fixture through shared installation resolver")
+	var external_state_path := write_external_state()
+	check(not external_state_path.is_empty(), "create a self-authored external state bundle")
+	if not external_state_path.is_empty():
+		var player_roster: Array[String] = ["AAA"]
+		var external_loaded: Dictionary = JSON.parse_string(session.load_world_with_content_and_players_and_external_state(
+			fixture, "1444.11.11", no_mods, "", "", player_roster, external_state_path
+		))
+		check(external_loaded.ok, "load translated external state with players: %s" % external_loaded.get("error", ""))
+		if external_loaded.ok:
+			var external_country: Dictionary = JSON.parse_string(session.query_country("AAA"))
+			check(external_country.value.resources.treasury_milli == 12345, "external country resources reach the Godot world")
+		DirAccess.remove_absolute(external_state_path)
+	check(JSON.parse_string(session.load_world_with_content(fixture, "1444.11.11", no_mods, "", "")).ok, "restore fixture after external state test")
 	check(JSON.parse_string(session.load_world(fixture, "1444.11.11")).ok, "load independent fixture")
 	var alpha: Dictionary = JSON.parse_string(session.query_country("AAA"))
 	check(alpha.value.bound_capital == 2, "country query uses core capital relation")
@@ -109,6 +122,19 @@ func write_baseline_save() -> String:
 	if file == null:
 		return ""
 	file.store_string("EU4txt\ndate=1444.11.11\nstart_date=1444.11.11\ncampaign_length=0\nsavegame_version={ first=1 second=37 third=5 forth=0 }\ndlc_enabled={ %s }\ncountries={ AAA={ preferred_emperor=BBB } BBB={} }\nprovinces={ -1={ owner=BBB history={hre=yes} } -2={ owner=AAA history={hre=no} } -3={ history={hre=no} } -4={ history={hre=no} } -5={ history={hre=no} } -6={ history={hre=no} } }\n" % dlc_list)
+	var error := file.get_error()
+	file.close()
+	if error != OK:
+		DirAccess.remove_absolute(path)
+		return ""
+	return path
+
+func write_external_state() -> String:
+	var path := ProjectSettings.globalize_path("user://augustus-external-state-%d.json" % OS.get_process_id())
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return ""
+	file.store_string(JSON.stringify({"country_resources": {"AAA": {"treasury_milli": 12345}}}))
 	var error := file.get_error()
 	file.close()
 	if error != OK:

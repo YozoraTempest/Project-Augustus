@@ -10,6 +10,7 @@ var color_ids: Dictionary = {}
 var game_path: LineEdit
 var baseline_save: LineEdit
 var eu4_save: LineEdit
+var external_state: LineEdit
 var date_input: LineEdit
 var player_countries_input: LineEdit
 var mod_directories: Array[String] = []
@@ -25,6 +26,7 @@ var map_view: TextureRect
 var directory_picker: FileDialog
 var save_picker: FileDialog
 var eu4_save_picker: FileDialog
+var external_state_picker: FileDialog
 var details_scroll: ScrollContainer
 var selection_revision := 0
 var unit_country_id := ""
@@ -104,6 +106,18 @@ func _ready() -> void:
 	eu4_save.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	eu4_save_form.add_child(eu4_save)
 	eu4_save_form.add_child(button("选择 EU4 存档", func(): eu4_save_picker.popup_centered_ratio(0.7)))
+	external_state_picker = FileDialog.new()
+	external_state_picker.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	external_state_picker.access = FileDialog.ACCESS_FILESYSTEM
+	external_state_picker.file_selected.connect(func(path): external_state.text = path)
+	add_child(external_state_picker)
+	var external_state_form := HBoxContainer.new()
+	page.add_child(external_state_form)
+	external_state = LineEdit.new()
+	external_state.placeholder_text = "可选：由其他读取器或模拟器提供的已翻译状态包（VanillaExternalState JSON）"
+	external_state.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	external_state_form.add_child(external_state)
+	external_state_form.add_child(button("选择状态包", func(): external_state_picker.popup_centered_ratio(0.7)))
 	status = label("选择安装目录和玩家国家后载入；标签留空时控制身份保持未知。", 15)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status.max_lines_visible = 3
@@ -186,7 +200,7 @@ func parse_launch_args(args: PackedStringArray) -> bool:
 	var index := 0
 	while index < args.size():
 		var option := args[index]
-		if option not in ["--game-root", "--date", "--player", "--mod", "--user-directory", "--launcher-config", "--baseline-save", "--eu4-save"]:
+		if option not in ["--game-root", "--date", "--player", "--mod", "--user-directory", "--launcher-config", "--baseline-save", "--eu4-save", "--external-state"]:
 			index += 1
 			continue
 		if index + 1 >= args.size():
@@ -213,6 +227,8 @@ func parse_launch_args(args: PackedStringArray) -> bool:
 				baseline_save.text = value
 			"--eu4-save":
 				eu4_save.text = value
+			"--external-state":
+				external_state.text = value
 		index += 2
 	return true
 
@@ -235,6 +251,12 @@ func load_world() -> bool:
 	if not eu4_save.text.is_empty() and not baseline_save.text.is_empty():
 		status.text = "EU4 存档导入不能同时使用基线存档。"
 		return false
+	if not eu4_save.text.is_empty() and not external_state.text.is_empty():
+		status.text = "EU4 存档导入不能同时使用外部状态包。"
+		return false
+	if not baseline_save.text.is_empty() and not external_state.text.is_empty():
+		status.text = "基线存档导入不能同时使用外部状态包。"
+		return false
 	if not eu4_save.text.is_empty():
 		var save_packet: Dictionary = JSON.parse_string(candidate.load_world_with_eu4_save(
 			game_path.text,
@@ -253,7 +275,26 @@ func load_world() -> bool:
 		if not tag.is_empty():
 			players.append(tag)
 	var packet: Dictionary
-	if players.is_empty():
+	if not external_state.text.is_empty() and players.is_empty():
+		packet = JSON.parse_string(candidate.load_world_with_content_and_external_state(
+			game_path.text,
+			date_input.text,
+			mod_directories,
+			user_directory,
+			launcher_config,
+			external_state.text
+		))
+	elif not external_state.text.is_empty():
+		packet = JSON.parse_string(candidate.load_world_with_content_and_players_and_external_state(
+			game_path.text,
+			date_input.text,
+			mod_directories,
+			user_directory,
+			launcher_config,
+			players,
+			external_state.text
+		))
+	elif players.is_empty():
 		packet = JSON.parse_string(candidate.load_world_with_baseline_save(
 			game_path.text,
 			date_input.text,
