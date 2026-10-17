@@ -464,6 +464,25 @@ impl EventQueue {
 }
 
 impl World {
+    pub(crate) fn event_is_eligible(&self, event: &str, current: EntityId) -> Result<bool, Error> {
+        self.event_eligible(event, current)
+    }
+
+    pub(crate) fn trigger_event_for_daily_dispatch(
+        &mut self,
+        event: &str,
+        current: EntityId,
+        budget: &mut usize,
+    ) -> Result<(), Error> {
+        if self
+            .trigger_event_inner(event, current, budget, 0)?
+            .is_some()
+        {
+            return Ok(());
+        }
+        Ok(())
+    }
+
     fn event_eligible(&self, event: &str, current: EntityId) -> Result<bool, Error> {
         let definition = self.event_catalog.get(event)?;
         if self.entity(current)?.kind != definition.scope {
