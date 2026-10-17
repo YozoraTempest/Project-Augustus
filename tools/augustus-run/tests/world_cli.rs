@@ -249,9 +249,22 @@ countries={
 		manpower=6.000
 		mercantilism=18.500
 		stability=0.000
+		is_at_war=yes
 		prestige=26.942
 		powers={
 			42 84 126
+		}
+		navy={
+			location=2
+			ship={
+				type="light_ship"
+			}
+		}
+		navy={
+			location=1
+			ship={
+				type="light_ship"
+			}
 		}
 		human=yes
 	}
@@ -296,6 +309,8 @@ provinces={
     assert_eq!(value["country"]["resources"]["treasury_milli"], 12_345);
     assert_eq!(value["country"]["resources"]["manpower_milli"], 6_000);
     assert_eq!(value["country"]["metrics"]["prestige"], 26_942);
+    assert_eq!(value["country"]["politics"]["statuses"]["at_war"], true);
+    assert_eq!(value["simulation"]["naval_units"], 1);
     assert_eq!(value["country"]["metrics"]["adm_power"], 42);
     assert_eq!(
         value["province"]["administration"]["raw_autonomy_micros"],
@@ -326,6 +341,9 @@ provinces={
         exported_state["country_metric_values"]["AAA"]["prestige"],
         26_942
     );
+    assert_eq!(exported_state["country_statuses"]["AAA"]["at_war"], true);
+    assert_eq!(exported_state["naval_units"].as_array().unwrap().len(), 1);
+    assert_eq!(exported_state["naval_units"][0]["location"], 2);
 
     let reloaded = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
         .arg("--game-root")
@@ -346,6 +364,8 @@ provinces={
     let reloaded: serde_json::Value = serde_json::from_slice(&reloaded.stdout).unwrap();
     assert_eq!(reloaded["country"]["resources"]["treasury_milli"], 12_345);
     assert_eq!(reloaded["country"]["metrics"]["prestige"], 26_942);
+    assert_eq!(reloaded["country"]["politics"]["statuses"]["at_war"], true);
+    assert_eq!(reloaded["simulation"]["naval_units"], 1);
 }
 
 #[test]
