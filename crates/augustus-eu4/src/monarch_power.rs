@@ -45,7 +45,7 @@ pub(super) fn bind(
                 .insert("monarch_power:base_maximum".into(), source);
         }
     }
-    let definitions = minimums
+    let mut definitions: BTreeMap<String, MetricDefinition> = minimums
         .iter()
         .map(|(&name, &minimum)| {
             (
@@ -64,6 +64,20 @@ pub(super) fn bind(
             )
         })
         .collect();
+    definitions.insert(
+        "power_projection".into(),
+        MetricDefinition {
+            kind: EntityKind::Country,
+            minimum: i64::MIN,
+            maximum: i64::MAX,
+            baseline: 0,
+            divisor: 1000,
+            modifier: None,
+            unresolved_properties: Default::default(),
+            below_baseline: None,
+            growth_ceiling: false,
+        },
+    );
     let entities = initial
         .countries()
         .iter()

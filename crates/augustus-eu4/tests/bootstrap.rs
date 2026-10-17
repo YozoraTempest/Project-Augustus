@@ -1530,6 +1530,41 @@ fn external_advisors_are_translated_by_content_type_before_startup() {
 }
 
 #[test]
+fn external_power_projection_adds_the_minimum_power_bonus() {
+    for (projection, expected_bonus) in [(50_000, true), (49_999, false)] {
+        let root = copy_fixture();
+        let external = VanillaExternalState {
+            country_metric_values: BTreeMap::from([(
+                "AAA".into(),
+                BTreeMap::from([("power_projection".into(), Some(projection))]),
+            )]),
+            ..Default::default()
+        };
+        let loaded =
+            VanillaWorld::load_with_external_state(root.path(), "1444.11.11", &external).unwrap();
+        let country = loaded.initial.country_entity("AAA").unwrap();
+        assert_eq!(
+            loaded.country("AAA").unwrap().metrics.unwrap()["power_projection"],
+            Some(projection)
+        );
+        let evaluation = loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(loaded.initial.world(), country, "monthly_adm")
+            .unwrap();
+        assert_eq!(
+            evaluation
+                .steps
+                .iter()
+                .flat_map(|step| step.contributions.iter())
+                .any(|contribution| contribution.source == "power_projection"),
+            expected_bonus
+        );
+    }
+}
+
+#[test]
 fn external_monthly_power_income_overrides_unresolved_producers() {
     let root = copy_fixture();
     let defines = root.path().join("common/defines.lua");

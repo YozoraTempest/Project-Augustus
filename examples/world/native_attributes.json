@@ -203,6 +203,21 @@
                 "decrease_micros": 0
               },
               {
+                "kind": "conditional",
+                "condition": {
+                  "NumericCompare": {
+                    "target": "Current",
+                    "slot": {"Metric": "power_projection"},
+                    "comparison": "AtLeast",
+                    "value": 50000
+                  }
+                },
+                "then": [
+                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
+                ],
+                "otherwise": []
+              },
+              {
                 "kind": "advisor_skill",
                 "target": "Current",
                 "skill": "Administration",
@@ -275,6 +290,21 @@
                 "decrease_micros": 0
               },
               {
+                "kind": "conditional",
+                "condition": {
+                  "NumericCompare": {
+                    "target": "Current",
+                    "slot": {"Metric": "power_projection"},
+                    "comparison": "AtLeast",
+                    "value": 50000
+                  }
+                },
+                "then": [
+                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
+                ],
+                "otherwise": []
+              },
+              {
                 "kind": "advisor_skill",
                 "target": "Current",
                 "skill": "Diplomacy",
@@ -345,6 +375,21 @@
                 "skill": "Military",
                 "increase_micros": 0,
                 "decrease_micros": 0
+              },
+              {
+                "kind": "conditional",
+                "condition": {
+                  "NumericCompare": {
+                    "target": "Current",
+                    "slot": {"Metric": "power_projection"},
+                    "comparison": "AtLeast",
+                    "value": 50000
+                  }
+                },
+                "then": [
+                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
+                ],
+                "otherwise": []
               },
               {
                 "kind": "advisor_skill",
@@ -647,6 +692,21 @@
                 "decrease_micros": 0
               },
               {
+                "kind": "conditional",
+                "condition": {
+                  "NumericCompare": {
+                    "target": "Current",
+                    "slot": {"Metric": "power_projection"},
+                    "comparison": "AtLeast",
+                    "value": 50000
+                  }
+                },
+                "then": [
+                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
+                ],
+                "otherwise": []
+              },
+              {
                 "kind": "advisor_skill",
                 "target": "Current",
                 "skill": "Administration",
@@ -719,6 +779,21 @@
                 "decrease_micros": 0
               },
               {
+                "kind": "conditional",
+                "condition": {
+                  "NumericCompare": {
+                    "target": "Current",
+                    "slot": {"Metric": "power_projection"},
+                    "comparison": "AtLeast",
+                    "value": 50000
+                  }
+                },
+                "then": [
+                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
+                ],
+                "otherwise": []
+              },
+              {
                 "kind": "advisor_skill",
                 "target": "Current",
                 "skill": "Diplomacy",
@@ -789,6 +864,21 @@
                 "skill": "Military",
                 "increase_micros": 0,
                 "decrease_micros": 0
+              },
+              {
+                "kind": "conditional",
+                "condition": {
+                  "NumericCompare": {
+                    "target": "Current",
+                    "slot": {"Metric": "power_projection"},
+                    "comparison": "AtLeast",
+                    "value": 50000
+                  }
+                },
+                "then": [
+                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
+                ],
+                "otherwise": []
               },
               {
                 "kind": "advisor_skill",

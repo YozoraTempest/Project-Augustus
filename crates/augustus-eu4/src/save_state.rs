@@ -226,6 +226,9 @@ pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveStat
             }
             metrics.insert("stability".into(), Some(value / 1000));
         }
+        if let Some(value) = optional_milli(&parsed, &country, "current_power_projection")? {
+            metrics.insert("power_projection".into(), Some(value));
+        }
         for (field, metric) in [
             ("prestige", "prestige"),
             ("legitimacy", "legitimacy"),
@@ -722,6 +725,7 @@ countries={
 		manpower=9.754
 		mercantilism=10.000
 		stability=0.000
+		current_power_projection=50.000
 		prestige=5.125
 		legitimacy=100.000
 		powers={
@@ -788,6 +792,10 @@ provinces={
         assert_eq!(
             state.external_state.country_metric_values["AAA"]["adm_power"],
             Some(98)
+        );
+        assert_eq!(
+            state.external_state.country_metric_values["AAA"]["power_projection"],
+            Some(50_000)
         );
         assert_eq!(
             state.external_state.country_metric_values["AAA"]["prestige"],

@@ -61,6 +61,16 @@
       "unresolved_properties": [],
       "growth_ceiling": true
     },
+    "power_projection": {
+      "kind": "Country",
+      "minimum": -9223372036854775808,
+      "maximum": 9223372036854775807,
+      "baseline": 0,
+      "divisor": 1000,
+      "modifier": null,
+      "unresolved_properties": [],
+      "growth_ceiling": false
+    },
     "temporary_liberty_desire": {
       "kind": "Country",
       "minimum": -9223372036854775,
