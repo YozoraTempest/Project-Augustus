@@ -142,7 +142,7 @@ fn strings(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<Vec<String>
     array.values().map(|v| scalar(parsed, &v)).collect()
 }
 
-fn plaintext_save_document(path: &Path) -> Result<TextDocument, Error> {
+pub(crate) fn plaintext_save_document(path: &Path) -> Result<TextDocument, Error> {
     let mut bytes = std::fs::read(path).map_err(|e| Error::caused_by(path, e))?;
     if !bytes.starts_with(b"EU4txt") {
         return Err(Error::message(

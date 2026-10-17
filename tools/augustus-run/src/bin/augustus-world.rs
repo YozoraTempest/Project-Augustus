@@ -24,8 +24,15 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     launcher_config: Option<PathBuf>,
     /// JSON state bundle supplied by another simulation or an external save reader.
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", conflicts_with = "eu4_save")]
     external_state: Option<PathBuf>,
+    /// Plaintext EU4 save whose supported state is translated before startup.
+    #[arg(
+        long = "eu4-save",
+        value_name = "FILE",
+        conflicts_with_all = ["external_state", "player", "ai_only", "seed", "load"]
+    )]
+    eu4_save: Option<PathBuf>,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
     /// Explicit EU4 random seed; omitted seeds use the runtime clock for local AI event choices.
@@ -96,35 +103,41 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             },
         )
         .transpose()?;
-    let mut loaded = match (&players, cli.seed, external_state.as_ref()) {
-        (Some(players), Some(seed), Some(state)) => {
-            VanillaWorld::load_from_content_with_players_and_seed_and_external_state(
-                &content, &cli.date, players, seed, state,
-            )?
+    let mut loaded = if let Some(path) = cli.eu4_save.as_ref() {
+        VanillaWorld::load_from_content_with_save(&content, path)?
+    } else {
+        match (&players, cli.seed, external_state.as_ref()) {
+            (Some(players), Some(seed), Some(state)) => {
+                VanillaWorld::load_from_content_with_players_and_seed_and_external_state(
+                    &content, &cli.date, players, seed, state,
+                )?
+            }
+            (Some(players), None, Some(state)) => {
+                VanillaWorld::load_from_content_with_players_and_external_state(
+                    &content, &cli.date, players, state,
+                )?
+            }
+            (None, Some(seed), Some(state)) => {
+                VanillaWorld::load_from_content_with_seed_and_external_state(
+                    &content, &cli.date, seed, state,
+                )?
+            }
+            (None, None, Some(state)) => {
+                VanillaWorld::load_from_content_with_external_state(&content, &cli.date, state)?
+            }
+            (Some(players), Some(seed), None) => {
+                VanillaWorld::load_from_content_with_players_and_seed(
+                    &content, &cli.date, players, seed,
+                )?
+            }
+            (Some(players), None, None) => {
+                VanillaWorld::load_from_content_with_players(&content, &cli.date, players)?
+            }
+            (None, Some(seed), None) => {
+                VanillaWorld::load_from_content_with_seed(&content, &cli.date, seed)?
+            }
+            (None, None, None) => VanillaWorld::load_from_content(&content, &cli.date)?,
         }
-        (Some(players), None, Some(state)) => {
-            VanillaWorld::load_from_content_with_players_and_external_state(
-                &content, &cli.date, players, state,
-            )?
-        }
-        (None, Some(seed), Some(state)) => {
-            VanillaWorld::load_from_content_with_seed_and_external_state(
-                &content, &cli.date, seed, state,
-            )?
-        }
-        (None, None, Some(state)) => {
-            VanillaWorld::load_from_content_with_external_state(&content, &cli.date, state)?
-        }
-        (Some(players), Some(seed), None) => VanillaWorld::load_from_content_with_players_and_seed(
-            &content, &cli.date, players, seed,
-        )?,
-        (Some(players), None, None) => {
-            VanillaWorld::load_from_content_with_players(&content, &cli.date, players)?
-        }
-        (None, Some(seed), None) => {
-            VanillaWorld::load_from_content_with_seed(&content, &cli.date, seed)?
-        }
-        (None, None, None) => VanillaWorld::load_from_content(&content, &cli.date)?,
     };
     if let Some(path) = cli.load {
         loaded.restore(&std::fs::read_to_string(path)?)?;

@@ -744,6 +744,30 @@ impl VanillaWorld {
         )
     }
 
+    /// Loads a plaintext EU4 save, translates its supported state fields, and
+    /// binds them before startup effects execute. The save itself remains an
+    /// input artifact; no EU4 save format is stored in the core snapshot.
+    pub fn load_from_content_with_save(
+        content: &ContentSet,
+        path: impl AsRef<Path>,
+    ) -> Result<Self, Error> {
+        let save = crate::read_vanilla_save_state(path)?;
+        Self::load_from_content_with_save_state(content, &save)
+    }
+
+    /// Variant of [`VanillaWorld::load_from_content_with_save`] for callers
+    /// that already translated the save in a compatibility-owned boundary.
+    pub fn load_from_content_with_save_state(
+        content: &ContentSet,
+        save: &crate::VanillaSaveState,
+    ) -> Result<Self, Error> {
+        let baseline = Self::load_from_content(content, &save.date)?;
+        let (players, state) = save.for_world(&baseline)?;
+        Self::load_from_content_with_players_and_external_state(
+            content, &save.date, &players, &state,
+        )
+    }
+
     pub fn load_from_content_with_seed_and_external_state(
         content: &ContentSet,
         date: &str,
