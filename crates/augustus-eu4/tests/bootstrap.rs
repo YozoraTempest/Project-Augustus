@@ -1482,31 +1482,33 @@ fn external_monthly_power_income_overrides_unresolved_producers() {
     )
     .unwrap();
 
-    let mut external = VanillaExternalState::default();
-    external.country_metric_values = BTreeMap::from([(
-        "AAA".into(),
-        BTreeMap::from([
-            ("adm_power".into(), Some(10)),
-            ("dip_power".into(), Some(10)),
-            ("mil_power".into(), Some(10)),
-        ]),
-    )]);
-    external.country_metric_ceilings = BTreeMap::from([(
-        "AAA".into(),
-        BTreeMap::from([
-            ("adm_power".into(), Some(20)),
-            ("dip_power".into(), Some(20)),
-            ("mil_power".into(), Some(20)),
-        ]),
-    )]);
-    external.country_monthly_power_income = BTreeMap::from([(
-        "AAA".into(),
-        BTreeMap::from([
-            ("adm_power".into(), Some(7)),
-            ("dip_power".into(), Some(6)),
-            ("mil_power".into(), Some(5)),
-        ]),
-    )]);
+    let external = VanillaExternalState {
+        country_metric_values: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([
+                ("adm_power".into(), Some(10)),
+                ("dip_power".into(), Some(10)),
+                ("mil_power".into(), Some(10)),
+            ]),
+        )]),
+        country_metric_ceilings: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([
+                ("adm_power".into(), Some(20)),
+                ("dip_power".into(), Some(20)),
+                ("mil_power".into(), Some(20)),
+            ]),
+        )]),
+        country_monthly_power_income: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([
+                ("adm_power".into(), Some(7)),
+                ("dip_power".into(), Some(6)),
+                ("mil_power".into(), Some(5)),
+            ]),
+        )]),
+        ..Default::default()
+    };
 
     let mut loaded =
         VanillaWorld::load_with_external_state(root.path(), "1444.11.11", &external).unwrap();
