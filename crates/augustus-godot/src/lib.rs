@@ -147,6 +147,39 @@ fn load_world_from_content(
     Ok((loaded, saved_imperial_baseline, saved_office_preferences))
 }
 
+fn load_world_from_eu4_save(
+    path: String,
+    save_path: PathBuf,
+    mod_directories: Vec<PathBuf>,
+    user_directory: Option<PathBuf>,
+    launcher_config: Option<PathBuf>,
+) -> Result<
+    (
+        augustus_eu4::VanillaWorld,
+        Option<augustus_eu4::SavedImperialBaselineReport>,
+        Option<augustus_eu4::SavedOfficePreferenceReport>,
+    ),
+    String,
+> {
+    if !mod_directories.is_empty() || user_directory.is_some() {
+        return Err(
+            "EU4 save import requires vanilla content without Mods or user-directory overlays"
+                .into(),
+        );
+    }
+    let content = augustus_eu4::ContentSet::from_installation(
+        path,
+        &mod_directories,
+        user_directory.as_deref(),
+        launcher_config.as_deref(),
+        augustus_eu4::TextEncoding::Windows1252,
+    )
+    .map_err(|error| error.to_string())?;
+    let loaded = augustus_eu4::VanillaWorld::load_from_content_with_save(&content, save_path)
+        .map_err(|error| error.to_string())?;
+    Ok((loaded, None, None))
+}
+
 impl AugustusWorldSession {
     fn loaded(&self) -> Result<&augustus_eu4::VanillaWorld, String> {
         self.loaded
@@ -183,6 +216,40 @@ impl AugustusWorldSession {
             user_directory,
             launcher_config,
             options,
+        ) {
+            Ok((loaded, saved_imperial_baseline, saved_office_preferences)) => {
+                self.loaded = Some(loaded);
+                self.saved_imperial_baseline = saved_imperial_baseline;
+                self.saved_office_preferences = saved_office_preferences;
+                self.world_overview()
+            }
+            Err(error) => world_reply::<serde_json::Value>(Err(error)),
+        }
+    }
+
+    fn load_world_from_eu4_save_internal(
+        &mut self,
+        path: GString,
+        save_path: GString,
+        mod_directories: Array<GString>,
+        user_directory: GString,
+        launcher_config: GString,
+    ) -> GString {
+        let mod_directories = mod_directories
+            .iter_shared()
+            .map(|path| PathBuf::from(path.to_string()))
+            .collect::<Vec<_>>();
+        let user_directory = PathBuf::from(user_directory.to_string());
+        let user_directory = (!user_directory.as_os_str().is_empty()).then_some(user_directory);
+        let launcher_config = PathBuf::from(launcher_config.to_string());
+        let launcher_config = (!launcher_config.as_os_str().is_empty()).then_some(launcher_config);
+        let save_path = PathBuf::from(save_path.to_string());
+        match load_world_from_eu4_save(
+            path.to_string(),
+            save_path,
+            mod_directories,
+            user_directory,
+            launcher_config,
         ) {
             Ok((loaded, saved_imperial_baseline, saved_office_preferences)) => {
                 self.loaded = Some(loaded);
@@ -308,6 +375,24 @@ impl AugustusWorldSession {
                 external_state: None,
                 players: Self::players(players),
             },
+        )
+    }
+
+    #[func]
+    fn load_world_with_eu4_save(
+        &mut self,
+        path: GString,
+        save_path: GString,
+        mod_directories: Array<GString>,
+        user_directory: GString,
+        launcher_config: GString,
+    ) -> GString {
+        self.load_world_from_eu4_save_internal(
+            path,
+            save_path,
+            mod_directories,
+            user_directory,
+            launcher_config,
         )
     }
 

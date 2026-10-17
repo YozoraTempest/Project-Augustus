@@ -9,6 +9,7 @@ var province_image: Image
 var color_ids: Dictionary = {}
 var game_path: LineEdit
 var baseline_save: LineEdit
+var eu4_save: LineEdit
 var date_input: LineEdit
 var player_countries_input: LineEdit
 var mod_directories: Array[String] = []
@@ -23,6 +24,7 @@ var province_details: Label
 var map_view: TextureRect
 var directory_picker: FileDialog
 var save_picker: FileDialog
+var eu4_save_picker: FileDialog
 var details_scroll: ScrollContainer
 var selection_revision := 0
 var unit_country_id := ""
@@ -90,6 +92,18 @@ func _ready() -> void:
 	save_picker.access = FileDialog.ACCESS_FILESYSTEM
 	save_picker.file_selected.connect(func(path): baseline_save.text = path)
 	add_child(save_picker)
+	eu4_save_picker = FileDialog.new()
+	eu4_save_picker.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	eu4_save_picker.access = FileDialog.ACCESS_FILESYSTEM
+	eu4_save_picker.file_selected.connect(func(path): eu4_save.text = path)
+	add_child(eu4_save_picker)
+	var eu4_save_form := HBoxContainer.new()
+	page.add_child(eu4_save_form)
+	eu4_save = LineEdit.new()
+	eu4_save.placeholder_text = "可选：导入自己的未压缩 EU4 存档，直接恢复开局状态"
+	eu4_save.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	eu4_save_form.add_child(eu4_save)
+	eu4_save_form.add_child(button("选择 EU4 存档", func(): eu4_save_picker.popup_centered_ratio(0.7)))
 	status = label("选择安装目录和玩家国家后载入；标签留空时控制身份保持未知。", 15)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status.max_lines_visible = 3
@@ -172,7 +186,7 @@ func parse_launch_args(args: PackedStringArray) -> bool:
 	var index := 0
 	while index < args.size():
 		var option := args[index]
-		if option not in ["--game-root", "--date", "--player", "--mod", "--user-directory", "--launcher-config", "--baseline-save"]:
+		if option not in ["--game-root", "--date", "--player", "--mod", "--user-directory", "--launcher-config", "--baseline-save", "--eu4-save"]:
 			index += 1
 			continue
 		if index + 1 >= args.size():
@@ -197,6 +211,8 @@ func parse_launch_args(args: PackedStringArray) -> bool:
 				launcher_config = value
 			"--baseline-save":
 				baseline_save.text = value
+			"--eu4-save":
+				eu4_save.text = value
 		index += 2
 	return true
 
@@ -216,6 +232,21 @@ func button(text: String, action: Callable) -> Button:
 func load_world() -> bool:
 	set_running(false)
 	var candidate = AugustusWorldSession.new()
+	if not eu4_save.text.is_empty() and not baseline_save.text.is_empty():
+		status.text = "EU4 存档导入不能同时使用基线存档。"
+		return false
+	if not eu4_save.text.is_empty():
+		var save_packet: Dictionary = JSON.parse_string(candidate.load_world_with_eu4_save(
+			game_path.text,
+			eu4_save.text,
+			mod_directories,
+			user_directory,
+			launcher_config
+		))
+		if not save_packet.ok:
+			status.text = save_packet.error
+			return false
+		return apply_loaded_world(candidate, save_packet.value)
 	var players: Array[String] = []
 	for raw_tag in player_countries_input.text.split(","):
 		var tag := raw_tag.strip_edges()
@@ -244,7 +275,9 @@ func load_world() -> bool:
 	if not packet.ok:
 		status.text = packet.error
 		return false
-	var data: Dictionary = packet.value
+	return apply_loaded_world(candidate, packet.value)
+
+func apply_loaded_world(candidate, data: Dictionary) -> bool:
 	var image := Image.load_from_file(data.province_bitmap)
 	if image == null or image.is_empty():
 		status.text = "无法读取省份地图。"
