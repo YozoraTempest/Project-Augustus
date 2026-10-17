@@ -24,7 +24,9 @@ pub trait DailySystem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DailyEventCandidate {
-    pub event: String,
+    /// The event to trigger. `None` is an intentional empty weighted entry:
+    /// it consumes its weight without dispatching an event.
+    pub event: Option<String>,
     pub weight: i64,
 }
 
@@ -53,7 +55,7 @@ impl DailyEventGroup {
             candidates: events
                 .into_iter()
                 .map(|event| DailyEventCandidate {
-                    event: event.into(),
+                    event: Some(event.into()),
                     weight: 0,
                 })
                 .collect(),
@@ -114,18 +116,26 @@ impl DailyEventRules {
             }
             for group in &entry.groups {
                 for candidate in &group.candidates {
-                    if candidate.event.trim().is_empty() {
-                        return Err(Error::Invalid("empty daily event candidate".into()));
-                    }
-                    let definition = world.event_catalog().get(&candidate.event)?;
-                    if definition.scope != EntityKind::Country {
-                        return Err(Error::Invalid(
-                            "daily event candidates require country events".into(),
-                        ));
-                    }
                     if group.mode == DailyEventGroupMode::WeightedOne && candidate.weight < 0 {
                         return Err(Error::Invalid(
                             "daily event weights cannot be negative".into(),
+                        ));
+                    }
+                    let Some(event) = candidate.event.as_deref() else {
+                        if group.mode == DailyEventGroupMode::All {
+                            return Err(Error::Invalid(
+                                "empty daily event candidates require weighted groups".into(),
+                            ));
+                        }
+                        continue;
+                    };
+                    if event.trim().is_empty() {
+                        return Err(Error::Invalid("empty daily event candidate".into()));
+                    }
+                    let definition = world.event_catalog().get(event)?;
+                    if definition.scope != EntityKind::Country {
+                        return Err(Error::Invalid(
+                            "daily event candidates require country events".into(),
                         ));
                     }
                 }
@@ -146,8 +156,13 @@ impl DailyEventRules {
                 // Eligibility is frozen before any immediate effect runs.
                 let mut eligible = Vec::new();
                 for candidate in &group.candidates {
-                    if world.event_is_eligible(&candidate.event, country)? {
-                        eligible.push(candidate.event.clone());
+                    let Some(event) = candidate.event.as_deref() else {
+                        return Err(Error::Invalid(
+                            "empty daily event candidates require weighted groups".into(),
+                        ));
+                    };
+                    if world.event_is_eligible(event, country)? {
+                        eligible.push(event.to_owned());
                     }
                 }
                 for event in eligible {
@@ -158,12 +173,18 @@ impl DailyEventRules {
                 let mut eligible = Vec::new();
                 let mut total = 0_i64;
                 for candidate in &group.candidates {
-                    if !world.event_is_eligible(&candidate.event, country)? || candidate.weight == 0
-                    {
+                    if candidate.weight == 0 {
                         continue;
                     }
-                    total = total.checked_add(candidate.weight).ok_or(Error::Overflow)?;
-                    eligible.push((candidate.event.as_str(), candidate.weight));
+                    let Some(event) = candidate.event.as_deref() else {
+                        total = total.checked_add(candidate.weight).ok_or(Error::Overflow)?;
+                        eligible.push((None, candidate.weight));
+                        continue;
+                    };
+                    if world.event_is_eligible(event, country)? {
+                        total = total.checked_add(candidate.weight).ok_or(Error::Overflow)?;
+                        eligible.push((Some(event), candidate.weight));
+                    }
                 }
                 if total == 0 {
                     return Ok(());
@@ -171,7 +192,9 @@ impl DailyEventRules {
                 let mut draw = world.random_source().random_range(0..total);
                 for (event, weight) in eligible {
                     if draw < weight {
-                        world.trigger_event_for_daily_dispatch(event, country, budget)?;
+                        if let Some(event) = event {
+                            world.trigger_event_for_daily_dispatch(event, country, budget)?;
+                        }
                         break;
                     }
                     draw -= weight;

@@ -135,11 +135,11 @@ fn weighted_groups_choose_one_positive_candidate_and_ignore_zero_weight_entries(
             country,
             groups: vec![DailyEventGroup::weighted(vec![
                 DailyEventCandidate {
-                    event: "left".into(),
+                    event: Some("left".into()),
                     weight: 1,
                 },
                 DailyEventCandidate {
-                    event: "right".into(),
+                    event: Some("right".into()),
                     weight: 0,
                 },
             ])],
@@ -195,12 +195,112 @@ fn daily_event_rules_reject_duplicate_countries_unknown_events_and_negative_weig
         vec![DailyEventCountry {
             country,
             groups: vec![DailyEventGroup::weighted(vec![DailyEventCandidate {
-                event: "known".into(),
+                event: Some("known".into()),
                 weight: -1,
             }])],
         }],
     )
     .unwrap();
     assert!(world.select_daily_system(&negative).is_err());
+    assert_eq!(world.daily_system_id(), None);
+}
+
+#[test]
+fn weighted_group_can_select_an_empty_candidate_without_dispatching_an_event() {
+    let (mut world, country) = world();
+    world
+        .set_event_catalog(
+            EventCatalog::new([event("known", vec![Action::Emit("known".into())])]).unwrap(),
+        )
+        .unwrap();
+
+    let rules = DailyEventRules::new(
+        "daily-events:empty-weight:v1",
+        vec![DailyEventCountry {
+            country,
+            groups: vec![DailyEventGroup::weighted(vec![DailyEventCandidate {
+                event: None,
+                weight: 5,
+            }])],
+        }],
+    )
+    .unwrap();
+    world.select_daily_system(&rules).unwrap();
+    world.advance_with_daily_system(1, &rules).unwrap();
+
+    assert!(world.pending_events().is_empty());
+    assert!(world.events().is_empty());
+}
+
+#[test]
+fn weighted_group_keeps_empty_candidate_weight_separate_from_event_weight() {
+    let (mut world, country) = world();
+    world
+        .set_event_catalog(
+            EventCatalog::new([event("known", vec![Action::Emit("known".into())])]).unwrap(),
+        )
+        .unwrap();
+
+    let rules = DailyEventRules::new(
+        "daily-events:empty-mixed:v1",
+        vec![DailyEventCountry {
+            country,
+            groups: vec![DailyEventGroup::weighted(vec![
+                DailyEventCandidate {
+                    event: None,
+                    weight: 1,
+                },
+                DailyEventCandidate {
+                    event: Some("known".into()),
+                    weight: 1,
+                },
+            ])],
+        }],
+    )
+    .unwrap();
+    world.select_daily_system(&rules).unwrap();
+
+    let mut saw_empty = false;
+    let mut saw_event = false;
+    for day in 1..=128 {
+        let before = world.pending_events().len();
+        world.advance_with_daily_system(day, &rules).unwrap();
+        match world.pending_events().len() - before {
+            0 => saw_empty = true,
+            1 => saw_event = true,
+            count => panic!("weighted group dispatched {count} events on day {day}"),
+        }
+        if saw_empty && saw_event {
+            break;
+        }
+    }
+
+    assert!(saw_empty, "empty candidate never occupied its weight");
+    assert!(saw_event, "normal candidate never occupied its weight");
+}
+
+#[test]
+fn all_group_rejects_empty_candidates() {
+    let (mut world, country) = world();
+    world
+        .set_event_catalog(EventCatalog::new([event("known", Vec::new())]).unwrap())
+        .unwrap();
+
+    let rules = DailyEventRules::new(
+        "daily-events:empty-all:v1",
+        vec![DailyEventCountry {
+            country,
+            groups: vec![DailyEventGroup {
+                mode: augustus_core::DailyEventGroupMode::All,
+                candidates: vec![DailyEventCandidate {
+                    event: None,
+                    weight: 0,
+                }],
+            }],
+        }],
+    )
+    .unwrap();
+
+    assert!(world.select_daily_system(&rules).is_err());
     assert_eq!(world.daily_system_id(), None);
 }
