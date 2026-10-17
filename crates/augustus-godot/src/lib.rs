@@ -4,7 +4,7 @@
 use augustus_demo::{Demo, Error, Input, System, View};
 use godot::prelude::*;
 use serde::Serialize;
-use std::path::PathBuf;
+use std::{collections::BTreeSet, path::PathBuf};
 
 struct AugustusExtension;
 
@@ -57,6 +57,7 @@ enum SavedStateImport {
 struct WorldLoadOptions {
     saved_state_import: SavedStateImport,
     external_state: Option<PathBuf>,
+    players: Option<BTreeSet<String>>,
 }
 
 fn world_reply<T: Serialize>(result: Result<T, String>) -> GString {
@@ -75,8 +76,7 @@ fn load_world_from_content(
     mod_directories: Vec<PathBuf>,
     user_directory: Option<PathBuf>,
     launcher_config: Option<PathBuf>,
-    saved_state_import: SavedStateImport,
-    external_state: Option<PathBuf>,
+    options: WorldLoadOptions,
 ) -> Result<
     (
         augustus_eu4::VanillaWorld,
@@ -85,7 +85,7 @@ fn load_world_from_content(
     ),
     String,
 > {
-    if !matches!(&saved_state_import, SavedStateImport::None)
+    if !matches!(&options.saved_state_import, SavedStateImport::None)
         && (!mod_directories.is_empty() || user_directory.is_some())
     {
         return Err(
@@ -101,7 +101,8 @@ fn load_world_from_content(
         augustus_eu4::TextEncoding::Windows1252,
     )
     .map_err(|error| error.to_string())?;
-    let external_state = external_state
+    let external_state = options
+        .external_state
         .map(|path| {
             std::fs::read(&path)
                 .map_err(|error| format!("{}: {error}", path.display()))
@@ -111,14 +112,22 @@ fn load_world_from_content(
                 })
         })
         .transpose()?;
-    let mut loaded = match external_state.as_ref() {
-        Some(state) => augustus_eu4::VanillaWorld::load_from_content_with_external_state(
+    let mut loaded = match (options.players.as_ref(), external_state.as_ref()) {
+        (Some(players), Some(state)) => {
+            augustus_eu4::VanillaWorld::load_from_content_with_players_and_external_state(
+                &content, &date, players, state,
+            )
+        }
+        (Some(players), None) => {
+            augustus_eu4::VanillaWorld::load_from_content_with_players(&content, &date, players)
+        }
+        (None, Some(state)) => augustus_eu4::VanillaWorld::load_from_content_with_external_state(
             &content, &date, state,
         ),
-        None => augustus_eu4::VanillaWorld::load_from_content(&content, &date),
+        (None, None) => augustus_eu4::VanillaWorld::load_from_content(&content, &date),
     }
     .map_err(|error| error.to_string())?;
-    let (saved_imperial_baseline, saved_office_preferences) = match saved_state_import {
+    let (saved_imperial_baseline, saved_office_preferences) = match options.saved_state_import {
         SavedStateImport::None => (None, None),
         SavedStateImport::OfficePreferences(path) => (
             None,
@@ -173,8 +182,7 @@ impl AugustusWorldSession {
             mod_directories,
             user_directory,
             launcher_config,
-            options.saved_state_import,
-            options.external_state,
+            options,
         ) {
             Ok((loaded, saved_imperial_baseline, saved_office_preferences)) => {
                 self.loaded = Some(loaded);
@@ -184,6 +192,15 @@ impl AugustusWorldSession {
             }
             Err(error) => world_reply::<serde_json::Value>(Err(error)),
         }
+    }
+
+    fn players(values: Array<GString>) -> Option<BTreeSet<String>> {
+        let players = values
+            .iter_shared()
+            .map(|value| value.to_string().trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .collect::<BTreeSet<_>>();
+        (!players.is_empty()).then_some(players)
     }
 }
 
@@ -265,6 +282,31 @@ impl AugustusWorldSession {
             WorldLoadOptions {
                 saved_state_import: SavedStateImport::None,
                 external_state: None,
+                players: None,
+            },
+        )
+    }
+
+    #[func]
+    fn load_world_with_content_and_players(
+        &mut self,
+        path: GString,
+        date: GString,
+        mod_directories: Array<GString>,
+        user_directory: GString,
+        launcher_config: GString,
+        players: Array<GString>,
+    ) -> GString {
+        self.load_world_with_content_internal(
+            path,
+            date,
+            mod_directories,
+            user_directory,
+            launcher_config,
+            WorldLoadOptions {
+                saved_state_import: SavedStateImport::None,
+                external_state: None,
+                players: Self::players(players),
             },
         )
     }
@@ -290,6 +332,7 @@ impl AugustusWorldSession {
             WorldLoadOptions {
                 saved_state_import: SavedStateImport::None,
                 external_state,
+                players: None,
             },
         )
     }
@@ -318,6 +361,7 @@ impl AugustusWorldSession {
                     .map(SavedStateImport::OfficePreferences)
                     .unwrap_or(SavedStateImport::None),
                 external_state: None,
+                players: None,
             },
         )
     }
@@ -347,6 +391,39 @@ impl AugustusWorldSession {
             WorldLoadOptions {
                 saved_state_import,
                 external_state: None,
+                players: None,
+            },
+        )
+    }
+
+    #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn load_world_with_players_and_baseline_save(
+        &mut self,
+        path: GString,
+        date: GString,
+        mod_directories: Array<GString>,
+        user_directory: GString,
+        launcher_config: GString,
+        players: Array<GString>,
+        baseline_save: GString,
+    ) -> GString {
+        let baseline_save = PathBuf::from(baseline_save.to_string());
+        let saved_state_import = if baseline_save.as_os_str().is_empty() {
+            SavedStateImport::None
+        } else {
+            SavedStateImport::ImperialBaseline(baseline_save)
+        };
+        self.load_world_with_content_internal(
+            path,
+            date,
+            mod_directories,
+            user_directory,
+            launcher_config,
+            WorldLoadOptions {
+                saved_state_import,
+                external_state: None,
+                players: Self::players(players),
             },
         )
     }

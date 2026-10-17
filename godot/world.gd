@@ -10,6 +10,7 @@ var color_ids: Dictionary = {}
 var game_path: LineEdit
 var baseline_save: LineEdit
 var date_input: LineEdit
+var player_countries_input: LineEdit
 var mod_directories: Array[String] = []
 var user_directory := ""
 var launcher_config := ""
@@ -67,6 +68,10 @@ func _ready() -> void:
 	date_input.text = "1444.11.11"
 	date_input.custom_minimum_size.x = 130
 	form.add_child(date_input)
+	player_countries_input = LineEdit.new()
+	player_countries_input.placeholder_text = "玩家国家标签，可用逗号分隔"
+	player_countries_input.custom_minimum_size.x = 220
+	form.add_child(player_countries_input)
 	form.add_child(button("载入开局", load_world))
 	var save_form := HBoxContainer.new()
 	page.add_child(save_form)
@@ -85,7 +90,7 @@ func _ready() -> void:
 	save_picker.access = FileDialog.ACCESS_FILESYSTEM
 	save_picker.file_selected.connect(func(path): baseline_save.text = path)
 	add_child(save_picker)
-	status = label("选择安装目录后载入；可选导入 1444.11.11 基线存档中的 HRE 归属与帝位偏好。", 15)
+	status = label("选择安装目录和玩家国家后载入；标签留空时控制身份保持未知。", 15)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status.max_lines_visible = 3
 	page.add_child(status)
@@ -167,7 +172,7 @@ func parse_launch_args(args: PackedStringArray) -> bool:
 	var index := 0
 	while index < args.size():
 		var option := args[index]
-		if option not in ["--game-root", "--date", "--mod", "--user-directory", "--launcher-config", "--baseline-save"]:
+		if option not in ["--game-root", "--date", "--player", "--mod", "--user-directory", "--launcher-config", "--baseline-save"]:
 			index += 1
 			continue
 		if index + 1 >= args.size():
@@ -179,6 +184,11 @@ func parse_launch_args(args: PackedStringArray) -> bool:
 				game_path.text = value
 			"--date":
 				date_input.text = value
+			"--player":
+				if player_countries_input.text.is_empty():
+					player_countries_input.text = value
+				else:
+					player_countries_input.text += "," + value
 			"--mod":
 				mod_directories.append(value)
 			"--user-directory":
@@ -206,14 +216,31 @@ func button(text: String, action: Callable) -> Button:
 func load_world() -> bool:
 	set_running(false)
 	var candidate = AugustusWorldSession.new()
-	var packet: Dictionary = JSON.parse_string(candidate.load_world_with_baseline_save(
-		game_path.text,
-		date_input.text,
-		mod_directories,
-		user_directory,
-		launcher_config,
-		baseline_save.text
-	))
+	var players: Array[String] = []
+	for raw_tag in player_countries_input.text.split(","):
+		var tag := raw_tag.strip_edges()
+		if not tag.is_empty():
+			players.append(tag)
+	var packet: Dictionary
+	if players.is_empty():
+		packet = JSON.parse_string(candidate.load_world_with_baseline_save(
+			game_path.text,
+			date_input.text,
+			mod_directories,
+			user_directory,
+			launcher_config,
+			baseline_save.text
+		))
+	else:
+		packet = JSON.parse_string(candidate.load_world_with_players_and_baseline_save(
+			game_path.text,
+			date_input.text,
+			mod_directories,
+			user_directory,
+			launcher_config,
+			players,
+			baseline_save.text
+		))
 	if not packet.ok:
 		status.text = packet.error
 		return false
