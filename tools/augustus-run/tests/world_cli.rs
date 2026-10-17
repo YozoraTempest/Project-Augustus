@@ -233,6 +233,76 @@ fn world_cli_loads_external_state_from_another_simulation() {
 }
 
 #[test]
+fn world_cli_loads_plaintext_eu4_save_state_before_startup() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let save = temp.path().join("state.eu4");
+    fs::write(
+        &save,
+        r#"EU4txt
+date=1444.11.11
+player="AAA"
+countries={
+	AAA={
+		treasury=12.345
+		manpower=6.000
+		mercantilism=18.500
+		stability=0.000
+		prestige=26.942
+		powers={
+			42 84 126
+		}
+		human=yes
+	}
+	BBB={
+		treasury=4.000
+		manpower=2.000
+		mercantilism=10.000
+		stability=0.000
+		prestige=5.000
+		powers={
+			10 20 30
+		}
+	}
+}
+provinces={
+	-1={
+		local_autonomy=12.500
+	}
+	-2={
+		local_autonomy=0.000
+	}
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&save)
+        .args(["--country", "AAA", "--province", "1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["country_controllers"]["AAA"], "human");
+    assert_eq!(value["country"]["resources"]["treasury_milli"], 12_345);
+    assert_eq!(value["country"]["resources"]["manpower_milli"], 6_000);
+    assert_eq!(value["country"]["metrics"]["prestige"], 26_942);
+    assert_eq!(value["country"]["metrics"]["adm_power"], 42);
+    assert_eq!(
+        value["province"]["administration"]["raw_autonomy_micros"],
+        125_000
+    );
+}
+
+#[test]
 fn world_cli_saves_and_resumes_across_monthly_tax_settlements() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();
