@@ -1558,10 +1558,29 @@ fn external_power_projection_adds_the_minimum_power_bonus() {
                 .steps
                 .iter()
                 .flat_map(|step| step.contributions.iter())
-                .any(|contribution| contribution.source == "power_projection"),
+                .any(|contribution| contribution.source == "metric:power_projection"),
             expected_bonus
         );
     }
+    let root = copy_fixture();
+    let loaded = VanillaWorld::load_with_external_state(
+        root.path(),
+        "1444.11.11",
+        &VanillaExternalState::default(),
+    )
+    .unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let evaluation = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(loaded.initial.world(), country, "monthly_adm")
+        .unwrap();
+    assert!(
+        evaluation
+            .unresolved
+            .contains("metric:power_projection:unknown")
+    );
 }
 
 #[test]

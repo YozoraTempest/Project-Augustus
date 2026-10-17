@@ -85,18 +85,11 @@ pub(super) fn bind(
                             increase_micros: values.get("NAT_FOCUS_INCREASE").copied().unwrap_or(0),
                             decrease_micros: values.get("NAT_FOCUS_DECREASE").copied().unwrap_or(0),
                         },
-                        AttributeTerm::Conditional {
-                            condition: Box::new(augustus_core::Condition::NumericCompare {
-                                target: Target::Current,
-                                slot: augustus_core::NumericSlot::Metric("power_projection".into()),
-                                comparison: augustus_core::NumericComparison::AtLeast,
-                                value: 50_000,
-                            }),
-                            then: vec![AttributeTerm::Constant {
-                                source: "power_projection".into(),
-                                micros: 1_000_000,
-                            }],
-                            otherwise: Vec::new(),
+                        AttributeTerm::Threshold {
+                            target: Target::Current,
+                            metric: "power_projection".into(),
+                            threshold: 50_000,
+                            micros_if_at_least: 1_000_000,
                         },
                         AttributeTerm::AdvisorSkill {
                             target: Target::Current,

@@ -203,19 +203,11 @@
                 "decrease_micros": 0
               },
               {
-                "kind": "conditional",
-                "condition": {
-                  "NumericCompare": {
-                    "target": "Current",
-                    "slot": {"Metric": "power_projection"},
-                    "comparison": "AtLeast",
-                    "value": 50000
-                  }
-                },
-                "then": [
-                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
-                ],
-                "otherwise": []
+                "kind": "threshold",
+                "target": "Current",
+                "metric": "power_projection",
+                "threshold": 50000,
+                "micros_if_at_least": 1000000
               },
               {
                 "kind": "advisor_skill",
@@ -290,19 +282,11 @@
                 "decrease_micros": 0
               },
               {
-                "kind": "conditional",
-                "condition": {
-                  "NumericCompare": {
-                    "target": "Current",
-                    "slot": {"Metric": "power_projection"},
-                    "comparison": "AtLeast",
-                    "value": 50000
-                  }
-                },
-                "then": [
-                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
-                ],
-                "otherwise": []
+                "kind": "threshold",
+                "target": "Current",
+                "metric": "power_projection",
+                "threshold": 50000,
+                "micros_if_at_least": 1000000
               },
               {
                 "kind": "advisor_skill",
@@ -377,19 +361,11 @@
                 "decrease_micros": 0
               },
               {
-                "kind": "conditional",
-                "condition": {
-                  "NumericCompare": {
-                    "target": "Current",
-                    "slot": {"Metric": "power_projection"},
-                    "comparison": "AtLeast",
-                    "value": 50000
-                  }
-                },
-                "then": [
-                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
-                ],
-                "otherwise": []
+                "kind": "threshold",
+                "target": "Current",
+                "metric": "power_projection",
+                "threshold": 50000,
+                "micros_if_at_least": 1000000
               },
               {
                 "kind": "advisor_skill",
@@ -692,19 +668,11 @@
                 "decrease_micros": 0
               },
               {
-                "kind": "conditional",
-                "condition": {
-                  "NumericCompare": {
-                    "target": "Current",
-                    "slot": {"Metric": "power_projection"},
-                    "comparison": "AtLeast",
-                    "value": 50000
-                  }
-                },
-                "then": [
-                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
-                ],
-                "otherwise": []
+                "kind": "threshold",
+                "target": "Current",
+                "metric": "power_projection",
+                "threshold": 50000,
+                "micros_if_at_least": 1000000
               },
               {
                 "kind": "advisor_skill",
@@ -779,19 +747,11 @@
                 "decrease_micros": 0
               },
               {
-                "kind": "conditional",
-                "condition": {
-                  "NumericCompare": {
-                    "target": "Current",
-                    "slot": {"Metric": "power_projection"},
-                    "comparison": "AtLeast",
-                    "value": 50000
-                  }
-                },
-                "then": [
-                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
-                ],
-                "otherwise": []
+                "kind": "threshold",
+                "target": "Current",
+                "metric": "power_projection",
+                "threshold": 50000,
+                "micros_if_at_least": 1000000
               },
               {
                 "kind": "advisor_skill",
@@ -866,19 +826,11 @@
                 "decrease_micros": 0
               },
               {
-                "kind": "conditional",
-                "condition": {
-                  "NumericCompare": {
-                    "target": "Current",
-                    "slot": {"Metric": "power_projection"},
-                    "comparison": "AtLeast",
-                    "value": 50000
-                  }
-                },
-                "then": [
-                  {"kind": "constant", "source": "power_projection", "micros": 1000000}
-                ],
-                "otherwise": []
+                "kind": "threshold",
+                "target": "Current",
+                "metric": "power_projection",
+                "threshold": 50000,
+                "micros_if_at_least": 1000000
               },
               {
                 "kind": "advisor_skill",

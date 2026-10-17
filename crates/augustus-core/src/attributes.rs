@@ -90,6 +90,14 @@ pub enum AttributeTerm {
         then: Vec<AttributeTerm>,
         otherwise: Vec<AttributeTerm>,
     },
+    /// Add a fixed contribution when a live metric reaches a threshold.
+    /// Missing metric state remains unresolved instead of becoming false.
+    Threshold {
+        target: Target,
+        metric: String,
+        threshold: i64,
+        micros_if_at_least: i64,
+    },
     /// Evaluate the inner term only for the current holder of this office.
     OfficeScoped {
         office: String,
@@ -669,6 +677,33 @@ impl Attributes {
                     return Ok((values, true));
                 }
                 return self.resolve(world, entity, term, unresolved, depth + 1);
+            }
+            AttributeTerm::Threshold {
+                target,
+                metric,
+                threshold,
+                micros_if_at_least,
+            } => {
+                let Some(selected) = attribute_target(world, entity, *target)? else {
+                    unresolved.insert(format!("target:{target:?}:unknown"));
+                    return Ok((values, false));
+                };
+                if world.entity(selected)?.kind != EntityKind::Country {
+                    return Err(Error::Invalid(
+                        "threshold metric requires country scope".into(),
+                    ));
+                }
+                let Ok(value) = world.metrics().value(world, selected, metric) else {
+                    unresolved.insert(format!("metric:{metric}:unknown"));
+                    return Ok((values, false));
+                };
+                if value >= *threshold {
+                    values.push((
+                        format!("metric:{metric}"),
+                        "threshold_bonus".into(),
+                        *micros_if_at_least,
+                    ));
+                }
             }
             AttributeTerm::TruncatedSum {
                 source,
@@ -1295,6 +1330,7 @@ impl Attributes {
                             terms.push((term, is_rate));
                             !office.is_empty()
                         }
+                        AttributeTerm::Threshold { metric, .. } => !metric.is_empty(),
                         AttributeTerm::TruncatedSum {
                             source,
                             quantum_micros,
