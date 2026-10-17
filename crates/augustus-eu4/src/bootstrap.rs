@@ -105,6 +105,11 @@ pub struct CountryView<'a> {
     pub metrics: Option<&'a BTreeMap<String, Option<i64>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metric_ceilings: Option<&'a BTreeMap<String, Option<i64>>>,
+    /// Current advisors, when the compatibility layer has authoritative data.
+    /// An empty list is meaningful: it means the country is known to have no
+    /// active advisors. `advisors_known` distinguishes that from missing data.
+    pub advisors: Option<&'a Vec<augustus_core::AdvisorState>>,
+    pub advisors_known: bool,
     pub flags: Option<&'a BTreeMap<String, bool>>,
     pub flag_namespace_known: bool,
     pub estates: Option<&'a BTreeMap<String, augustus_core::EstateState>>,
@@ -2742,6 +2747,18 @@ impl VanillaWorld {
                 .initial
                 .country_entity(id)
                 .and_then(|entity| self.initial.world().metrics().ceilings.get(&entity)),
+            advisors: self
+                .initial
+                .country_entity(id)
+                .and_then(|entity| self.initial.world().advisors().countries.get(&entity))
+                .and_then(Option::as_ref),
+            advisors_known: self.initial.country_entity(id).is_some_and(|entity| {
+                self.initial
+                    .world()
+                    .advisors()
+                    .countries
+                    .contains_key(&entity)
+            }),
             estates: self
                 .initial
                 .country_entity(id)

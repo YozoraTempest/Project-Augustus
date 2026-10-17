@@ -1520,6 +1520,13 @@ fn external_advisors_are_translated_by_content_type_before_startup() {
     assert_eq!(advisors[0].type_name, "treasurer");
     assert_eq!(advisors[0].category, RulerSkill::Administration);
     assert_eq!(advisors[0].skill, 2);
+    let view = loaded.country("AAA").unwrap();
+    assert!(view.advisors_known);
+    assert_eq!(view.advisors.unwrap()[0].type_name, "treasurer");
+    assert_eq!(view.advisors.unwrap()[0].skill, 2);
+    let unknown = loaded.country("BBB").unwrap();
+    assert!(!unknown.advisors_known);
+    assert!(unknown.advisors.is_none());
 }
 
 #[test]
