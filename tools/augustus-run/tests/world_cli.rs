@@ -237,6 +237,7 @@ fn world_cli_loads_plaintext_eu4_save_state_before_startup() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();
     let save = temp.path().join("state.eu4");
+    let exported = temp.path().join("exported-state.json");
     fs::write(
         &save,
         r#"EU4txt
@@ -300,6 +301,51 @@ provinces={
         value["province"]["administration"]["raw_autonomy_micros"],
         125_000
     );
+
+    let export = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&save)
+        .arg("--export-external-state")
+        .arg(&exported)
+        .output()
+        .unwrap();
+    assert!(
+        export.status.success(),
+        "{}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    let exported_state: serde_json::Value =
+        serde_json::from_slice(&fs::read(&exported).unwrap()).unwrap();
+    assert_eq!(
+        exported_state["country_resources"]["AAA"]["treasury_milli"],
+        12_345
+    );
+    assert_eq!(
+        exported_state["country_metric_values"]["AAA"]["prestige"],
+        26_942
+    );
+
+    let reloaded = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&exported)
+        .arg("--player")
+        .arg("AAA")
+        .arg("--country")
+        .arg("AAA")
+        .output()
+        .unwrap();
+    assert!(
+        reloaded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reloaded.stderr)
+    );
+    let reloaded: serde_json::Value = serde_json::from_slice(&reloaded.stdout).unwrap();
+    assert_eq!(reloaded["country"]["resources"]["treasury_milli"], 12_345);
+    assert_eq!(reloaded["country"]["metrics"]["prestige"], 26_942);
 }
 
 #[test]

@@ -34,6 +34,14 @@ pub struct VanillaSaveState {
 }
 
 impl VanillaSaveState {
+    /// Translate the save into a state bundle accepted by a loaded content set.
+    ///
+    /// Fields whose identifiers are not defined by the target content are
+    /// omitted, matching the filtering used by direct EU4 save import.
+    pub fn state_for_world(&self, world: &VanillaWorld) -> Result<VanillaExternalState, Error> {
+        self.for_world(world).map(|(_, state)| state)
+    }
+
     /// Keep only identifiers present in the loaded world and bind the content
     /// declared monarch-power ceiling to the saved power stocks.
     pub(crate) fn for_world(

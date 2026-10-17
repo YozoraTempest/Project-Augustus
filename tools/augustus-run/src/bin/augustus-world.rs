@@ -3,7 +3,7 @@
 
 use augustus_eu4::{ContentSet, TextEncoding, VanillaExternalState, VanillaWorld};
 use clap::Parser;
-use std::{path::PathBuf, process::ExitCode};
+use std::{fs::OpenOptions, io::Write, path::PathBuf, process::ExitCode};
 
 #[derive(Parser)]
 #[command(
@@ -33,6 +33,9 @@ struct Cli {
         conflicts_with_all = ["external_state", "player", "ai_only", "seed", "load"]
     )]
     eu4_save: Option<PathBuf>,
+    /// Export the translated state from --eu4-save as a VanillaExternalState JSON file.
+    #[arg(long, value_name = "FILE", requires = "eu4_save")]
+    export_external_state: Option<PathBuf>,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
     /// Explicit EU4 random seed; omitted seeds use the runtime clock for local AI event choices.
@@ -94,6 +97,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         cli.launcher_config.as_deref(),
         TextEncoding::Windows1252,
     )?;
+    if let (Some(save_path), Some(output_path)) =
+        (cli.eu4_save.as_ref(), cli.export_external_state.as_ref())
+    {
+        let save = augustus_eu4::read_vanilla_save_state(save_path)?;
+        let loaded = VanillaWorld::load_from_content_with_save_state(&content, &save)?;
+        let external_state = save.state_for_world(&loaded)?;
+        let bytes = serde_json::to_vec_pretty(&external_state)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(output_path)?;
+        file.write_all(&bytes)?;
+    }
     let external_state = cli
         .external_state
         .as_ref()
@@ -144,7 +160,6 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     loaded.advance(cli.days)?;
     if let Some(path) = cli.save {
-        use std::io::Write;
         let snapshot = loaded.save()?;
         let mut file = std::fs::OpenOptions::new()
             .write(true)
