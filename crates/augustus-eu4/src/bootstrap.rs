@@ -850,6 +850,29 @@ impl VanillaWorld {
         content: &ContentSet,
         save: &crate::VanillaSaveState,
     ) -> Result<Self, Error> {
+        // Save import builds a baseline world before rebuilding it with the
+        // translated state. Keep that nested compatibility path off the small
+        // caller stack used by desktop frontends and command-line tools.
+        let save = save.clone();
+        let root = content.base_root();
+        std::thread::scope(|scope| {
+            let handle = std::thread::Builder::new()
+                .name("augustus-eu4-save-loader".into())
+                .stack_size(32 * 1024 * 1024)
+                .spawn_scoped(scope, || {
+                    Self::load_from_content_with_save_state_inner(content, &save)
+                })
+                .map_err(|error| Error::caused_by(root.path(), error))?;
+            handle
+                .join()
+                .map_err(|_| Error::message(root.path(), "EU4 save loader thread panicked"))?
+        })
+    }
+
+    fn load_from_content_with_save_state_inner(
+        content: &ContentSet,
+        save: &crate::VanillaSaveState,
+    ) -> Result<Self, Error> {
         let baseline = Self::load_from_content(content, &save.date)?;
         let (players, state) = save.for_world(&baseline)?;
         Self::load_from_content_with_players_and_external_state(

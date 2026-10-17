@@ -188,7 +188,20 @@ impl VanillaSaveState {
 
 /// Read a plaintext `EU4txt` save without modifying it.
 pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveState, Error> {
-    let document = plaintext_save_document(path.as_ref())?;
+    let path = path.as_ref().to_path_buf();
+    let parser_path = path.clone();
+    let handle = std::thread::Builder::new()
+        .name("augustus-eu4-save-parser".into())
+        .stack_size(32 * 1024 * 1024)
+        .spawn(move || read_vanilla_save_state_inner(&parser_path))
+        .map_err(|error| Error::caused_by(&path, error))?;
+    handle
+        .join()
+        .map_err(|_| Error::message(&path, "EU4 save parser thread panicked"))?
+}
+
+fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error> {
+    let document = plaintext_save_document(path)?;
     let parsed = document.parse()?;
     let root = parsed.reader();
     let date = scalar(&parsed, &required(&parsed, &root, "date")?)?;
