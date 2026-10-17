@@ -6,6 +6,7 @@ use augustus_core::{
     AccrualRule, AttributeBase, AttributeChannel, AttributeFormula, AttributeTerm, Attributes,
     InitialWorld, MonthlyAccruals, RulerSkill, Target,
 };
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Bind verified sources while keeping unimplemented producers explicit.
 pub(super) fn bind(
@@ -136,4 +137,68 @@ pub(super) fn bind(
         }
     }
     Ok(accruals)
+}
+
+/// Replace selected monthly income formulas with values supplied by a
+/// compatibility provider. Omitted countries and metrics keep the native
+/// formula, while an explicit `None` remains unresolved.
+pub(super) fn apply_external(
+    initial: &InitialWorld,
+    attributes: &mut Attributes,
+    values: &BTreeMap<String, BTreeMap<String, Option<i64>>>,
+) -> Result<(), Error> {
+    for (country, metrics) in values {
+        let entity = initial.country_entity(country).ok_or_else(|| {
+            Error::message(
+                "external monthly power income",
+                format!("unknown EU4 income country {country}"),
+            )
+        })?;
+        for (metric, value) in metrics {
+            let attribute = match metric.as_str() {
+                "adm_power" => "monthly_adm",
+                "dip_power" => "monthly_dip",
+                "mil_power" => "monthly_mil",
+                other => {
+                    return Err(Error::message(
+                        "external monthly power income",
+                        format!("unsupported monthly power metric {other}"),
+                    ));
+                }
+            };
+            let (base, unresolved) = match value {
+                Some(value) => (
+                    AttributeBase::Constant {
+                        micros: value.checked_mul(1_000_000).ok_or_else(|| {
+                            Error::message(
+                                "external monthly power income",
+                                format!("income value overflows for {country}:{metric}"),
+                            )
+                        })?,
+                    },
+                    BTreeSet::new(),
+                ),
+                None => (
+                    AttributeBase::Unknown {
+                        reason: format!(
+                            "external monthly power income unknown for {country}:{metric}"
+                        ),
+                    },
+                    BTreeSet::from([format!("external_monthly_power_income:{country}:{metric}")]),
+                ),
+            };
+            attributes.formulas.entry(entity).or_default().insert(
+                attribute.into(),
+                AttributeFormula {
+                    base,
+                    channels: Vec::new(),
+                    minimum_micros: None,
+                    maximum_micros: None,
+                    result_quantum_micros: None,
+                    unresolved,
+                },
+            );
+        }
+    }
+    Ok(())
 }

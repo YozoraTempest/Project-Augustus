@@ -273,6 +273,11 @@ pub struct VanillaExternalState {
     pub estate_loyalty_targets: BTreeMap<String, BTreeMap<String, Option<i64>>>,
     #[serde(default)]
     pub country_monthly_cashflows_milli: BTreeMap<String, Option<i64>>,
+    /// Verified monthly monarch-power income supplied by a compatibility
+    /// provider. Keys are EU4 metric names (`adm_power`, `dip_power`, and
+    /// `mil_power`); values use the metric's integer units.
+    #[serde(default)]
+    pub country_monthly_power_income: BTreeMap<String, BTreeMap<String, Option<i64>>>,
     /// Starting land and naval units supplied by another simulation. These
     /// are bound before startup effects so scripts can query the same units.
     #[serde(default)]
@@ -297,6 +302,7 @@ struct LoadOverrides<'a> {
     country_statuses: Option<&'a VanillaExternalCountryStatuses>,
     estate_loyalty_targets: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_monthly_cashflows_milli: Option<&'a BTreeMap<String, Option<i64>>>,
+    country_monthly_power_income: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     armies: Option<&'a [VanillaExternalArmy]>,
     naval_units: Option<&'a [VanillaExternalNavalUnit]>,
 }
@@ -331,6 +337,8 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.estate_loyalty_targets),
             country_monthly_cashflows_milli: (!state.country_monthly_cashflows_milli.is_empty())
                 .then_some(&state.country_monthly_cashflows_milli),
+            country_monthly_power_income: (!state.country_monthly_power_income.is_empty())
+                .then_some(&state.country_monthly_power_income),
             armies: (!state.armies.is_empty()).then_some(state.armies.as_slice()),
             naval_units: (!state.naval_units.is_empty()).then_some(state.naval_units.as_slice()),
         }
@@ -1738,6 +1746,9 @@ impl VanillaWorld {
             &mut attributes,
             &mut report.setup,
         )?;
+        if let Some(values) = overrides.country_monthly_power_income {
+            crate::power_income::apply_external(&initial, &mut attributes, values)?;
+        }
         crate::prestige::bind(&initial, &mut attributes, &mut accruals);
         let convergence = crate::liberty_desire::bind(
             &files,

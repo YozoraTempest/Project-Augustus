@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -1465,6 +1466,73 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
     loaded.restore(&snapshot).unwrap();
     assert_eq!(loaded.initial.armies().len(), 1);
     assert_eq!(loaded.initial.naval_units().len(), 1);
+}
+
+#[test]
+fn external_monthly_power_income_overrides_unresolved_producers() {
+    let root = copy_fixture();
+    let defines = root.path().join("common/defines.lua");
+    let text = fs::read_to_string(&defines).unwrap();
+    fs::write(
+        &defines,
+        text.replace(
+            "HRE_RANK = 3,",
+            "HRE_RANK = 3,\n        DEBT_LIMIT_DIP = -999,\n        POWER_MAX = 999,",
+        ),
+    )
+    .unwrap();
+
+    let mut external = VanillaExternalState::default();
+    external.country_metric_values = BTreeMap::from([(
+        "AAA".into(),
+        BTreeMap::from([
+            ("adm_power".into(), Some(10)),
+            ("dip_power".into(), Some(10)),
+            ("mil_power".into(), Some(10)),
+        ]),
+    )]);
+    external.country_metric_ceilings = BTreeMap::from([(
+        "AAA".into(),
+        BTreeMap::from([
+            ("adm_power".into(), Some(20)),
+            ("dip_power".into(), Some(20)),
+            ("mil_power".into(), Some(20)),
+        ]),
+    )]);
+    external.country_monthly_power_income = BTreeMap::from([(
+        "AAA".into(),
+        BTreeMap::from([
+            ("adm_power".into(), Some(7)),
+            ("dip_power".into(), Some(6)),
+            ("mil_power".into(), Some(5)),
+        ]),
+    )]);
+
+    let mut loaded =
+        VanillaWorld::load_with_external_state(root.path(), "1444.11.11", &external).unwrap();
+    let entity = loaded.initial.country_entity("AAA").unwrap();
+    let evaluation = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(loaded.initial.world(), entity, "monthly_adm")
+        .unwrap();
+    assert_eq!(evaluation.value_micros, Some(7_000_000));
+    assert!(evaluation.unresolved.is_empty());
+
+    loaded.advance(20).unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().metrics.unwrap()["adm_power"],
+        Some(17)
+    );
+    assert_eq!(
+        loaded.country("AAA").unwrap().metrics.unwrap()["dip_power"],
+        Some(16)
+    );
+    assert_eq!(
+        loaded.country("AAA").unwrap().metrics.unwrap()["mil_power"],
+        Some(15)
+    );
 }
 
 #[test]
