@@ -106,6 +106,11 @@ pub enum AttributeTerm {
         increase_micros: i64,
         decrease_micros: i64,
     },
+    AdvisorSkill {
+        target: Target,
+        skill: crate::RulerSkill,
+        micros_per_unit: i64,
+    },
     /// Sum these sources before truncating to a multiple of the quantum.
     /// The contribution list retains the inputs and a separate rounding delta.
     TruncatedSum {
@@ -798,6 +803,41 @@ impl Attributes {
                     return Ok((values, false));
                 }
             }
+            AttributeTerm::AdvisorSkill {
+                target,
+                skill,
+                micros_per_unit,
+            } => {
+                if let Some(selected) = attribute_target(world, entity, *target)? {
+                    if world.entity(selected)?.kind != EntityKind::Country {
+                        return Err(Error::Invalid(
+                            "advisor attribute requires country scope".into(),
+                        ));
+                    }
+                    match world.advisors().countries.get(&selected) {
+                        Some(Some(advisors)) => {
+                            if let Some(advisor) =
+                                advisors.iter().find(|advisor| advisor.category == *skill)
+                            {
+                                values.push((
+                                    format!("advisor:{}", advisor.type_name),
+                                    "skill".into(),
+                                    narrow(
+                                        i128::from(advisor.skill) * i128::from(*micros_per_unit),
+                                    )?,
+                                ));
+                            }
+                        }
+                        Some(None) | None => {
+                            unresolved.insert("power_income:advisors_not_initialized".into());
+                            return Ok((values, false));
+                        }
+                    }
+                } else {
+                    unresolved.insert(format!("target:{target:?}:unknown"));
+                    return Ok((values, false));
+                }
+            }
             AttributeTerm::Administration { mapping, property } => {
                 let definitions = self.administration_mappings.get(mapping).ok_or_else(|| {
                     Error::Invalid("unknown administrative attribute mapping".into())
@@ -1275,9 +1315,9 @@ impl Attributes {
                                 && factors.len() >= 2
                                 && factors.iter().all(|factor| !factor.is_empty())
                         }
-                        AttributeTerm::RulerSkill { .. } | AttributeTerm::NationalFocus { .. } => {
-                            true
-                        }
+                        AttributeTerm::RulerSkill { .. }
+                        | AttributeTerm::NationalFocus { .. }
+                        | AttributeTerm::AdvisorSkill { .. } => true,
                         AttributeTerm::Administration { mapping, property } => {
                             world.entity(entity)?.kind == EntityKind::Province
                                 && !property.is_empty()

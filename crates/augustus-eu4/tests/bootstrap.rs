@@ -9,8 +9,8 @@ use std::{
 
 use augustus_core::{EntityKind, NationalFocus, ProvinceClass, RulerSkill, Schema, World};
 use augustus_eu4::{
-    ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalArmy,
-    VanillaExternalNavalUnit, VanillaExternalState, VanillaWorld,
+    ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
+    VanillaExternalArmy, VanillaExternalNavalUnit, VanillaExternalState, VanillaWorld,
 };
 
 fn fixture() -> PathBuf {
@@ -1486,6 +1486,40 @@ fn external_national_focus_replaces_the_content_value_before_startup() {
             skill: Some(RulerSkill::Military)
         }
     );
+}
+
+#[test]
+fn external_advisors_are_translated_by_content_type_before_startup() {
+    let root = copy_fixture();
+    fs::create_dir_all(root.path().join("common/advisortypes")).unwrap();
+    fs::write(
+        root.path().join("common/advisortypes/test.txt"),
+        "treasurer = { monarch_power = ADM }",
+    )
+    .unwrap();
+    let mut external = VanillaExternalState::default();
+    external.advisors.insert(
+        "AAA".into(),
+        vec![VanillaExternalAdvisor {
+            type_name: "treasurer".into(),
+            skill: 2,
+            id: Some(17),
+        }],
+    );
+    let loaded =
+        VanillaWorld::load_with_external_state(root.path(), "1444.11.11", &external).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let advisors = loaded
+        .initial
+        .world()
+        .advisors()
+        .countries
+        .get(&country)
+        .and_then(Option::as_ref)
+        .unwrap();
+    assert_eq!(advisors[0].type_name, "treasurer");
+    assert_eq!(advisors[0].category, RulerSkill::Administration);
+    assert_eq!(advisors[0].skill, 2);
 }
 
 #[test]

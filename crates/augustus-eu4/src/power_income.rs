@@ -85,6 +85,11 @@ pub(super) fn bind(
                             increase_micros: values.get("NAT_FOCUS_INCREASE").copied().unwrap_or(0),
                             decrease_micros: values.get("NAT_FOCUS_DECREASE").copied().unwrap_or(0),
                         },
+                        AttributeTerm::AdvisorSkill {
+                            target: Target::Current,
+                            skill,
+                            micros_per_unit: 1_000_000,
+                        },
                         AttributeTerm::TruncatedSum {
                             source: "country_power_sources".into(),
                             quantum_micros: 1_000_000,
@@ -198,6 +203,34 @@ pub(super) fn apply_external(
                     unresolved,
                 },
             );
+        }
+    }
+    Ok(())
+}
+
+/// Mark advisor state as authoritative for the countries supplied by a
+/// compatibility provider. The advisor term itself reads the live core state;
+/// this only removes the legacy unresolved marker left by the base formula.
+pub(super) fn apply_external_advisors(
+    initial: &InitialWorld,
+    attributes: &mut Attributes,
+    values: &BTreeMap<String, Vec<crate::VanillaExternalAdvisor>>,
+) -> Result<(), Error> {
+    for country in values.keys() {
+        let entity = initial.country_entity(country).ok_or_else(|| {
+            Error::message(
+                "external advisors",
+                format!("unknown advisor country {country}"),
+            )
+        })?;
+        if let Some(formulas) = attributes.formulas.get_mut(&entity) {
+            for branch in ["monthly_adm", "monthly_dip", "monthly_mil"] {
+                if let Some(formula) = formulas.get_mut(branch) {
+                    formula
+                        .unresolved
+                        .remove("power_income:advisors_not_initialized");
+                }
+            }
         }
     }
     Ok(())

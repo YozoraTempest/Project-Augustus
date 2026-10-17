@@ -6,8 +6,8 @@ use crate::{
     ContentView, Error, FileEntry, LoadedSource, ParsedText, SourceLocation, TextEncoding,
 };
 use augustus_core::{
-    CountryResources, InitialWorld, ModifierDefinition, ModifierInstance, Modifiers, Technology,
-    TechnologyLevel, UnitTemplates,
+    CountryResources, InitialWorld, ModifierDefinition, ModifierInstance, Modifiers, RulerSkill,
+    Technology, TechnologyLevel, UnitTemplates,
 };
 use jomini::{
     common::Date,
@@ -41,6 +41,7 @@ pub struct SetupReport {
     pub enabled_unit_sources: BTreeMap<String, Vec<LoadedSource>>,
     pub unit_templates: usize,
     pub unit_template_sources: BTreeMap<String, LoadedSource>,
+    pub advisor_types: BTreeMap<String, RulerSkill>,
     pub pending_timed_modifiers: BTreeMap<String, LoadedSource>,
     pub unapplied_definition_fields: BTreeMap<String, usize>,
     pub unapplied_examples: BTreeMap<String, LoadedSource>,
@@ -57,6 +58,7 @@ enum HistoryTarget {
 pub(super) struct SetupDraft {
     technology: Technology,
     unit_templates: UnitTemplates,
+    advisor_types: BTreeMap<String, RulerSkill>,
     groups: BTreeMap<String, u16>,
     modifiers: Modifiers,
     active: BTreeMap<HistoryTarget, BTreeMap<String, ModifierInstance>>,
@@ -115,6 +117,55 @@ pub(super) fn flag(text: &str) -> Option<bool> {
         "no" => Some(false),
         _ => None,
     }
+}
+
+fn load_advisor_types(
+    root: &impl ContentView,
+    files: &[FileEntry],
+    report: &mut SetupReport,
+) -> Result<BTreeMap<String, RulerSkill>, Error> {
+    let mut result = BTreeMap::new();
+    for file in files
+        .iter()
+        .filter(|file| direct_txt(&file.relative_path, "common/advisortypes"))
+    {
+        let document = root.read_text(&file.relative_path, ENCODING)?;
+        let parsed = document.parse()?;
+        for (key, op, value) in parsed.reader().fields() {
+            let name = key.read_string();
+            let location = parsed.field_location(&key);
+            let fail =
+                |message: &str| Error::message(parsed.source(), message).with_location(location);
+            equal(op, &fail)?;
+            let reader = block(&value, &fail)?;
+            let Some(power) = reader
+                .clone()
+                .fields()
+                .find(|(key, _, _)| key.read_string() == "monarch_power")
+                .map(|(_key, op, value)| {
+                    equal(op, &fail)?;
+                    let text = scalar(&value, &fail)?;
+                    let skill = match text.as_str() {
+                        "ADM" => RulerSkill::Administration,
+                        "DIP" => RulerSkill::Diplomacy,
+                        "MIL" => RulerSkill::Military,
+                        _ => return Err(fail("unsupported advisor monarch power")),
+                    };
+                    Ok::<_, Error>(skill)
+                })
+                .transpose()?
+            else {
+                continue;
+            };
+            if result.insert(name.clone(), power).is_some() {
+                return Err(fail("duplicate advisor type"));
+            }
+            report
+                .definition_sources
+                .insert(format!("advisor_type:{name}"), source(&parsed, location));
+        }
+    }
+    Ok(result)
 }
 
 pub(super) fn micros(text: &str) -> Option<i64> {
@@ -251,6 +302,7 @@ impl SetupDraft {
     ) -> Result<Self, Error> {
         let mut draft = Self {
             unit_templates: crate::unit_templates::load(root, files, report)?,
+            advisor_types: load_advisor_types(root, files, report)?,
             ..Self::default()
         };
         let doc = root.read_text("common/technology.txt", ENCODING)?;
@@ -496,6 +548,7 @@ impl SetupDraft {
         report.technology_groups = draft.groups.len();
         report.technology_levels = draft.technology.tables.values().map(Vec::len).sum();
         report.modifier_definitions = draft.modifiers.definitions.len();
+        report.advisor_types = draft.advisor_types.clone();
         Ok(draft)
     }
 

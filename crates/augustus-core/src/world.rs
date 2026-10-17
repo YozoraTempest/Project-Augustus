@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::rng::{Eu4Rng, RandomSource};
 use crate::{
-    Action, Administration, Affiliations, Attributes, Calendar, CountryResources, DailySystem,
-    Economy, Error, Governments, Ideas, Modifiers, MonthlySystem, MonthlyTax, Plan, Politics,
-    Target, Taxation, Technology, WorldDate,
+    Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryResources,
+    DailySystem, Economy, Error, Governments, Ideas, Modifiers, MonthlySystem, MonthlyTax, Plan,
+    Politics, Target, Taxation, Technology, WorldDate,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -97,6 +97,7 @@ pub struct World {
     pub(crate) event_catalog: crate::EventCatalog,
     pub(crate) event_queue: crate::event_choices::EventQueue,
     pub(crate) politics: Politics,
+    pub(crate) advisors: Advisors,
     pub(crate) truces: crate::Truces,
     pub(crate) truce_expirations: crate::truces::TruceExpirations,
     pub(crate) subjects: crate::Subjects,
@@ -169,6 +170,8 @@ struct Snapshot {
     eu4_event_seed: Option<u32>,
     #[serde(default, skip_serializing_if = "Politics::is_empty")]
     politics: Politics,
+    #[serde(default, skip_serializing_if = "Advisors::is_empty")]
+    advisors: Advisors,
     #[serde(default, skip_serializing_if = "crate::Truces::is_empty")]
     truces: crate::Truces,
     #[serde(default, skip_serializing_if = "crate::Subjects::is_empty")]
@@ -272,6 +275,7 @@ impl World {
             event_catalog: crate::EventCatalog::default(),
             event_queue: crate::event_choices::EventQueue::default(),
             politics: Politics::default(),
+            advisors: Advisors::default(),
             truces: crate::Truces::default(),
             truce_expirations: Default::default(),
             subjects: crate::Subjects::default(),
@@ -1156,6 +1160,7 @@ impl World {
             eu4_random,
             eu4_event_seed: self.eu4_event_seed,
             politics: self.politics.clone(),
+            advisors: self.advisors.clone(),
             truces: self.truces.clone(),
             subjects: self.subjects.clone(),
             country_controllers: self.country_controllers.clone(),
@@ -1271,6 +1276,7 @@ impl World {
             eu4_random,
             eu4_event_seed: snapshot.eu4_event_seed,
             politics: snapshot.politics,
+            advisors: snapshot.advisors,
             truces: snapshot.truces,
             truce_expirations: Default::default(),
             subjects: snapshot.subjects,
@@ -1368,6 +1374,7 @@ impl World {
             }
         }
         world.politics.validate(&world)?;
+        world.advisors.validate(&world)?;
         world.subjects.validate(&world.politics)?;
         world.subjects.validate_counts(&world)?;
         world.economy.validate(&world)?;

@@ -203,6 +203,12 @@
                 "decrease_micros": 0
               },
               {
+                "kind": "advisor_skill",
+                "target": "Current",
+                "skill": "Administration",
+                "micros_per_unit": 1000000
+              },
+              {
                 "kind": "truncated_sum",
                 "source": "country_power_sources",
                 "quantum_micros": 1000000,
@@ -269,6 +275,12 @@
                 "decrease_micros": 0
               },
               {
+                "kind": "advisor_skill",
+                "target": "Current",
+                "skill": "Diplomacy",
+                "micros_per_unit": 1000000
+              },
+              {
                 "kind": "truncated_sum",
                 "source": "country_power_sources",
                 "quantum_micros": 1000000,
@@ -333,6 +345,12 @@
                 "skill": "Military",
                 "increase_micros": 0,
                 "decrease_micros": 0
+              },
+              {
+                "kind": "advisor_skill",
+                "target": "Current",
+                "skill": "Military",
+                "micros_per_unit": 1000000
               },
               {
                 "kind": "truncated_sum",
@@ -629,6 +647,12 @@
                 "decrease_micros": 0
               },
               {
+                "kind": "advisor_skill",
+                "target": "Current",
+                "skill": "Administration",
+                "micros_per_unit": 1000000
+              },
+              {
                 "kind": "truncated_sum",
                 "source": "country_power_sources",
                 "quantum_micros": 1000000,
@@ -695,6 +719,12 @@
                 "decrease_micros": 0
               },
               {
+                "kind": "advisor_skill",
+                "target": "Current",
+                "skill": "Diplomacy",
+                "micros_per_unit": 1000000
+              },
+              {
                 "kind": "truncated_sum",
                 "source": "country_power_sources",
                 "quantum_micros": 1000000,
@@ -759,6 +789,12 @@
                 "skill": "Military",
                 "increase_micros": 0,
                 "decrease_micros": 0
+              },
+              {
+                "kind": "advisor_skill",
+                "target": "Current",
+                "skill": "Military",
+                "micros_per_unit": 1000000
               },
               {
                 "kind": "truncated_sum",

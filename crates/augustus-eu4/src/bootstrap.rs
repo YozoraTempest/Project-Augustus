@@ -188,6 +188,17 @@ pub struct VanillaExternalNavalUnit {
     pub unit_type: String,
 }
 
+/// A current advisor translated from a save or another compatibility source.
+/// The EU4 advisor type is resolved to a monarch-power category during binding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalAdvisor {
+    pub type_name: String,
+    pub skill: u8,
+    #[serde(default)]
+    pub id: Option<u64>,
+}
+
 /// Estate privilege sets supplied by a compatibility provider, keyed by EU4
 /// country tag and estate identifier. `Some(empty)` means the estate is known
 /// to have no privileges; `None` remains unresolved.
@@ -289,6 +300,8 @@ pub struct VanillaExternalState {
     pub armies: Vec<VanillaExternalArmy>,
     #[serde(default)]
     pub naval_units: Vec<VanillaExternalNavalUnit>,
+    #[serde(default)]
+    pub advisors: BTreeMap<String, Vec<VanillaExternalAdvisor>>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -311,6 +324,7 @@ struct LoadOverrides<'a> {
     country_monthly_power_income: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     armies: Option<&'a [VanillaExternalArmy]>,
     naval_units: Option<&'a [VanillaExternalNavalUnit]>,
+    advisors: Option<&'a BTreeMap<String, Vec<VanillaExternalAdvisor>>>,
 }
 
 impl<'a> LoadOverrides<'a> {
@@ -349,6 +363,7 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_monthly_power_income),
             armies: (!state.armies.is_empty()).then_some(state.armies.as_slice()),
             naval_units: (!state.naval_units.is_empty()).then_some(state.naval_units.as_slice()),
+            advisors: (!state.advisors.is_empty()).then_some(&state.advisors),
         }
     }
 }
@@ -397,6 +412,45 @@ fn bind_external_units(
         }
     }
     Ok(())
+}
+
+fn bind_external_advisors(
+    initial: &mut InitialWorld,
+    values: Option<&BTreeMap<String, Vec<VanillaExternalAdvisor>>>,
+    definitions: &BTreeMap<String, augustus_core::RulerSkill>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut advisors = initial.world().advisors().clone();
+    for (country, entries) in values {
+        let entity = initial.country_entity(country).ok_or_else(|| {
+            Error::message(
+                "external advisors",
+                format!("unknown advisor country {country}"),
+            )
+        })?;
+        let translated = entries
+            .iter()
+            .map(|advisor| {
+                let category = definitions.get(&advisor.type_name).ok_or_else(|| {
+                    Error::message(
+                        "external advisors",
+                        format!("unknown advisor type {}", advisor.type_name),
+                    )
+                })?;
+                Ok(augustus_core::AdvisorState {
+                    type_name: advisor.type_name.clone(),
+                    category: *category,
+                    skill: advisor.skill,
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        advisors.countries.insert(entity, Some(translated));
+    }
+    initial
+        .set_advisors(advisors)
+        .map_err(|e| Error::caused_by("external advisors", e))
 }
 
 fn bind_external_estate_privileges(
@@ -1859,6 +1913,14 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by(root.path(), e))?;
         bind_external_country_statuses(&mut initial, overrides.country_statuses)?;
         bind_external_national_focus(&mut initial, overrides.country_national_focus)?;
+        bind_external_advisors(
+            &mut initial,
+            overrides.advisors,
+            &report.setup.advisor_types,
+        )?;
+        if let Some(values) = overrides.advisors {
+            crate::power_income::apply_external_advisors(&initial, &mut attributes, values)?;
+        }
         initial
             .set_attributes(attributes.clone())
             .map_err(|e| Error::caused_by(root.path(), e))?;

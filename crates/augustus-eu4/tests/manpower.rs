@@ -264,6 +264,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         )]),
         country_monthly_cashflows_milli: Default::default(),
         country_monthly_power_income: Default::default(),
+        advisors: Default::default(),
         armies: Default::default(),
         naval_units: Default::default(),
     };

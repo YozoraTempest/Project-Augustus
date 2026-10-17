@@ -12,7 +12,9 @@ use jomini::{TextToken, text::ValueReader};
 use serde::Serialize;
 
 use crate::administration_validation::plaintext_save_document;
-use crate::bootstrap::{VanillaExternalArmy, VanillaExternalState, VanillaWorld};
+use crate::bootstrap::{
+    VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalState, VanillaWorld,
+};
 use crate::{Error, ParsedText, TextEncoding};
 
 type Object<'a, 'b> = jomini::text::ObjectReader<'a, 'b, TextEncoding>;
@@ -69,6 +71,9 @@ impl VanillaSaveState {
                 state
                     .country_national_focus
                     .insert((*country).into(), *focus);
+            }
+            if let Some(advisors) = self.external_state.advisors.get(*country) {
+                state.advisors.insert((*country).into(), advisors.clone());
             }
             if let Some(markers) = self.external_state.country_markers.get(*country) {
                 state
@@ -156,6 +161,8 @@ pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveStat
     let parsed = document.parse()?;
     let root = parsed.reader();
     let date = scalar(&parsed, &required(&parsed, &root, "date")?)?;
+    let current_date =
+        date_key(&date).ok_or_else(|| Error::message(parsed.source(), "invalid save date"))?;
     let player = optional_scalar(&parsed, &root, "player")?;
     let mut players = BTreeSet::new();
     if let Some(player) = &player
@@ -307,6 +314,15 @@ pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveStat
         }
     }
 
+    for tag in external_state
+        .country_resources
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>()
+    {
+        external_state.advisors.entry(tag).or_default();
+    }
+
     let provinces = object(&parsed, &required(&parsed, &root, "provinces")?)?;
     for (key, op, value) in provinces.fields() {
         if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
@@ -327,6 +343,12 @@ pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveStat
             ));
         };
         let province = object(&parsed, &value)?;
+        if let Some(owner) =
+            optional_scalar(&parsed, &province, "owner")?.filter(|owner| is_country_tag(owner))
+        {
+            let advisors = external_state.advisors.entry(owner).or_default();
+            collect_saved_advisors(&parsed, &province, current_date, advisors, 0)?;
+        }
         let autonomy = optional_milli(&parsed, &province, "local_autonomy")?.unwrap_or(0);
         if !(0..=100_000).contains(&autonomy) {
             return Err(Error::message(
@@ -352,6 +374,86 @@ fn is_country_tag(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+}
+
+fn date_key(value: &str) -> Option<(i32, u8, u8)> {
+    let mut parts = value.split('.');
+    Some((
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    ))
+}
+
+fn collect_saved_advisors(
+    parsed: &ParsedText<'_>,
+    reader: &Object<'_, '_>,
+    current_date: (i32, u8, u8),
+    output: &mut Vec<VanillaExternalAdvisor>,
+    depth: usize,
+) -> Result<(), Error> {
+    if depth > 12 {
+        return Ok(());
+    }
+    for (key, op, value) in reader.fields() {
+        let name = key.read_string();
+        if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("invalid saved advisor field {name}"),
+            ));
+        }
+        if name == "advisor" {
+            let advisor = object(parsed, &value)?;
+            let Some(hire_date) = optional_scalar(parsed, &advisor, "hire_date")? else {
+                continue;
+            };
+            let Some(hire_date) = date_key(&hire_date) else {
+                return Err(Error::message(
+                    parsed.source(),
+                    "invalid saved advisor hire date",
+                ));
+            };
+            if hire_date > current_date {
+                continue;
+            }
+            if let Some(death_date) = optional_scalar(parsed, &advisor, "death_date")? {
+                let Some(death_date) = date_key(&death_date) else {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "invalid saved advisor death date",
+                    ));
+                };
+                if death_date <= current_date {
+                    continue;
+                }
+            }
+            let type_name = optional_scalar(parsed, &advisor, "type")?.ok_or_else(|| {
+                Error::message(parsed.source(), "saved advisor is missing its type")
+            })?;
+            let skill = optional_scalar(parsed, &advisor, "skill")?
+                .ok_or_else(|| {
+                    Error::message(parsed.source(), "saved advisor is missing its skill")
+                })?
+                .parse::<u8>()
+                .map_err(|error| Error::caused_by(parsed.source(), error))?;
+            let id = optional_object(parsed, &advisor, "id")?
+                .and_then(|id| optional_scalar(parsed, &id, "id").ok().flatten())
+                .and_then(|id| id.parse::<u64>().ok());
+            let candidate = VanillaExternalAdvisor {
+                type_name,
+                skill,
+                id,
+            };
+            if candidate.id.is_none() || !output.iter().any(|existing| existing.id == candidate.id)
+            {
+                output.push(candidate);
+            }
+        } else if let Ok(nested) = value.read_object() {
+            collect_saved_advisors(parsed, &nested, current_date, output, depth + 1)?;
+        }
+    }
+    Ok(())
 }
 
 fn saved_army(
@@ -652,7 +754,19 @@ countries={
 }
 provinces={
 	-1={
+		owner="AAA"
 		local_autonomy=3.500
+		history={
+			advisor={
+				type=treasurer
+				skill=1
+				hire_date=1444.11.11
+				id={
+					id=7
+					type=51
+				}
+			}
+		}
 	}
 }
 "#,
@@ -693,6 +807,13 @@ provinces={
             state.external_state.armies[0].regiments,
             vec!["infantry".to_owned()]
         );
+        assert_eq!(state.external_state.advisors["AAA"].len(), 1);
+        assert_eq!(
+            state.external_state.advisors["AAA"][0].type_name,
+            "treasurer"
+        );
+        assert_eq!(state.external_state.advisors["AAA"][0].skill, 1);
+        assert_eq!(state.external_state.advisors["AAA"][0].id, Some(7));
         assert!(
             state.external_state.country_markers["AAA"]
                 .as_ref()

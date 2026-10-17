@@ -279,6 +279,10 @@ impl InitialWorld {
         self.world.set_politics(politics)
     }
 
+    pub fn set_advisors(&mut self, advisors: crate::Advisors) -> Result<(), Error> {
+        self.world.set_advisors(advisors)
+    }
+
     pub fn set_truces(&mut self, truces: crate::Truces) -> Result<(), Error> {
         self.world.set_truces(truces)
     }

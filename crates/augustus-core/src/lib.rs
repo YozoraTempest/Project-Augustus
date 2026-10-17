@@ -7,6 +7,7 @@
 
 mod accruals;
 mod administration;
+mod advisors;
 mod affiliations;
 mod army;
 mod attributes;
@@ -60,6 +61,7 @@ pub use administration::{
     Administration, AdministrationEvaluation, AdministrationRules, AdministrativeCategory,
     AreaStatus, CoreType, GeographicLevel, ProvinceAdministration,
 };
+pub use advisors::{AdvisorState, Advisors};
 pub use affiliations::{
     AffiliationAcceptance, AffiliationDimension, AffiliationRelation, Affiliations,
 };
