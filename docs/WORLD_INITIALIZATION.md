@@ -94,7 +94,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 国家查询的 `last_monthly_tax` 保存最近一次结算的已知部分、完整收入、实际入账、前后余额和缺项；启用生产执行器后，`last_monthly_production` 保存按国家汇总的年度值、月度值、逐省结果、国库前后余额和缺项。只有完整收入和原有余额都已确定才入账。税收缺项会使之后的余额保持未知，不能把旧余额或部分收入当作当前准确余额。原版开局的国库及部分税收来源尚未确定，因此当前原版推进会产生有缺项的记录；生产、贸易、维护、借贷和人力结算尚未全部接通。
 
-Rust 原生系统可以实现 `MonthlySystem`，在开局前整体替换月度执行者；存档记录系统标识和版本，恢复后需要同一实现。核心自带的 `MonthlyEventRules` 可以执行兼容层已经翻译好的月度事件候选，使用与日、年度事件规则相同的普通组和加权组语义；它不替兼容层猜测 EU4 月度业务的具体顺序。示例见 `crates/augustus-core/tests/calendar_taxation.rs` 和 `crates/augustus-core/tests/monthly_events.rs`。兼容输入与原生输入使用同一个核心和调度入口，当前接口尚不是稳定 Mod SDK。
+Rust 原生系统可以实现 `MonthlySystem`，在开局前整体替换月度执行者；存档记录系统标识和版本，恢复后需要同一实现。核心提供 `MonthlyPipeline`，按“世界阶段、并行国家阶段、串行国家阶段”的固定顺序组合多个月度 provider；它只负责编排，不实现任何特定 EU4 业务。核心自带的 `MonthlyEventRules` 可以执行兼容层已经翻译好的月度事件候选，使用与日、年度事件规则相同的普通组和加权组语义；它不替兼容层猜测 EU4 月度业务的具体顺序。示例见 `crates/augustus-core/tests/calendar_taxation.rs`、`crates/augustus-core/tests/monthly_events.rs` 和 `crates/augustus-core/tests/monthly_pipeline.rs`。兼容输入与原生输入使用同一个核心和调度入口，当前接口尚不是稳定 Mod SDK。
 
 每日业务也有同样的替换入口。实现 `DailySystem` 后，在开局前调用 `select_daily_system`；核心会在每个推进日调用一次 `tick`，再处理当天任务和月度执行器。存档只保存执行器标识，恢复后必须重新提供相同标识的实现；没有选择每日执行器时，现有 `advance` 行为不变。核心自带的 `DailyEventRules` 提供了翻译后事件候选的通用执行器：普通组先冻结资格再按声明顺序派发，加权组只选一个正权重候选，事件目录自己的 once 记录继续负责重复触发限制。它只接收已经翻译好的事件候选，不替兼容层猜测 EU4 的具体日常规则。
 

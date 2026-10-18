@@ -15,6 +15,71 @@ pub trait MonthlySystem {
     fn settle(&self, world: &mut World) -> Result<(), Error>;
 }
 
+/// A fixed-order composition of monthly providers.
+///
+/// The slots mirror the engine boundary already exposed by the compatibility
+/// layer: world work, parallel country work, and serial country work. The
+/// providers remain independent and own their state in [`World`]; this type
+/// only gives them one saved monthly-system identity and a deterministic order.
+/// The pipeline does not infer or implement EU4 business rules.
+pub struct MonthlyPipeline<'a> {
+    id: String,
+    world: Option<&'a dyn MonthlySystem>,
+    parallel_country: Option<&'a dyn MonthlySystem>,
+    serial_country: Option<&'a dyn MonthlySystem>,
+}
+
+impl<'a> MonthlyPipeline<'a> {
+    pub fn new(
+        id: impl Into<String>,
+        world: Option<&'a dyn MonthlySystem>,
+        parallel_country: Option<&'a dyn MonthlySystem>,
+        serial_country: Option<&'a dyn MonthlySystem>,
+    ) -> Result<Self, Error> {
+        let pipeline = Self {
+            id: id.into(),
+            world,
+            parallel_country,
+            serial_country,
+        };
+        if pipeline.id.trim().is_empty() {
+            return Err(Error::Invalid("monthly pipeline requires an id".into()));
+        }
+        if pipeline.phases().next().is_none() {
+            return Err(Error::Invalid(
+                "monthly pipeline requires at least one phase".into(),
+            ));
+        }
+        Ok(pipeline)
+    }
+
+    fn phases(&self) -> impl Iterator<Item = &'a dyn MonthlySystem> + '_ {
+        [self.world, self.parallel_country, self.serial_country]
+            .into_iter()
+            .flatten()
+    }
+}
+
+impl MonthlySystem for MonthlyPipeline<'_> {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        for phase in self.phases() {
+            phase.validate(world)?;
+        }
+        Ok(())
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        for phase in self.phases() {
+            phase.settle(world)?;
+        }
+        Ok(())
+    }
+}
+
 /// A generic monthly event provider for already-translated content.
 ///
 /// The compatibility layer decides which candidates belong to the monthly

@@ -142,7 +142,8 @@ pub use scopes::{EntityRef, ScopeContext, ScopeSelector};
 pub use stocks::{MonthlyStocks, StockAccount, StockRule, StockSettlement};
 pub use subjects::Subjects;
 pub use taxation::{
-    MonthlyEventRules, MonthlySystem, MonthlyTax, MonthlyTaxAccount, TaxSettlement, Taxation,
+    MonthlyEventRules, MonthlyPipeline, MonthlySystem, MonthlyTax, MonthlyTaxAccount,
+    TaxSettlement, Taxation,
 };
 pub use technology::{Technology, TechnologyLevel, TechnologyProperty};
 pub use trade::{
