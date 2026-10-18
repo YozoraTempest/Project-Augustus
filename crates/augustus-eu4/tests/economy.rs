@@ -219,6 +219,49 @@ fn external_price_impacts_rebuild_effective_price_before_production() {
 }
 
 #[test]
+fn saved_trade_good_price_overrides_content_price_before_production() {
+    let state = VanillaExternalState {
+        trade_good_prices_milli: BTreeMap::from([("cloth".into(), Some(3_500))]),
+        production_value_inputs: BTreeMap::from([(
+            2,
+            VanillaExternalProductionInput {
+                goods_size_milli: 1_000,
+                flat_modifier_milli: 0,
+                external_flat_modifier_milli: 0,
+                rate_modifier_milli: 0,
+                external_rate_modifier_milli: 0,
+                country_modifier_milli: 0,
+                legacy_province_modifier_milli: 0,
+                queried_province_modifier_milli: 0,
+            },
+        )]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    assert_eq!(
+        loaded.province_trade_good_price_milli(2).unwrap(),
+        Some(3_500)
+    );
+    let price_only = VanillaWorld::load_with_external_state(
+        fixture(),
+        "1444.11.11",
+        &VanillaExternalState {
+            trade_good_prices_milli: BTreeMap::from([("cloth".into(), Some(3_500))]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let content_only = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    assert_eq!(
+        price_only.initial.content_identity_state().unwrap(),
+        content_only.initial.content_identity_state().unwrap()
+    );
+    let entity = loaded.initial.province_entity(2).unwrap();
+    let input = &loaded.initial.world().monthly_production().unwrap().inputs[&entity];
+    assert_eq!(input.input.as_ref().unwrap().base_value_milli, 3_500);
+}
+
+#[test]
 fn external_country_annual_tax_binds_before_monthly_settlement() {
     let state = VanillaExternalState {
         country_resources: BTreeMap::from([(

@@ -277,6 +277,10 @@ pub struct VanillaExternalState {
     /// zero-impact state rather than inventing a new price.
     #[serde(default)]
     pub trade_good_price_impacts_milli: BTreeMap<u32, i32>,
+    /// Current runtime prices keyed by the EU4 trade-good identifier. An
+    /// explicit `None` keeps a known trade good unresolved.
+    #[serde(default)]
+    pub trade_good_prices_milli: BTreeMap<String, Option<i64>>,
     /// Verified annual country-tax sources keyed by EU4 country tag. A value
     /// overrides the content-derived country attribute for that country;
     /// `None` keeps its tax unresolved while retaining known province tax.
@@ -354,6 +358,7 @@ struct LoadOverrides<'a> {
     production_inputs: Option<&'a BTreeMap<u32, augustus_core::VanillaProductionInputState>>,
     production_value_inputs: Option<&'a BTreeMap<u32, VanillaExternalProductionInput>>,
     trade_good_price_impacts_milli: Option<&'a BTreeMap<u32, i32>>,
+    trade_good_prices_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     country_annual_tax_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
     province_is_city: Option<&'a BTreeMap<u32, Option<bool>>>,
@@ -388,6 +393,8 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.production_value_inputs),
             trade_good_price_impacts_milli: (!state.trade_good_price_impacts_milli.is_empty())
                 .then_some(&state.trade_good_price_impacts_milli),
+            trade_good_prices_milli: (!state.trade_good_prices_milli.is_empty())
+                .then_some(&state.trade_good_prices_milli),
             country_annual_tax_milli: (!state.country_annual_tax_milli.is_empty())
                 .then_some(&state.country_annual_tax_milli),
             province_annual_tax_milli: (!state.province_annual_tax_milli.is_empty())
@@ -449,6 +456,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.production_value_inputs.clone());
     base.trade_good_price_impacts_milli
         .extend(overlay.trade_good_price_impacts_milli.clone());
+    base.trade_good_prices_milli
+        .extend(overlay.trade_good_prices_milli.clone());
     base.country_annual_tax_milli
         .extend(overlay.country_annual_tax_milli.clone());
     base.province_annual_tax_milli
@@ -807,6 +816,30 @@ fn bind_external_national_focus(
         .map_err(|e| Error::caused_by("external national focus", e))
 }
 
+fn bind_external_trade_good_prices(
+    initial: &mut InitialWorld,
+    values: Option<&BTreeMap<String, Option<i64>>>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut economy = initial.world().economy().clone();
+    for (name, price) in values {
+        if !economy.trade_goods.contains_key(name) {
+            return Err(Error::message(
+                "external trade-good prices",
+                format!("unknown EU4 trade good {name}"),
+            ));
+        }
+        economy
+            .current_trade_good_prices_milli
+            .insert(name.clone(), *price);
+    }
+    initial
+        .set_economy(economy)
+        .map_err(|e| Error::caused_by("external trade-good prices", e))
+}
+
 fn bind_external_production_value_inputs(
     initial: &InitialWorld,
     inputs: &BTreeMap<u32, VanillaExternalProductionInput>,
@@ -822,33 +855,53 @@ fn bind_external_production_value_inputs(
                     format!("unknown EU4 production province {province}"),
                 )
             })?;
-            let definition = economy
+            let trade_good = economy
                 .provinces
                 .get(&entity)
-                .and_then(|state| state.trade_good.as_deref())
-                .and_then(|trade_good| economy.trade_goods.get(trade_good));
-            let state = match definition.and_then(|definition| definition.base_price_milli) {
-                Some(price) => {
-                    let base_price = i32::try_from(price).map_err(|_| {
-                        Error::message(
-                            "external production value inputs",
-                            format!(
-                                "trade-good base price for province {province} is outside the production range"
-                            ),
-                        )
-                    })?;
-                    let price_impact_milli = definition
-                        .and_then(|definition| definition.runtime_index)
-                        .and_then(|index| {
-                            price_impacts.and_then(|impacts| impacts.get(&index))
+                .and_then(|state| state.trade_good.as_deref());
+            let definition = trade_good.and_then(|name| economy.trade_goods.get(name));
+            let price = if let Some(current) =
+                trade_good.and_then(|name| economy.current_trade_good_prices_milli.get(name))
+            {
+                current
+                    .as_ref()
+                    .map(|price| {
+                        i32::try_from(*price).map_err(|_| {
+                            Error::message(
+                                "external production value inputs",
+                                format!(
+                                    "trade-good current price for province {province} is outside the production range"
+                                ),
+                            )
                         })
-                        .copied()
-                        .unwrap_or_default();
-                    let price = calculate_vanilla_trade_good_price(VanillaTradeGoodPriceInput {
+                    })
+                    .transpose()?
+            } else if let Some(base_price) = definition.and_then(|definition| definition.base_price_milli) {
+                let base_price = i32::try_from(base_price).map_err(|_| {
+                    Error::message(
+                        "external production value inputs",
+                        format!(
+                            "trade-good base price for province {province} is outside the production range"
+                        ),
+                    )
+                })?;
+                let price_impact_milli = definition
+                    .and_then(|definition| definition.runtime_index)
+                    .and_then(|index| price_impacts.and_then(|impacts| impacts.get(&index)))
+                    .copied()
+                    .unwrap_or_default();
+                Some(
+                    calculate_vanilla_trade_good_price(VanillaTradeGoodPriceInput {
                         base_price_milli: base_price,
                         price_impact_milli,
                     })
-                    .effective_price_milli;
+                    .effective_price_milli,
+                )
+            } else {
+                None
+            };
+            let state = match price {
+                Some(price) => {
                     let value = calculate_vanilla_production_base_value(
                         VanillaProductionBaseValueInput {
                             goods_size_milli: source.goods_size_milli,
@@ -1997,6 +2050,7 @@ impl VanillaWorld {
         initial
             .set_economy(economy)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        bind_external_trade_good_prices(&mut initial, overrides.trade_good_prices_milli)?;
         setup.bind(&mut initial, date, &mut report.setup)?;
         let governments = governments.bind(
             &initial,
@@ -2803,6 +2857,28 @@ impl VanillaWorld {
                     "province {id} references unknown trade good {trade_good}"
                 ))
             })
+    }
+
+    /// Returns the current runtime price for a province's trade good when one
+    /// has been supplied by a save reader; otherwise returns the content
+    /// price. An explicit unresolved runtime price remains `None`.
+    pub fn province_trade_good_price_milli(
+        &self,
+        id: u32,
+    ) -> Result<Option<i64>, augustus_core::Error> {
+        let entity = self
+            .initial
+            .province_entity(id)
+            .ok_or_else(|| augustus_core::Error::Invalid("unknown province".into()))?;
+        let economy = self.initial.world().economy();
+        let Some(trade_good) = economy
+            .provinces
+            .get(&entity)
+            .and_then(|state| state.trade_good.as_deref())
+        else {
+            return Ok(None);
+        };
+        Ok(economy.current_trade_good_price_milli(trade_good).flatten())
     }
 
     /// Applies the verified ordinary-production value stage using the

@@ -140,6 +140,20 @@ impl VanillaSaveState {
             }
         }
 
+        for (trade_good, price) in &self.external_state.trade_good_prices_milli {
+            if world
+                .initial
+                .world()
+                .economy()
+                .trade_goods
+                .contains_key(trade_good)
+            {
+                state
+                    .trade_good_prices_milli
+                    .insert(trade_good.clone(), *price);
+            }
+        }
+
         for army in &self.external_state.armies {
             if countries.contains(army.owner.as_str())
                 && world.initial.province_entity(army.location).is_some()
@@ -250,6 +264,28 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
     }
 
     let mut external_state = VanillaExternalState::default();
+    if let Some(change_price) = optional_object(&parsed, &root, "change_price")? {
+        for (key, op, value) in change_price.fields() {
+            if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                return Err(Error::message(
+                    parsed.source(),
+                    "invalid saved trade-good price block",
+                ));
+            }
+            let name = key.read_string();
+            let price = optional_milli(&parsed, &object(&parsed, &value)?, "current_price")?;
+            if external_state
+                .trade_good_prices_milli
+                .insert(name.clone(), price)
+                .is_some()
+            {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("duplicate saved trade-good price {name}"),
+                ));
+            }
+        }
+    }
     let countries = object(&parsed, &required(&parsed, &root, "countries")?)?;
     for (key, op, value) in countries.fields() {
         let fail = || Error::message(parsed.source(), "invalid saved country block");
@@ -936,6 +972,12 @@ mod tests {
             br#"EU4txt
 date=1444.11.11
 player="AAA"
+change_price={
+	grain={
+		current_price=3.500
+	}
+	missing_good={}
+}
 countries={
 	AAA={
 		national_focus=DIP
@@ -1010,6 +1052,14 @@ provinces={
         assert_eq!(state.date, "1444.11.11");
         assert_eq!(state.player.as_deref(), Some("AAA"));
         assert!(state.players.contains("AAA"));
+        assert_eq!(
+            state.external_state.trade_good_prices_milli["grain"],
+            Some(3_500)
+        );
+        assert_eq!(
+            state.external_state.trade_good_prices_milli["missing_good"],
+            None
+        );
         assert_eq!(
             state.external_state.country_resources["AAA"].treasury_milli,
             Some(59_802)

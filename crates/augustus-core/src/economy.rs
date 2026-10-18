@@ -493,6 +493,11 @@ pub struct ProvinceEconomy {
 pub struct Economy {
     pub buildings: BTreeMap<String, BuildingDefinition>,
     pub trade_goods: BTreeMap<String, TradeGoodDefinition>,
+    /// Runtime market prices keyed by the content trade-good identifier.
+    /// `None` is an explicitly unresolved price; an absent entry means that
+    /// only the content-defined base price is available.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub current_trade_good_prices_milli: BTreeMap<String, Option<i64>>,
     pub trade_nodes: BTreeMap<String, TradeNode>,
     pub provinces: BTreeMap<EntityId, ProvinceEconomy>,
 }
@@ -501,6 +506,7 @@ impl Economy {
     pub fn is_empty(&self) -> bool {
         self.buildings.is_empty()
             && self.trade_goods.is_empty()
+            && self.current_trade_good_prices_milli.is_empty()
             && self.trade_nodes.is_empty()
             && self.provinces.is_empty()
     }
@@ -516,6 +522,19 @@ impl Economy {
         self.trade_goods.iter().find_map(|(name, definition)| {
             (definition.runtime_index == Some(index)).then_some((name.as_str(), definition))
         })
+    }
+
+    /// Returns the current price state for a known trade good. The outer
+    /// `None` means the identifier is unknown; the inner `None` means the
+    /// identifier is known but its runtime price is unresolved.
+    pub fn current_trade_good_price_milli(&self, name: &str) -> Option<Option<i64>> {
+        let definition = self.trade_goods.get(name)?;
+        Some(
+            self.current_trade_good_prices_milli
+                .get(name)
+                .copied()
+                .unwrap_or(definition.base_price_milli),
+        )
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
@@ -534,6 +553,15 @@ impl Economy {
             .any(|name| name.is_empty())
         {
             return Err(fail("empty economic definition identifier"));
+        }
+        if self
+            .current_trade_good_prices_milli
+            .iter()
+            .any(|(name, price)| {
+                !self.trade_goods.contains_key(name) || price.is_some_and(|value| value < 0)
+            })
+        {
+            return Err(fail("invalid current trade-good price"));
         }
         let mut runtime_indices = BTreeSet::new();
         for definition in self.trade_goods.values() {

@@ -24,7 +24,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
   --eu4-save "/path/to/Austria1444_11_11.eu4" --days 30 --country HAB
 ```
 
-该入口读取存档中的日期、玩家名单、国家资源、已知指标、君主点数库存、旗标、阶层特权、阶层忠诚度与土地份额，以及省份的帝国归属、城市状态和原始自治度，并在启动脚本执行前绑定到兼容世界。存档没有声明的字段继续保持未知；不会根据缺失字段补默认值。国家和省份会按当前安装内容过滤，存档中的未知国家、海域或未建行政状态不会被强行写入。当前只接受 `EU4txt` 文本存档；压缩存档仍需在 EU4 中取消压缩后再使用。Augustus 的 JSON 快照仍是独立格式，不能拿 EU4 存档直接作为项目快照恢复。
+该入口读取存档中的日期、玩家名单、国家资源、已知指标、君主点数库存、旗标、阶层特权、阶层忠诚度与土地份额、贸易品当前价格，以及省份的帝国归属、城市状态和原始自治度，并在启动脚本执行前绑定到兼容世界。存档没有声明的字段继续保持未知；不会根据缺失字段补默认值。国家、省份和贸易品会按当前安装内容过滤，存档中的未知国家、海域或未建行政状态不会被强行写入。当前只接受 `EU4txt` 文本存档；压缩存档仍需在 EU4 中取消压缩后再使用。Augustus 的 JSON 快照仍是独立格式，不能拿 EU4 存档直接作为项目快照恢复。
 
 如果另一个兼容提供者还掌握存档中没有的运行时输入，可以把状态包作为覆盖一起传入。存档提供玩家身份、资源、阶层、自治度和单位等基线；状态包只覆盖自己声明的字段，未声明的存档字段继续保留：
 
@@ -145,7 +145,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 使用 `--economy` 查询建筑与商品目录、完整贸易网络；报告的 `economy` 字段给出数量、定义来源、建筑历史的最终声明位置和未应用字段。原有省份 JSON 字段继续保留，新增 `buildings`、`trade_node`、`trade_node_outgoing` 和 `trade_good_definition`。查询单个省份时还会给出 `province_trade_good_base_price_milli`，它只表示 `common/prices` 中声明的商品基础价格，不代表动态市场价格或已经完成的贸易结算。Rust 调用方可以使用 `VanillaWorld::calculate_vanilla_province_production_base_value`，在明确提供货物数量及修正项时复用该基础价格；没有已知商品价格时返回未知，不补默认值。
 
-建筑定义会保留标准建筑与要塞的角色及要塞等级。要塞不参与普通省份属性的建筑修正汇总；防御区域、维护和战斗路径尚未接通。
+建筑定义会保留标准建筑与要塞的角色及要塞等级。要塞不参与普通省份属性的建筑修正汇总；防御区域、维护和战斗路径尚未接通。存档提供的 `change_price.current_price` 会作为运行时价格保存；没有运行时价格时，生产值阶段继续使用内容基础价格或显式价格影响，缺失值不会被补成默认市场价。
 
 ```sh
 cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --province 134 --economy

@@ -103,6 +103,36 @@ fn trade_good_runtime_indices_are_unique_and_saved_as_optional_metadata() {
 }
 
 #[test]
+fn current_trade_good_prices_are_runtime_state_and_restore() {
+    let mut runtime_world = world();
+    let mut economy = economy();
+    economy
+        .current_trade_good_prices_milli
+        .insert("grain".into(), Some(3_500));
+    runtime_world.set_economy(economy.clone()).unwrap();
+    assert_eq!(
+        runtime_world
+            .economy()
+            .current_trade_good_price_milli("grain"),
+        Some(Some(3_500))
+    );
+    assert_eq!(
+        runtime_world
+            .economy()
+            .current_trade_good_price_milli("cloth"),
+        None
+    );
+
+    let restored = World::restore(
+        &runtime_world.save("runtime-price").unwrap(),
+        "runtime-price",
+        runtime_world.schema(),
+    )
+    .unwrap();
+    assert_eq!(restored.economy(), runtime_world.economy());
+}
+
+#[test]
 fn invalid_economic_references_and_graphs_fail_atomically() {
     let mut world = world();
     world.set_economy(economy()).unwrap();

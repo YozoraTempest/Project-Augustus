@@ -1288,6 +1288,7 @@ impl World {
         world.tasks.clear();
         world.events.clear();
         world.event_queue = crate::event_choices::EventQueue::default();
+        world.economy.current_trade_good_prices_milli.clear();
         world.save("")
     }
 
