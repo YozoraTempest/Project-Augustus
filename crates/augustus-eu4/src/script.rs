@@ -1141,6 +1141,17 @@ impl<'a> ScriptCompiler<'a> {
         Ok(name.into())
     }
 
+    fn province_flag_name(&self, field: &Field, scope: EntityKind) -> Result<String, Error> {
+        if scope != EntityKind::Province {
+            return Err(field.error("province flags require province scope"));
+        }
+        let name = field.scalar()?;
+        if !crate::country_markers::literal_name(name) {
+            return Err(field.error("province flag requires a literal name"));
+        }
+        Ok(name.into())
+    }
+
     fn global_flag_name(&self, field: &Field) -> Result<String, Error> {
         let name = field.scalar()?;
         if !crate::country_markers::literal_name(name) {
@@ -2033,6 +2044,14 @@ impl<'a> ScriptCompiler<'a> {
                         target: Target::Current,
                         name,
                         present: field.name == "set_country_flag",
+                    });
+                }
+                "set_province_flag" | "clr_province_flag" => {
+                    let name = self.province_flag_name(field, scope)?;
+                    plan.push(Action::SetMarker {
+                        target: Target::Current,
+                        name,
+                        present: field.name == "set_province_flag",
                     });
                 }
                 "set_global_flag" | "clr_global_flag" => {
@@ -2930,6 +2949,10 @@ impl<'a> ScriptCompiler<'a> {
                 "has_country_flag" => Condition::HasMarker {
                     target: Target::Current,
                     name: self.country_flag_name(field, scope)?,
+                },
+                "has_province_flag" => Condition::HasMarker {
+                    target: Target::Current,
+                    name: self.province_flag_name(field, scope)?,
                 },
                 "has_global_flag" => Condition::HasGlobalMarker {
                     name: self.global_flag_name(field)?,

@@ -29,7 +29,13 @@ fn world() -> World {
         .unwrap();
     world
         .set_markers(Markers {
-            entities: [(EntityId(0), Default::default())].into(),
+            entities: [
+                (EntityId(0), Default::default()),
+                (EntityId(3), Default::default()),
+                (EntityId(4), Default::default()),
+                (EntityId(5), Default::default()),
+            ]
+            .into(),
             ..Default::default()
         })
         .unwrap();
@@ -104,6 +110,39 @@ fn translation_reads_current_order_live_filters_and_restored_randomness() {
         outputs.push(world.save("owned-compat-iteration").unwrap());
     }
     assert_eq!(outputs[0], outputs[1]);
+}
+
+#[test]
+fn province_flags_follow_owned_province_scope() {
+    let text = r#"
+        every_owned_province={
+            if={limit={NOT={has_province_flag=ready}} set_province_flag=ready}
+        }
+        every_owned_province={
+            limit={has_province_flag=ready}
+            log=flagged
+            clr_province_flag=ready
+        }
+    "#;
+    let mut world = world();
+    let plan = ScriptCompiler::new(world.schema(), &ScriptLibrary::new(), true)
+        .compile(&document(text), EntityKind::Country)
+        .unwrap()
+        .plan;
+
+    world.execute(EntityId(0), &plan).unwrap();
+
+    for province in [EntityId(3), EntityId(4), EntityId(5)] {
+        assert!(!world.has_marker(province, "ready").unwrap());
+    }
+    assert_eq!(
+        world
+            .events()
+            .iter()
+            .filter(|event| event.2 == "flagged")
+            .count(),
+        3
+    );
 }
 
 #[test]
