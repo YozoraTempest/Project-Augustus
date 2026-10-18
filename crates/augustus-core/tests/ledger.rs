@@ -119,12 +119,75 @@ fn explicit_ledger_replacement_validates_country_and_category() {
     world.set_country_ledgers(valid).unwrap();
 
     let invalid_category = CountryLedger {
-        categories: [(19, Default::default())].into(),
+        categories: [(38, Default::default())].into(),
         ..Default::default()
     };
     assert!(
         world
             .set_country_ledgers([(country, invalid_category)].into())
             .is_err()
+    );
+}
+
+#[test]
+fn expense_categories_extend_to_relation_slots_23_and_24() {
+    let (mut world, country) = world();
+    world.record_country_expense(country, 23, 10).unwrap();
+    world
+        .record_delayed_country_expense(country, 24, 12)
+        .unwrap();
+    assert_eq!(
+        world.country_ledgers()[&country].categories[&23].expense_milli,
+        10
+    );
+    assert_eq!(
+        world.country_ledgers()[&country].categories[&24].expense_milli,
+        12
+    );
+    assert_eq!(world.country_ledgers()[&country].pending_milli, -12);
+}
+
+#[test]
+fn monthly_and_annual_ledger_vectors_consolidate_in_their_native_order() {
+    let mut ledger = CountryLedger {
+        income_sources_milli: vec![0; 19],
+        expense_sources_milli: vec![0; 38],
+        income_accumulator_milli: vec![0; 19],
+        expense_accumulator_milli: vec![0; 38],
+        ..Default::default()
+    };
+    ledger.income_sources_milli[3] = 40;
+    ledger.income_sources_milli[9] = 7;
+    ledger.expense_sources_milli[17] = 25;
+    ledger.expense_sources_milli[1] = 6;
+    ledger.income_accumulator_milli[3] = 90;
+    ledger.expense_accumulator_milli[17] = 55;
+
+    ledger
+        .consolidate_monthly(&[1_u32].into_iter().collect())
+        .unwrap();
+    assert_eq!(ledger.income_total_milli, 47);
+    assert_eq!(ledger.income_filtered_total_milli, 40);
+    assert_eq!(ledger.expense_total_milli, 31);
+    assert_eq!(ledger.expense_filtered_total_milli, 25);
+    assert!(ledger.income_sources_milli.iter().all(|value| *value == 0));
+    assert!(ledger.expense_sources_milli.iter().all(|value| *value == 0));
+
+    ledger.rollover_annual().unwrap();
+    assert_eq!(ledger.income_rollover_milli[3], 90);
+    assert_eq!(ledger.income_rollover_total_milli, 90);
+    assert_eq!(ledger.expense_rollover_milli[17], 55);
+    assert_eq!(ledger.expense_rollover_total_milli, 55);
+    assert!(
+        ledger
+            .income_accumulator_milli
+            .iter()
+            .all(|value| *value == 0)
+    );
+    assert!(
+        ledger
+            .expense_accumulator_milli
+            .iter()
+            .all(|value| *value == 0)
     );
 }

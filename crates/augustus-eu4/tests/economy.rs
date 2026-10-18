@@ -65,6 +65,7 @@ fn country_ledgers_bind_by_eu4_tag_before_startup() {
             },
         )]
         .into(),
+        ..Default::default()
     };
     let loaded = VanillaWorld::load_with_country_ledgers(
         fixture(),

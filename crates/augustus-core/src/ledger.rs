@@ -7,8 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{EntityId, EntityKind, Error, World};
 
-/// Native country-ledger categories occupy slots 0 through 18.
+/// Native country-ledger income categories occupy slots 0 through 18.
 pub const COUNTRY_LEDGER_CATEGORY_COUNT: u32 = 19;
+/// Native country-ledger expense categories occupy slots 0 through 37.
+pub const COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT: u32 = 38;
 
 /// One category's accumulated income and expense records.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +32,43 @@ pub struct CountryLedger {
     pub pending_milli: i64,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub categories: BTreeMap<u32, CountryLedgerCategory>,
+    /// Income source vector consumed by monthly consolidation.
+    #[serde(default)]
+    pub income_sources_milli: Vec<i64>,
+    /// Expense source vector consumed by monthly consolidation.
+    #[serde(default)]
+    pub expense_sources_milli: Vec<i64>,
+    /// Income vector used by annual rollover.
+    #[serde(default)]
+    pub income_accumulator_milli: Vec<i64>,
+    /// Expense vector used by annual rollover.
+    #[serde(default)]
+    pub expense_accumulator_milli: Vec<i64>,
+    /// Auxiliary expense vector persisted by the native container.
+    #[serde(default)]
+    pub expense_auxiliary_milli: Vec<i64>,
+    /// Current monthly snapshots produced by consolidation.
+    #[serde(default)]
+    pub income_snapshot_milli: Vec<i64>,
+    #[serde(default)]
+    pub expense_snapshot_milli: Vec<i64>,
+    /// Annual rollover snapshots and totals.
+    #[serde(default)]
+    pub income_rollover_milli: Vec<i64>,
+    #[serde(default)]
+    pub expense_rollover_milli: Vec<i64>,
+    #[serde(default)]
+    pub income_total_milli: i64,
+    #[serde(default)]
+    pub expense_total_milli: i64,
+    #[serde(default)]
+    pub income_filtered_total_milli: i64,
+    #[serde(default)]
+    pub expense_filtered_total_milli: i64,
+    #[serde(default)]
+    pub income_rollover_total_milli: i64,
+    #[serde(default)]
+    pub expense_rollover_total_milli: i64,
 }
 
 fn default_pending() -> i64 {
@@ -37,37 +76,154 @@ fn default_pending() -> i64 {
 }
 
 impl CountryLedger {
+    fn ensure_layout(&mut self) {
+        if self.income_sources_milli.is_empty() {
+            self.income_sources_milli = vec![0; COUNTRY_LEDGER_CATEGORY_COUNT as usize];
+        }
+        if self.expense_sources_milli.is_empty() {
+            self.expense_sources_milli = vec![0; COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize];
+        }
+        if self.income_accumulator_milli.is_empty() {
+            self.income_accumulator_milli = vec![0; COUNTRY_LEDGER_CATEGORY_COUNT as usize];
+        }
+        if self.expense_accumulator_milli.is_empty() {
+            self.expense_accumulator_milli =
+                vec![0; COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize];
+        }
+        if self.expense_auxiliary_milli.is_empty() {
+            self.expense_auxiliary_milli = vec![0; COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize];
+        }
+        if self.income_snapshot_milli.is_empty() {
+            self.income_snapshot_milli = vec![0; COUNTRY_LEDGER_CATEGORY_COUNT as usize];
+        }
+        if self.expense_snapshot_milli.is_empty() {
+            self.expense_snapshot_milli = vec![0; COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize];
+        }
+        if self.income_rollover_milli.is_empty() {
+            self.income_rollover_milli = vec![0; COUNTRY_LEDGER_CATEGORY_COUNT as usize];
+        }
+        if self.expense_rollover_milli.is_empty() {
+            self.expense_rollover_milli = vec![0; COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize];
+        }
+    }
+
+    fn validate_vector(vector: &[i64], expected: usize, name: &str) -> Result<(), Error> {
+        if !vector.is_empty() && vector.len() != expected {
+            return Err(Error::Invalid(format!(
+                "country ledger {name} has invalid length"
+            )));
+        }
+        if vector.iter().any(|value| *value < 0) {
+            return Err(Error::Invalid(format!(
+                "country ledger {name} has a negative value"
+            )));
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<(), Error> {
         for (&category, entry) in &self.categories {
-            if category >= COUNTRY_LEDGER_CATEGORY_COUNT {
+            if category >= COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT {
                 return Err(Error::Invalid(
-                    "country ledger category is outside 0..19".into(),
+                    "country ledger category is outside 0..38".into(),
                 ));
             }
-            if entry.income_milli < 0 || entry.expense_milli < 0 {
+            if (category >= COUNTRY_LEDGER_CATEGORY_COUNT && entry.income_milli != 0)
+                || entry.income_milli < 0
+                || entry.expense_milli < 0
+            {
                 return Err(Error::Invalid(
                     "country ledger totals must be nonnegative".into(),
                 ));
             }
         }
+        Self::validate_vector(
+            &self.income_sources_milli,
+            COUNTRY_LEDGER_CATEGORY_COUNT as usize,
+            "income source vector",
+        )?;
+        Self::validate_vector(
+            &self.expense_sources_milli,
+            COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize,
+            "expense source vector",
+        )?;
+        Self::validate_vector(
+            &self.income_accumulator_milli,
+            COUNTRY_LEDGER_CATEGORY_COUNT as usize,
+            "income accumulator",
+        )?;
+        Self::validate_vector(
+            &self.expense_accumulator_milli,
+            COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize,
+            "expense accumulator",
+        )?;
+        Self::validate_vector(
+            &self.expense_auxiliary_milli,
+            COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize,
+            "expense auxiliary vector",
+        )?;
+        Self::validate_vector(
+            &self.income_snapshot_milli,
+            COUNTRY_LEDGER_CATEGORY_COUNT as usize,
+            "income snapshot",
+        )?;
+        Self::validate_vector(
+            &self.expense_snapshot_milli,
+            COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize,
+            "expense snapshot",
+        )?;
+        Self::validate_vector(
+            &self.income_rollover_milli,
+            COUNTRY_LEDGER_CATEGORY_COUNT as usize,
+            "income rollover",
+        )?;
+        Self::validate_vector(
+            &self.expense_rollover_milli,
+            COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize,
+            "expense rollover",
+        )?;
+        if self.income_total_milli < 0
+            || self.expense_total_milli < 0
+            || self.income_filtered_total_milli < 0
+            || self.expense_filtered_total_milli < 0
+            || self.income_rollover_total_milli < 0
+            || self.expense_rollover_total_milli < 0
+        {
+            return Err(Error::Invalid(
+                "country ledger totals must be nonnegative".into(),
+            ));
+        }
         Ok(())
     }
 
     fn category_mut(&mut self, category: u32) -> Result<&mut CountryLedgerCategory, Error> {
-        if category >= COUNTRY_LEDGER_CATEGORY_COUNT {
+        if category >= COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT {
             return Err(Error::Invalid(
-                "country ledger category is outside 0..19".into(),
+                "country ledger category is outside 0..38".into(),
             ));
         }
         Ok(self.categories.entry(category).or_default())
     }
 
     fn add_income(&mut self, category: u32, amount: i64) -> Result<(), Error> {
+        if category >= COUNTRY_LEDGER_CATEGORY_COUNT {
+            return Err(Error::Invalid(
+                "country ledger income category is outside 0..19".into(),
+            ));
+        }
         if amount < 0 {
             return Err(Error::Invalid(
                 "country ledger income must be nonnegative".into(),
             ));
         }
+        self.ensure_layout();
+        let index = category as usize;
+        self.income_sources_milli[index] = self.income_sources_milli[index]
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?;
+        self.income_accumulator_milli[index] = self.income_accumulator_milli[index]
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?;
         let entry = self.category_mut(category)?;
         entry.income_milli = entry
             .income_milli
@@ -77,11 +233,27 @@ impl CountryLedger {
     }
 
     fn add_expense(&mut self, category: u32, amount: i64) -> Result<(), Error> {
+        if category >= COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT {
+            return Err(Error::Invalid(
+                "country ledger expense category is outside 0..38".into(),
+            ));
+        }
         if amount < 0 {
             return Err(Error::Invalid(
                 "country ledger expense must be nonnegative".into(),
             ));
         }
+        self.ensure_layout();
+        let index = category as usize;
+        self.expense_sources_milli[index] = self.expense_sources_milli[index]
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?;
+        self.expense_accumulator_milli[index] = self.expense_accumulator_milli[index]
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?;
+        self.expense_auxiliary_milli[index] = self.expense_auxiliary_milli[index]
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?;
         let entry = self.category_mut(category)?;
         entry.expense_milli = entry
             .expense_milli
@@ -93,6 +265,94 @@ impl CountryLedger {
     /// Clears category records while keeping the delayed cash balance.
     pub fn reset_categories(&mut self) {
         self.categories.clear();
+        self.income_sources_milli.clear();
+        self.expense_sources_milli.clear();
+        self.income_accumulator_milli.clear();
+        self.expense_accumulator_milli.clear();
+        self.expense_auxiliary_milli.clear();
+        self.income_snapshot_milli.clear();
+        self.expense_snapshot_milli.clear();
+        self.income_rollover_milli.clear();
+        self.expense_rollover_milli.clear();
+        self.income_total_milli = 0;
+        self.expense_total_milli = 0;
+        self.income_filtered_total_milli = 0;
+        self.expense_filtered_total_milli = 0;
+        self.income_rollover_total_milli = 0;
+        self.expense_rollover_total_milli = 0;
+    }
+
+    /// Consolidates source vectors into the current monthly snapshots and
+    /// clears the consumed sources. The expense filter is supplied by the
+    /// compatibility layer because the native switch labels are not part of
+    /// the core contract yet.
+    pub fn consolidate_monthly(
+        &mut self,
+        expense_filtered_categories: &std::collections::BTreeSet<u32>,
+    ) -> Result<(), Error> {
+        self.ensure_layout();
+        self.income_snapshot_milli
+            .clone_from(&self.income_sources_milli);
+        self.expense_snapshot_milli
+            .clone_from(&self.expense_sources_milli);
+        self.income_total_milli = self
+            .income_snapshot_milli
+            .iter()
+            .try_fold(0_i64, |total, value| {
+                total.checked_add(*value).ok_or(Error::Overflow)
+            })?;
+        self.expense_total_milli = self
+            .expense_snapshot_milli
+            .iter()
+            .try_fold(0_i64, |total, value| {
+                total.checked_add(*value).ok_or(Error::Overflow)
+            })?;
+        self.income_filtered_total_milli = self
+            .income_snapshot_milli
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !matches!(*index as u32, 9 | 10 | 11 | 13 | 14))
+            .try_fold(0_i64, |total, (_, value)| {
+                total.checked_add(*value).ok_or(Error::Overflow)
+            })?;
+        self.expense_filtered_total_milli = self
+            .expense_snapshot_milli
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !expense_filtered_categories.contains(&(*index as u32)))
+            .try_fold(0_i64, |total, (_, value)| {
+                total.checked_add(*value).ok_or(Error::Overflow)
+            })?;
+        self.income_sources_milli.fill(0);
+        self.expense_sources_milli.fill(0);
+        Ok(())
+    }
+
+    /// Copies accumulator vectors into rollover snapshots and clears the
+    /// consumed monthly/annual source vectors.
+    pub fn rollover_annual(&mut self) -> Result<(), Error> {
+        self.ensure_layout();
+        self.income_rollover_milli
+            .clone_from(&self.income_accumulator_milli);
+        self.expense_rollover_milli
+            .clone_from(&self.expense_accumulator_milli);
+        self.income_rollover_total_milli = self
+            .income_rollover_milli
+            .iter()
+            .try_fold(0_i64, |total, value| {
+                total.checked_add(*value).ok_or(Error::Overflow)
+            })?;
+        self.expense_rollover_total_milli = self
+            .expense_rollover_milli
+            .iter()
+            .try_fold(0_i64, |total, value| {
+                total.checked_add(*value).ok_or(Error::Overflow)
+            })?;
+        self.income_accumulator_milli.fill(0);
+        self.expense_accumulator_milli.fill(0);
+        self.income_sources_milli.fill(0);
+        self.expense_sources_milli.fill(0);
+        Ok(())
     }
 }
 

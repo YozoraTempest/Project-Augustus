@@ -56,9 +56,10 @@ pub use administration_validation::{
 };
 pub use attributes::AttributeReport;
 pub use augustus_core::{
-    COUNTRY_LEDGER_CATEGORY_COUNT, CashflowBreakdown, CountryLedger, CountryLedgerCategory,
-    VanillaDerivedModifierInput, VanillaDerivedModifierResult, VanillaGoldBaseInput,
-    VanillaGoldBaseResult, VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
+    COUNTRY_LEDGER_CATEGORY_COUNT, COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT, CashflowBreakdown,
+    CountryLedger, CountryLedgerCategory, VanillaDerivedModifierInput,
+    VanillaDerivedModifierResult, VanillaGoldBaseInput, VanillaGoldBaseResult,
+    VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
     VanillaGoldProductionInputState, VanillaGoldProductionProvinceResult,
     VanillaGoldProductionResult, VanillaModifierAggregationInput, VanillaModifierAggregationResult,
     VanillaProductionCountryResult, VanillaProductionInputState, VanillaProductionProvinceResult,
