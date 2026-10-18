@@ -72,10 +72,11 @@ pub use augustus_core::{
 };
 pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView,
-    VanillaContentProductionInput, VanillaExternalAdvisor, VanillaExternalArmy,
-    VanillaExternalCountryMarkers, VanillaExternalCountryStatuses, VanillaExternalEstateState,
-    VanillaExternalEstateStates, VanillaExternalNavalUnit, VanillaExternalProductionInput,
-    VanillaExternalState, VanillaProvinceProductionBaseValueInput, VanillaWorld,
+    VanillaContentProductionInput, VanillaContentProductionValueInput, VanillaExternalAdvisor,
+    VanillaExternalArmy, VanillaExternalCountryMarkers, VanillaExternalCountryStatuses,
+    VanillaExternalEstateState, VanillaExternalEstateStates, VanillaExternalNavalUnit,
+    VanillaExternalProductionInput, VanillaExternalState, VanillaProvinceProductionBaseValueInput,
+    VanillaWorld,
 };
 pub use casus_belli::{CasusBelliReport, CasusBelliType, CasusBelliTypes};
 pub use content::{ContentRoot, ContentView, FileEntry};

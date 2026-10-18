@@ -3,8 +3,9 @@
 
 use augustus_core::{CountryResources, VanillaProductionInput, World};
 use augustus_eu4::{
-    VanillaContentProductionInput, VanillaExternalProductionInput, VanillaExternalState,
-    VanillaProductionInputState, VanillaProvinceProductionBaseValueInput, VanillaWorld,
+    VanillaContentProductionInput, VanillaContentProductionValueInput,
+    VanillaExternalProductionInput, VanillaExternalState, VanillaProductionInputState,
+    VanillaProvinceProductionBaseValueInput, VanillaWorld,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -420,6 +421,46 @@ fn content_production_inputs_derive_country_efficiency_from_administrative_techn
         .input
         .as_ref()
         .unwrap();
+    assert_eq!(input.country_modifier_milli, 20);
+    assert!(
+        loaded.initial.world().monthly_production().unwrap().inputs[&province]
+            .unresolved
+            .is_empty()
+    );
+}
+
+#[test]
+fn loaded_content_production_inputs_derive_price_value_and_country_efficiency() {
+    let fixture = copy_fixture();
+    let technology = fixture.path().join("common/technologies/test_adm.txt");
+    let text = fs::read_to_string(&technology).unwrap().replace(
+        "technology = { year = 1430 test_capability = yes }",
+        "technology = { year = 1430 test_capability = yes production_efficiency = 0.02 }",
+    );
+    fs::write(technology, text).unwrap();
+
+    let mut loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    loaded
+        .set_vanilla_production_inputs_from_loaded_content(BTreeMap::from([(
+            2,
+            VanillaContentProductionValueInput {
+                goods_size_milli: 1_000,
+                flat_modifier_milli: 0,
+                external_flat_modifier_milli: 0,
+                rate_modifier_milli: 0,
+                external_rate_modifier_milli: 0,
+                legacy_province_modifier_milli: 0,
+                queried_province_modifier_milli: 0,
+            },
+        )]))
+        .unwrap();
+
+    let province = loaded.initial.province_entity(2).unwrap();
+    let input = loaded.initial.world().monthly_production().unwrap().inputs[&province]
+        .input
+        .as_ref()
+        .unwrap();
+    assert_eq!(input.base_value_milli, 3_000);
     assert_eq!(input.country_modifier_milli, 20);
     assert!(
         loaded.initial.world().monthly_production().unwrap().inputs[&province]

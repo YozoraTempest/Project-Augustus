@@ -186,6 +186,21 @@ pub struct VanillaContentProductionInput {
     pub queried_province_modifier_milli: i32,
 }
 
+/// Production value inputs whose trade-good price and country efficiency are
+/// resolved from loaded EU4 content. Goods quantity and province modifier
+/// slots remain explicit until their native producers are mapped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaContentProductionValueInput {
+    pub goods_size_milli: i32,
+    pub flat_modifier_milli: i32,
+    pub external_flat_modifier_milli: i32,
+    pub rate_modifier_milli: i32,
+    pub external_rate_modifier_milli: i32,
+    pub legacy_province_modifier_milli: i32,
+    pub queried_province_modifier_milli: i32,
+}
+
 /// A starting land stack translated by an external simulator or save reader.
 /// The EU4 compatibility boundary resolves the country tag and province ID;
 /// the shared core stores only the resulting regiment types.
@@ -3036,6 +3051,49 @@ impl VanillaWorld {
     /// A missing technology value remains an unresolved production row. This
     /// method does not infer province quantity or modifier slots; callers must
     /// still provide those values from a verified compatibility source.
+    fn country_production_efficiency_milli(
+        &self,
+        entity: augustus_core::EntityId,
+        province: u32,
+    ) -> Result<(i32, BTreeSet<String>), augustus_core::Error> {
+        let mut unresolved = BTreeSet::new();
+        let country_modifier_milli = match self.initial.world().entity(entity)?.owner {
+            Some(owner) if self.initial.world().entity(owner)?.kind == EntityKind::Country => {
+                match self.initial.world().technology().country_property(
+                    owner,
+                    "administrative",
+                    "production_efficiency",
+                ) {
+                    TechnologyProperty::Value(value) => {
+                        i32::try_from(value / 1_000).map_err(|_| {
+                            augustus_core::Error::Invalid(format!(
+                                "production efficiency for province {province} is out of range"
+                            ))
+                        })?
+                    }
+                    TechnologyProperty::Absent => 0,
+                    TechnologyProperty::Unknown => {
+                        unresolved.insert("country_production_efficiency:unknown".into());
+                        0
+                    }
+                    TechnologyProperty::Flag(_) => {
+                        unresolved.insert("country_production_efficiency:non_numeric".into());
+                        0
+                    }
+                }
+            }
+            Some(_) => {
+                unresolved.insert("country_production_efficiency:owner_not_country".into());
+                0
+            }
+            None => {
+                unresolved.insert("country_production_efficiency:unknown_owner".into());
+                0
+            }
+        };
+        Ok((country_modifier_milli, unresolved))
+    }
+
     pub fn set_vanilla_production_inputs_from_content(
         &mut self,
         inputs: BTreeMap<u32, VanillaContentProductionInput>,
@@ -3045,41 +3103,8 @@ impl VanillaWorld {
             let entity = self.initial.province_entity(province).ok_or_else(|| {
                 augustus_core::Error::Invalid(format!("unknown EU4 production province {province}"))
             })?;
-            let mut unresolved = BTreeSet::new();
-            let country_modifier_milli = match self.initial.world().entity(entity)?.owner {
-                Some(owner) if self.initial.world().entity(owner)?.kind == EntityKind::Country => {
-                    match self.initial.world().technology().country_property(
-                        owner,
-                        "administrative",
-                        "production_efficiency",
-                    ) {
-                        TechnologyProperty::Value(value) => {
-                            i32::try_from(value / 1_000).map_err(|_| {
-                                augustus_core::Error::Invalid(format!(
-                                    "production efficiency for province {province} is out of range"
-                                ))
-                            })?
-                        }
-                        TechnologyProperty::Absent => 0,
-                        TechnologyProperty::Unknown => {
-                            unresolved.insert("country_production_efficiency:unknown".into());
-                            0
-                        }
-                        TechnologyProperty::Flag(_) => {
-                            unresolved.insert("country_production_efficiency:non_numeric".into());
-                            0
-                        }
-                    }
-                }
-                Some(_) => {
-                    unresolved.insert("country_production_efficiency:owner_not_country".into());
-                    0
-                }
-                None => {
-                    unresolved.insert("country_production_efficiency:unknown_owner".into());
-                    0
-                }
-            };
+            let (country_modifier_milli, unresolved) =
+                self.country_production_efficiency_milli(entity, province)?;
             resolved.insert(
                 province,
                 augustus_core::VanillaProductionInputState {
@@ -3092,6 +3117,60 @@ impl VanillaWorld {
                     unresolved,
                 },
             );
+        }
+        self.set_vanilla_production_inputs(resolved)
+    }
+
+    /// Binds production inputs while deriving the effective trade-good price,
+    /// production value and country efficiency from loaded content. Goods
+    /// quantity and province modifier slots remain explicit inputs.
+    pub fn set_vanilla_production_inputs_from_loaded_content(
+        &mut self,
+        inputs: BTreeMap<u32, VanillaContentProductionValueInput>,
+    ) -> Result<(), augustus_core::Error> {
+        let mut resolved = BTreeMap::new();
+        for (province, source) in inputs {
+            let entity = self.initial.province_entity(province).ok_or_else(|| {
+                augustus_core::Error::Invalid(format!("unknown EU4 production province {province}"))
+            })?;
+            let (country_modifier_milli, mut unresolved) =
+                self.country_production_efficiency_milli(entity, province)?;
+            let value = self.province_trade_good_price_milli(province)?;
+            let state = match value {
+                Some(price) => {
+                    let price = i32::try_from(price).map_err(|_| {
+                        augustus_core::Error::Invalid(format!(
+                            "trade-good price for province {province} is outside the production range"
+                        ))
+                    })?;
+                    let result =
+                        calculate_vanilla_production_base_value(VanillaProductionBaseValueInput {
+                            goods_size_milli: source.goods_size_milli,
+                            trade_good_price_milli: price,
+                            flat_modifier_milli: source.flat_modifier_milli,
+                            external_flat_modifier_milli: source.external_flat_modifier_milli,
+                            rate_modifier_milli: source.rate_modifier_milli,
+                            external_rate_modifier_milli: source.external_rate_modifier_milli,
+                        });
+                    augustus_core::VanillaProductionInputState {
+                        input: Some(VanillaProductionInput {
+                            base_value_milli: result.value_milli,
+                            country_modifier_milli,
+                            legacy_province_modifier_milli: source.legacy_province_modifier_milli,
+                            queried_province_modifier_milli: source.queried_province_modifier_milli,
+                        }),
+                        unresolved,
+                    }
+                }
+                None => {
+                    unresolved.insert("trade_good_price:unknown".into());
+                    augustus_core::VanillaProductionInputState {
+                        input: None,
+                        unresolved,
+                    }
+                }
+            };
+            resolved.insert(province, state);
         }
         self.set_vanilla_production_inputs(resolved)
     }
