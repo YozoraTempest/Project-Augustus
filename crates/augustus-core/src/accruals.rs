@@ -358,21 +358,20 @@ impl World {
 
     pub fn set_monthly_accruals(&mut self, accruals: MonthlyAccruals) -> Result<(), Error> {
         self.require_running()?;
-        if self.day() != 0
-            || self
-                .monthly_system_id()
-                .is_some_and(|id| id != MonthlyEconomy.id() && id != crate::MonthlyTax.id())
-        {
+        if self.day() != 0 {
             return Err(Error::Invalid(
                 "accruals must be selected before advancing".into(),
             ));
         }
+        let custom_system = self.monthly_system_is_custom();
         accruals.validate(self)?;
         if let Some(convergence) = &self.monthly_convergence {
             convergence.validate_accruals(&accruals)?;
         }
         self.monthly_accruals = Some(accruals);
-        self.monthly_system_id = Some(MonthlyEconomy.id().into());
+        if !custom_system {
+            self.monthly_system_id = Some(MonthlyEconomy.id().into());
+        }
         Ok(())
     }
 }

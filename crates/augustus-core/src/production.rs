@@ -329,15 +329,12 @@ impl World {
 
     pub fn set_monthly_production(&mut self, production: MonthlyProduction) -> Result<(), Error> {
         self.require_running()?;
-        if self.day() != 0
-            || self
-                .monthly_system_id()
-                .is_some_and(|id| id != crate::MonthlyEconomy.id() && id != crate::MonthlyTax.id())
-        {
+        if self.day() != 0 {
             return Err(Error::Invalid(
                 "production must be selected before advancing".into(),
             ));
         }
+        let custom_system = self.monthly_system_is_custom();
         if self
             .monthly_stocks
             .as_ref()
@@ -347,7 +344,9 @@ impl World {
         }
         production.validate(self)?;
         self.monthly_production = Some(production);
-        self.monthly_system_id = Some(crate::MonthlyEconomy.id().into());
+        if !custom_system {
+            self.monthly_system_id = Some(crate::MonthlyEconomy.id().into());
+        }
         Ok(())
     }
 

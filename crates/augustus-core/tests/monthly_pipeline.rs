@@ -2,9 +2,11 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, Calendar, EntityId, EntityKind, Error, MonthlyPipeline, MonthlySystem, Schema, World,
-    WorldDate,
+    Action, AttributeBase, AttributeFormula, Attributes, Calendar, CountryResources, EntityId,
+    EntityKind, Error, FieldId, MonthlyPipeline, MonthlySystem, MonthlyTax, Schema, Taxation,
+    World, WorldDate,
 };
+use std::collections::BTreeSet;
 
 struct Recorder {
     id: &'static str,
@@ -26,6 +28,22 @@ impl MonthlySystem for Recorder {
 
     fn settle(&self, world: &mut World) -> Result<(), Error> {
         world.execute(self.country, &[Action::Emit(self.message.into())])
+    }
+}
+
+struct StandardTaxPhase;
+
+impl MonthlySystem for StandardTaxPhase {
+    fn id(&self) -> &str {
+        "standard-tax-phase:v1"
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        MonthlyTax.validate(world)
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        MonthlyTax.settle(world)
     }
 }
 
@@ -94,4 +112,83 @@ fn monthly_pipeline_runs_world_parallel_and_serial_phases_in_order() {
 fn monthly_pipeline_requires_a_phase() {
     assert!(MonthlyPipeline::new("empty:v1", None, None, None).is_err());
     assert!(MonthlyPipeline::new(" ", None, None, None).is_err());
+}
+
+#[test]
+fn custom_pipeline_can_rebind_standard_monthly_state_before_start() {
+    let mut world = World::new(Schema::new(["annual_tax"]).unwrap());
+    let country = world.add_entity("AAA", EntityKind::Country);
+    let province = world.add_entity("North", EntityKind::Province);
+    world.set_owner(province, country).unwrap();
+    world.set(province, FieldId(0), 12_000).unwrap();
+    let mut attributes = Attributes::default();
+    attributes.formulas.insert(
+        province,
+        [(
+            "annual_tax".into(),
+            AttributeFormula {
+                base: AttributeBase::Field {
+                    field: FieldId(0),
+                    micros_per_unit: 1_000,
+                },
+                channels: vec![],
+                minimum_micros: None,
+                maximum_micros: None,
+                result_quantum_micros: None,
+                unresolved: BTreeSet::new(),
+            },
+        )]
+        .into_iter()
+        .collect(),
+    );
+    world.set_attributes(attributes).unwrap();
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(10_000),
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+        )
+        .unwrap();
+    world
+        .set_calendar(Calendar {
+            start: WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            },
+            month_lengths: [31; 12],
+        })
+        .unwrap();
+    let taxation = Taxation::new("annual_tax", [country].into_iter().collect());
+    world.set_taxation(taxation.clone()).unwrap();
+
+    let pipeline =
+        MonthlyPipeline::new("custom-economy:v1", Some(&StandardTaxPhase), None, None).unwrap();
+    world.select_monthly_system(&pipeline).unwrap();
+    assert!(world.taxation().is_none());
+    world.set_taxation(taxation).unwrap();
+    assert_eq!(world.monthly_system_id(), Some("custom-economy:v1"));
+
+    world.advance_with_monthly_system(21, &pipeline).unwrap();
+    let account = &world
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.income_milli, Some(1_000));
+    assert_eq!(account.treasury_before_milli, Some(10_000));
+    assert_eq!(account.treasury_after_milli, Some(11_000));
+
+    let saved = world.save("custom-economy").unwrap();
+    let restored = World::restore(&saved, "custom-economy", world.schema()).unwrap();
+    assert_eq!(restored.monthly_system_id(), Some("custom-economy:v1"));
+    assert_eq!(restored.taxation(), world.taxation());
 }

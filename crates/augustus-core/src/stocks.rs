@@ -304,15 +304,12 @@ impl World {
 
     pub fn set_monthly_stocks(&mut self, state: Option<MonthlyStocks>) -> Result<(), Error> {
         self.require_running()?;
-        if self.day() != 0
-            || self
-                .monthly_system_id()
-                .is_some_and(|id| id != crate::MonthlyEconomy.id() && id != crate::MonthlyTax.id())
-        {
+        if self.day() != 0 {
             return Err(Error::Invalid(
                 "monthly stocks must be selected before advancing".into(),
             ));
         }
+        let custom_system = self.monthly_system_is_custom();
         if let Some(state) = &state {
             state.validate(self)?;
             if self
@@ -324,18 +321,20 @@ impl World {
             }
         }
         self.monthly_stocks = state;
-        self.monthly_system_id = if self.monthly_stocks.is_some()
-            || self.monthly_accruals.is_some()
-            || self.monthly_convergence.is_some()
-            || self.monthly_production.is_some()
-            || self.monthly_cashflows.is_some()
-        {
-            Some(crate::MonthlyEconomy.id().into())
-        } else {
-            self.taxation
-                .as_ref()
-                .map(|_| crate::MonthlyTax.id().into())
-        };
+        if !custom_system {
+            self.monthly_system_id = if self.monthly_stocks.is_some()
+                || self.monthly_accruals.is_some()
+                || self.monthly_convergence.is_some()
+                || self.monthly_production.is_some()
+                || self.monthly_cashflows.is_some()
+            {
+                Some(crate::MonthlyEconomy.id().into())
+            } else {
+                self.taxation
+                    .as_ref()
+                    .map(|_| crate::MonthlyTax.id().into())
+            };
+        }
         Ok(())
     }
 }

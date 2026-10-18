@@ -840,7 +840,13 @@ fn corrupted_receipts_and_provider_selections_are_rejected() {
     assert!(World::restore(&bad.to_string(), "fixture", world.schema()).is_err());
     bad = snapshot;
     bad["monthly_system_id"] = "different-system:1".into();
-    assert!(World::restore(&bad.to_string(), "fixture", world.schema()).is_err());
+    let mut restored = World::restore(&bad.to_string(), "fixture", world.schema()).unwrap();
+    assert_eq!(restored.monthly_system_id(), Some("different-system:1"));
+    assert!(
+        restored
+            .advance_with_monthly_system(51, &augustus_core::MonthlyTax)
+            .is_err()
+    );
 }
 
 struct NativeMonthly;

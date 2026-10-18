@@ -675,6 +675,11 @@ impl World {
         self.monthly_system_id.as_deref()
     }
 
+    pub(crate) fn monthly_system_is_custom(&self) -> bool {
+        self.monthly_system_id()
+            .is_some_and(|id| id != MonthlyTax.id() && id != crate::MonthlyEconomy.id())
+    }
+
     pub fn daily_system_id(&self) -> Option<&str> {
         self.daily_system_id.as_deref()
     }
@@ -750,14 +755,12 @@ impl World {
 
     pub fn set_taxation(&mut self, taxation: Taxation) -> Result<(), Error> {
         self.require_running()?;
-        if self.day != 0
-            && self.monthly_system_id() != Some(MonthlyTax.id())
-            && self.monthly_system_id() != Some(crate::MonthlyEconomy.id())
-        {
+        if self.day != 0 {
             return Err(Error::Invalid(
                 "monthly system cannot change after advancing".into(),
             ));
         }
+        let custom_system = self.monthly_system_is_custom();
         taxation.validate(self)?;
         if self
             .monthly_stocks
@@ -767,19 +770,21 @@ impl World {
             return Err(Error::Invalid("duplicate monthly treasury executor".into()));
         }
         self.taxation = Some(taxation);
-        self.monthly_system_id = Some(
-            if self.monthly_accruals.is_some()
-                || self.monthly_convergence.is_some()
-                || self.monthly_stocks.is_some()
-                || self.monthly_production.is_some()
-                || self.monthly_cashflows.is_some()
-            {
-                crate::MonthlyEconomy.id()
-            } else {
-                MonthlyTax.id()
-            }
-            .into(),
-        );
+        if !custom_system {
+            self.monthly_system_id = Some(
+                if self.monthly_accruals.is_some()
+                    || self.monthly_convergence.is_some()
+                    || self.monthly_stocks.is_some()
+                    || self.monthly_production.is_some()
+                    || self.monthly_cashflows.is_some()
+                {
+                    crate::MonthlyEconomy.id()
+                } else {
+                    MonthlyTax.id()
+                }
+                .into(),
+            );
+        }
         Ok(())
     }
     pub fn entities(&self) -> &[Entity] {
@@ -1505,12 +1510,18 @@ impl World {
             Some(id)
                 if !id.is_empty()
                     && world.calendar.is_some()
+                    && id == MonthlyTax.id()
                     && world.monthly_accruals.is_none()
                     && world.monthly_convergence.is_none()
                     && world.monthly_stocks.is_none()
                     && world.monthly_production.is_none()
                     && world.monthly_cashflows.is_none()
-                    && (world.taxation.is_some() == (id == MonthlyTax.id())) => {}
+                    && world.taxation.is_some() => {}
+            Some(id)
+                if !id.is_empty()
+                    && world.calendar.is_some()
+                    && id != MonthlyTax.id()
+                    && id != crate::MonthlyEconomy.id() => {}
             _ => {
                 return Err(Error::Invalid(
                     "invalid saved monthly system selection".into(),
