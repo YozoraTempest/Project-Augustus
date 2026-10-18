@@ -2,12 +2,74 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    VanillaTradeCandidate, VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
-    VanillaTradeDistributionRouteInput, VanillaTradePropagationInput, VanillaTradeRetentionInput,
-    VanillaTradeRouteWeightInput, calculate_vanilla_trade_distribution,
+    VanillaTradeCandidate, VanillaTradeCaravanInput, VanillaTradeDistributionCandidate,
+    VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput,
+    VanillaTradePropagationInput, VanillaTradeRetentionInput, VanillaTradeRouteWeightInput,
+    calculate_vanilla_trade_caravan, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
     calculate_vanilla_trade_route_weights, sort_vanilla_trade_candidates,
 };
+
+#[test]
+fn trade_caravan_preserves_bounds_modifier_order_and_zero_floor() {
+    let result = calculate_vanilla_trade_caravan(VanillaTradeCaravanInput {
+        development_milli: 90_000,
+        denominator_milli: 3_000,
+        minimum_milli: 0,
+        maximum_milli: 50_000,
+        effective_modifier_milli: 250,
+    });
+    assert_eq!(result.development_value_milli, 30_000);
+    assert_eq!(result.bounded_value_milli, 30_000);
+    assert_eq!(result.factor_milli, 1_250);
+    assert_eq!(result.value_milli, 37_500);
+
+    let bounded_by_max = calculate_vanilla_trade_caravan(VanillaTradeCaravanInput {
+        development_milli: 90_000,
+        denominator_milli: 1_000,
+        minimum_milli: 10_000,
+        maximum_milli: 5_000,
+        effective_modifier_milli: -1_500,
+    });
+    assert_eq!(bounded_by_max.development_value_milli, 90_000);
+    assert_eq!(bounded_by_max.bounded_value_milli, 5_000);
+    assert_eq!(bounded_by_max.factor_milli, -500);
+    assert_eq!(bounded_by_max.value_milli, 0);
+
+    let invalid_denominator = calculate_vanilla_trade_caravan(VanillaTradeCaravanInput {
+        development_milli: 90_000,
+        denominator_milli: 0,
+        minimum_milli: 0,
+        maximum_milli: 50_000,
+        effective_modifier_milli: 0,
+    });
+    assert_eq!(invalid_denominator.value_milli, 0);
+    assert_eq!(invalid_denominator.bounded_value_milli, 0);
+}
+
+#[test]
+fn trade_caravan_uses_signed_truncation_and_wrapping_factor() {
+    let result = calculate_vanilla_trade_caravan(VanillaTradeCaravanInput {
+        development_milli: 33_333,
+        denominator_milli: 5_000,
+        minimum_milli: 0,
+        maximum_milli: 20_000,
+        effective_modifier_milli: -333,
+    });
+    assert_eq!(result.development_value_milli, 6_666);
+    assert_eq!(result.bounded_value_milli, 6_666);
+    assert_eq!(result.value_milli, 4_446);
+
+    let wrapped = calculate_vanilla_trade_caravan(VanillaTradeCaravanInput {
+        development_milli: i32::MAX,
+        denominator_milli: 1_000,
+        minimum_milli: -1_000,
+        maximum_milli: i32::MAX,
+        effective_modifier_milli: i32::MAX,
+    });
+    assert_eq!(wrapped.factor_milli, -2_147_482_649);
+    assert_eq!(wrapped.value_milli, 0);
+}
 
 #[test]
 fn trade_propagation_preserves_fixed_point_order_and_threshold() {

@@ -154,11 +154,12 @@ pub use taxation::{
 };
 pub use technology::{Technology, TechnologyLevel, TechnologyProperty};
 pub use trade::{
-    VanillaTradeCandidate, VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
+    VanillaTradeCandidate, VanillaTradeCaravanInput, VanillaTradeCaravanResult,
+    VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
     VanillaTradeDistributionResult, VanillaTradeDistributionRouteInput,
     VanillaTradeDistributionRouteResult, VanillaTradePropagationInput,
     VanillaTradePropagationResult, VanillaTradeRetentionInput, VanillaTradeRetentionResult,
-    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightResult,
+    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightResult, calculate_vanilla_trade_caravan,
     calculate_vanilla_trade_distribution, calculate_vanilla_trade_propagation,
     calculate_vanilla_trade_retention, calculate_vanilla_trade_route_weights,
     sort_vanilla_trade_candidates,

@@ -5,6 +5,69 @@ use serde::{Deserialize, Serialize};
 
 use crate::Error;
 
+/// Inputs for the verified EU4 caravan-strength amount stage.
+///
+/// The compatibility layer resolves development, the global denominator,
+/// bounds and the effective modifier after any service or plugin lookup. The
+/// core preserves the native integer order without interpreting those sources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeCaravanInput {
+    pub development_milli: i32,
+    pub denominator_milli: i32,
+    pub minimum_milli: i32,
+    pub maximum_milli: i32,
+    pub effective_modifier_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaTradeCaravanResult {
+    pub development_value_milli: i32,
+    pub bounded_value_milli: i32,
+    pub factor_milli: i32,
+    pub value_milli: i32,
+}
+
+/// Reproduces the verified caravan-strength arithmetic stage.
+///
+/// A non-positive denominator returns zero. Positive denominators use a
+/// minimum divisor of 1000; the development quotient is then bounded by the
+/// native lower-then-upper branch. The effective modifier is added with
+/// 32-bit wrapping, the scaled result is truncated toward zero, and the
+/// final value is clamped at zero after the native cast.
+pub fn calculate_vanilla_trade_caravan(
+    input: VanillaTradeCaravanInput,
+) -> VanillaTradeCaravanResult {
+    let factor = 1_000_i32.wrapping_add(input.effective_modifier_milli);
+    if input.denominator_milli <= 0 {
+        return VanillaTradeCaravanResult {
+            development_value_milli: 0,
+            bounded_value_milli: 0,
+            factor_milli: factor,
+            value_milli: 0,
+        };
+    }
+
+    let divisor = input.denominator_milli.max(1_000);
+    let development_value =
+        ((i64::from(input.development_milli) * 1_000) / i64::from(divisor)) as i32;
+    let bounded_value = if development_value < input.minimum_milli {
+        input.minimum_milli
+    } else if development_value > input.maximum_milli {
+        input.maximum_milli
+    } else {
+        development_value
+    };
+    let value = ((i64::from(bounded_value) * i64::from(factor)) / 1_000) as i32;
+
+    VanillaTradeCaravanResult {
+        development_value_milli: development_value,
+        bounded_value_milli: bounded_value,
+        factor_milli: factor,
+        value_milli: value.max(0),
+    }
+}
+
 /// Explicit inputs for the verified EU4 trade-propagation amount stage.
 ///
 /// The compatibility layer resolves the two record values, the country
