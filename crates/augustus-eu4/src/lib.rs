@@ -56,12 +56,14 @@ pub use administration_validation::{
 };
 pub use attributes::AttributeReport;
 pub use augustus_core::{
-    COUNTRY_LEDGER_CATEGORY_COUNT, COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT, CashflowBreakdown,
-    CountryLedger, CountryLedgerCategory, VanillaDerivedModifierInput,
-    VanillaDerivedModifierResult, VanillaGoldBaseInput, VanillaGoldBaseResult,
-    VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
-    VanillaGoldProductionInputState, VanillaGoldProductionProvinceResult,
-    VanillaGoldProductionResult, VanillaModifierAggregationInput, VanillaModifierAggregationResult,
+    COUNTRY_LEDGER_CATEGORY_COUNT, COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT,
+    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_INCOME_KEYS, COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
+    COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY, CashflowBreakdown, CountryLedger,
+    CountryLedgerCategory, VanillaDerivedModifierInput, VanillaDerivedModifierResult,
+    VanillaGoldBaseInput, VanillaGoldBaseResult, VanillaGoldProductionCountryResult,
+    VanillaGoldProductionInput, VanillaGoldProductionInputState,
+    VanillaGoldProductionProvinceResult, VanillaGoldProductionResult,
+    VanillaModifierAggregationInput, VanillaModifierAggregationResult,
     VanillaProductionCountryResult, VanillaProductionInputState, VanillaProductionProvinceResult,
     VanillaTradeCandidate, VanillaTradeCaravanInput, VanillaTradeCaravanResult,
     VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
@@ -80,7 +82,7 @@ pub use augustus_core::{
     calculate_vanilla_trade_goods_size, calculate_vanilla_trade_power_amount,
     calculate_vanilla_trade_power_modifier, calculate_vanilla_trade_propagation,
     calculate_vanilla_trade_retention, calculate_vanilla_trade_route_weights,
-    sort_vanilla_trade_candidates,
+    country_ledger_expense_key, country_ledger_income_key, sort_vanilla_trade_candidates,
 };
 pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView,

@@ -3,7 +3,11 @@
 
 use std::collections::BTreeMap;
 
-use augustus_core::{CountryLedger, CountryResources, EntityKind, Schema, World};
+use augustus_core::{
+    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
+    COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY, CountryLedger, CountryResources, EntityKind, Schema,
+    World, country_ledger_expense_key, country_ledger_income_key,
+};
 
 fn world() -> (World, augustus_core::EntityId) {
     let mut world = World::new(Schema::new(["unused"]).unwrap());
@@ -145,6 +149,22 @@ fn expense_categories_extend_to_relation_slots_23_and_24() {
         12
     );
     assert_eq!(world.country_ledgers()[&country].pending_milli, -12);
+}
+
+#[test]
+fn native_ledger_keys_expose_relation_slots_without_numeric_magic() {
+    assert_eq!(COUNTRY_LEDGER_EXPENSE_KEYS.len(), 38);
+    assert_eq!(country_ledger_income_key(0), Some("INCOMETAX"));
+    assert_eq!(
+        country_ledger_expense_key(COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY),
+        Some("SUPPORT_LOYALISTS")
+    );
+    assert_eq!(
+        country_ledger_expense_key(COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY),
+        Some("SEND_OFFICERS")
+    );
+    assert_eq!(country_ledger_income_key(19), None);
+    assert_eq!(country_ledger_expense_key(38), None);
 }
 
 #[test]

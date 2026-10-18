@@ -11,6 +11,85 @@ use crate::{EntityId, EntityKind, Error, World};
 pub const COUNTRY_LEDGER_CATEGORY_COUNT: u32 = 19;
 /// Native country-ledger expense categories occupy slots 0 through 37.
 pub const COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT: u32 = 38;
+/// Native internal keys for the 19 income slots. These are content/runtime
+/// identifiers, not player-facing localization strings.
+pub const COUNTRY_LEDGER_INCOME_KEYS: [&str; COUNTRY_LEDGER_CATEGORY_COUNT as usize] = [
+    "INCOMETAX",
+    "INCOMEPROD",
+    "INCOMETRADE",
+    "INCOMEGOLD",
+    "INCOMETARRIFFS",
+    "INCOMEVASSAL",
+    "INCOMEHARBORFEES",
+    "INCOMESUBS",
+    "INCOME_WAR_REPARATION",
+    "INCOMELOAN",
+    "INCOMEGIFT",
+    "INCOMEEVENT",
+    "SPOILS_OF_WAR_ECOVIEW",
+    "INCOME_TREASURE_FLEET",
+    "SIPHON_INCOME",
+    "CONDOTTIERI",
+    "KNOWLEDGE_SHARING",
+    "INC_BLOCKADES",
+    "INC_LOOTING",
+];
+/// Native internal keys for the 38 expense slots. These are content/runtime
+/// identifiers, not player-facing localization strings.
+pub const COUNTRY_LEDGER_EXPENSE_KEYS: [&str; COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize] = [
+    "EXPENSECOURTMAINTENANCE",
+    "EXPENSEINTEREST",
+    "EXPENSE_STATE_MAINTENANCE",
+    "EXPENSEHARBORFEES",
+    "EXPENSESUBS",
+    "EXPENSE_WAR_REPARATIONS",
+    "EXPENSEAM",
+    "EXPENSEFM",
+    "EXPENSEFORTM",
+    "COLONIAL_MAINTENANCE",
+    "EXPENSEMISSIONARY",
+    "EXPENSEARMY",
+    "EXPENSEFLEET",
+    "EXPENSEFORT",
+    "EXPENSEMAN",
+    "EXPENSESUPPORTREBELS",
+    "EXPENSELOAN",
+    "EXPENSEGIFT",
+    "EXPENSECOURT",
+    "EXPENSEEVENTS",
+    "EXPENSEPEACE",
+    "EXPENSEVASSAL",
+    "EXPENSETARIFFS",
+    "SUPPORT_LOYALISTS",
+    "SEND_OFFICERS",
+    "EXPENSE_SIPHON_INCOME",
+    "CONDOTTIERI",
+    "EXPENSE_CORRUPTION",
+    "EXPENSE_TECHNOLOGY",
+    "EXPENSE_GREAT_POWER",
+    "KNOWLEDGE_SHARING",
+    "TRADE_COMPANY_INVESTMENTS",
+    "NONE",
+    "EXP_BLOCKADES",
+    "EXP_LOOTING",
+    "EXPENSEGREATPROJECTS",
+    "CENTRE_OF_TRADE_UPGRADE",
+    "COLONY_CHANGES",
+];
+pub const COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY: u32 = 23;
+pub const COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY: u32 = 24;
+
+pub fn country_ledger_income_key(category: u32) -> Option<&'static str> {
+    usize::try_from(category)
+        .ok()
+        .and_then(|index| COUNTRY_LEDGER_INCOME_KEYS.get(index).copied())
+}
+
+pub fn country_ledger_expense_key(category: u32) -> Option<&'static str> {
+    usize::try_from(category)
+        .ok()
+        .and_then(|index| COUNTRY_LEDGER_EXPENSE_KEYS.get(index).copied())
+}
 
 /// One category's accumulated income and expense records.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
