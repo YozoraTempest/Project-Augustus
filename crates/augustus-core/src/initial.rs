@@ -9,8 +9,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Administration, Affiliations, Attributes, CountryResources, Economy, EntityId, EntityKind,
-    Error, FieldId, Modifiers, Politics, Schema, Technology, World,
+    Administration, Affiliations, Attributes, CountryLedger, CountryResources, Economy, EntityId,
+    EntityKind, Error, FieldId, Modifiers, Politics, Schema, Technology, World,
 };
 
 /// A date label. Calendar arithmetic is defined by the selected Calendar.
@@ -719,6 +719,13 @@ impl InitialWorld {
         resources: BTreeMap<EntityId, CountryResources>,
     ) -> Result<(), Error> {
         self.world.set_country_resources(resources)
+    }
+
+    pub fn set_country_ledgers(
+        &mut self,
+        ledgers: BTreeMap<EntityId, CountryLedger>,
+    ) -> Result<(), Error> {
+        self.world.set_country_ledgers(ledgers)
     }
 
     pub fn set_estate_loyalty_targets(

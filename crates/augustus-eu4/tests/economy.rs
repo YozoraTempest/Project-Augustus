@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_core::{CountryResources, VanillaProductionInput, World};
+use augustus_core::{
+    CountryLedger, CountryLedgerCategory, CountryResources, VanillaProductionInput, World,
+};
 use augustus_eu4::{
     CashflowBreakdown, VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
     VanillaContentProductionValueInput, VanillaExternalProductionInput, VanillaExternalState,
@@ -49,6 +51,29 @@ fn production_input(
         }),
         unresolved: BTreeSet::new(),
     }
+}
+
+#[test]
+fn country_ledgers_bind_by_eu4_tag_before_startup() {
+    let ledger = CountryLedger {
+        pending_milli: 12,
+        categories: [(
+            17,
+            CountryLedgerCategory {
+                expense_milli: 25,
+                ..Default::default()
+            },
+        )]
+        .into(),
+    };
+    let loaded = VanillaWorld::load_with_country_ledgers(
+        fixture(),
+        "1444.11.11",
+        &BTreeMap::from([("AAA".into(), ledger.clone())]),
+    )
+    .unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(loaded.initial.world().country_ledgers()[&country], ledger);
 }
 
 fn gold_production_input(

@@ -7,9 +7,9 @@ use std::{
 };
 
 use augustus_core::{
-    Calendar, CashflowBreakdown, CountryResources, CountryState, EntityKind, InitialWorld,
-    MonthlyExternalCashflows, MonthlyProduction, ProvinceClass, ProvinceState, Taxation,
-    TechnologyProperty, VanillaGoldBaseInput, VanillaGoldBaseResult,
+    Calendar, CashflowBreakdown, CountryLedger, CountryResources, CountryState, EntityKind,
+    InitialWorld, MonthlyExternalCashflows, MonthlyProduction, ProvinceClass, ProvinceState,
+    Taxation, TechnologyProperty, VanillaGoldBaseInput, VanillaGoldBaseResult,
     VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
     VanillaGoldProductionInputState, VanillaGoldProductionResult, VanillaProductionBaseValueInput,
     VanillaProductionBaseValueResult, VanillaProductionInput, VanillaTradeGoodPriceInput,
@@ -422,6 +422,7 @@ struct LoadOverrides<'a> {
     country_national_focus: Option<&'a BTreeMap<String, augustus_core::NationalFocus>>,
     country_metric_ceilings: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_resources: Option<&'a BTreeMap<String, CountryResources>>,
+    country_ledgers: Option<&'a BTreeMap<String, CountryLedger>>,
     production_inputs: Option<&'a BTreeMap<u32, augustus_core::VanillaProductionInputState>>,
     production_value_inputs: Option<&'a BTreeMap<u32, VanillaExternalProductionInput>>,
     trade_good_price_impacts_milli: Option<&'a BTreeMap<u32, i32>>,
@@ -456,6 +457,7 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_metric_ceilings),
             country_resources: (!state.country_resources.is_empty())
                 .then_some(&state.country_resources),
+            country_ledgers: None,
             production_inputs: (!state.production_inputs.is_empty())
                 .then_some(&state.production_inputs),
             production_value_inputs: (!state.production_value_inputs.is_empty())
@@ -1111,6 +1113,27 @@ impl VanillaWorld {
         )
     }
 
+    /// Loads a world with translated country-ledger state bound before
+    /// startup effects execute. Ledger category meanings remain owned by the
+    /// compatibility provider; this method only resolves country identifiers.
+    pub fn load_with_country_ledgers(
+        path: impl AsRef<Path>,
+        date: &str,
+        ledgers: &BTreeMap<String, CountryLedger>,
+    ) -> Result<Self, Error> {
+        Self::load_session(
+            path,
+            date,
+            None,
+            0,
+            None,
+            LoadOverrides {
+                country_ledgers: Some(ledgers),
+                ..Default::default()
+            },
+        )
+    }
+
     /// Loads a world with state translated by an external simulation or save
     /// reader before startup events execute.
     pub fn load_with_external_state(
@@ -1220,6 +1243,26 @@ impl VanillaWorld {
             None,
             LoadOverrides {
                 country_resources: Some(resources),
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Content-set variant of [`VanillaWorld::load_with_country_ledgers`].
+    pub fn load_from_content_with_country_ledgers(
+        content: &ContentSet,
+        date: &str,
+        ledgers: &BTreeMap<String, CountryLedger>,
+    ) -> Result<Self, Error> {
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            date,
+            None,
+            0,
+            None,
+            LoadOverrides {
+                country_ledgers: Some(ledgers),
                 ..Default::default()
             },
         )
@@ -2285,6 +2328,23 @@ impl VanillaWorld {
             initial
                 .set_country_resources(bound)
                 .map_err(|e| Error::caused_by("external country resources", e))?;
+        }
+        if let Some(ledgers) = overrides.country_ledgers {
+            let bound = ledgers
+                .iter()
+                .map(|(country, ledger)| {
+                    let entity = initial.country_entity(country).ok_or_else(|| {
+                        Error::message(
+                            "external country ledgers",
+                            format!("unknown EU4 ledger country {country}"),
+                        )
+                    })?;
+                    Ok((entity, ledger.clone()))
+                })
+                .collect::<Result<BTreeMap<_, _>, Error>>()?;
+            initial
+                .set_country_ledgers(bound)
+                .map_err(|e| Error::caused_by("external country ledgers", e))?;
         }
         if let Some(values) = overrides.province_is_city {
             for (province, value) in values {
@@ -3491,6 +3551,24 @@ impl VanillaWorld {
             })
             .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
         self.initial.set_country_resources(bound)
+    }
+
+    /// Applies translated country-ledger state supplied by a compatibility
+    /// provider. Category identifiers are kept opaque to this crate.
+    pub fn set_country_ledgers(
+        &mut self,
+        ledgers: BTreeMap<String, CountryLedger>,
+    ) -> Result<(), augustus_core::Error> {
+        let bound = ledgers
+            .into_iter()
+            .map(|(country, ledger)| {
+                let entity = self.initial.country_entity(&country).ok_or_else(|| {
+                    augustus_core::Error::Invalid(format!("unknown EU4 ledger country {country}"))
+                })?;
+                Ok((entity, ledger))
+            })
+            .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
+        self.initial.set_country_ledgers(bound)
     }
 
     /// Applies signed monthly cashflows supplied by another simulation or a
