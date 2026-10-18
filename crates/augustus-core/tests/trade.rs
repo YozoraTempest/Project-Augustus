@@ -4,8 +4,9 @@
 use augustus_core::{
     VanillaTradeCandidate, VanillaTradeCaravanInput, VanillaTradeDistributionCandidate,
     VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput,
-    VanillaTradePropagationInput, VanillaTradeRetentionInput, VanillaTradeRouteWeightInput,
-    calculate_vanilla_trade_caravan, calculate_vanilla_trade_distribution,
+    VanillaTradePowerAmountInput, VanillaTradePropagationInput, VanillaTradeRetentionInput,
+    VanillaTradeRouteWeightInput, calculate_vanilla_trade_caravan,
+    calculate_vanilla_trade_distribution, calculate_vanilla_trade_power_amount,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
     calculate_vanilla_trade_route_weights, sort_vanilla_trade_candidates,
 };
@@ -69,6 +70,48 @@ fn trade_caravan_uses_signed_truncation_and_wrapping_factor() {
     });
     assert_eq!(wrapped.factor_milli, -2_147_482_649);
     assert_eq!(wrapped.value_milli, 0);
+}
+
+#[test]
+fn trade_power_amount_preserves_wrapping_sources_and_signed_division() {
+    let result = calculate_vanilla_trade_power_amount(VanillaTradePowerAmountInput {
+        province_power_milli: 7_406,
+        fleet_power_milli: -5_765,
+        external_power_milli: 0,
+        denominator_milli: 1_000,
+        global_scale_milli: 677,
+        country_modifier_milli: 1_651,
+    });
+    assert_eq!(result.combined_power_milli, 1_641);
+    assert_eq!(result.scaled_power_milli, 1_110);
+    assert_eq!(result.factor_milli, 2_651);
+    assert_eq!(result.value_milli, 2_942);
+
+    let negative_denominator = calculate_vanilla_trade_power_amount(VanillaTradePowerAmountInput {
+        province_power_milli: 9_617,
+        fleet_power_milli: 5_316,
+        external_power_milli: 0,
+        denominator_milli: -7,
+        global_scale_milli: -400,
+        country_modifier_milli: 457,
+    });
+    assert_eq!(negative_denominator.combined_power_milli, 14_933);
+    assert_eq!(negative_denominator.scaled_power_milli, 853_314);
+    assert_eq!(negative_denominator.factor_milli, 1_457);
+    assert_eq!(negative_denominator.value_milli, 1_243_278);
+
+    let zero_denominator = calculate_vanilla_trade_power_amount(VanillaTradePowerAmountInput {
+        province_power_milli: i32::MAX,
+        fleet_power_milli: 1,
+        external_power_milli: 1,
+        denominator_milli: 0,
+        global_scale_milli: i32::MAX,
+        country_modifier_milli: -1_500,
+    });
+    assert_eq!(zero_denominator.combined_power_milli, i32::MIN + 1);
+    assert_eq!(zero_denominator.scaled_power_milli, 0);
+    assert_eq!(zero_denominator.factor_milli, 0);
+    assert_eq!(zero_denominator.value_milli, 0);
 }
 
 #[test]

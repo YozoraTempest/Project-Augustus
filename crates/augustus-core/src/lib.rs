@@ -157,12 +157,13 @@ pub use trade::{
     VanillaTradeCandidate, VanillaTradeCaravanInput, VanillaTradeCaravanResult,
     VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
     VanillaTradeDistributionResult, VanillaTradeDistributionRouteInput,
-    VanillaTradeDistributionRouteResult, VanillaTradePropagationInput,
-    VanillaTradePropagationResult, VanillaTradeRetentionInput, VanillaTradeRetentionResult,
-    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightResult, calculate_vanilla_trade_caravan,
-    calculate_vanilla_trade_distribution, calculate_vanilla_trade_propagation,
-    calculate_vanilla_trade_retention, calculate_vanilla_trade_route_weights,
-    sort_vanilla_trade_candidates,
+    VanillaTradeDistributionRouteResult, VanillaTradePowerAmountInput,
+    VanillaTradePowerAmountResult, VanillaTradePropagationInput, VanillaTradePropagationResult,
+    VanillaTradeRetentionInput, VanillaTradeRetentionResult, VanillaTradeRouteWeightInput,
+    VanillaTradeRouteWeightResult, calculate_vanilla_trade_caravan,
+    calculate_vanilla_trade_distribution, calculate_vanilla_trade_power_amount,
+    calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
+    calculate_vanilla_trade_route_weights, sort_vanilla_trade_candidates,
 };
 pub use truces::{Truce, Truces};
 pub use unit_templates::{UnitTemplate, UnitTemplateProperty, UnitTemplates};

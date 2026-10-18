@@ -68,6 +68,64 @@ pub fn calculate_vanilla_trade_caravan(
     }
 }
 
+/// Inputs for the verified province/trade-power amount stage.
+///
+/// The compatibility layer resolves the province, fleet and any conditional
+/// external contribution, along with the global scale and country modifier.
+/// The core only preserves their observed arithmetic and fixed-point order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradePowerAmountInput {
+    pub province_power_milli: i32,
+    pub fleet_power_milli: i32,
+    pub external_power_milli: i32,
+    pub denominator_milli: i32,
+    pub global_scale_milli: i32,
+    pub country_modifier_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaTradePowerAmountResult {
+    pub combined_power_milli: i32,
+    pub scaled_power_milli: i32,
+    pub factor_milli: i32,
+    pub value_milli: i32,
+}
+
+/// Reproduces the verified trade-power amount stage used by the trade chain.
+///
+/// A zero denominator returns zero. Other signed denominators are preserved,
+/// matching the native division path. The three power sources are merged with
+/// 32-bit wrapping, then scaled and finally multiplied by a nonnegative
+/// country factor derived from `1000 + country_modifier_milli`.
+pub fn calculate_vanilla_trade_power_amount(
+    input: VanillaTradePowerAmountInput,
+) -> VanillaTradePowerAmountResult {
+    let combined = input
+        .province_power_milli
+        .wrapping_add(input.fleet_power_milli)
+        .wrapping_add(input.external_power_milli);
+    let factor = 1_000_i32.wrapping_add(input.country_modifier_milli).max(0);
+    if input.denominator_milli == 0 {
+        return VanillaTradePowerAmountResult {
+            combined_power_milli: combined,
+            scaled_power_milli: 0,
+            factor_milli: factor,
+            value_milli: 0,
+        };
+    }
+
+    let scaled = ((i64::from(combined) * i64::from(input.global_scale_milli))
+        / i64::from(input.denominator_milli)) as i32;
+    let value = ((i64::from(scaled) * i64::from(factor)) / 1_000) as i32;
+    VanillaTradePowerAmountResult {
+        combined_power_milli: combined,
+        scaled_power_milli: scaled,
+        factor_milli: factor,
+        value_milli: value,
+    }
+}
+
 /// Explicit inputs for the verified EU4 trade-propagation amount stage.
 ///
 /// The compatibility layer resolves the two record values, the country
