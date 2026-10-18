@@ -167,6 +167,36 @@ pub struct VanillaGoldProductionResult {
     pub monthly_value_milli: i32,
 }
 
+/// Explicit gold-production input state for one EU4 province. The
+/// compatibility layer owns the upstream quantity and mine-base producers;
+/// unresolved reasons prevent the country total from being treated as final.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaGoldProductionInputState {
+    pub input: Option<VanillaGoldProductionInput>,
+    pub unresolved: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaGoldProductionProvinceResult {
+    pub province_id: u32,
+    pub value_milli: Option<i64>,
+    pub monthly_value_milli: Option<i64>,
+    pub unresolved: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaGoldProductionCountryResult {
+    pub known_value_milli: i64,
+    pub known_monthly_value_milli: i64,
+    pub value_milli: Option<i64>,
+    pub monthly_value_milli: Option<i64>,
+    pub provinces: Vec<VanillaGoldProductionProvinceResult>,
+    pub unresolved: BTreeSet<String>,
+}
+
 /// Rebuilds the effective EU4 trade-good price from its content price and the
 /// summed runtime price-impact entries. The native writer uses signed 32-bit
 /// accumulation, a lower factor bound of 10, and truncation toward zero.
@@ -307,6 +337,122 @@ pub fn calculate_vanilla_gold_production(
         value_milli: value,
         monthly_value_milli: monthly_value,
     }
+}
+
+/// Aggregates the confirmed gold-production path over a country's currently
+/// owned provinces whose loaded trade-good definition explicitly has
+/// `gold_type = yes`. Ordinary provinces are ignored; a gold province with a
+/// missing or unresolved input keeps the country total partial and marked
+/// unresolved.
+pub fn calculate_vanilla_gold_production_for_country(
+    initial: &InitialWorld,
+    country: EntityId,
+    inputs: &BTreeMap<u32, VanillaGoldProductionInputState>,
+) -> Result<VanillaGoldProductionCountryResult, Error> {
+    let owned = initial.world().owned_provinces(country)?;
+    let entity_to_province: BTreeMap<_, _> = initial
+        .provinces()
+        .iter()
+        .filter_map(|province| {
+            initial
+                .province_entity(province.id)
+                .map(|entity| (entity, province.id))
+        })
+        .collect();
+    let economy = initial.world().economy();
+    let mut known_value = 0_i64;
+    let mut known_monthly = 0_i64;
+    let mut unresolved = BTreeSet::new();
+    let mut provinces = Vec::new();
+
+    for &entity in owned {
+        let province_id = entity_to_province
+            .get(&entity)
+            .copied()
+            .ok_or_else(|| Error::Invalid("owned entity is not a province".into()))?;
+        let Some(province_economy) = economy.provinces.get(&entity) else {
+            continue;
+        };
+        let Some(trade_good) = province_economy.trade_good.as_deref() else {
+            continue;
+        };
+        let Some(definition) = economy.trade_goods.get(trade_good) else {
+            let reason = "unknown_gold_trade_good_definition".to_string();
+            unresolved.insert(format!("province:{province_id}:{reason}"));
+            provinces.push(VanillaGoldProductionProvinceResult {
+                province_id,
+                value_milli: None,
+                monthly_value_milli: None,
+                unresolved: [reason].into_iter().collect(),
+            });
+            continue;
+        };
+        if definition.gold_type != Some(true) {
+            continue;
+        }
+
+        let mut province_unresolved = BTreeSet::new();
+        let result = match inputs.get(&province_id) {
+            Some(state) if state.unresolved.is_empty() => state
+                .input
+                .map(calculate_vanilla_gold_production)
+                .ok_or_else(|| "missing_gold_production_input".to_string())
+                .map(Some)
+                .unwrap_or_else(|reason| {
+                    province_unresolved.insert(reason);
+                    None
+                }),
+            Some(state) => {
+                province_unresolved.extend(
+                    state
+                        .unresolved
+                        .iter()
+                        .filter(|reason| !reason.is_empty())
+                        .cloned(),
+                );
+                if province_unresolved.is_empty() {
+                    province_unresolved.insert("unknown_gold_production_input".into());
+                }
+                None
+            }
+            None => {
+                province_unresolved.insert("missing_gold_production_input".into());
+                None
+            }
+        };
+        let (value, monthly) = result
+            .map(|value| {
+                (
+                    Some(i64::from(value.value_milli)),
+                    Some(i64::from(value.monthly_value_milli)),
+                )
+            })
+            .unwrap_or((None, None));
+        if let Some(value) = value {
+            known_value = known_value.checked_add(value).ok_or(Error::Overflow)?;
+        }
+        if let Some(monthly) = monthly {
+            known_monthly = known_monthly.checked_add(monthly).ok_or(Error::Overflow)?;
+        }
+        for reason in &province_unresolved {
+            unresolved.insert(format!("province:{province_id}:{reason}"));
+        }
+        provinces.push(VanillaGoldProductionProvinceResult {
+            province_id,
+            value_milli: value,
+            monthly_value_milli: monthly,
+            unresolved: province_unresolved,
+        });
+    }
+
+    Ok(VanillaGoldProductionCountryResult {
+        known_value_milli: known_value,
+        known_monthly_value_milli: known_monthly,
+        value_milli: unresolved.is_empty().then_some(known_value),
+        monthly_value_milli: unresolved.is_empty().then_some(known_monthly),
+        provinces,
+        unresolved,
+    })
 }
 
 /// Calculates the derived country-modifier value observed after the source

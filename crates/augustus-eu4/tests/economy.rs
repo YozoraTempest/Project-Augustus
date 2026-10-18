@@ -5,8 +5,8 @@ use augustus_core::{CountryResources, VanillaProductionInput, World};
 use augustus_eu4::{
     CashflowBreakdown, VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
     VanillaContentProductionValueInput, VanillaExternalProductionInput, VanillaExternalState,
-    VanillaProductionInputState, VanillaProvinceProductionBaseValueInput,
-    VanillaTradeGoodsSizeInput, VanillaWorld,
+    VanillaGoldProductionInput, VanillaGoldProductionInputState, VanillaProductionInputState,
+    VanillaProvinceProductionBaseValueInput, VanillaTradeGoodsSizeInput, VanillaWorld,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -46,6 +46,21 @@ fn production_input(
             country_modifier_milli,
             legacy_province_modifier_milli,
             queried_province_modifier_milli,
+        }),
+        unresolved: BTreeSet::new(),
+    }
+}
+
+fn gold_production_input(
+    gold_size_milli: i32,
+    mine_base_milli: i32,
+    external_gold_size_milli: i32,
+) -> VanillaGoldProductionInputState {
+    VanillaGoldProductionInputState {
+        input: Some(VanillaGoldProductionInput {
+            gold_size_milli,
+            mine_base_milli,
+            external_gold_size_milli,
         }),
         unresolved: BTreeSet::new(),
     }
@@ -470,6 +485,25 @@ fn gold_production_uses_the_gold_path_without_a_trade_good_price() {
         .unwrap();
     assert_eq!(result.value_milli, 31_712);
     assert_eq!(result.monthly_value_milli, 2_642);
+    let country = loaded
+        .country_vanilla_gold_production(
+            "AAA",
+            &BTreeMap::from([(
+                2,
+                augustus_eu4::VanillaGoldProductionInputState {
+                    input: Some(augustus_eu4::VanillaGoldProductionInput {
+                        gold_size_milli: 800,
+                        mine_base_milli: 39_640,
+                        external_gold_size_milli: 0,
+                    }),
+                    unresolved: BTreeSet::new(),
+                },
+            )]),
+        )
+        .unwrap();
+    assert_eq!(country.value_milli, Some(31_712));
+    assert_eq!(country.monthly_value_milli, Some(2_642));
+    assert_eq!(country.provinces.len(), 1);
     assert!(
         loaded
             .calculate_vanilla_province_gold_production(
@@ -781,6 +815,86 @@ fn country_production_query_keeps_known_subtotals_when_an_input_is_unknown() {
             .contains("province:4:missing_production_input")
     );
     assert_eq!(result.provinces[1].annual_value_milli, None);
+}
+
+#[test]
+fn country_gold_production_query_aggregates_only_owned_gold_provinces() {
+    let fixture = copy_fixture();
+    fs::write(
+        fixture.path().join("common/tradegoods/test_goods.txt"),
+        "grain = { color = { 0.9 0.8 0.3 } }\ncloth = { color = { 0.2 0.3 0.8 } }\ngold = { color = { 1.0 0.9 0.0 } goldtype = yes }\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("history/provinces/2 - East.txt"),
+        "owner = AAA\ntrade_goods = gold",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("history/provinces/4 - Highland.txt"),
+        "owner = AAA\ntrade_goods = gold",
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let inputs = BTreeMap::from([
+        (2, gold_production_input(800, 39_640, 0)),
+        (4, gold_production_input(500, 39_640, 0)),
+    ]);
+
+    let result = loaded
+        .country_vanilla_gold_production("AAA", &inputs)
+        .unwrap();
+    assert_eq!(result.known_value_milli, 51_532);
+    assert_eq!(result.known_monthly_value_milli, 4_293);
+    assert_eq!(result.value_milli, Some(51_532));
+    assert_eq!(result.monthly_value_milli, Some(4_293));
+    assert!(result.unresolved.is_empty());
+    assert_eq!(
+        result
+            .provinces
+            .iter()
+            .map(|province| province.province_id)
+            .collect::<Vec<_>>(),
+        vec![2, 4]
+    );
+}
+
+#[test]
+fn country_gold_production_query_preserves_known_subtotals_when_gold_input_is_unknown() {
+    let fixture = copy_fixture();
+    fs::write(
+        fixture.path().join("common/tradegoods/test_goods.txt"),
+        "grain = { color = { 0.9 0.8 0.3 } }\ncloth = { color = { 0.2 0.3 0.8 } }\ngold = { color = { 1.0 0.9 0.0 } goldtype = yes }\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("history/provinces/2 - East.txt"),
+        "owner = AAA\ntrade_goods = gold",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("history/provinces/4 - Highland.txt"),
+        "owner = AAA\ntrade_goods = gold",
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let inputs = BTreeMap::from([(2, gold_production_input(800, 39_640, 0))]);
+
+    let result = loaded
+        .country_vanilla_gold_production("AAA", &inputs)
+        .unwrap();
+    assert_eq!(result.known_value_milli, 31_712);
+    assert_eq!(result.known_monthly_value_milli, 2_642);
+    assert_eq!(result.value_milli, None);
+    assert_eq!(result.monthly_value_milli, None);
+    assert!(
+        result
+            .unresolved
+            .contains("province:4:missing_gold_production_input")
+    );
+    assert_eq!(result.provinces[1].value_milli, None);
 }
 
 #[test]

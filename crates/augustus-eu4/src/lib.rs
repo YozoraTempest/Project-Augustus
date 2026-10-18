@@ -57,8 +57,10 @@ pub use administration_validation::{
 pub use attributes::AttributeReport;
 pub use augustus_core::{
     CashflowBreakdown, VanillaDerivedModifierInput, VanillaDerivedModifierResult,
-    VanillaGoldBaseInput, VanillaGoldBaseResult, VanillaGoldProductionInput,
-    VanillaGoldProductionResult, VanillaModifierAggregationInput, VanillaModifierAggregationResult,
+    VanillaGoldBaseInput, VanillaGoldBaseResult, VanillaGoldProductionCountryResult,
+    VanillaGoldProductionInput, VanillaGoldProductionInputState,
+    VanillaGoldProductionProvinceResult, VanillaGoldProductionResult,
+    VanillaModifierAggregationInput, VanillaModifierAggregationResult,
     VanillaProductionCountryResult, VanillaProductionInputState, VanillaProductionProvinceResult,
     VanillaTradeCandidate, VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
     VanillaTradeDistributionResult, VanillaTradeDistributionRouteInput,
@@ -68,10 +70,11 @@ pub use augustus_core::{
     VanillaTradeRouteWeightInput, VanillaTradeRouteWeightResult,
     aggregate_vanilla_modifier_contributions, calculate_vanilla_derived_modifier,
     calculate_vanilla_gold_base, calculate_vanilla_gold_production,
-    calculate_vanilla_production_for_country, calculate_vanilla_trade_distribution,
-    calculate_vanilla_trade_good_price, calculate_vanilla_trade_goods_size,
-    calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
-    calculate_vanilla_trade_route_weights, sort_vanilla_trade_candidates,
+    calculate_vanilla_gold_production_for_country, calculate_vanilla_production_for_country,
+    calculate_vanilla_trade_distribution, calculate_vanilla_trade_good_price,
+    calculate_vanilla_trade_goods_size, calculate_vanilla_trade_propagation,
+    calculate_vanilla_trade_retention, calculate_vanilla_trade_route_weights,
+    sort_vanilla_trade_candidates,
 };
 pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView,

@@ -9,10 +9,12 @@ use std::{
 use augustus_core::{
     Calendar, CashflowBreakdown, CountryResources, CountryState, EntityKind, InitialWorld,
     MonthlyExternalCashflows, MonthlyProduction, ProvinceClass, ProvinceState, Taxation,
-    TechnologyProperty, VanillaGoldBaseInput, VanillaGoldBaseResult, VanillaGoldProductionInput,
-    VanillaGoldProductionResult, VanillaProductionBaseValueInput, VanillaProductionBaseValueResult,
-    VanillaProductionInput, VanillaTradeGoodPriceInput, VanillaTradeGoodsSizeInput, WorldDate,
-    calculate_vanilla_gold_base, calculate_vanilla_gold_production,
+    TechnologyProperty, VanillaGoldBaseInput, VanillaGoldBaseResult,
+    VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
+    VanillaGoldProductionInputState, VanillaGoldProductionResult, VanillaProductionBaseValueInput,
+    VanillaProductionBaseValueResult, VanillaProductionInput, VanillaTradeGoodPriceInput,
+    VanillaTradeGoodsSizeInput, WorldDate, calculate_vanilla_gold_base,
+    calculate_vanilla_gold_production, calculate_vanilla_gold_production_for_country,
     calculate_vanilla_production_base_value, calculate_vanilla_trade_good_price,
     calculate_vanilla_trade_goods_size,
 };
@@ -3145,6 +3147,22 @@ impl VanillaWorld {
             .country_entity(id)
             .ok_or_else(|| augustus_core::Error::Invalid("unknown country".into()))?;
         augustus_core::calculate_vanilla_production_for_country(&self.initial, country, inputs)
+    }
+
+    /// Aggregates explicit gold-province inputs over the country's live owned
+    /// provinces. Ordinary trade goods are skipped from the result; a loaded
+    /// `goldtype = yes` province remains unresolved until its native inputs
+    /// have been supplied.
+    pub fn country_vanilla_gold_production(
+        &self,
+        id: &str,
+        inputs: &BTreeMap<u32, VanillaGoldProductionInputState>,
+    ) -> Result<VanillaGoldProductionCountryResult, augustus_core::Error> {
+        let country = self
+            .initial
+            .country_entity(id)
+            .ok_or_else(|| augustus_core::Error::Invalid("unknown country".into()))?;
+        calculate_vanilla_gold_production_for_country(&self.initial, country, inputs)
     }
 
     /// Binds production inputs supplied by a compatibility provider.
