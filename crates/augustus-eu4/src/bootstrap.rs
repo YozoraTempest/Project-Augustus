@@ -3597,6 +3597,22 @@ impl VanillaWorld {
         self.initial.rollover_country_ledgers_annual()
     }
 
+    /// Flushes all translated country ledgers and returns balances by EU4 tag.
+    pub fn flush_country_ledgers_pending(
+        &mut self,
+    ) -> Result<BTreeMap<String, i64>, augustus_core::Error> {
+        self.initial
+            .flush_country_ledgers_pending()?
+            .into_iter()
+            .map(|(entity, balance)| {
+                let country = self.initial.countries().get(entity.0).ok_or_else(|| {
+                    augustus_core::Error::Invalid("country ledger entity has no EU4 tag".into())
+                })?;
+                Ok((country.id.clone(), balance))
+            })
+            .collect()
+    }
+
     /// Applies signed monthly cashflows supplied by another simulation or a
     /// translated save reader. Positive values are receipts; negative values
     /// are expenses. The core settles them after tax and production.

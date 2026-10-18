@@ -575,6 +575,37 @@ impl World {
         Ok(next)
     }
 
+    /// Flushes every country's delayed balance at the shared monthly boundary.
+    /// The balances and pending fields are staged together so one missing
+    /// treasury cannot leave only part of the world advanced.
+    pub fn flush_country_ledgers_pending(&mut self) -> Result<BTreeMap<EntityId, i64>, Error> {
+        self.require_running()?;
+        let ledgers = self.country_ledgers.clone();
+        for &country in ledgers.keys() {
+            self.require_country(country)?;
+        }
+
+        let mut resources = self.country_resources.clone();
+        let mut updated_ledgers = ledgers;
+        let mut balances = BTreeMap::new();
+        for (&country, ledger) in &mut updated_ledgers {
+            let treasury = resources
+                .get(&country)
+                .and_then(|resources| resources.treasury_milli)
+                .ok_or_else(|| Error::Invalid("country treasury is unknown".into()))?;
+            let next = treasury
+                .checked_add(ledger.pending_milli)
+                .ok_or(Error::Overflow)?
+                .clamp(TREASURY_MIN_MILLI, TREASURY_MAX_MILLI);
+            resources.entry(country).or_default().treasury_milli = Some(next);
+            ledger.pending_milli = 0;
+            balances.insert(country, next);
+        }
+        self.country_resources = resources;
+        self.country_ledgers = updated_ledgers;
+        Ok(balances)
+    }
+
     /// Rebuilds the category container without touching the delayed balance.
     pub fn reset_country_ledger(&mut self, country: EntityId) -> Result<(), Error> {
         self.require_running()?;

@@ -108,6 +108,37 @@ fn country_ledger_lifecycle_binds_filters_by_eu4_tag() {
     assert_eq!(rolled.expense_rollover_total_milli, 10);
 }
 
+#[test]
+fn country_ledger_pending_flush_returns_balances_by_eu4_tag() {
+    let mut loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    loaded
+        .set_country_resources(BTreeMap::from([(
+            "AAA".into(),
+            CountryResources {
+                treasury_milli: Some(100),
+                ..Default::default()
+            },
+        )]))
+        .unwrap();
+    loaded
+        .set_country_ledgers(BTreeMap::from([(
+            "AAA".into(),
+            CountryLedger {
+                pending_milli: 40,
+                ..Default::default()
+            },
+        )]))
+        .unwrap();
+
+    let balances = loaded.flush_country_ledgers_pending().unwrap();
+    assert_eq!(balances, BTreeMap::from([("AAA".into(), 140)]));
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().country_ledgers()[&country].pending_milli,
+        0
+    );
+}
+
 fn gold_production_input(
     gold_size_milli: i32,
     mine_base_milli: i32,

@@ -171,7 +171,10 @@ fn native_ledger_keys_expose_relation_slots_without_numeric_magic() {
 fn monthly_consolidation_runs_after_relation_expense_and_annual_rollover_is_explicit() {
     let (mut world, country) = world();
     world.record_delayed_country_income(country, 1, 40).unwrap();
-    assert_eq!(world.flush_country_pending(country).unwrap(), 140);
+    assert_eq!(
+        world.flush_country_ledgers_pending().unwrap()[&country],
+        140
+    );
 
     world.record_country_expense(country, 23, 10).unwrap();
     world

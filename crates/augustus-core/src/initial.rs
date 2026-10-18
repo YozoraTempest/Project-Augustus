@@ -740,6 +740,10 @@ impl InitialWorld {
         self.world.rollover_country_ledgers_annual()
     }
 
+    pub fn flush_country_ledgers_pending(&mut self) -> Result<BTreeMap<EntityId, i64>, Error> {
+        self.world.flush_country_ledgers_pending()
+    }
+
     pub fn set_estate_loyalty_targets(
         &mut self,
         targets: BTreeMap<EntityId, BTreeMap<String, Option<i64>>>,
