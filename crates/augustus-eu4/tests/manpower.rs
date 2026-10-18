@@ -249,6 +249,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         )]),
         production_value_inputs: Default::default(),
         trade_good_price_impacts_milli: Default::default(),
+        trade_good_price_impact_entries_milli: Default::default(),
         trade_good_prices_milli: Default::default(),
         country_annual_tax_milli: Default::default(),
         province_annual_tax_milli: Default::default(),

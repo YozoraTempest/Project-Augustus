@@ -236,6 +236,32 @@ fn external_price_impacts_rebuild_effective_price_before_production() {
 }
 
 #[test]
+fn ordered_external_price_impacts_are_aggregated_before_production() {
+    let state = VanillaExternalState {
+        production_value_inputs: BTreeMap::from([(
+            2,
+            VanillaExternalProductionInput {
+                goods_size_milli: 1_000,
+                flat_modifier_milli: 0,
+                external_flat_modifier_milli: 0,
+                rate_modifier_milli: 0,
+                external_rate_modifier_milli: 0,
+                country_modifier_milli: 0,
+                legacy_province_modifier_milli: 0,
+                queried_province_modifier_milli: 0,
+            },
+        )]),
+        trade_good_price_impact_entries_milli: BTreeMap::from([(2, vec![200, 300])]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let entity = loaded.initial.province_entity(2).unwrap();
+    let input = &loaded.initial.world().monthly_production().unwrap().inputs[&entity];
+
+    assert_eq!(input.input.as_ref().unwrap().base_value_milli, 4_500);
+}
+
+#[test]
 fn saved_trade_good_price_overrides_content_price_before_production() {
     let state = VanillaExternalState {
         trade_good_prices_milli: BTreeMap::from([("cloth".into(), Some(3_500))]),

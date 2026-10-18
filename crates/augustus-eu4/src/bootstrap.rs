@@ -13,9 +13,10 @@ use augustus_core::{
     VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
     VanillaGoldProductionInputState, VanillaGoldProductionResult, VanillaProductionBaseValueInput,
     VanillaProductionBaseValueResult, VanillaProductionInput, VanillaTradeGoodPriceInput,
-    VanillaTradeGoodsSizeInput, WorldDate, calculate_vanilla_gold_base,
-    calculate_vanilla_gold_production, calculate_vanilla_gold_production_for_country,
-    calculate_vanilla_production_base_value, calculate_vanilla_trade_good_price,
+    VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, WorldDate,
+    calculate_vanilla_gold_base, calculate_vanilla_gold_production,
+    calculate_vanilla_gold_production_for_country, calculate_vanilla_production_base_value,
+    calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
     calculate_vanilla_trade_goods_size,
 };
 use jomini::{
@@ -333,6 +334,11 @@ pub struct VanillaExternalState {
     /// zero-impact state rather than inventing a new price.
     #[serde(default)]
     pub trade_good_price_impacts_milli: BTreeMap<u32, i32>,
+    /// Ordered runtime price-impact entries keyed by the native trade-good
+    /// table index. When present, these entries are accumulated with the
+    /// native 32-bit wrapping rule before the effective price is rebuilt.
+    #[serde(default)]
+    pub trade_good_price_impact_entries_milli: BTreeMap<u32, Vec<i32>>,
     /// Current runtime prices keyed by the EU4 trade-good identifier. An
     /// explicit `None` keeps a known trade good unresolved.
     #[serde(default)]
@@ -419,6 +425,7 @@ struct LoadOverrides<'a> {
     production_inputs: Option<&'a BTreeMap<u32, augustus_core::VanillaProductionInputState>>,
     production_value_inputs: Option<&'a BTreeMap<u32, VanillaExternalProductionInput>>,
     trade_good_price_impacts_milli: Option<&'a BTreeMap<u32, i32>>,
+    trade_good_price_impact_entries_milli: Option<&'a BTreeMap<u32, Vec<i32>>>,
     trade_good_prices_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     country_annual_tax_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
@@ -455,6 +462,10 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.production_value_inputs),
             trade_good_price_impacts_milli: (!state.trade_good_price_impacts_milli.is_empty())
                 .then_some(&state.trade_good_price_impacts_milli),
+            trade_good_price_impact_entries_milli: (!state
+                .trade_good_price_impact_entries_milli
+                .is_empty())
+            .then_some(&state.trade_good_price_impact_entries_milli),
             trade_good_prices_milli: (!state.trade_good_prices_milli.is_empty())
                 .then_some(&state.trade_good_prices_milli),
             country_annual_tax_milli: (!state.country_annual_tax_milli.is_empty())
@@ -543,6 +554,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.production_value_inputs.clone());
     base.trade_good_price_impacts_milli
         .extend(overlay.trade_good_price_impacts_milli.clone());
+    base.trade_good_price_impact_entries_milli
+        .extend(overlay.trade_good_price_impact_entries_milli.clone());
     base.trade_good_prices_milli
         .extend(overlay.trade_good_prices_milli.clone());
     base.country_annual_tax_milli
@@ -933,6 +946,7 @@ fn bind_external_production_value_inputs(
     initial: &InitialWorld,
     inputs: &BTreeMap<u32, VanillaExternalProductionInput>,
     price_impacts: Option<&BTreeMap<u32, i32>>,
+    price_impact_entries: Option<&BTreeMap<u32, Vec<i32>>>,
 ) -> Result<BTreeMap<augustus_core::EntityId, augustus_core::VanillaProductionInputState>, Error> {
     let economy = initial.world().economy();
     inputs
@@ -974,18 +988,43 @@ fn bind_external_production_value_inputs(
                         ),
                     )
                 })?;
-                let price_impact_milli = definition
-                    .and_then(|definition| definition.runtime_index)
-                    .and_then(|index| price_impacts.and_then(|impacts| impacts.get(&index)))
-                    .copied()
-                    .unwrap_or_default();
-                Some(
-                    calculate_vanilla_trade_good_price(VanillaTradeGoodPriceInput {
-                        base_price_milli: base_price,
-                        price_impact_milli,
+                let runtime_index = definition.and_then(|definition| definition.runtime_index);
+                let price = runtime_index
+                    .and_then(|index| {
+                        price_impact_entries
+                            .and_then(|entries| entries.get(&index))
+                            .map(|entries| {
+                                calculate_vanilla_trade_good_price_table(
+                                    VanillaTradeGoodPriceTableInput {
+                                        base_price_milli: base_price,
+                                        price_impacts_milli: entries.clone(),
+                                    },
+                                )
+                                .effective_price_milli
+                            })
+                            .or_else(|| {
+                                price_impacts
+                                    .and_then(|impacts| impacts.get(&index))
+                                    .copied()
+                                    .map(|price_impact_milli| {
+                                        calculate_vanilla_trade_good_price(
+                                            VanillaTradeGoodPriceInput {
+                                                base_price_milli: base_price,
+                                                price_impact_milli,
+                                            },
+                                        )
+                                        .effective_price_milli
+                                    })
+                            })
                     })
-                    .effective_price_milli,
-                )
+                    .unwrap_or_else(|| {
+                        calculate_vanilla_trade_good_price(VanillaTradeGoodPriceInput {
+                            base_price_milli: base_price,
+                            price_impact_milli: 0,
+                        })
+                        .effective_price_milli
+                    });
+                Some(price)
             } else {
                 None
             };
@@ -2462,6 +2501,7 @@ impl VanillaWorld {
                     &initial,
                     inputs,
                     overrides.trade_good_price_impacts_milli,
+                    overrides.trade_good_price_impact_entries_milli,
                 )? {
                     if bound.insert(entity, input).is_some() {
                         return Err(Error::message(
