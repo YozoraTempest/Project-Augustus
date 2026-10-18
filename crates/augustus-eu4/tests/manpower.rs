@@ -251,6 +251,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         trade_good_price_impacts_milli: Default::default(),
         country_annual_tax_milli: Default::default(),
         province_annual_tax_milli: Default::default(),
+        province_is_city: Default::default(),
         province_raw_autonomy_milli: Default::default(),
         estate_privileges: BTreeMap::from([(
             "AAA".into(),

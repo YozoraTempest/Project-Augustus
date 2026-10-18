@@ -309,6 +309,38 @@ fn country_tax_counts_free_city_reforms_in_the_hre_for_the_current_emperor() {
 }
 
 #[test]
+fn external_province_city_status_reaches_the_loaded_province_state() {
+    let state = VanillaExternalState {
+        province_is_city: BTreeMap::from([(2, Some(true))]),
+        province_in_empire: BTreeMap::from([(2, Some(true))]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    assert_eq!(loaded.province(2).unwrap().state.is_city, Some(true));
+    let province = loaded.initial.province_entity(2).unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .affiliations()
+            .belongs_to("imperial_membership", province, "hre"),
+        Some(true)
+    );
+
+    let error = VanillaWorld::load_with_external_state(
+        fixture(),
+        "1444.11.11",
+        &VanillaExternalState {
+            province_is_city: BTreeMap::from([(999, Some(true))]),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("unknown EU4 city-status province 999"));
+}
+
+#[test]
 fn technology_levels_keep_enabled_unit_names_in_order_with_sources() {
     let fixture = copy_fixture();
     fs::write(

@@ -735,6 +735,17 @@ impl InitialWorld {
     pub fn provinces(&self) -> &[ProvinceState] {
         &self.provinces
     }
+
+    pub fn set_province_is_city(&mut self, id: u32, is_city: Option<bool>) -> Result<(), Error> {
+        let index = self
+            .province_index
+            .get(&id)
+            .copied()
+            .ok_or_else(|| Error::Invalid(format!("unknown province {id}")))?;
+        self.provinces[index].is_city = is_city;
+        Ok(())
+    }
+
     pub fn country(&self, id: &str) -> Option<&CountryState> {
         self.country_index.get(id).map(|&i| &self.countries[i])
     }

@@ -273,6 +273,14 @@ pub struct VanillaExternalState {
     /// keeps that province unresolved while other provinces remain usable.
     #[serde(default)]
     pub province_annual_tax_milli: BTreeMap<u32, Option<i64>>,
+    /// Current city status supplied by a save reader. An omitted province
+    /// remains unknown; `Some(false)` preserves an explicit non-city state.
+    #[serde(default)]
+    pub province_is_city: BTreeMap<u32, Option<bool>>,
+    /// Current HRE membership supplied by a save reader. An omitted province
+    /// remains unknown; `Some(false)` records explicit absence.
+    #[serde(default)]
+    pub province_in_empire: BTreeMap<u32, Option<bool>>,
     /// Current raw province autonomy supplied by a save reader, in EU4's
     /// thousandths. The core stores the same value in millionths and applies
     /// monthly autonomy rules from that state on the next month boundary.
@@ -309,6 +317,16 @@ pub struct VanillaExternalState {
     pub advisors: BTreeMap<String, Vec<VanillaExternalAdvisor>>,
 }
 
+impl VanillaExternalState {
+    /// Applies supplemental translated inputs on top of this state bundle.
+    /// Nested country maps merge by country and field; non-empty unit rosters
+    /// replace the existing roster so an external provider can supply an
+    /// authoritative snapshot.
+    pub fn apply_overlay(&mut self, overlay: &Self) {
+        overlay_external_state(self, overlay);
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 struct LoadOverrides<'a> {
     country_metric_values: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
@@ -320,6 +338,8 @@ struct LoadOverrides<'a> {
     trade_good_price_impacts_milli: Option<&'a BTreeMap<u32, i32>>,
     country_annual_tax_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
+    province_is_city: Option<&'a BTreeMap<u32, Option<bool>>>,
+    province_in_empire: Option<&'a BTreeMap<u32, Option<bool>>>,
     province_raw_autonomy_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
     estate_privileges: Option<&'a VanillaExternalEstatePrivileges>,
     country_markers: Option<&'a VanillaExternalCountryMarkers>,
@@ -353,6 +373,10 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_annual_tax_milli),
             province_annual_tax_milli: (!state.province_annual_tax_milli.is_empty())
                 .then_some(&state.province_annual_tax_milli),
+            province_is_city: (!state.province_is_city.is_empty())
+                .then_some(&state.province_is_city),
+            province_in_empire: (!state.province_in_empire.is_empty())
+                .then_some(&state.province_in_empire),
             province_raw_autonomy_milli: (!state.province_raw_autonomy_milli.is_empty())
                 .then_some(&state.province_raw_autonomy_milli),
             estate_privileges: (!state.estate_privileges.is_empty())
@@ -370,6 +394,70 @@ impl<'a> LoadOverrides<'a> {
             naval_units: (!state.naval_units.is_empty()).then_some(state.naval_units.as_slice()),
             advisors: (!state.advisors.is_empty()).then_some(&state.advisors),
         }
+    }
+}
+
+fn overlay_nested_map<K1, K2, V>(
+    base: &mut BTreeMap<K1, BTreeMap<K2, V>>,
+    overlay: &BTreeMap<K1, BTreeMap<K2, V>>,
+) where
+    K1: Ord + Clone,
+    K2: Ord + Clone,
+    V: Clone,
+{
+    for (key, values) in overlay {
+        base.entry(key.clone()).or_default().extend(values.clone());
+    }
+}
+
+fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExternalState) {
+    overlay_nested_map(
+        &mut base.country_metric_values,
+        &overlay.country_metric_values,
+    );
+    base.country_national_focus
+        .extend(overlay.country_national_focus.clone());
+    overlay_nested_map(
+        &mut base.country_metric_ceilings,
+        &overlay.country_metric_ceilings,
+    );
+    base.country_resources
+        .extend(overlay.country_resources.clone());
+    base.production_inputs
+        .extend(overlay.production_inputs.clone());
+    base.production_value_inputs
+        .extend(overlay.production_value_inputs.clone());
+    base.trade_good_price_impacts_milli
+        .extend(overlay.trade_good_price_impacts_milli.clone());
+    base.country_annual_tax_milli
+        .extend(overlay.country_annual_tax_milli.clone());
+    base.province_annual_tax_milli
+        .extend(overlay.province_annual_tax_milli.clone());
+    base.province_is_city
+        .extend(overlay.province_is_city.clone());
+    base.province_in_empire
+        .extend(overlay.province_in_empire.clone());
+    base.province_raw_autonomy_milli
+        .extend(overlay.province_raw_autonomy_milli.clone());
+    overlay_nested_map(&mut base.estate_privileges, &overlay.estate_privileges);
+    base.country_markers.extend(overlay.country_markers.clone());
+    overlay_nested_map(&mut base.country_statuses, &overlay.country_statuses);
+    overlay_nested_map(
+        &mut base.estate_loyalty_targets,
+        &overlay.estate_loyalty_targets,
+    );
+    base.country_monthly_cashflows_milli
+        .extend(overlay.country_monthly_cashflows_milli.clone());
+    overlay_nested_map(
+        &mut base.country_monthly_power_income,
+        &overlay.country_monthly_power_income,
+    );
+    base.advisors.extend(overlay.advisors.clone());
+    if !overlay.armies.is_empty() {
+        base.armies = overlay.armies.clone();
+    }
+    if !overlay.naval_units.is_empty() {
+        base.naval_units = overlay.naval_units.clone();
     }
 }
 
@@ -844,23 +932,49 @@ impl VanillaWorld {
         Self::load_from_content_with_save_state(content, &save)
     }
 
+    /// Loads a plaintext EU4 save and overlays supplemental translated state
+    /// before startup effects execute. The save remains the baseline; fields
+    /// present in `overlay` replace or extend the corresponding translated
+    /// inputs, which lets an external provider supply systems not represented
+    /// by the EU4 save reader.
+    pub fn load_from_content_with_save_and_external_state(
+        content: &ContentSet,
+        path: impl AsRef<Path>,
+        overlay: &VanillaExternalState,
+    ) -> Result<Self, Error> {
+        let save = crate::read_vanilla_save_state(path)?;
+        Self::load_from_content_with_save_state_and_external_state(content, &save, Some(overlay))
+    }
+
     /// Variant of [`VanillaWorld::load_from_content_with_save`] for callers
     /// that already translated the save in a compatibility-owned boundary.
     pub fn load_from_content_with_save_state(
         content: &ContentSet,
         save: &crate::VanillaSaveState,
     ) -> Result<Self, Error> {
+        Self::load_from_content_with_save_state_and_external_state(content, save, None)
+    }
+
+    /// Variant of [`VanillaWorld::load_from_content_with_save_and_external_state`]
+    /// for callers that already translated the save in a compatibility-owned
+    /// boundary.
+    pub fn load_from_content_with_save_state_and_external_state(
+        content: &ContentSet,
+        save: &crate::VanillaSaveState,
+        overlay: Option<&VanillaExternalState>,
+    ) -> Result<Self, Error> {
         // Save import builds a baseline world before rebuilding it with the
         // translated state. Keep that nested compatibility path off the small
         // caller stack used by desktop frontends and command-line tools.
         let save = save.clone();
+        let overlay = overlay.cloned();
         let root = content.base_root();
         std::thread::scope(|scope| {
             let handle = std::thread::Builder::new()
                 .name("augustus-eu4-save-loader".into())
                 .stack_size(32 * 1024 * 1024)
                 .spawn_scoped(scope, || {
-                    Self::load_from_content_with_save_state_inner(content, &save)
+                    Self::load_from_content_with_save_state_inner(content, &save, overlay.as_ref())
                 })
                 .map_err(|error| Error::caused_by(root.path(), error))?;
             handle
@@ -872,9 +986,13 @@ impl VanillaWorld {
     fn load_from_content_with_save_state_inner(
         content: &ContentSet,
         save: &crate::VanillaSaveState,
+        overlay: Option<&VanillaExternalState>,
     ) -> Result<Self, Error> {
         let baseline = Self::load_from_content(content, &save.date)?;
-        let (players, state) = save.for_world(&baseline)?;
+        let (players, mut state) = save.for_world(&baseline)?;
+        if let Some(overlay) = overlay {
+            state.apply_overlay(overlay);
+        }
         Self::load_from_content_with_players_and_external_state(
             content, &save.date, &players, &state,
         )
@@ -1779,6 +1897,36 @@ impl VanillaWorld {
         initial
             .set_affiliations(affiliations)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        if let Some(values) = overrides.province_in_empire {
+            let mut affiliations = initial.world().affiliations().clone();
+            let dimension = affiliations
+                .0
+                .entry(crate::imperial_membership::DIMENSION.into())
+                .or_default();
+            dimension.groups.entry("hre".into()).or_insert(None);
+            for (province, value) in values {
+                let entity = initial.province_entity(*province).ok_or_else(|| {
+                    Error::message(
+                        "external HRE membership",
+                        format!("unknown EU4 HRE province {province}"),
+                    )
+                })?;
+                dimension.members.remove(&entity);
+                dimension.absent_members.remove(&entity);
+                match value {
+                    Some(true) => {
+                        dimension.members.insert(entity, Some("hre".into()));
+                    }
+                    Some(false) => {
+                        dimension.absent_members.insert(entity);
+                    }
+                    None => {}
+                }
+            }
+            initial
+                .set_affiliations(affiliations)
+                .map_err(|e| Error::caused_by("external HRE membership", e))?;
+        }
         let area_scopes = administration.ordered_areas();
         let mut metrics = crate::province_metrics::bind(
             &initial,
@@ -1872,6 +2020,19 @@ impl VanillaWorld {
             initial
                 .set_country_resources(bound)
                 .map_err(|e| Error::caused_by("external country resources", e))?;
+        }
+        if let Some(values) = overrides.province_is_city {
+            for (province, value) in values {
+                if initial.province(*province).is_none() {
+                    return Err(Error::message(
+                        "external province city status",
+                        format!("unknown EU4 city-status province {province}"),
+                    ));
+                }
+                initial
+                    .set_province_is_city(*province, *value)
+                    .map_err(|e| Error::caused_by("external province city status", e))?;
+            }
         }
         let mut attributes =
             attribute_draft.bind(&initial, &mut report.attributes, &report.setup)?;

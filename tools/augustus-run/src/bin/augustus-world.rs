@@ -24,13 +24,14 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     launcher_config: Option<PathBuf>,
     /// JSON state bundle supplied by another simulation or an external save reader.
-    #[arg(long, value_name = "FILE", conflicts_with = "eu4_save")]
+    /// With --eu4-save, fields in this bundle supplement the translated save state.
+    #[arg(long, value_name = "FILE")]
     external_state: Option<PathBuf>,
     /// Plaintext EU4 save whose supported state is translated before startup.
     #[arg(
         long = "eu4-save",
         value_name = "FILE",
-        conflicts_with_all = ["external_state", "player", "ai_only", "seed"]
+        conflicts_with_all = ["player", "ai_only", "seed"]
     )]
     eu4_save: Option<PathBuf>,
     /// Export the translated state from --eu4-save as a VanillaExternalState JSON file.
@@ -97,19 +98,6 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         cli.launcher_config.as_deref(),
         TextEncoding::Windows1252,
     )?;
-    if let (Some(save_path), Some(output_path)) =
-        (cli.eu4_save.as_ref(), cli.export_external_state.as_ref())
-    {
-        let save = augustus_eu4::read_vanilla_save_state(save_path)?;
-        let loaded = VanillaWorld::load_from_content_with_save_state(&content, &save)?;
-        let external_state = save.state_for_world(&loaded)?;
-        let bytes = serde_json::to_vec_pretty(&external_state)?;
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(output_path)?;
-        file.write_all(&bytes)?;
-    }
     let external_state = cli
         .external_state
         .as_ref()
@@ -119,8 +107,20 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             },
         )
         .transpose()?;
-    let mut loaded = if let Some(path) = cli.eu4_save.as_ref() {
-        VanillaWorld::load_from_content_with_save(&content, path)?
+    let save_state = cli
+        .eu4_save
+        .as_ref()
+        .map(augustus_eu4::read_vanilla_save_state)
+        .transpose()?;
+    let mut loaded = if cli.eu4_save.is_some() {
+        let save = save_state
+            .as_ref()
+            .expect("save state loaded from the selected EU4 save");
+        VanillaWorld::load_from_content_with_save_state_and_external_state(
+            &content,
+            save,
+            external_state.as_ref(),
+        )?
     } else {
         match (&players, cli.seed, external_state.as_ref()) {
             (Some(players), Some(seed), Some(state)) => {
@@ -155,6 +155,20 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             (None, None, None) => VanillaWorld::load_from_content(&content, &cli.date)?,
         }
     };
+    if let (Some(output_path), Some(save)) =
+        (cli.export_external_state.as_ref(), save_state.as_ref())
+    {
+        let mut exported = save.state_for_world(&loaded)?;
+        if let Some(overlay) = external_state.as_ref() {
+            exported.apply_overlay(overlay);
+        }
+        let bytes = serde_json::to_vec_pretty(&exported)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(output_path)?;
+        file.write_all(&bytes)?;
+    }
     if let Some(path) = cli.load {
         loaded.restore(&std::fs::read_to_string(path)?)?;
     }

@@ -410,6 +410,75 @@ provinces={
     assert_eq!(resumed_snapshot["simulation"]["last_tax_day"], 51);
     assert_eq!(resumed_snapshot["country_controllers"]["AAA"], "human");
     assert_eq!(resumed_snapshot["simulation"]["naval_units"], 1);
+
+    let overlay = temp.path().join("eu4-save-overlay.json");
+    fs::write(
+        &overlay,
+        serde_json::json!({
+            "country_monthly_cashflows_milli": {"AAA": 125},
+            "province_is_city": {"2": true},
+            "production_inputs": {
+                "2": {
+                    "input": {
+                        "base_value_milli": 1000,
+                        "country_modifier_milli": 0,
+                        "legacy_province_modifier_milli": 0,
+                        "queried_province_modifier_milli": 0
+                    },
+                    "unresolved": []
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let combined = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&save)
+        .arg("--external-state")
+        .arg(&overlay)
+        .args(["--days", "30", "--country", "AAA"])
+        .output()
+        .unwrap();
+    assert!(
+        combined.status.success(),
+        "{}",
+        String::from_utf8_lossy(&combined.stderr)
+    );
+    let combined: serde_json::Value = serde_json::from_slice(&combined.stdout).unwrap();
+    assert_eq!(combined["simulation"]["production_settlements"], 1);
+    assert_eq!(combined["simulation"]["last_production_day"], 20);
+    assert_eq!(combined["simulation"]["cashflow_settlements"], 1);
+    assert_eq!(combined["simulation"]["last_cashflow_day"], 20);
+    assert_eq!(combined["simulation"]["naval_units"], 1);
+
+    let combined_export = temp.path().join("eu4-save-overlay-export.json");
+    let export = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&save)
+        .arg("--external-state")
+        .arg(&overlay)
+        .arg("--export-external-state")
+        .arg(&combined_export)
+        .output()
+        .unwrap();
+    assert!(
+        export.status.success(),
+        "{}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    let exported: serde_json::Value =
+        serde_json::from_slice(&fs::read(&combined_export).unwrap()).unwrap();
+    assert_eq!(exported["country_monthly_cashflows_milli"]["AAA"], 125);
+    assert_eq!(
+        exported["production_inputs"]["2"]["input"]["base_value_milli"],
+        1000
+    );
+    assert_eq!(exported["province_is_city"]["2"], true);
 }
 
 #[test]

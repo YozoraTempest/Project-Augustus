@@ -176,6 +176,18 @@ impl VanillaSaveState {
             }
         }
 
+        for (province, value) in &self.external_state.province_is_city {
+            if world.initial.province_entity(*province).is_some() {
+                state.province_is_city.insert(*province, *value);
+            }
+        }
+
+        for (province, value) in &self.external_state.province_in_empire {
+            if world.initial.province_entity(*province).is_some() {
+                state.province_in_empire.insert(*province, *value);
+            }
+        }
+
         let players = self
             .players
             .iter()
@@ -442,6 +454,36 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
         external_state
             .province_raw_autonomy_milli
             .insert(id, Some(autonomy));
+        if let Some(value) = optional_scalar(&parsed, &province, "is_city")? {
+            let is_city = match value.as_str() {
+                "yes" => true,
+                "no" => false,
+                _ => {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("province {id} has an invalid is_city flag"),
+                    ));
+                }
+            };
+            external_state.province_is_city.insert(id, Some(is_city));
+        }
+        if let Some(history) = optional_object(&parsed, &province, "history")? {
+            if let Some(value) = optional_scalar(&parsed, &history, "hre")? {
+                let in_empire = match value.as_str() {
+                    "yes" => true,
+                    "no" => false,
+                    _ => {
+                        return Err(Error::message(
+                            parsed.source(),
+                            format!("province {id} has an invalid HRE membership flag"),
+                        ));
+                    }
+                };
+                external_state
+                    .province_in_empire
+                    .insert(id, Some(in_empire));
+            }
+        }
     }
 
     Ok(VanillaSaveState {
@@ -898,8 +940,10 @@ countries={
 provinces={
 	-1={
 		owner="AAA"
+		is_city=yes
 		local_autonomy=3.500
 		history={
+			hre=yes
 			advisor={
 				type=treasurer
 				skill=1
@@ -979,6 +1023,8 @@ provinces={
             state.external_state.province_raw_autonomy_milli[&1],
             Some(3_500)
         );
+        assert_eq!(state.external_state.province_is_city[&1], Some(true));
+        assert_eq!(state.external_state.province_in_empire[&1], Some(true));
         assert_eq!(
             state.external_state.estate_privileges["AAA"]["estate_nobles"]
                 .as_ref()
