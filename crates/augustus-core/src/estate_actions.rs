@@ -178,19 +178,46 @@ impl World {
         {
             return Err(Error::Invalid("invalid estate privilege binding".into()));
         }
-        let selected = self
+        let influence = self
+            .estates
+            .privileges
+            .get(privilege)
+            .and_then(|definition| definition.influence_milli)
+            .unwrap_or(0);
+        let mut states = self
             .estates
             .countries
-            .get_mut(&entity)
-            .and_then(|s| s.get_mut(estate))
-            .filter(|s| s.active == Some(true))
-            .and_then(|s| s.privileges.as_mut())
+            .get(&entity)
+            .cloned()
+            .ok_or_else(|| Error::Invalid("estate privilege selection is unknown".into()))?;
+        let state = states
+            .get_mut(estate)
+            .filter(|state| state.active == Some(true))
+            .ok_or_else(|| Error::Invalid("estate privilege selection is unknown".into()))?;
+        let selected = state
+            .privileges
+            .as_mut()
             .ok_or_else(|| Error::Invalid("estate privilege selection is unknown".into()))?;
         let changed = if granted {
             selected.insert(privilege.into())
         } else {
             selected.remove(privilege)
         };
+        if changed && let Some(current) = state.influence_milli {
+            let delta = if granted {
+                influence
+            } else {
+                influence.checked_neg().ok_or(Error::Overflow)?
+            };
+            let next = current.checked_add(delta).ok_or(Error::Overflow)?;
+            if next < 0 {
+                return Err(Error::Invalid(
+                    "estate influence outside supported range".into(),
+                ));
+            }
+            state.influence_milli = Some(next);
+        }
+        self.estates.countries.insert(entity, states);
         if changed
             && let Some(privileges) = self.estates.resolved_privilege_effects.get_mut(&entity)
         {

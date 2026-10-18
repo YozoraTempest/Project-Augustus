@@ -42,6 +42,7 @@ fn world() -> World {
             EstatePrivilege {
                 effect: effect(-100_000),
                 land_ownership: effect(200_000),
+                ..Default::default()
             },
         )]
         .into_iter()

@@ -2289,6 +2289,23 @@ impl VanillaWorld {
                         .cloned()
                         .collect()
                 });
+        let external_privileges_by_country =
+            overrides
+                .estate_privileges
+                .map_or_else(BTreeMap::new, |values| {
+                    values
+                        .iter()
+                        .map(|(country, estates)| {
+                            let privileges = estates
+                                .values()
+                                .filter_map(|selected| selected.as_ref())
+                                .flatten()
+                                .cloned()
+                                .collect();
+                            (country.clone(), privileges)
+                        })
+                        .collect()
+                });
         let startup = crate::estates::EstateStartup::load(
             &root,
             &files,
@@ -2332,7 +2349,11 @@ impl VanillaWorld {
             &mut report.estates,
         )?;
         report.casus_belli = casus_belli.report;
-        let estates = estates.bind(&initial, &mut report.estates)?;
+        let estates = estates.bind(
+            &initial,
+            &external_privileges_by_country,
+            &mut report.estates,
+        )?;
         initial
             .set_estates(estates)
             .map_err(|e| Error::caused_by(root.path(), e))?;

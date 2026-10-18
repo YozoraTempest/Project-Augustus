@@ -48,6 +48,8 @@ pub struct EstateDefinition {
 pub struct EstatePrivilege {
     pub effect: EstateEffect,
     pub land_ownership: EstateEffect,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub influence_milli: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

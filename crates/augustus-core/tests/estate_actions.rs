@@ -120,6 +120,36 @@ fn callback_resolution_is_country_specific_saved_and_invalidated_on_selection_ch
 }
 
 #[test]
+fn privilege_selection_updates_known_influence() {
+    let mut world = world();
+    let mut estates = world.estates().clone();
+    for state in estates
+        .countries
+        .values_mut()
+        .flat_map(|states| states.values_mut())
+    {
+        state.influence_milli = Some(40_000);
+    }
+    estates
+        .privileges
+        .get_mut("charter")
+        .unwrap()
+        .influence_milli = Some(5_000);
+    world.set_estates(estates).unwrap();
+
+    world.execute(EntityId(0), &[grant(true)]).unwrap();
+    assert_eq!(
+        world.estates().countries[&EntityId(0)]["guild"].influence_milli,
+        Some(45_000)
+    );
+    world.execute(EntityId(0), &[grant(false)]).unwrap();
+    assert_eq!(
+        world.estates().countries[&EntityId(0)]["guild"].influence_milli,
+        Some(40_000)
+    );
+}
+
+#[test]
 fn metric_actions_preserve_unknowns_and_reject_invalid_changes_without_partial_metric_writes() {
     let mut world = world();
     let mut estates = world.estates().clone();

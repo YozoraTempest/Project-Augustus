@@ -266,6 +266,7 @@ impl EstateInitialization {
         privileges: &BTreeMap<String, EstatePrivilege>,
         states: &mut BTreeMap<String, EstateState>,
         lookup: &dyn Fn(&str) -> Option<bool>,
+        external_privileges: &BTreeSet<String>,
         report: &mut EstateReport,
     ) -> Result<(), Error> {
         let entity = initial.country_entity(tag).expect("registered country");
@@ -331,6 +332,22 @@ impl EstateInitialization {
                 }
                 value = value.and_then(|v| v.checked_add(extra / 10));
             }
+            if let Some(selected) = states.get(*id).and_then(|state| state.privileges.as_ref()) {
+                for privilege_id in selected {
+                    match privileges.get(privilege_id) {
+                        Some(privilege) => {
+                            if let Some(influence) = privilege.influence_milli {
+                                value = value.and_then(|v| v.checked_add(influence));
+                            }
+                        }
+                        None => {
+                            value = None;
+                            reasons
+                                .insert(format!("{id}:influence:missing_privilege:{privilege_id}"));
+                        }
+                    }
+                }
+            }
             if value.is_some_and(|v| v < 0) {
                 value = None;
                 reasons.insert(format!("{id}:unsupported_negative_initial_influence"));
@@ -365,15 +382,22 @@ impl EstateInitialization {
                 .is_disjoint(&self.privilege_revocations)
         }) || affected_privileges.any(|id| {
             self.privilege_land.contains(id)
-                || privileges
-                    .get(id)
-                    .is_none_or(|p| !p.effect.unresolved_effects.is_empty())
+                || privileges.get(id).is_none_or(|p| {
+                    !external_privileges.contains(id) && !p.effect.unresolved_effects.is_empty()
+                })
         });
         if selected_unknown || unexecuted_privilege {
             reasons.insert("unresolved_privilege_initialization".into());
         }
         if self.land_rules.is_none() {
             reasons.insert("missing_land_distribution_defines".into());
+        }
+        let influence_known =
+            !uncertain_presence && !selected_unknown && weights.iter().all(Option::is_some);
+        if influence_known {
+            for (id, influence) in active.iter().zip(weights.iter().copied().flatten()) {
+                states.get_mut(*id).unwrap().influence_milli = Some(influence);
+            }
         }
         let land_known = !uncertain_presence
             && !selected_unknown

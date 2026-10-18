@@ -8,14 +8,15 @@ use std::{
 
 use augustus_core::{
     EstateConditionalModifier, EstateConditionalScale, EstateDefinition, EstateEffect,
-    EstateLoyaltyDecay, EstatePrivilege, EstateRules, EstateState, Estates, InitialWorld,
+    EstateInfluenceBand, EstateLoyaltyDecay, EstatePrivilege, EstateRules, EstateState, Estates,
+    InitialWorld,
 };
 use jomini::text::ObjectReader;
 use serde::Serialize;
 
 use crate::bootstrap::{dated_name, direct_txt, equal, source};
 use crate::country_conditions::Condition;
-use crate::setup::{PropertyDiagnostics, block, properties};
+use crate::setup::{PropertyDiagnostics, block, micros, properties};
 use crate::{
     ContentView, Error, FileEntry, LoadedSource, ParsedText, SourceLocation, TextEncoding,
 };
@@ -263,6 +264,26 @@ impl EstateDraft {
                     let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
                     equal(op, &fail)?;
                     match name.as_str() {
+                        "influence" => {
+                            if !seen.insert(name.clone()) {
+                                return Err(fail("duplicate privilege influence"));
+                            }
+                            let value = micros(
+                                &value
+                                    .read_string()
+                                    .map_err(|_| fail("expected privilege influence"))?,
+                            )
+                            .ok_or_else(|| fail("expected numeric privilege influence"))?;
+                            if value % 10 != 0 {
+                                return Err(fail(
+                                    "privilege influence exceeds supported precision",
+                                ));
+                            }
+                            privilege.influence_milli = Some(value / 10);
+                            report
+                                .definition_sources
+                                .insert(format!("privilege:{id}:influence"), source(&parsed, at));
+                        }
                         "benefits" | "penalties" | "modifier_by_land_ownership" => {
                             if !seen.insert(name.clone()) {
                                 return Err(fail("duplicate privilege modifier block"));
@@ -420,6 +441,74 @@ impl EstateDraft {
                     .insert(format!("define:{name}"), at);
             }
         }
+        let influence_level_1 = defines.optional("NCountry", "ESTATE_INFLUENCE_LEVEL_1")?;
+        let influence_level_2 = defines.optional("NCountry", "ESTATE_INFLUENCE_LEVEL_2")?;
+        let influence_level_3 = defines.optional("NCountry", "ESTATE_INFLUENCE_LEVEL_3")?;
+        match (influence_level_1, influence_level_2, influence_level_3) {
+            (Some((level_1, at_1)), Some((level_2, at_2)), Some((level_3, at_3))) => {
+                let levels = [
+                    ("ESTATE_INFLUENCE_LEVEL_1", level_1, &at_1),
+                    ("ESTATE_INFLUENCE_LEVEL_2", level_2, &at_2),
+                    ("ESTATE_INFLUENCE_LEVEL_3", level_3, &at_3),
+                ];
+                for (name, level, at) in &levels {
+                    if level % 1000 != 0 {
+                        return Err(Error::message(
+                            &at.path,
+                            format!("{name} exceeds supported precision"),
+                        ));
+                    }
+                    if !(0..=100_000_000).contains(level) {
+                        return Err(Error::message(
+                            &at.path,
+                            format!("{name} is outside the supported range"),
+                        ));
+                    }
+                    report
+                        .definition_sources
+                        .insert(format!("define:{name}"), (*at).clone());
+                }
+                if level_1 >= level_2 {
+                    return Err(Error::message(
+                        &at_2.path,
+                        "estate influence levels must be strictly increasing",
+                    ));
+                }
+                if level_2 >= level_3 {
+                    return Err(Error::message(
+                        &at_3.path,
+                        "estate influence levels must be strictly increasing",
+                    ));
+                }
+                let levels = [level_1 / 1000, level_2 / 1000, level_3 / 1000];
+                rules.influence_bands = Some(
+                    [
+                        (0, 250_000),
+                        (levels[0], 500_000),
+                        (levels[1], 750_000),
+                        (levels[2], 1_000_000),
+                    ]
+                    .into_iter()
+                    .map(|(minimum_milli, scale_micros)| EstateInfluenceBand {
+                        minimum_milli,
+                        scale_micros,
+                    })
+                    .collect(),
+                );
+            }
+            (None, None, None) => {}
+            (level_1, level_2, level_3) => {
+                let at = level_1
+                    .or(level_2)
+                    .or(level_3)
+                    .map(|(_, at)| at)
+                    .expect("partial influence levels have a source");
+                return Err(Error::message(
+                    &at.path,
+                    "estate influence levels must be provided together",
+                ));
+            }
+        }
         if let Some((base, at)) = defines.optional("NCountry", "ESTATE_DEFAULT_LOYALTY")? {
             if base % 1000 != 0 {
                 return Err(Error::message(
@@ -574,6 +663,7 @@ impl EstateDraft {
     pub(super) fn bind(
         mut self,
         initial: &InitialWorld,
+        external_privileges: &BTreeMap<String, BTreeSet<String>>,
         report: &mut EstateReport,
     ) -> Result<Estates, Error> {
         if self.content.definitions.is_empty() {
@@ -720,6 +810,10 @@ impl EstateDraft {
                     &mut BTreeSet::new(),
                 )
             };
+            let empty_external_privileges = BTreeSet::new();
+            let country_external_privileges = external_privileges
+                .get(&country.id)
+                .unwrap_or(&empty_external_privileges);
             self.initialization.bind(
                 initial,
                 &country.id,
@@ -727,6 +821,7 @@ impl EstateDraft {
                 &self.content.privileges,
                 &mut states,
                 &lookup,
+                country_external_privileges,
                 report,
             )?;
             if !reasons.is_empty() {

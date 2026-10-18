@@ -1676,6 +1676,73 @@ fn translated_content_matches_native_core_with_known_loyalty_and_unknown_influen
 }
 
 #[test]
+fn influence_initialization_uses_defines_and_selected_privileges() {
+    let temp = copy_fixture();
+    write(
+        temp.path(),
+        "common/estates/test.txt",
+        "guild = { trigger = { tag = AAA } base_influence = 10 country_modifier_neutral = { global_tax_modifier = 0.2 } privileges = { charter } } inactive = { trigger = { always = no } }",
+    );
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        "charter = { influence = 0.05 benefits = { global_tax_modifier = 0.1 } is_valid = { always = yes } on_granted = {} }",
+    );
+    let path = "common/defines.lua";
+    let defines = fs::read_to_string(temp.path().join(path)).unwrap();
+    write(
+        temp.path(),
+        path,
+        &defines.replace(
+            "ESTATE_HAPPY_THRESHOLD = 60,",
+            "ESTATE_HAPPY_THRESHOLD = 60,\n        ESTATE_INFLUENCE_LEVEL_1 = 20,\n        ESTATE_INFLUENCE_LEVEL_2 = 40,\n        ESTATE_INFLUENCE_LEVEL_3 = 60,",
+        ),
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let state = &loaded.country("AAA").unwrap().estates.unwrap()["guild"];
+    assert_eq!(state.influence_milli, Some(15_000));
+    assert_eq!(
+        loaded.initial.world().estates().privileges["charter"].influence_milli,
+        Some(5_000)
+    );
+    assert_eq!(
+        loaded.initial.world().estates().rules.influence_bands,
+        Some(
+            [
+                (0, 250_000),
+                (20_000, 500_000),
+                (40_000, 750_000),
+                (60_000, 1_000_000),
+            ]
+            .into_iter()
+            .map(
+                |(minimum_milli, scale_micros)| augustus_core::EstateInfluenceBand {
+                    minimum_milli,
+                    scale_micros,
+                }
+            )
+            .collect()
+        )
+    );
+    assert!(
+        loaded
+            .report
+            .estates
+            .definition_sources
+            .contains_key("privilege:charter:influence")
+    );
+    assert!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .unresolved
+            .is_empty()
+    );
+}
+
+#[test]
 fn dependency_conditions_macros_and_unknowns_select_without_order_guesses() {
     let temp = copy_fixture();
     write(
@@ -2877,11 +2944,11 @@ fn government_and_attached_modifiers_contribute_before_historical_privileges() {
     );
     let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     let states = loaded.country("AAA").unwrap().estates.unwrap();
-    assert_eq!(states["estate_guild"].land_share_micros, Some(266_660));
-    assert_eq!(states["estate_council"].land_share_micros, Some(200_000));
-    assert_eq!(states["estate_order"].land_share_micros, Some(133_340));
+    assert_eq!(states["estate_guild"].land_share_micros, Some(418_460));
+    assert_eq!(states["estate_council"].land_share_micros, Some(108_920));
+    assert_eq!(states["estate_order"].land_share_micros, Some(72_620));
     assert_eq!(states["estate_guild"].loyalty_milli, Some(50_000));
-    assert!(states["estate_guild"].influence_milli.is_none());
+    assert_eq!(states["estate_guild"].influence_milli, Some(138_000));
 }
 
 #[test]
