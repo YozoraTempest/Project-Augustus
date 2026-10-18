@@ -7,7 +7,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use augustus_core::{EntityKind, NationalFocus, ProvinceClass, RulerSkill, Schema, World};
+use augustus_core::{
+    Action, EntityId, EntityKind, Error, MonthlyPipeline, MonthlySystem, NationalFocus,
+    ProvinceClass, RulerSkill, Schema, World,
+};
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
     VanillaExternalArmy, VanillaExternalNavalUnit, VanillaExternalState, VanillaWorld,
@@ -48,6 +51,29 @@ fn selected_idea(loaded: &VanillaWorld, tag: &str) -> Option<String> {
         .groups
         .as_ref()
         .and_then(|groups| groups.keys().next().cloned())
+}
+
+struct PipelinePhase {
+    id: &'static str,
+    country: EntityId,
+    message: &'static str,
+}
+
+impl MonthlySystem for PipelinePhase {
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        if world.entity(self.country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid("pipeline phase requires a country".into()));
+        }
+        Ok(())
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        world.execute(self.country, &[Action::Emit(self.message.into())])
+    }
 }
 
 #[test]
@@ -1752,5 +1778,58 @@ fn wrong_version_dimensions_and_dates_fail_before_publishing_a_world() {
             .unwrap_err()
             .to_string()
             .contains("dimensions")
+    );
+}
+
+#[test]
+fn loaded_vanilla_world_can_select_and_resume_a_monthly_pipeline() {
+    let mut loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let world_phase = PipelinePhase {
+        id: "fixture-world:v1",
+        country,
+        message: "world",
+    };
+    let parallel_phase = PipelinePhase {
+        id: "fixture-parallel:v1",
+        country,
+        message: "parallel",
+    };
+    let serial_phase = PipelinePhase {
+        id: "fixture-serial:v1",
+        country,
+        message: "serial",
+    };
+    let pipeline = MonthlyPipeline::new(
+        "fixture-monthly-pipeline:v1",
+        Some(&world_phase),
+        Some(&parallel_phase),
+        Some(&serial_phase),
+    )
+    .unwrap();
+
+    loaded.select_monthly_system(&pipeline).unwrap();
+    loaded
+        .advance_with_systems(21, None, Some(&pipeline))
+        .unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|event| event.2.as_str())
+            .collect::<Vec<_>>(),
+        ["world", "parallel", "serial"]
+    );
+
+    let save = loaded.save().unwrap();
+    let mut resumed = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    resumed.select_monthly_system(&pipeline).unwrap();
+    resumed.restore(&save).unwrap();
+    assert_eq!(resumed.initial.world().day(), 21);
+    assert_eq!(
+        resumed.initial.world().monthly_system_id(),
+        Some("fixture-monthly-pipeline:v1")
     );
 }

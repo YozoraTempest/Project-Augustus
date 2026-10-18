@@ -411,6 +411,17 @@ impl InitialWorld {
         self.world.set_calendar(calendar)
     }
 
+    pub fn select_monthly_system(
+        &mut self,
+        system: &dyn crate::MonthlySystem,
+    ) -> Result<(), Error> {
+        self.world.select_monthly_system(system)
+    }
+
+    pub fn monthly_system_id(&self) -> Option<&str> {
+        self.world.monthly_system_id()
+    }
+
     pub fn select_daily_system(&mut self, system: &dyn crate::DailySystem) -> Result<(), Error> {
         self.world.select_daily_system(system)
     }

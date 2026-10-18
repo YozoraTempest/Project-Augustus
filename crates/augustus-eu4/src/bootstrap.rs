@@ -2379,6 +2379,13 @@ impl VanillaWorld {
         self.initial.select_daily_system(system)
     }
 
+    pub fn select_monthly_system(
+        &mut self,
+        system: &dyn augustus_core::MonthlySystem,
+    ) -> Result<(), augustus_core::Error> {
+        self.initial.select_monthly_system(system)
+    }
+
     pub fn select_yearly_system(
         &mut self,
         system: &dyn augustus_core::YearlySystem,
