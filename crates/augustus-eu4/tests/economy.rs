@@ -3,7 +3,7 @@
 
 use augustus_core::{CountryResources, VanillaProductionInput, World};
 use augustus_eu4::{
-    VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
+    CashflowBreakdown, VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
     VanillaContentProductionValueInput, VanillaExternalProductionInput, VanillaExternalState,
     VanillaProductionInputState, VanillaProvinceProductionBaseValueInput,
     VanillaTradeGoodsSizeInput, VanillaWorld,
@@ -392,6 +392,33 @@ fn external_country_cashflows_bind_after_production_and_preserve_unknown_tax_sta
     assert_eq!(
         loaded.initial.world().country_resources()[&country].treasury_milli,
         None
+    );
+}
+
+#[test]
+fn external_cashflow_breakdowns_bind_category_slots_before_settlement() {
+    let state = VanillaExternalState {
+        country_monthly_cashflow_breakdowns: BTreeMap::from([(
+            "AAA".into(),
+            CashflowBreakdown {
+                trade_milli: Some(100),
+                gold_milli: Some(40),
+                expenses_milli: Some(30),
+            },
+        )]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let cashflows = loaded.initial.world().monthly_cashflows().unwrap();
+    assert_eq!(cashflows.amounts_milli[&country], Some(110));
+    assert_eq!(
+        cashflows.breakdowns[&country],
+        CashflowBreakdown {
+            trade_milli: Some(100),
+            gold_milli: Some(40),
+            expenses_milli: Some(30),
+        }
     );
 }
 

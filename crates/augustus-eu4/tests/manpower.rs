@@ -267,6 +267,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
             BTreeMap::from([("estate_guild".into(), Some(44_600))]),
         )]),
         country_monthly_cashflows_milli: Default::default(),
+        country_monthly_cashflow_breakdowns: Default::default(),
         country_monthly_power_income: Default::default(),
         advisors: Default::default(),
         armies: Default::default(),

@@ -7,10 +7,10 @@ use std::{
 };
 
 use augustus_core::{
-    Calendar, CountryResources, CountryState, EntityKind, InitialWorld, MonthlyExternalCashflows,
-    MonthlyProduction, ProvinceClass, ProvinceState, Taxation, TechnologyProperty,
-    VanillaProductionBaseValueInput, VanillaProductionBaseValueResult, VanillaProductionInput,
-    VanillaTradeGoodPriceInput, VanillaTradeGoodsSizeInput, WorldDate,
+    Calendar, CashflowBreakdown, CountryResources, CountryState, EntityKind, InitialWorld,
+    MonthlyExternalCashflows, MonthlyProduction, ProvinceClass, ProvinceState, Taxation,
+    TechnologyProperty, VanillaProductionBaseValueInput, VanillaProductionBaseValueResult,
+    VanillaProductionInput, VanillaTradeGoodPriceInput, VanillaTradeGoodsSizeInput, WorldDate,
     calculate_vanilla_production_base_value, calculate_vanilla_trade_good_price,
     calculate_vanilla_trade_goods_size,
 };
@@ -377,6 +377,10 @@ pub struct VanillaExternalState {
     pub estate_loyalty_targets: BTreeMap<String, BTreeMap<String, Option<i64>>>,
     #[serde(default)]
     pub country_monthly_cashflows_milli: BTreeMap<String, Option<i64>>,
+    /// Monthly ledger categories already translated by a compatibility
+    /// provider. Trade and gold are receipts; expenses are a positive cost.
+    #[serde(default)]
+    pub country_monthly_cashflow_breakdowns: BTreeMap<String, CashflowBreakdown>,
     /// Verified monthly monarch-power income supplied by a compatibility
     /// provider. Keys are EU4 metric names (`adm_power`, `dip_power`, and
     /// `mil_power`); values use the metric's integer units.
@@ -423,6 +427,7 @@ struct LoadOverrides<'a> {
     country_statuses: Option<&'a VanillaExternalCountryStatuses>,
     estate_loyalty_targets: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_monthly_cashflows_milli: Option<&'a BTreeMap<String, Option<i64>>>,
+    country_monthly_cashflow_breakdowns: Option<&'a BTreeMap<String, CashflowBreakdown>>,
     country_monthly_power_income: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     armies: Option<&'a [VanillaExternalArmy]>,
     naval_units: Option<&'a [VanillaExternalNavalUnit]>,
@@ -468,6 +473,10 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.estate_loyalty_targets),
             country_monthly_cashflows_milli: (!state.country_monthly_cashflows_milli.is_empty())
                 .then_some(&state.country_monthly_cashflows_milli),
+            country_monthly_cashflow_breakdowns: (!state
+                .country_monthly_cashflow_breakdowns
+                .is_empty())
+            .then_some(&state.country_monthly_cashflow_breakdowns),
             country_monthly_power_income: (!state.country_monthly_power_income.is_empty())
                 .then_some(&state.country_monthly_power_income),
             armies: (!state.armies.is_empty()).then_some(state.armies.as_slice()),
@@ -552,6 +561,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     );
     base.country_monthly_cashflows_milli
         .extend(overlay.country_monthly_cashflows_milli.clone());
+    base.country_monthly_cashflow_breakdowns
+        .extend(overlay.country_monthly_cashflow_breakdowns.clone());
     overlay_nested_map(
         &mut base.country_monthly_power_income,
         &overlay.country_monthly_power_income,
@@ -2547,21 +2558,61 @@ impl VanillaWorld {
         initial
             .set_taxation(taxation)
             .map_err(|e| Error::caused_by(root.path(), e))?;
-        if let Some(cashflows) = overrides.country_monthly_cashflows_milli {
-            let bound = cashflows
-                .iter()
-                .map(|(country, amount)| {
-                    let entity = initial.country_entity(country).ok_or_else(|| {
-                        Error::message(
-                            "external monthly cashflows",
-                            format!("unknown EU4 cashflow country {country}"),
-                        )
-                    })?;
-                    Ok((entity, *amount))
+        if overrides.country_monthly_cashflows_milli.is_some()
+            || overrides.country_monthly_cashflow_breakdowns.is_some()
+        {
+            let mut bound = overrides
+                .country_monthly_cashflows_milli
+                .map(|cashflows| {
+                    cashflows
+                        .iter()
+                        .map(|(country, amount)| {
+                            let entity = initial.country_entity(country).ok_or_else(|| {
+                                Error::message(
+                                    "external monthly cashflows",
+                                    format!("unknown EU4 cashflow country {country}"),
+                                )
+                            })?;
+                            Ok((entity, *amount))
+                        })
+                        .collect::<Result<BTreeMap<_, _>, Error>>()
                 })
-                .collect::<Result<BTreeMap<_, _>, Error>>()?;
+                .transpose()?
+                .unwrap_or_default();
+            if bound.is_empty()
+                && let Some(breakdowns) = overrides.country_monthly_cashflow_breakdowns
+            {
+                bound = breakdowns
+                    .iter()
+                    .map(|(country, breakdown)| {
+                        let entity = initial.country_entity(country).ok_or_else(|| {
+                            Error::message(
+                                "external monthly cashflow breakdowns",
+                                format!("unknown EU4 cashflow country {country}"),
+                            )
+                        })?;
+                        Ok((entity, breakdown.net_milli()))
+                    })
+                    .collect::<Result<BTreeMap<_, _>, Error>>()?;
+            }
+            let mut external = MonthlyExternalCashflows::new(bound);
+            if let Some(breakdowns) = overrides.country_monthly_cashflow_breakdowns {
+                let bound_breakdowns = breakdowns
+                    .iter()
+                    .map(|(country, breakdown)| {
+                        let entity = initial.country_entity(country).ok_or_else(|| {
+                            Error::message(
+                                "external monthly cashflow breakdowns",
+                                format!("unknown EU4 cashflow country {country}"),
+                            )
+                        })?;
+                        Ok((entity, breakdown.clone()))
+                    })
+                    .collect::<Result<BTreeMap<_, _>, Error>>()?;
+                external = external.with_breakdowns(bound_breakdowns);
+            }
             initial
-                .set_monthly_cashflows(Some(MonthlyExternalCashflows::new(bound)))
+                .set_monthly_cashflows(Some(external))
                 .map_err(|e| Error::caused_by("external monthly cashflows", e))?;
         }
         initial
@@ -3340,6 +3391,37 @@ impl VanillaWorld {
         } else {
             self.initial
                 .set_monthly_cashflows(Some(MonthlyExternalCashflows::new(bound)))
+        }
+    }
+
+    /// Binds the verified monthly ledger categories for translated cashflows.
+    /// Trade and gold are positive receipts; expenses are supplied as a
+    /// positive amount and subtracted when all three categories are known.
+    pub fn set_country_monthly_cashflow_breakdowns(
+        &mut self,
+        breakdowns: BTreeMap<String, CashflowBreakdown>,
+    ) -> Result<(), augustus_core::Error> {
+        let bound = breakdowns
+            .into_iter()
+            .map(|(country, breakdown)| {
+                let entity = self.initial.country_entity(&country).ok_or_else(|| {
+                    augustus_core::Error::Invalid(format!(
+                        "unknown EU4 cashflow breakdown country {country}"
+                    ))
+                })?;
+                Ok((entity, breakdown))
+            })
+            .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
+        if self.initial.monthly_cashflows().is_some() {
+            self.initial.set_monthly_cashflow_breakdowns(bound)
+        } else {
+            let amounts = bound
+                .iter()
+                .map(|(&country, breakdown)| (country, breakdown.net_milli()))
+                .collect();
+            self.initial.set_monthly_cashflows(Some(
+                MonthlyExternalCashflows::new(amounts).with_breakdowns(bound),
+            ))
         }
     }
 

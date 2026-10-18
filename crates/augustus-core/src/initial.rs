@@ -474,6 +474,13 @@ impl InitialWorld {
         self.world.set_monthly_cashflow_inputs(amounts_milli)
     }
 
+    pub fn set_monthly_cashflow_breakdowns(
+        &mut self,
+        breakdowns: BTreeMap<EntityId, crate::CashflowBreakdown>,
+    ) -> Result<(), Error> {
+        self.world.set_monthly_cashflow_breakdowns(breakdowns)
+    }
+
     pub fn monthly_cashflows(&self) -> Option<&crate::MonthlyExternalCashflows> {
         self.world.monthly_cashflows()
     }
@@ -580,6 +587,8 @@ impl InitialWorld {
                 != self.world.monthly_production().map(|p| &p.inputs)
             || restored.monthly_cashflows().map(|c| &c.amounts_milli)
                 != self.world.monthly_cashflows().map(|c| &c.amounts_milli)
+            || restored.monthly_cashflows().map(|c| &c.breakdowns)
+                != self.world.monthly_cashflows().map(|c| &c.breakdowns)
             || restored
                 .taxation()
                 .map(|t| (&t.annual_attribute, &t.countries))

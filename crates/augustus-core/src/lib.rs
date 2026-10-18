@@ -73,7 +73,9 @@ pub use attributes::{
     MONTHLY_AUTONOMY_DELTA_ATTRIBUTE,
 };
 pub use calendar::Calendar;
-pub use cashflows::{CashflowAccount, CashflowSettlement, MonthlyExternalCashflows};
+pub use cashflows::{
+    CashflowAccount, CashflowBreakdown, CashflowSettlement, MonthlyExternalCashflows,
+};
 pub use completions::Completions;
 pub use control::CountryController;
 pub use convergence::{

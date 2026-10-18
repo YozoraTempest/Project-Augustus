@@ -7,10 +7,32 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// The externally supplied monthly income categories observed in EU4's
+/// treasury ledger. `expenses_milli` is a positive amount and is subtracted
+/// when the net cashflow is derived.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CashflowBreakdown {
+    pub trade_milli: Option<i64>,
+    pub gold_milli: Option<i64>,
+    pub expenses_milli: Option<i64>,
+}
+
+impl CashflowBreakdown {
+    pub fn net_milli(&self) -> Option<i64> {
+        self.trade_milli
+            .zip(self.gold_milli)
+            .zip(self.expenses_milli)
+            .and_then(|((trade, gold), expenses)| trade.checked_add(gold)?.checked_sub(expenses))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CashflowAccount {
     pub amount_milli: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub breakdown: Option<CashflowBreakdown>,
     pub treasury_before_milli: Option<i64>,
     pub treasury_after_milli: Option<i64>,
     pub credited_milli: Option<i64>,
@@ -33,6 +55,8 @@ pub struct CashflowSettlement {
 #[serde(deny_unknown_fields)]
 pub struct MonthlyExternalCashflows {
     pub amounts_milli: BTreeMap<EntityId, Option<i64>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub breakdowns: BTreeMap<EntityId, CashflowBreakdown>,
     pub settlement_count: u64,
     pub last_settlement: Option<CashflowSettlement>,
 }
@@ -41,9 +65,40 @@ impl MonthlyExternalCashflows {
     pub fn new(amounts_milli: BTreeMap<EntityId, Option<i64>>) -> Self {
         Self {
             amounts_milli,
+            breakdowns: BTreeMap::new(),
             settlement_count: 0,
             last_settlement: None,
         }
+    }
+
+    pub fn with_breakdowns(mut self, breakdowns: BTreeMap<EntityId, CashflowBreakdown>) -> Self {
+        self.breakdowns = breakdowns;
+        self
+    }
+
+    fn validate_breakdowns(&self, world: &World) -> Result<(), Error> {
+        for (&country, breakdown) in &self.breakdowns {
+            if world.entity(country)?.kind != EntityKind::Country
+                || !self.amounts_milli.contains_key(&country)
+            {
+                return Err(Error::Invalid(
+                    "cashflow breakdown requires a matching country amount".into(),
+                ));
+            }
+            if breakdown.expenses_milli.is_some_and(|value| value < 0) {
+                return Err(Error::Invalid(
+                    "cashflow expenses must be nonnegative".into(),
+                ));
+            }
+            if let (Some(amount), Some(net)) = (self.amounts_milli[&country], breakdown.net_milli())
+                && amount != net
+            {
+                return Err(Error::Invalid(
+                    "cashflow amount disagrees with its category breakdown".into(),
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn prepare(
@@ -55,6 +110,7 @@ impl MonthlyExternalCashflows {
         self.settlement_count
             .checked_add(1)
             .ok_or(Error::Overflow)?;
+        self.validate_breakdowns(world)?;
         let mut accounts = BTreeMap::new();
         for (&country, &amount) in &self.amounts_milli {
             if world.entity(country)?.kind != EntityKind::Country {
@@ -63,6 +119,16 @@ impl MonthlyExternalCashflows {
                 ));
             }
             let mut unresolved = BTreeSet::new();
+            let breakdown = self.breakdowns.get(&country).cloned();
+            let amount = match (
+                amount,
+                breakdown.as_ref().and_then(CashflowBreakdown::net_milli),
+            ) {
+                (Some(amount), Some(net)) if amount == net => Some(amount),
+                (Some(amount), _) => Some(amount),
+                (None, Some(net)) => Some(net),
+                (None, None) => None,
+            };
             let (before, dependency_reason) = if let Some(account) =
                 production.and_then(|settlement| settlement.accounts.get(&country))
             {
@@ -98,6 +164,7 @@ impl MonthlyExternalCashflows {
                 country,
                 CashflowAccount {
                     amount_milli: amount,
+                    breakdown,
                     treasury_before_milli: before,
                     treasury_after_milli: after.filter(|_| unresolved.is_empty()),
                     credited_milli: credited,
@@ -134,6 +201,7 @@ impl MonthlyExternalCashflows {
                 "invalid monthly cashflow rules or settlement count".into(),
             ));
         }
+        self.validate_breakdowns(world)?;
         for &country in self.amounts_milli.keys() {
             if world.entity(country)?.kind != EntityKind::Country {
                 return Err(Error::Invalid(
@@ -172,6 +240,14 @@ impl MonthlyExternalCashflows {
                             || account.credited_milli != account.amount_milli)
                     {
                         return Err(Error::Invalid("invalid saved cashflow receipt".into()));
+                    }
+                    if let Some(breakdown) = &account.breakdown
+                        && let Some(net) = breakdown.net_milli()
+                        && account.amount_milli != Some(net)
+                    {
+                        return Err(Error::Invalid(
+                            "saved cashflow breakdown disagrees with amount".into(),
+                        ));
                     }
                     if !account.unresolved.is_empty()
                         && (account.treasury_after_milli.is_some()
@@ -236,6 +312,21 @@ impl World {
         };
         let mut replacement = current.clone();
         replacement.amounts_milli = amounts_milli;
+        replacement.validate(self)?;
+        self.monthly_cashflows = Some(replacement);
+        Ok(())
+    }
+
+    pub fn set_monthly_cashflow_breakdowns(
+        &mut self,
+        breakdowns: BTreeMap<EntityId, CashflowBreakdown>,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        let Some(current) = self.monthly_cashflows.as_ref() else {
+            return Err(Error::Invalid("monthly cashflows are not selected".into()));
+        };
+        let mut replacement = current.clone();
+        replacement.breakdowns = breakdowns;
         replacement.validate(self)?;
         self.monthly_cashflows = Some(replacement);
         Ok(())

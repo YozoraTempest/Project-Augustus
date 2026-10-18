@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    AttributeBase, AttributeFormula, Attributes, Calendar, CountryResources, EntityId, EntityKind,
-    MonthlyExternalCashflows, MonthlyProduction, Schema, Taxation, VanillaProductionInput,
-    VanillaProductionInputState, World, WorldDate,
+    AttributeBase, AttributeFormula, Attributes, Calendar, CashflowBreakdown, CountryResources,
+    EntityId, EntityKind, MonthlyExternalCashflows, MonthlyProduction, Schema, Taxation,
+    VanillaProductionInput, VanillaProductionInputState, World, WorldDate,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -223,6 +223,60 @@ fn external_cashflows_settle_after_production_and_round_trip() {
     let saved = world.save("external-cashflows").unwrap();
     let restored = World::restore(&saved, "external-cashflows", world.schema()).unwrap();
     assert_eq!(restored, world);
+}
+
+#[test]
+fn cashflow_breakdowns_derive_net_receipts_and_round_trip() {
+    let (mut world, country) = world(known_input());
+    let breakdown = CashflowBreakdown {
+        trade_milli: Some(100),
+        gold_milli: Some(40),
+        expenses_milli: Some(30),
+    };
+    world
+        .set_monthly_cashflows(Some(
+            MonthlyExternalCashflows::new(BTreeMap::from([(country, None)]))
+                .with_breakdowns(BTreeMap::from([(country, breakdown.clone())])),
+        ))
+        .unwrap();
+    world.advance_to(20).unwrap();
+
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(10_194)
+    );
+    let account = &world
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.amount_milli, Some(110));
+    assert_eq!(account.breakdown, Some(breakdown));
+    assert_eq!(account.credited_milli, Some(110));
+
+    let saved = world.save("cashflow-breakdown").unwrap();
+    let restored = World::restore(&saved, "cashflow-breakdown", world.schema()).unwrap();
+    assert_eq!(restored, world);
+}
+
+#[test]
+fn cashflow_breakdown_rejects_a_conflicting_explicit_net_amount() {
+    let (mut world, country) = world(known_input());
+    let result = world.set_monthly_cashflows(Some(
+        MonthlyExternalCashflows::new(BTreeMap::from([(country, Some(111))])).with_breakdowns(
+            BTreeMap::from([(
+                country,
+                CashflowBreakdown {
+                    trade_milli: Some(100),
+                    gold_milli: Some(40),
+                    expenses_milli: Some(30),
+                },
+            )]),
+        ),
+    ));
+    assert!(result.is_err());
 }
 
 #[test]
