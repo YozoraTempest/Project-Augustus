@@ -9,7 +9,7 @@ use std::{
 
 use augustus_core::{
     Action, EntityId, EntityKind, Error, MonthlyPipeline, MonthlySystem, NationalFocus,
-    ProvinceClass, RulerSkill, Schema, World,
+    ProvinceClass, RulerSkill, Schema, World, YearlyPipeline, YearlySystem,
 };
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
@@ -60,6 +60,23 @@ struct PipelinePhase {
 }
 
 impl MonthlySystem for PipelinePhase {
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        if world.entity(self.country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid("pipeline phase requires a country".into()));
+        }
+        Ok(())
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        world.execute(self.country, &[Action::Emit(self.message.into())])
+    }
+}
+
+impl YearlySystem for PipelinePhase {
     fn id(&self) -> &str {
         self.id
     }
@@ -1831,5 +1848,50 @@ fn loaded_vanilla_world_can_select_and_resume_a_monthly_pipeline() {
     assert_eq!(
         resumed.initial.world().monthly_system_id(),
         Some("fixture-monthly-pipeline:v1")
+    );
+}
+
+#[test]
+fn loaded_vanilla_world_can_select_and_resume_a_yearly_pipeline() {
+    let mut loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let world_phase = PipelinePhase {
+        id: "fixture-yearly-world:v1",
+        country,
+        message: "yearly-world",
+    };
+    let country_phase = PipelinePhase {
+        id: "fixture-yearly-country:v1",
+        country,
+        message: "yearly-country",
+    };
+    let pipeline = YearlyPipeline::new(
+        "fixture-yearly-pipeline:v1",
+        Some(&world_phase),
+        Some(&country_phase),
+    )
+    .unwrap();
+
+    loaded.select_yearly_system(&pipeline).unwrap();
+    loaded.advance_with_yearly_system(52, &pipeline).unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .map(|event| event.2.as_str())
+            .collect::<Vec<_>>(),
+        ["yearly-world", "yearly-country"]
+    );
+
+    let save = loaded.save().unwrap();
+    let mut resumed = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    resumed.select_yearly_system(&pipeline).unwrap();
+    resumed.restore(&save).unwrap();
+    assert_eq!(resumed.initial.world().day(), 52);
+    assert_eq!(
+        resumed.initial.world().yearly_system_id(),
+        Some("fixture-yearly-pipeline:v1")
     );
 }
