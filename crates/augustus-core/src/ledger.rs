@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -372,6 +372,56 @@ impl World {
         for (&country, ledger) in &ledgers {
             self.require_country(country)?;
             ledger.validate()?;
+        }
+        self.country_ledgers = ledgers;
+        Ok(())
+    }
+
+    /// Consolidates every loaded country ledger at the monthly boundary.
+    ///
+    /// The compatibility layer supplies the expense categories that are
+    /// excluded from the player-facing filtered total. The operation is
+    /// staged on a clone so an overflow or invalid filter cannot leave only
+    /// part of the country set consolidated.
+    pub fn consolidate_country_ledgers_monthly(
+        &mut self,
+        expense_filtered_categories: &BTreeMap<EntityId, BTreeSet<u32>>,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        for (&country, categories) in expense_filtered_categories {
+            self.require_country(country)?;
+            if !self.country_ledgers.contains_key(&country) {
+                return Err(Error::Invalid("country ledger is unknown".into()));
+            }
+            if categories
+                .iter()
+                .any(|category| *category >= COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT)
+            {
+                return Err(Error::Invalid(
+                    "country ledger expense filter category is outside 0..38".into(),
+                ));
+            }
+        }
+
+        let mut ledgers = self.country_ledgers.clone();
+        for (&country, ledger) in &mut ledgers {
+            let categories = expense_filtered_categories
+                .get(&country)
+                .cloned()
+                .unwrap_or_default();
+            ledger.consolidate_monthly(&categories)?;
+        }
+        self.country_ledgers = ledgers;
+        Ok(())
+    }
+
+    /// Performs the annual country-ledger rollover for every loaded country.
+    /// The rollover is staged so every country observes the same boundary.
+    pub fn rollover_country_ledgers_annual(&mut self) -> Result<(), Error> {
+        self.require_running()?;
+        let mut ledgers = self.country_ledgers.clone();
+        for ledger in ledgers.values_mut() {
+            ledger.rollover_annual()?;
         }
         self.country_ledgers = ledgers;
         Ok(())

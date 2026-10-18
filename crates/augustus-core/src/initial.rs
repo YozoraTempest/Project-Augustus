@@ -728,6 +728,18 @@ impl InitialWorld {
         self.world.set_country_ledgers(ledgers)
     }
 
+    pub fn consolidate_country_ledgers_monthly(
+        &mut self,
+        expense_filtered_categories: &BTreeMap<EntityId, BTreeSet<u32>>,
+    ) -> Result<(), Error> {
+        self.world
+            .consolidate_country_ledgers_monthly(expense_filtered_categories)
+    }
+
+    pub fn rollover_country_ledgers_annual(&mut self) -> Result<(), Error> {
+        self.world.rollover_country_ledgers_annual()
+    }
+
     pub fn set_estate_loyalty_targets(
         &mut self,
         targets: BTreeMap<EntityId, BTreeMap<String, Option<i64>>>,

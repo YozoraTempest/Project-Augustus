@@ -3571,6 +3571,32 @@ impl VanillaWorld {
         self.initial.set_country_ledgers(bound)
     }
 
+    /// Consolidates translated country ledgers at the native monthly boundary.
+    /// Omitted countries use an empty filtered-expense set; unknown EU4 tags
+    /// fail before any ledger is changed.
+    pub fn consolidate_country_ledgers_monthly(
+        &mut self,
+        expense_filtered_categories: BTreeMap<String, BTreeSet<u32>>,
+    ) -> Result<(), augustus_core::Error> {
+        let bound = expense_filtered_categories
+            .into_iter()
+            .map(|(country, categories)| {
+                let entity = self.initial.country_entity(&country).ok_or_else(|| {
+                    augustus_core::Error::Invalid(format!(
+                        "unknown EU4 ledger filter country {country}"
+                    ))
+                })?;
+                Ok((entity, categories))
+            })
+            .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
+        self.initial.consolidate_country_ledgers_monthly(&bound)
+    }
+
+    /// Performs the translated country-ledger annual rollover.
+    pub fn rollover_country_ledgers_annual(&mut self) -> Result<(), augustus_core::Error> {
+        self.initial.rollover_country_ledgers_annual()
+    }
+
     /// Applies signed monthly cashflows supplied by another simulation or a
     /// translated save reader. Positive values are receipts; negative values
     /// are expenses. The core settles them after tax and production.

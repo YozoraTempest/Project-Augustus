@@ -148,6 +148,47 @@ fn expense_categories_extend_to_relation_slots_23_and_24() {
 }
 
 #[test]
+fn monthly_consolidation_runs_after_relation_expense_and_annual_rollover_is_explicit() {
+    let (mut world, country) = world();
+    world.record_delayed_country_income(country, 1, 40).unwrap();
+    assert_eq!(world.flush_country_pending(country).unwrap(), 140);
+
+    world.record_country_expense(country, 23, 10).unwrap();
+    world
+        .consolidate_country_ledgers_monthly(&BTreeMap::new())
+        .unwrap();
+
+    let ledger = &world.country_ledgers()[&country];
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(130)
+    );
+    assert_eq!(ledger.expense_snapshot_milli[23], 10);
+    assert_eq!(ledger.expense_total_milli, 10);
+    assert_eq!(ledger.expense_filtered_total_milli, 10);
+    assert_eq!(ledger.expense_sources_milli[23], 0);
+
+    world.rollover_country_ledgers_annual().unwrap();
+    let ledger = &world.country_ledgers()[&country];
+    assert_eq!(ledger.income_rollover_milli[1], 40);
+    assert_eq!(ledger.expense_rollover_milli[23], 10);
+    assert_eq!(ledger.income_rollover_total_milli, 40);
+    assert_eq!(ledger.expense_rollover_total_milli, 10);
+    assert!(
+        ledger
+            .income_accumulator_milli
+            .iter()
+            .all(|value| *value == 0)
+    );
+    assert!(
+        ledger
+            .expense_accumulator_milli
+            .iter()
+            .all(|value| *value == 0)
+    );
+}
+
+#[test]
 fn monthly_and_annual_ledger_vectors_consolidate_in_their_native_order() {
     let mut ledger = CountryLedger {
         income_sources_milli: vec![0; 19],

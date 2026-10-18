@@ -77,6 +77,37 @@ fn country_ledgers_bind_by_eu4_tag_before_startup() {
     assert_eq!(loaded.initial.world().country_ledgers()[&country], ledger);
 }
 
+#[test]
+fn country_ledger_lifecycle_binds_filters_by_eu4_tag() {
+    let mut ledger = CountryLedger {
+        expense_sources_milli: vec![0; 38],
+        expense_accumulator_milli: vec![0; 38],
+        ..Default::default()
+    };
+    ledger.expense_sources_milli[23] = 10;
+    ledger.expense_accumulator_milli[23] = 10;
+
+    let mut loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    loaded
+        .set_country_ledgers(BTreeMap::from([("AAA".into(), ledger)]))
+        .unwrap();
+    loaded
+        .consolidate_country_ledgers_monthly(BTreeMap::from([("AAA".into(), BTreeSet::from([23]))]))
+        .unwrap();
+
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let consolidated = &loaded.initial.world().country_ledgers()[&country];
+    assert_eq!(consolidated.expense_snapshot_milli[23], 10);
+    assert_eq!(consolidated.expense_total_milli, 10);
+    assert_eq!(consolidated.expense_filtered_total_milli, 0);
+    assert_eq!(consolidated.expense_sources_milli[23], 0);
+
+    loaded.rollover_country_ledgers_annual().unwrap();
+    let rolled = &loaded.initial.world().country_ledgers()[&country];
+    assert_eq!(rolled.expense_rollover_milli[23], 10);
+    assert_eq!(rolled.expense_rollover_total_milli, 10);
+}
+
 fn gold_production_input(
     gold_size_milli: i32,
     mine_base_milli: i32,
