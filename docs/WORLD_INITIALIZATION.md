@@ -143,7 +143,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 贸易节点保留位置省份、成员省份、下游连接，以及声明的内陆和终点标记。核心检查引用、重复归属、自我连接和循环网络。输入中的重复定义会报错，当前入口不猜测其覆盖顺序。省份没有历史文件时，建筑查询返回 `null`；有历史文件但没有受支持的现存建筑条目时返回空列表。这份列表表示历史输入结果，尚未执行建筑保留条件。
 
-使用 `--economy` 查询建筑与商品目录、完整贸易网络；报告的 `economy` 字段给出数量、定义来源、建筑历史的最终声明位置和未应用字段。原有省份 JSON 字段继续保留，新增 `buildings`、`trade_node`、`trade_node_outgoing` 和 `trade_good_definition`。查询单个省份时还会给出 `province_trade_good_base_price_milli`，它只表示 `common/prices` 中声明的商品基础价格，不代表动态市场价格或已经完成的贸易结算。Rust 调用方可以使用 `VanillaWorld::calculate_vanilla_province_production_base_value`，在明确提供货物数量及修正项时复用该基础价格；没有已知商品价格时返回未知，不补默认值。
+使用 `--economy` 查询建筑与商品目录、完整贸易网络；报告的 `economy` 字段给出数量、定义来源、建筑历史的最终声明位置和未应用字段。原有省份 JSON 字段继续保留，新增 `buildings`、`trade_node`、`trade_node_outgoing` 和 `trade_good_definition`。查询单个省份时还会给出 `province_trade_good_base_price_milli` 和 `province_trade_good_price_milli`：前者是 `common/prices` 中声明的商品基础价格，后者优先反映存档或外部状态提供的当前价格；两者都不代表贸易结算已经完成。Rust 调用方可以使用 `VanillaWorld::calculate_vanilla_province_production_base_value`，在明确提供货物数量及修正项时复用当前价格；没有已知商品价格时返回未知，不补默认值。
 
 建筑定义会保留标准建筑与要塞的角色及要塞等级。要塞不参与普通省份属性的建筑修正汇总；防御区域、维护和战斗路径尚未接通。存档提供的 `change_price.current_price` 会作为运行时价格保存；没有运行时价格时，生产值阶段继续使用内容基础价格或显式价格影响，缺失值不会被补成默认市场价。
 

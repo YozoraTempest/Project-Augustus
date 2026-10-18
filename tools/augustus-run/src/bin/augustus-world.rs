@@ -320,6 +320,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         output["province"] = serde_json::to_value(loaded.province(id).ok_or("unknown province")?)?;
         output["province_trade_good_base_price_milli"] =
             serde_json::to_value(loaded.province_trade_good_base_price_milli(id)?)?;
+        output["province_trade_good_price_milli"] =
+            serde_json::to_value(loaded.province_trade_good_price_milli(id)?)?;
         output["province_sources"] = serde_json::to_value(&loaded.province_sources[&id])?;
     }
     println!("{}", serde_json::to_string_pretty(&output)?);

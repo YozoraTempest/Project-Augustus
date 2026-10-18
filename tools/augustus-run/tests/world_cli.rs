@@ -41,6 +41,7 @@ fn world_cli_reports_state_sources_and_query_failures() {
     );
     assert_eq!(value["province"]["trade_node"], "river");
     assert_eq!(value["province_trade_good_base_price_milli"], 2125);
+    assert_eq!(value["province_trade_good_price_milli"], 2125);
     assert_eq!(value["country"]["technology"]["administrative"], 3);
     assert_eq!(value["country"]["resources"]["mercantilism_milli"], 18500);
     assert_eq!(
@@ -222,6 +223,7 @@ fn world_cli_loads_external_state_from_another_simulation() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(value["country"]["resources"]["treasury_milli"].is_null());
     assert_eq!(value["province_trade_good_base_price_milli"], 2125);
+    assert_eq!(value["province_trade_good_price_milli"], 2125);
     assert_eq!(value["simulation"]["day"], 30);
     assert_eq!(value["simulation"]["cashflow_settlements"], 1);
     assert_eq!(value["simulation"]["last_cashflow_day"], 20);

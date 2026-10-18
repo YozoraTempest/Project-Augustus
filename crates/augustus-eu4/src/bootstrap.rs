@@ -93,6 +93,7 @@ pub struct ProvinceView<'a> {
     pub trade_node: Option<&'a str>,
     pub trade_node_outgoing: Option<Vec<&'a str>>,
     pub trade_good_definition: Option<&'a augustus_core::TradeGoodDefinition>,
+    pub trade_good_price_milli: Option<i64>,
     pub modifiers: Vec<&'a str>,
     pub modifier_attachments_known: bool,
     pub declared_modifier_totals_micros: BTreeMap<String, i64>,
@@ -2792,6 +2793,10 @@ impl VanillaWorld {
             trade_good_definition: economic_state
                 .and_then(|s| s.trade_good.as_ref())
                 .and_then(|name| economy.trade_goods.get(name)),
+            trade_good_price_milli: economic_state
+                .and_then(|s| s.trade_good.as_deref())
+                .and_then(|name| economy.current_trade_good_price_milli(name))
+                .flatten(),
             modifiers: self.modifier_names(entity),
             modifier_attachments_known: self
                 .initial
