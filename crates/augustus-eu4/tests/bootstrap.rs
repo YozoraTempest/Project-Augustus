@@ -1112,6 +1112,7 @@ fn uppercase_tag_paid_groups_and_unlock_scripts_keep_their_actual_scope() {
     let mut loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
     assert_eq!(loaded.report.ideas.skipped_paid_groups, 1);
     assert!(!loaded.initial.world().ideas().groups.contains_key("paid"));
+    assert_eq!(loaded.initial.world().ideas().known_ideas["one"]["paid"], 0);
     assert_eq!(
         loaded
             .country("AAA")
@@ -1500,6 +1501,9 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             .mark_target_absent(augustus_core::EntityId(index), augustus_core::Target::Owner)
             .unwrap();
     }
+    let mut native_ideas = native.ideas().clone();
+    native_ideas.known_ideas = loaded.initial.world().ideas().known_ideas.clone();
+    native.set_ideas(native_ideas).unwrap();
     assert_eq!(
         loaded.initial.world().governments(),
         native.governments(),

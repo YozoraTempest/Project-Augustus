@@ -71,11 +71,11 @@ pub use augustus_core::{
     sort_vanilla_trade_candidates,
 };
 pub use bootstrap::{
-    BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView, VanillaExternalAdvisor,
-    VanillaExternalArmy, VanillaExternalCountryMarkers, VanillaExternalCountryStatuses,
-    VanillaExternalEstateState, VanillaExternalEstateStates, VanillaExternalNavalUnit,
-    VanillaExternalProductionInput, VanillaExternalState, VanillaProvinceProductionBaseValueInput,
-    VanillaWorld,
+    BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView,
+    VanillaContentProductionInput, VanillaExternalAdvisor, VanillaExternalArmy,
+    VanillaExternalCountryMarkers, VanillaExternalCountryStatuses, VanillaExternalEstateState,
+    VanillaExternalEstateStates, VanillaExternalNavalUnit, VanillaExternalProductionInput,
+    VanillaExternalState, VanillaProvinceProductionBaseValueInput, VanillaWorld,
 };
 pub use casus_belli::{CasusBelliReport, CasusBelliType, CasusBelliTypes};
 pub use content::{ContentRoot, ContentView, FileEntry};

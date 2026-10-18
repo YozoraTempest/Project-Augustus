@@ -62,11 +62,16 @@ pub struct IdeaEvaluation {
 pub struct Ideas {
     pub groups: BTreeMap<String, IdeaGroup>,
     pub countries: BTreeMap<EntityId, IdeaState>,
+    /// Every parsed idea identifier, including groups whose effects are not
+    /// loaded because the compatibility layer does not evaluate unselected
+    /// paid groups. The inner value records the declaration index per group.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub known_ideas: BTreeMap<String, BTreeMap<String, u16>>,
 }
 
 impl Ideas {
     pub fn is_empty(&self) -> bool {
-        self.groups.is_empty() && self.countries.is_empty()
+        self.groups.is_empty() && self.countries.is_empty() && self.known_ideas.is_empty()
     }
 
     pub fn declared_effects(&self, entity: EntityId) -> Result<IdeaEvaluation, Error> {
@@ -85,21 +90,27 @@ impl Ideas {
         if idea.is_empty() {
             return Err(Error::Invalid("empty idea identifier".into()));
         }
-        let candidates: Vec<_> = self
-            .groups
-            .iter()
-            .flat_map(|(group_id, group)| {
-                group
-                    .ideas
-                    .iter()
-                    .enumerate()
-                    .filter(move |(_, definition)| definition.id == idea)
-                    .map(move |(index, _)| (group_id.as_str(), index))
-            })
-            .collect();
-        if candidates.is_empty() {
-            return Err(Error::Invalid(format!("unknown idea {idea}")));
-        }
+        let derived_candidates;
+        let candidates = if let Some(candidates) = self.known_ideas.get(idea) {
+            candidates
+        } else {
+            derived_candidates = self
+                .groups
+                .iter()
+                .flat_map(|(group_id, group)| {
+                    group
+                        .ideas
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, definition)| definition.id == idea)
+                        .map(|(index, _)| (group_id.clone(), index as u16))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if derived_candidates.is_empty() {
+                return Err(Error::Invalid(format!("unknown idea {idea}")));
+            }
+            &derived_candidates
+        };
         let Some(groups) = self
             .countries
             .get(&entity)
@@ -111,7 +122,9 @@ impl Ideas {
         for (group, index) in candidates {
             match groups.get(group) {
                 None => (),
-                Some(Some(progress)) if usize::from(*progress) > index => return Ok(true),
+                Some(Some(progress)) if usize::from(*progress) > usize::from(*index) => {
+                    return Ok(true);
+                }
                 Some(Some(_)) => (),
                 Some(None) => unknown = true,
             }
@@ -227,6 +240,11 @@ impl Ideas {
                 return Err(Error::Invalid("invalid idea country state".into()));
             }
             self.declared_effects(entity)?;
+        }
+        for (idea, groups) in &self.known_ideas {
+            if idea.is_empty() || groups.is_empty() || groups.keys().any(String::is_empty) {
+                return Err(Error::Invalid("invalid known idea catalog".into()));
+            }
         }
         for (&entity, formulas) in &world.attributes().formulas {
             for term in formulas

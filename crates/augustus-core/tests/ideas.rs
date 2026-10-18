@@ -150,6 +150,35 @@ fn has_idea_queries_progress_and_preserves_unknown_selection_or_progress() {
 }
 
 #[test]
+fn known_unselected_paid_ideas_are_false_without_loading_their_effects() {
+    let mut world = scenario();
+    let mut ideas = world.ideas().clone();
+    ideas
+        .known_ideas
+        .insert("paid_one".into(), [("paid_group".into(), 0)].into());
+    world.set_ideas(ideas).unwrap();
+    let condition = augustus_core::Condition::HasIdea {
+        target: augustus_core::Target::Current,
+        id: "paid_one".into(),
+    };
+
+    assert!(!condition.evaluate(&world, EntityId(0)).unwrap());
+    assert!(!condition.evaluate(&world, EntityId(1)).unwrap());
+
+    let mut ideas = world.ideas().clone();
+    ideas
+        .countries
+        .get_mut(&EntityId(0))
+        .unwrap()
+        .groups
+        .as_mut()
+        .unwrap()
+        .insert("paid_group".into(), None);
+    world.set_ideas(ideas).unwrap();
+    assert!(condition.evaluate(&world, EntityId(0)).is_err());
+}
+
+#[test]
 fn unexecuted_unlock_scripts_taint_arbitrary_properties_only_when_relevant() {
     let mut world = scenario();
     let mut ideas = world.ideas().clone();

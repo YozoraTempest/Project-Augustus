@@ -56,6 +56,7 @@ struct History {
 
 pub(super) struct IdeaDraft {
     groups: BTreeMap<String, IdeaGroup>,
+    known_ideas: BTreeMap<String, BTreeMap<String, u16>>,
     candidates: Vec<(String, Condition)>,
     histories: BTreeMap<String, History>,
 }
@@ -92,6 +93,7 @@ impl IdeaDraft {
     ) -> Result<Self, Error> {
         let mut draft = Self {
             groups: BTreeMap::new(),
+            known_ideas: BTreeMap::new(),
             candidates: Vec::new(),
             histories: BTreeMap::new(),
         };
@@ -123,6 +125,39 @@ impl IdeaDraft {
                                 .with_location(parsed.field_location(&k))
                         })?,
                     );
+                }
+                let mut idea_index = 0u16;
+                for (key, op, value) in body.fields() {
+                    let name = key.read_string();
+                    if matches!(
+                        name.as_str(),
+                        "free"
+                            | "trigger"
+                            | "start"
+                            | "bonus"
+                            | "ai_will_do"
+                            | "category"
+                            | "important"
+                    ) {
+                        continue;
+                    }
+                    equal(op, &fail)?;
+                    if value.read_object().is_err() {
+                        return Err(fail("idea declaration requires a block"));
+                    }
+                    let index = idea_index;
+                    idea_index = idea_index
+                        .checked_add(1)
+                        .ok_or_else(|| fail("idea group exceeds supported length"))?;
+                    if draft
+                        .known_ideas
+                        .entry(name)
+                        .or_default()
+                        .insert(id.clone(), index)
+                        .is_some()
+                    {
+                        return Err(fail("duplicate idea declaration in group"));
+                    }
                 }
                 if free != Some(true) {
                     report.skipped_paid_groups += 1;
@@ -295,6 +330,7 @@ impl IdeaDraft {
         Ideas {
             groups: self.groups,
             countries,
+            known_ideas: self.known_ideas,
         }
     }
 }

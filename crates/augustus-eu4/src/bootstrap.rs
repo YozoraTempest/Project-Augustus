@@ -7,10 +7,11 @@ use std::{
 };
 
 use augustus_core::{
-    Calendar, CountryResources, CountryState, InitialWorld, MonthlyExternalCashflows,
-    MonthlyProduction, ProvinceClass, ProvinceState, Taxation, VanillaProductionBaseValueInput,
-    VanillaProductionBaseValueResult, VanillaProductionInput, VanillaTradeGoodPriceInput,
-    WorldDate, calculate_vanilla_production_base_value, calculate_vanilla_trade_good_price,
+    Calendar, CountryResources, CountryState, EntityKind, InitialWorld, MonthlyExternalCashflows,
+    MonthlyProduction, ProvinceClass, ProvinceState, Taxation, TechnologyProperty,
+    VanillaProductionBaseValueInput, VanillaProductionBaseValueResult, VanillaProductionInput,
+    VanillaTradeGoodPriceInput, WorldDate, calculate_vanilla_production_base_value,
+    calculate_vanilla_trade_good_price,
 };
 use jomini::{
     Encoding,
@@ -119,6 +120,7 @@ pub struct CountryView<'a> {
     pub declared_idea_effects: augustus_core::IdeaEvaluation,
     pub last_monthly_tax: Option<&'a augustus_core::MonthlyTaxAccount>,
     pub last_monthly_production: Option<&'a augustus_core::ProductionCountryAccount>,
+    pub last_monthly_cashflow: Option<&'a augustus_core::CashflowAccount>,
     pub government: Option<&'a augustus_core::GovernmentState>,
     pub declared_government_effects: augustus_core::GovernmentEvaluation,
     pub state: &'a CountryState,
@@ -168,6 +170,18 @@ pub struct VanillaExternalProductionInput {
     pub rate_modifier_milli: i32,
     pub external_rate_modifier_milli: i32,
     pub country_modifier_milli: i32,
+    pub legacy_province_modifier_milli: i32,
+    pub queried_province_modifier_milli: i32,
+}
+
+/// Production inputs whose country-side efficiency is resolved from the
+/// current administrative technology instead of being repeated by the caller.
+/// The remaining province and value stages stay explicit until their native
+/// producers are mapped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaContentProductionInput {
+    pub base_value_milli: i32,
     pub legacy_province_modifier_milli: i32,
     pub queried_province_modifier_milli: i32,
 }
@@ -3016,6 +3030,72 @@ impl VanillaWorld {
         }
     }
 
+    /// Bind production inputs while deriving the country production
+    /// efficiency from the owning country's administrative technology.
+    ///
+    /// A missing technology value remains an unresolved production row. This
+    /// method does not infer province quantity or modifier slots; callers must
+    /// still provide those values from a verified compatibility source.
+    pub fn set_vanilla_production_inputs_from_content(
+        &mut self,
+        inputs: BTreeMap<u32, VanillaContentProductionInput>,
+    ) -> Result<(), augustus_core::Error> {
+        let mut resolved = BTreeMap::new();
+        for (province, source) in inputs {
+            let entity = self.initial.province_entity(province).ok_or_else(|| {
+                augustus_core::Error::Invalid(format!("unknown EU4 production province {province}"))
+            })?;
+            let mut unresolved = BTreeSet::new();
+            let country_modifier_milli = match self.initial.world().entity(entity)?.owner {
+                Some(owner) if self.initial.world().entity(owner)?.kind == EntityKind::Country => {
+                    match self.initial.world().technology().country_property(
+                        owner,
+                        "administrative",
+                        "production_efficiency",
+                    ) {
+                        TechnologyProperty::Value(value) => {
+                            i32::try_from(value / 1_000).map_err(|_| {
+                                augustus_core::Error::Invalid(format!(
+                                    "production efficiency for province {province} is out of range"
+                                ))
+                            })?
+                        }
+                        TechnologyProperty::Absent => 0,
+                        TechnologyProperty::Unknown => {
+                            unresolved.insert("country_production_efficiency:unknown".into());
+                            0
+                        }
+                        TechnologyProperty::Flag(_) => {
+                            unresolved.insert("country_production_efficiency:non_numeric".into());
+                            0
+                        }
+                    }
+                }
+                Some(_) => {
+                    unresolved.insert("country_production_efficiency:owner_not_country".into());
+                    0
+                }
+                None => {
+                    unresolved.insert("country_production_efficiency:unknown_owner".into());
+                    0
+                }
+            };
+            resolved.insert(
+                province,
+                augustus_core::VanillaProductionInputState {
+                    input: Some(VanillaProductionInput {
+                        base_value_milli: source.base_value_milli,
+                        country_modifier_milli,
+                        legacy_province_modifier_milli: source.legacy_province_modifier_milli,
+                        queried_province_modifier_milli: source.queried_province_modifier_milli,
+                    }),
+                    unresolved,
+                },
+            );
+        }
+        self.set_vanilla_production_inputs(resolved)
+    }
+
     /// Binds or refreshes production inputs whose value stage still needs the
     /// EU4 content-defined trade-good price. Upstream quantities and modifiers
     /// remain explicit; a missing price becomes an unresolved production row.
@@ -3237,6 +3317,15 @@ impl VanillaWorld {
                 .world()
                 .monthly_production()
                 .and_then(|p| p.last_settlement.as_ref())
+                .and_then(|last| {
+                    last.accounts
+                        .get(&self.initial.country_entity(id).expect("registered country"))
+                }),
+            last_monthly_cashflow: self
+                .initial
+                .world()
+                .monthly_cashflows()
+                .and_then(|c| c.last_settlement.as_ref())
                 .and_then(|last| {
                     last.accounts
                         .get(&self.initial.country_entity(id).expect("registered country"))
