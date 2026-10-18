@@ -3,10 +3,11 @@
 
 use augustus_core::{
     Action, AttributeBase, AttributeFormula, Attributes, Calendar, CountryResources, EntityId,
-    EntityKind, Error, FieldId, MonthlyPipeline, MonthlySystem, MonthlyTax, Schema, Taxation,
-    World, WorldDate,
+    EntityKind, Error, FieldId, MonthlyEconomy, MonthlyExternalCashflows, MonthlyPipeline,
+    MonthlyProduction, MonthlySystem, MonthlyTax, Schema, Taxation, VanillaProductionInput,
+    VanillaProductionInputState, World, WorldDate,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 struct Recorder {
     id: &'static str,
@@ -191,4 +192,132 @@ fn custom_pipeline_can_rebind_standard_monthly_state_before_start() {
     let restored = World::restore(&saved, "custom-economy", world.schema()).unwrap();
     assert_eq!(restored.monthly_system_id(), Some("custom-economy:v1"));
     assert_eq!(restored.taxation(), world.taxation());
+}
+
+#[test]
+fn standard_monthly_economy_runs_inside_the_world_pipeline_and_resumes() {
+    let mut world = World::new(Schema::new(["annual_tax"]).unwrap());
+    let country = world.add_entity("AAA", EntityKind::Country);
+    let province = world.add_entity("North", EntityKind::Province);
+    world.set_owner(province, country).unwrap();
+    world.set(province, FieldId(0), 12_000).unwrap();
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(10_000),
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+        )
+        .unwrap();
+    world
+        .set_attributes(Attributes {
+            formulas: [(
+                province,
+                [(
+                    "annual_tax".into(),
+                    AttributeFormula {
+                        base: AttributeBase::Field {
+                            field: FieldId(0),
+                            micros_per_unit: 1_000,
+                        },
+                        channels: Vec::new(),
+                        minimum_micros: None,
+                        maximum_micros: None,
+                        result_quantum_micros: None,
+                        unresolved: BTreeSet::new(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        })
+        .unwrap();
+    world
+        .set_calendar(Calendar {
+            start: WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            },
+            month_lengths: [31; 12],
+        })
+        .unwrap();
+
+    let taxation = Taxation::new("annual_tax", [country].into_iter().collect());
+    let production = MonthlyProduction::new(BTreeMap::from([(
+        province,
+        VanillaProductionInputState {
+            input: Some(VanillaProductionInput {
+                base_value_milli: 1_000,
+                country_modifier_milli: 20,
+                legacy_province_modifier_milli: 0,
+                queried_province_modifier_milli: -10,
+            }),
+            unresolved: BTreeSet::new(),
+        },
+    )]));
+    let cashflows = MonthlyExternalCashflows::new(BTreeMap::from([(country, Some(250))]));
+    world.set_taxation(taxation.clone()).unwrap();
+    world.set_monthly_production(production.clone()).unwrap();
+    world
+        .set_monthly_cashflows(Some(cashflows.clone()))
+        .unwrap();
+
+    let economy = MonthlyEconomy;
+    let parallel = Recorder {
+        id: "parallel-after-economy:v1",
+        country,
+        message: "parallel",
+    };
+    let serial = Recorder {
+        id: "serial-after-economy:v1",
+        country,
+        message: "serial",
+    };
+    let pipeline = MonthlyPipeline::new(
+        "standard-economy-pipeline:v1",
+        Some(&economy),
+        Some(&parallel),
+        Some(&serial),
+    )
+    .unwrap();
+
+    world.select_monthly_system(&pipeline).unwrap();
+    world.set_taxation(taxation).unwrap();
+    world.set_monthly_production(production).unwrap();
+    world.set_monthly_cashflows(Some(cashflows)).unwrap();
+    world.advance_with_monthly_system(21, &pipeline).unwrap();
+
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(11_334)
+    );
+    assert_eq!(
+        world
+            .events()
+            .iter()
+            .map(|event| event.2.as_str())
+            .collect::<Vec<_>>(),
+        ["parallel", "serial"]
+    );
+
+    let saved = world.save("standard-economy-pipeline").unwrap();
+    let mut resumed = World::restore(&saved, "standard-economy-pipeline", world.schema()).unwrap();
+    let mut continuous = world.clone();
+    continuous
+        .advance_with_monthly_system(52, &pipeline)
+        .unwrap();
+    resumed.advance_with_monthly_system(52, &pipeline).unwrap();
+    assert_eq!(
+        resumed.save("standard-economy-pipeline").unwrap(),
+        continuous.save("standard-economy-pipeline").unwrap()
+    );
 }
