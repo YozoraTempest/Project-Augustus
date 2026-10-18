@@ -4,11 +4,12 @@
 use augustus_core::{
     VanillaTradeCandidate, VanillaTradeCaravanInput, VanillaTradeDistributionCandidate,
     VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput,
-    VanillaTradePowerAmountInput, VanillaTradePropagationInput, VanillaTradeRetentionInput,
-    VanillaTradeRouteWeightInput, calculate_vanilla_trade_caravan,
+    VanillaTradePowerAmountInput, VanillaTradePowerModifierInput, VanillaTradePropagationInput,
+    VanillaTradeRetentionInput, VanillaTradeRouteWeightInput, calculate_vanilla_trade_caravan,
     calculate_vanilla_trade_distribution, calculate_vanilla_trade_power_amount,
-    calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
-    calculate_vanilla_trade_route_weights, sort_vanilla_trade_candidates,
+    calculate_vanilla_trade_power_modifier, calculate_vanilla_trade_propagation,
+    calculate_vanilla_trade_retention, calculate_vanilla_trade_route_weights,
+    sort_vanilla_trade_candidates,
 };
 
 #[test]
@@ -112,6 +113,42 @@ fn trade_power_amount_preserves_wrapping_sources_and_signed_division() {
     assert_eq!(zero_denominator.scaled_power_milli, 0);
     assert_eq!(zero_denominator.factor_milli, 0);
     assert_eq!(zero_denominator.value_milli, 0);
+}
+
+#[test]
+fn trade_power_modifier_uses_one_embargo_factor_then_post_embargo_additions() {
+    let result = calculate_vanilla_trade_power_modifier(VanillaTradePowerModifierInput {
+        initial_modifier_milli: 100,
+        selected_context_modifier_milli: 50,
+        policy_modifier_milli: -25,
+        embargo_amounts_milli: vec![200, 300, -10],
+        noncapital_modifier_milli: -250,
+        noncapital_active: true,
+        home_bonus_milli: 75,
+        home_bonus_active: true,
+    });
+    assert_eq!(result.base_modifier_milli, 125);
+    assert_eq!(result.pre_embargo_factor_milli, 1_125);
+    assert_eq!(result.embargo_modifier_milli, -562);
+    assert_eq!(result.after_embargo_modifier_milli, -437);
+    assert_eq!(result.noncapital_factor_milli, 563);
+    assert_eq!(result.noncapital_contribution_milli, -140);
+    assert_eq!(result.home_bonus_contribution_milli, 75);
+    assert_eq!(result.value_milli, -502);
+
+    let inactive = calculate_vanilla_trade_power_modifier(VanillaTradePowerModifierInput {
+        initial_modifier_milli: i32::MAX,
+        selected_context_modifier_milli: 1,
+        policy_modifier_milli: 0,
+        embargo_amounts_milli: vec![1],
+        noncapital_modifier_milli: i32::MAX,
+        noncapital_active: false,
+        home_bonus_milli: i32::MAX,
+        home_bonus_active: false,
+    });
+    assert_eq!(inactive.noncapital_factor_milli, 0);
+    assert_eq!(inactive.noncapital_contribution_milli, 0);
+    assert_eq!(inactive.home_bonus_contribution_milli, 0);
 }
 
 #[test]

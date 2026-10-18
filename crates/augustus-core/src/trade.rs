@@ -126,6 +126,88 @@ pub fn calculate_vanilla_trade_power_amount(
     }
 }
 
+/// Inputs for the verified final trade-power modifier stage.
+///
+/// The compatibility layer resolves the selected context modifier, policy,
+/// embargo amounts and the two conditional post-embargo contributions. The
+/// core preserves the native order without interpreting country or node
+/// objects.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradePowerModifierInput {
+    pub initial_modifier_milli: i32,
+    pub selected_context_modifier_milli: i32,
+    pub policy_modifier_milli: i32,
+    pub embargo_amounts_milli: Vec<i32>,
+    pub noncapital_modifier_milli: i32,
+    pub noncapital_active: bool,
+    pub home_bonus_milli: i32,
+    pub home_bonus_active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VanillaTradePowerModifierResult {
+    pub base_modifier_milli: i32,
+    pub pre_embargo_factor_milli: i32,
+    pub embargo_modifier_milli: i32,
+    pub after_embargo_modifier_milli: i32,
+    pub noncapital_factor_milli: i32,
+    pub noncapital_contribution_milli: i32,
+    pub home_bonus_contribution_milli: i32,
+    pub value_milli: i32,
+}
+
+/// Reproduces the verified final trade-power modifier order.
+///
+/// All positive embargo amounts use the same pre-embargo factor. The
+/// non-capital contribution uses the factor after embargo deductions and is
+/// clamped at zero before multiplication. The final home contribution is
+/// added directly. Intermediate additions retain signed 32-bit wrapping.
+pub fn calculate_vanilla_trade_power_modifier(
+    input: VanillaTradePowerModifierInput,
+) -> VanillaTradePowerModifierResult {
+    let base = input
+        .initial_modifier_milli
+        .wrapping_add(input.selected_context_modifier_milli)
+        .wrapping_add(input.policy_modifier_milli);
+    let pre_embargo_factor = base.wrapping_add(1_000);
+    let embargo_modifier = input
+        .embargo_amounts_milli
+        .into_iter()
+        .filter(|amount| *amount > 0)
+        .map(|amount| ((-i64::from(amount) * i64::from(pre_embargo_factor)) / 1_000) as i32)
+        .fold(0_i32, i32::wrapping_add);
+    let after_embargo = base.wrapping_add(embargo_modifier);
+    let noncapital_factor = if input.noncapital_active {
+        after_embargo.wrapping_add(1_000).max(0)
+    } else {
+        0
+    };
+    let noncapital_contribution = if input.noncapital_active {
+        ((i64::from(noncapital_factor) * i64::from(input.noncapital_modifier_milli)) / 1_000) as i32
+    } else {
+        0
+    };
+    let with_noncapital = after_embargo.wrapping_add(noncapital_contribution);
+    let home_bonus_contribution = if input.home_bonus_active {
+        input.home_bonus_milli
+    } else {
+        0
+    };
+    let value = with_noncapital.wrapping_add(home_bonus_contribution);
+
+    VanillaTradePowerModifierResult {
+        base_modifier_milli: base,
+        pre_embargo_factor_milli: pre_embargo_factor,
+        embargo_modifier_milli: embargo_modifier,
+        after_embargo_modifier_milli: after_embargo,
+        noncapital_factor_milli: noncapital_factor,
+        noncapital_contribution_milli: noncapital_contribution,
+        home_bonus_contribution_milli: home_bonus_contribution,
+        value_milli: value,
+    }
+}
+
 /// Explicit inputs for the verified EU4 trade-propagation amount stage.
 ///
 /// The compatibility layer resolves the two record values, the country
