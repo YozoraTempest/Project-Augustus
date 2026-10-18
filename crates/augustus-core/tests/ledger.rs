@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use augustus_core::{
     COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES,
@@ -224,6 +224,36 @@ fn monthly_consolidation_uses_the_native_filtered_expense_set_by_default() {
     assert!(COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES.contains(&11));
     assert_eq!(ledger.expense_total_milli, 10);
     assert_eq!(ledger.expense_filtered_total_milli, 0);
+}
+
+#[test]
+fn monthly_consolidation_allows_an_explicit_empty_filter_override() {
+    let (mut world, country) = world();
+    world.record_country_expense(country, 11, 10).unwrap();
+    world
+        .consolidate_country_ledgers_monthly(&[(country, BTreeSet::new())].into())
+        .unwrap();
+
+    assert_eq!(
+        world.country_ledgers()[&country].expense_filtered_total_milli,
+        10
+    );
+}
+
+#[test]
+fn batch_pending_flush_is_atomic_when_one_country_lacks_a_treasury() {
+    let (mut world, country) = world();
+    let other = world.add_entity("BBB", EntityKind::Country);
+    world.record_delayed_country_income(country, 1, 40).unwrap();
+    world.record_delayed_country_income(other, 1, 30).unwrap();
+
+    assert!(world.flush_country_ledgers_pending().is_err());
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(100)
+    );
+    assert_eq!(world.country_ledgers()[&country].pending_milli, 40);
+    assert_eq!(world.country_ledgers()[&other].pending_milli, 30);
 }
 
 #[test]
