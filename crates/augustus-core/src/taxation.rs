@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{EntityId, EntityKind, Error, World};
+use crate::{DailyEventCountry, DailyEventRules, EntityId, EntityKind, Error, World};
 
 /// A selected monthly executor. Its identifier includes the rule version.
 /// Providers own their persistent state in World; changing the provider is a
@@ -13,6 +13,59 @@ pub trait MonthlySystem {
     fn id(&self) -> &str;
     fn validate(&self, world: &World) -> Result<(), Error>;
     fn settle(&self, world: &mut World) -> Result<(), Error>;
+}
+
+/// A generic monthly event provider for already-translated content.
+///
+/// The compatibility layer decides which candidates belong to the monthly
+/// phase. This provider only reuses the shared event-group semantics and does
+/// not infer EU4 monthly business or its ordering.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonthlyEventRules {
+    pub id: String,
+    pub countries: Vec<DailyEventCountry>,
+}
+
+impl MonthlyEventRules {
+    pub fn new(id: impl Into<String>, countries: Vec<DailyEventCountry>) -> Result<Self, Error> {
+        let rules = Self {
+            id: id.into(),
+            countries,
+        };
+        if rules.id.trim().is_empty() {
+            return Err(Error::Invalid("monthly event rules require an id".into()));
+        }
+        Ok(rules)
+    }
+
+    fn as_event_rules(&self) -> DailyEventRules {
+        DailyEventRules {
+            id: self.id.clone(),
+            countries: self.countries.clone(),
+        }
+    }
+}
+
+impl MonthlySystem for MonthlyEventRules {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        self.as_event_rules().validate_for_schedule(world)
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        let rules = self.as_event_rules();
+        let mut budget = 100_000;
+        for entry in &rules.countries {
+            for group in &entry.groups {
+                rules.dispatch_group_for_schedule(world, entry.country, group, &mut budget)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 pub struct MonthlyTax;
