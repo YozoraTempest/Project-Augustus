@@ -424,12 +424,17 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
                     })
                 })
                 .transpose()?;
-            if loyalty_milli.is_some() || land_share_micros.is_some() {
+            let active_influences = optional_field(&parsed, &estate, "active_influences")?
+                .map(|value| numeric_id_set(&parsed, &value, "active_influences"))
+                .transpose()?;
+            if loyalty_milli.is_some() || land_share_micros.is_some() || active_influences.is_some()
+            {
                 estate_states.insert(
                     estate_name.clone(),
                     VanillaExternalEstateState {
                         loyalty_milli,
                         land_share_micros,
+                        active_influences,
                     },
                 );
             }
@@ -959,6 +964,27 @@ fn privilege_names(value: &Field<'_, '_>) -> BTreeSet<String> {
     result
 }
 
+fn numeric_id_set(
+    parsed: &ParsedText<'_>,
+    value: &Field<'_, '_>,
+    field: &str,
+) -> Result<BTreeSet<u32>, Error> {
+    let array = value
+        .read_array()
+        .map_err(|error| Error::caused_by(parsed.source(), error))?;
+    array
+        .values()
+        .map(|item| {
+            scalar(parsed, &item)?.parse::<u32>().map_err(|error| {
+                Error::message(
+                    parsed.source(),
+                    format!("invalid saved {field} identifier: {error}"),
+                )
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{NationalFocus, RulerSkill, read_vanilla_save_state};
@@ -1003,6 +1029,9 @@ countries={
 			type="estate_nobles"
 			loyalty=44.600
 			territory=40.000
+			active_influences={
+				4 7
+			}
 			granted_privileges={
 				{
 					estate_nobles_habsburg_disunity 1444.11.11
@@ -1128,6 +1157,10 @@ provinces={
         assert_eq!(
             state.external_state.estate_states["AAA"]["estate_nobles"].land_share_micros,
             Some(400_000)
+        );
+        assert_eq!(
+            state.external_state.estate_states["AAA"]["estate_nobles"].active_influences,
+            Some(std::collections::BTreeSet::from([4, 7]))
         );
         assert_eq!(
             state.external_state.estate_privileges["AAA"]["estate_nobles"]

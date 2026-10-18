@@ -392,6 +392,7 @@ fn external_estate_state_reaches_live_loyalty_and_land_effects() {
                 VanillaExternalEstateState {
                     loyalty_milli: Some(44_600),
                     land_share_micros: Some(400_000),
+                    active_influences: None,
                 },
             )]),
         )]),

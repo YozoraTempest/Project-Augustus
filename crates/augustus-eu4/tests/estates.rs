@@ -75,6 +75,7 @@ fn external_privilege_validity_is_resolved_after_pending_startup() {
                 VanillaExternalEstateState {
                     loyalty_milli: Some(50_000),
                     land_share_micros: Some(150_000),
+                    active_influences: None,
                 },
             )]),
         )]),
@@ -86,6 +87,31 @@ fn external_privilege_validity_is_resolved_after_pending_startup() {
     assert_eq!(
         loaded.initial.world().estates().resolved_privilege_effects[&country]["charter"],
         BTreeSet::from(["is_valid".into()])
+    );
+}
+
+#[test]
+fn external_valid_privilege_keeps_default_loyalty_when_save_has_no_scalar() {
+    let temp = startup_fixture();
+    write(temp.path(), "common/on_actions/test.txt", "on_startup={}");
+    let state = VanillaExternalState {
+        estate_privileges: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([
+                (
+                    "estate_guild".into(),
+                    Some(BTreeSet::from(["charter".into()])),
+                ),
+                ("estate_council".into(), Some(BTreeSet::new())),
+                ("estate_order".into(), Some(BTreeSet::new())),
+            ]),
+        )]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &state).unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap()["estate_guild"].loyalty_milli,
+        Some(50_000)
     );
 }
 

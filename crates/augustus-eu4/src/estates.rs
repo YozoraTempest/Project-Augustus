@@ -14,7 +14,7 @@ use augustus_core::{
 use jomini::text::ObjectReader;
 use serde::Serialize;
 
-use crate::bootstrap::{dated_name, direct_txt, equal, source};
+use crate::bootstrap::{VanillaExternalEstatePrivileges, dated_name, direct_txt, equal, source};
 use crate::country_conditions::Condition;
 use crate::setup::{PropertyDiagnostics, block, micros, properties};
 use crate::{
@@ -663,7 +663,7 @@ impl EstateDraft {
     pub(super) fn bind(
         mut self,
         initial: &InitialWorld,
-        external_privileges: &BTreeMap<String, BTreeSet<String>>,
+        external_privileges: Option<&VanillaExternalEstatePrivileges>,
         report: &mut EstateReport,
     ) -> Result<Estates, Error> {
         if self.content.definitions.is_empty() {
@@ -810,10 +810,24 @@ impl EstateDraft {
                     &mut BTreeSet::new(),
                 )
             };
-            let empty_external_privileges = BTreeSet::new();
-            let country_external_privileges = external_privileges
-                .get(&country.id)
-                .unwrap_or(&empty_external_privileges);
+            let country_external_values =
+                external_privileges.and_then(|values| values.get(&country.id));
+            if let Some(values) = country_external_values {
+                for (estate, selected) in values {
+                    if let Some(selected) = selected
+                        && let Some(state) = states.get_mut(estate)
+                    {
+                        state.privileges = Some(selected.clone());
+                    }
+                }
+            }
+            let country_external_privileges: BTreeSet<_> = country_external_values
+                .into_iter()
+                .flat_map(|values| values.values())
+                .filter_map(|selected| selected.as_ref())
+                .flatten()
+                .cloned()
+                .collect();
             self.initialization.bind(
                 initial,
                 &country.id,
@@ -821,7 +835,7 @@ impl EstateDraft {
                 &self.content.privileges,
                 &mut states,
                 &lookup,
-                country_external_privileges,
+                &country_external_privileges,
                 report,
             )?;
             if !reasons.is_empty() {
