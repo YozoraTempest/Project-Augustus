@@ -2,14 +2,15 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
 
 use augustus_core::{
-    Action, EntityId, EntityKind, Error, MonthlyPipeline, MonthlySystem, NationalFocus,
-    ProvinceClass, RulerSkill, Schema, World, YearlyPipeline, YearlySystem,
+    Action, CountryResources, EntityId, EntityKind, Error, MonthlyEconomy, MonthlyPipeline,
+    MonthlySystem, NationalFocus, ProvinceClass, RulerSkill, Schema, VanillaProductionInput,
+    VanillaProductionInputState, World, YearlyPipeline, YearlySystem,
 };
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
@@ -1849,6 +1850,177 @@ fn loaded_vanilla_world_can_select_and_resume_a_monthly_pipeline() {
         resumed.initial.world().monthly_system_id(),
         Some("fixture-monthly-pipeline:v1")
     );
+}
+
+#[test]
+fn loaded_vanilla_world_can_run_standard_economy_inside_a_monthly_pipeline() {
+    let state = VanillaExternalState {
+        country_resources: BTreeMap::from([(
+            "AAA".into(),
+            CountryResources {
+                treasury_milli: Some(10_000),
+                ..Default::default()
+            },
+        )]),
+        province_annual_tax_milli: BTreeMap::from([(1, Some(12_000)), (2, Some(8_000))]),
+        production_inputs: BTreeMap::from([(
+            2,
+            VanillaProductionInputState {
+                input: Some(VanillaProductionInput {
+                    base_value_milli: 1_000,
+                    country_modifier_milli: 20,
+                    legacy_province_modifier_milli: 0,
+                    queried_province_modifier_milli: -10,
+                }),
+                unresolved: BTreeSet::new(),
+            },
+        )]),
+        country_monthly_cashflows_milli: BTreeMap::from([("AAA".into(), Some(250))]),
+        ..Default::default()
+    };
+    let mut loaded =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let before = loaded.initial.world().country_resources()[&country]
+        .treasury_milli
+        .unwrap();
+    let taxation = loaded.initial.world().taxation().unwrap().clone();
+    let production = loaded.initial.world().monthly_production().unwrap().clone();
+    let cashflows = loaded.initial.world().monthly_cashflows().unwrap().clone();
+    let accruals = loaded.initial.world().monthly_accruals().unwrap().clone();
+    let convergence = loaded
+        .initial
+        .world()
+        .monthly_convergence()
+        .unwrap()
+        .clone();
+
+    let economy = MonthlyEconomy;
+    let parallel = PipelinePhase {
+        id: "vanilla-parallel-after-economy:v1",
+        country,
+        message: "parallel",
+    };
+    let serial = PipelinePhase {
+        id: "vanilla-serial-after-economy:v1",
+        country,
+        message: "serial",
+    };
+    let pipeline = MonthlyPipeline::new(
+        "vanilla-standard-economy-pipeline:v1",
+        Some(&economy),
+        Some(&parallel),
+        Some(&serial),
+    )
+    .unwrap();
+
+    loaded.select_monthly_system(&pipeline).unwrap();
+    loaded.initial.set_taxation(taxation).unwrap();
+    loaded.initial.set_monthly_production(production).unwrap();
+    loaded
+        .initial
+        .set_monthly_cashflows(Some(cashflows))
+        .unwrap();
+    loaded.initial.set_monthly_accruals(accruals).unwrap();
+    loaded
+        .initial
+        .set_monthly_convergence(Some(convergence))
+        .unwrap();
+    loaded
+        .advance_with_systems(21, None, Some(&pipeline))
+        .unwrap();
+
+    let world = loaded.initial.world();
+    let tax = &world
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    let production = &world
+        .monthly_production()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    let cashflow = &world
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    let tax_credit = tax.credited_milli.expect("known tax credit");
+    let production_credit = production.credited_milli.expect("known production credit");
+    let cashflow_credit = cashflow.credited_milli.expect("known cashflow credit");
+    assert_eq!(tax_credit, 666);
+    assert_eq!(production_credit, 84);
+    assert_eq!(cashflow_credit, 250);
+    assert_eq!(before, 10_000);
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(11_000)
+    );
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(before + tax_credit + production_credit + cashflow_credit)
+    );
+    assert_eq!(
+        world
+            .events()
+            .iter()
+            .map(|event| event.2.as_str())
+            .collect::<Vec<_>>(),
+        ["parallel", "serial"]
+    );
+
+    let save = loaded.save().unwrap();
+    let mut resumed =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let resumed_taxation = resumed.initial.world().taxation().unwrap().clone();
+    let resumed_production = resumed
+        .initial
+        .world()
+        .monthly_production()
+        .unwrap()
+        .clone();
+    let resumed_cashflows = resumed.initial.world().monthly_cashflows().unwrap().clone();
+    let resumed_accruals = resumed.initial.world().monthly_accruals().unwrap().clone();
+    let resumed_convergence = resumed
+        .initial
+        .world()
+        .monthly_convergence()
+        .unwrap()
+        .clone();
+    resumed.select_monthly_system(&pipeline).unwrap();
+    resumed.initial.set_taxation(resumed_taxation).unwrap();
+    resumed
+        .initial
+        .set_monthly_production(resumed_production)
+        .unwrap();
+    resumed
+        .initial
+        .set_monthly_cashflows(Some(resumed_cashflows))
+        .unwrap();
+    resumed
+        .initial
+        .set_monthly_accruals(resumed_accruals)
+        .unwrap();
+    resumed
+        .initial
+        .set_monthly_convergence(Some(resumed_convergence))
+        .unwrap();
+    resumed.restore(&save).unwrap();
+    let mut continuous = loaded;
+    continuous
+        .advance_with_systems(52, None, Some(&pipeline))
+        .unwrap();
+    resumed
+        .advance_with_systems(52, None, Some(&pipeline))
+        .unwrap();
+    assert_eq!(resumed.save().unwrap(), continuous.save().unwrap());
 }
 
 #[test]
