@@ -1108,7 +1108,7 @@ fn translated_and_native_progress_have_the_same_live_attribute_effects() {
 #[test]
 fn uppercase_tag_paid_groups_and_unlock_scripts_keep_their_actual_scope() {
     let fixture = copy_fixture();
-    fs::write(fixture.path().join("common/ideas/00_conditions.txt"), "paid = { category = ADM trigger = { always = yes } one = { global_tax_modifier = 5 } }\nfirst = { free = yes trigger = { TAG = AAA } start = { global_tax_modifier = 0.125 } one = { effect = { add_country_modifier = { name = deferred } } } bonus = {} }").unwrap();
+    fs::write(fixture.path().join("common/ideas/00_conditions.txt"), "paid = { category = ADM important = yes trigger = { always = yes } one = { global_tax_modifier = 5 } }\nfirst = { free = yes trigger = { TAG = AAA } start = { global_tax_modifier = 0.125 } one = { effect = { add_country_modifier = { name = deferred } } } bonus = {} }").unwrap();
     let mut loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
     assert_eq!(loaded.report.ideas.skipped_paid_groups, 1);
     assert!(!loaded.initial.world().ideas().groups.contains_key("paid"));
@@ -1720,6 +1720,64 @@ fn external_advisors_are_translated_by_content_type_before_startup() {
 }
 
 #[test]
+fn runtime_advisor_binding_refreshes_live_power_income_sources() {
+    let root = copy_fixture();
+    fs::create_dir_all(root.path().join("common/advisortypes")).unwrap();
+    fs::write(
+        root.path().join("common/advisortypes/test.txt"),
+        "treasurer = { monarch_power = ADM }",
+    )
+    .unwrap();
+    let mut loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let before = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(loaded.initial.world(), country, "monthly_adm")
+        .unwrap();
+    assert!(
+        before
+            .unresolved
+            .contains("power_income:advisors_not_initialized")
+    );
+
+    loaded
+        .set_advisors(BTreeMap::from([(
+            "AAA".into(),
+            vec![VanillaExternalAdvisor {
+                type_name: "treasurer".into(),
+                skill: 2,
+                id: Some(17),
+            }],
+        )]))
+        .unwrap();
+    let after = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(loaded.initial.world(), country, "monthly_adm")
+        .unwrap();
+    assert!(
+        !after
+            .unresolved
+            .contains("power_income:advisors_not_initialized")
+    );
+    assert!(
+        after
+            .steps
+            .iter()
+            .flat_map(|step| &step.contributions)
+            .any(|contribution| {
+                contribution.source == "advisor:treasurer"
+                    && contribution.property == "skill"
+                    && contribution.micros == 2_000_000
+            })
+    );
+    assert_eq!(loaded.country("AAA").unwrap().advisors.unwrap()[0].skill, 2);
+}
+
+#[test]
 fn external_power_projection_adds_the_minimum_power_bonus() {
     for (projection, expected_bonus) in [(50_000, true), (49_999, false)] {
         let root = copy_fixture();
@@ -1770,6 +1828,49 @@ fn external_power_projection_adds_the_minimum_power_bonus() {
         evaluation
             .unresolved
             .contains("metric:power_projection:unknown")
+    );
+}
+
+#[test]
+fn loaded_country_power_modifier_reaches_monthly_income_sources() {
+    let root = copy_fixture();
+    let modifiers = root
+        .path()
+        .join("common/event_modifiers/test_modifiers.txt");
+    let text = fs::read_to_string(&modifiers).unwrap();
+    fs::write(
+        modifiers,
+        text.replace(
+            "test_state = { test_tax_modifier = 0.0125 }",
+            "test_state = { test_tax_modifier = 0.0125 country_admin_power = 1 }",
+        ),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let evaluation = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(loaded.initial.world(), country, "monthly_adm")
+        .unwrap();
+
+    assert!(
+        evaluation
+            .steps
+            .iter()
+            .flat_map(|step| &step.contributions)
+            .any(|contribution| {
+                contribution.source == "modifier:AAA:test_state"
+                    && contribution.property == "country_admin_power"
+                    && contribution.micros == 1_000_000
+            })
+    );
+    assert!(
+        evaluation
+            .unresolved
+            .contains("power_income:remaining_sources_not_bound")
     );
 }
 

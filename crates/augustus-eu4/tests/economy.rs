@@ -3,9 +3,10 @@
 
 use augustus_core::{CountryResources, VanillaProductionInput, World};
 use augustus_eu4::{
-    VanillaContentProductionInput, VanillaContentProductionValueInput,
-    VanillaExternalProductionInput, VanillaExternalState, VanillaProductionInputState,
-    VanillaProvinceProductionBaseValueInput, VanillaWorld,
+    VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
+    VanillaContentProductionValueInput, VanillaExternalProductionInput, VanillaExternalState,
+    VanillaProductionInputState, VanillaProvinceProductionBaseValueInput,
+    VanillaTradeGoodsSizeInput, VanillaWorld,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -462,6 +463,45 @@ fn loaded_content_production_inputs_derive_price_value_and_country_efficiency() 
         .unwrap();
     assert_eq!(input.base_value_milli, 3_000);
     assert_eq!(input.country_modifier_milli, 20);
+    assert!(
+        loaded.initial.world().monthly_production().unwrap().inputs[&province]
+            .unresolved
+            .is_empty()
+    );
+}
+
+#[test]
+fn content_goods_size_stage_feeds_loaded_content_production() {
+    let mut loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    loaded
+        .set_vanilla_production_inputs_from_content_goods_size(BTreeMap::from([(
+            2,
+            VanillaContentProductionGoodsSizeInput {
+                goods_size_input: VanillaTradeGoodsSizeInput {
+                    province_base_milli: 800,
+                    trade_good_base_milli: 0,
+                    external_base_milli: 0,
+                    province_modifier_milli: 44,
+                    trade_good_modifier_milli: 0,
+                    external_modifier_milli: 0,
+                },
+                flat_modifier_milli: 0,
+                external_flat_modifier_milli: 0,
+                rate_modifier_milli: 0,
+                external_rate_modifier_milli: 0,
+                legacy_province_modifier_milli: 0,
+                queried_province_modifier_milli: 0,
+            },
+        )]))
+        .unwrap();
+
+    let province = loaded.initial.province_entity(2).unwrap();
+    let input = loaded.initial.world().monthly_production().unwrap().inputs[&province]
+        .input
+        .as_ref()
+        .unwrap();
+    assert_eq!(input.base_value_milli, 2_505);
+    assert_eq!(input.country_modifier_milli, 0);
     assert!(
         loaded.initial.world().monthly_production().unwrap().inputs[&province]
             .unresolved

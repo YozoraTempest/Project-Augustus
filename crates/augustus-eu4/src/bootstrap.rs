@@ -10,8 +10,9 @@ use augustus_core::{
     Calendar, CountryResources, CountryState, EntityKind, InitialWorld, MonthlyExternalCashflows,
     MonthlyProduction, ProvinceClass, ProvinceState, Taxation, TechnologyProperty,
     VanillaProductionBaseValueInput, VanillaProductionBaseValueResult, VanillaProductionInput,
-    VanillaTradeGoodPriceInput, WorldDate, calculate_vanilla_production_base_value,
-    calculate_vanilla_trade_good_price,
+    VanillaTradeGoodPriceInput, VanillaTradeGoodsSizeInput, WorldDate,
+    calculate_vanilla_production_base_value, calculate_vanilla_trade_good_price,
+    calculate_vanilla_trade_goods_size,
 };
 use jomini::{
     Encoding,
@@ -193,6 +194,21 @@ pub struct VanillaContentProductionInput {
 #[serde(deny_unknown_fields)]
 pub struct VanillaContentProductionValueInput {
     pub goods_size_milli: i32,
+    pub flat_modifier_milli: i32,
+    pub external_flat_modifier_milli: i32,
+    pub rate_modifier_milli: i32,
+    pub external_rate_modifier_milli: i32,
+    pub legacy_province_modifier_milli: i32,
+    pub queried_province_modifier_milli: i32,
+}
+
+/// Production value inputs whose goods quantity is derived from the six
+/// source terms resolved by the compatibility layer. The resulting quantity
+/// then follows the existing content-price and country-efficiency path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaContentProductionGoodsSizeInput {
+    pub goods_size_input: VanillaTradeGoodsSizeInput,
     pub flat_modifier_milli: i32,
     pub external_flat_modifier_milli: i32,
     pub rate_modifier_milli: i32,
@@ -3175,6 +3191,35 @@ impl VanillaWorld {
         self.set_vanilla_production_inputs(resolved)
     }
 
+    /// Binds production inputs after deriving goods quantity from the native
+    /// six-term quantity stage. The compatibility layer still owns source
+    /// mapping; the shared core owns the arithmetic and truncation order.
+    pub fn set_vanilla_production_inputs_from_content_goods_size(
+        &mut self,
+        inputs: BTreeMap<u32, VanillaContentProductionGoodsSizeInput>,
+    ) -> Result<(), augustus_core::Error> {
+        let value_inputs = inputs
+            .into_iter()
+            .map(|(province, source)| {
+                let goods_size_milli =
+                    calculate_vanilla_trade_goods_size(source.goods_size_input).quantity_milli;
+                (
+                    province,
+                    VanillaContentProductionValueInput {
+                        goods_size_milli,
+                        flat_modifier_milli: source.flat_modifier_milli,
+                        external_flat_modifier_milli: source.external_flat_modifier_milli,
+                        rate_modifier_milli: source.rate_modifier_milli,
+                        external_rate_modifier_milli: source.external_rate_modifier_milli,
+                        legacy_province_modifier_milli: source.legacy_province_modifier_milli,
+                        queried_province_modifier_milli: source.queried_province_modifier_milli,
+                    },
+                )
+            })
+            .collect();
+        self.set_vanilla_production_inputs_from_loaded_content(value_inputs)
+    }
+
     /// Binds or refreshes production inputs whose value stage still needs the
     /// EU4 content-defined trade-good price. Upstream quantities and modifiers
     /// remain explicit; a missing price becomes an unresolved production row.
@@ -3307,6 +3352,26 @@ impl VanillaWorld {
     ) -> Result<(), augustus_core::Error> {
         let mut attributes = self.initial.world().attributes().clone();
         crate::power_income::apply_external(&self.initial, &mut attributes, &income)
+            .map_err(|error| augustus_core::Error::Invalid(error.to_string()))?;
+        self.initial.set_attributes(attributes)
+    }
+
+    /// Rebinds authoritative advisor slots supplied by a compatibility
+    /// provider while the world is running. The advisor skill terms become
+    /// readable immediately; other country refreshes remain governed by their
+    /// own resolved sources.
+    pub fn set_advisors(
+        &mut self,
+        values: BTreeMap<String, Vec<VanillaExternalAdvisor>>,
+    ) -> Result<(), augustus_core::Error> {
+        bind_external_advisors(
+            &mut self.initial,
+            Some(&values),
+            &self.report.setup.advisor_types,
+        )
+        .map_err(|error| augustus_core::Error::Invalid(error.to_string()))?;
+        let mut attributes = self.initial.world().attributes().clone();
+        crate::power_income::apply_external_advisors(&self.initial, &mut attributes, &values)
             .map_err(|error| augustus_core::Error::Invalid(error.to_string()))?;
         self.initial.set_attributes(attributes)
     }
