@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::rng::{Eu4Rng, RandomSource};
 use crate::{
-    Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryResources,
-    DailySystem, Economy, Error, Governments, Ideas, Modifiers, MonthlySystem, MonthlyTax, Plan,
-    Politics, Target, Taxation, Technology, WorldDate, YearlySystem,
+    Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryLedger,
+    CountryResources, DailySystem, Economy, Error, Governments, Ideas, Modifiers, MonthlySystem,
+    MonthlyTax, Plan, Politics, Target, Taxation, Technology, WorldDate, YearlySystem,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -114,6 +114,7 @@ pub struct World {
     pub(crate) modifier_expirations: BTreeMap<u64, BTreeSet<(EntityId, String)>>,
     pub(crate) justifications: crate::Justifications,
     pub(crate) country_resources: BTreeMap<EntityId, CountryResources>,
+    pub(crate) country_ledgers: BTreeMap<EntityId, CountryLedger>,
     calendar: Option<Calendar>,
     pub(crate) taxation: Option<Taxation>,
     pub(crate) monthly_accruals: Option<crate::MonthlyAccruals>,
@@ -200,6 +201,8 @@ struct Snapshot {
     justifications: crate::Justifications,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     country_resources: BTreeMap<EntityId, CountryResources>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    country_ledgers: BTreeMap<EntityId, CountryLedger>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     calendar: Option<Calendar>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -295,6 +298,7 @@ impl World {
             modifier_expirations: BTreeMap::new(),
             justifications: crate::Justifications::default(),
             country_resources: BTreeMap::new(),
+            country_ledgers: BTreeMap::new(),
             calendar: None,
             taxation: None,
             monthly_accruals: None,
@@ -1248,6 +1252,7 @@ impl World {
             modifiers: self.modifiers.clone(),
             justifications: self.justifications.clone(),
             country_resources: self.country_resources.clone(),
+            country_ledgers: self.country_ledgers.clone(),
             calendar: self.calendar.clone(),
             taxation: self.taxation.clone(),
             monthly_accruals: self.monthly_accruals.clone(),
@@ -1370,6 +1375,7 @@ impl World {
             modifiers: snapshot.modifiers,
             justifications: snapshot.justifications,
             country_resources: snapshot.country_resources,
+            country_ledgers: snapshot.country_ledgers,
             calendar: snapshot.calendar,
             taxation: snapshot.taxation,
             monthly_accruals: snapshot.monthly_accruals,
@@ -1460,6 +1466,12 @@ impl World {
         world.modifiers.validate(&world)?;
         world.justifications.validate(&world)?;
         world.validate_resources(&world.country_resources)?;
+        for (&country, ledger) in &world.country_ledgers {
+            if world.entity(country)?.kind != EntityKind::Country {
+                return Err(Error::Invalid("country ledger requires a country".into()));
+            }
+            ledger.validate()?;
+        }
         world.administration.validate(&world)?;
         world.affiliations.validate(&world)?;
         world.school_opinions.validate(&world)?;
