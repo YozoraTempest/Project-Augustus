@@ -84,6 +84,46 @@ fn query(world: &World, entity: usize) -> augustus_core::AdministrationEvaluatio
 }
 
 #[test]
+fn public_monthly_autonomy_update_is_a_noop_without_autonomy_formulas() {
+    let mut world = world();
+    assert!(!world.update_monthly_autonomy().unwrap());
+}
+
+#[test]
+fn public_monthly_autonomy_update_applies_bounds_before_custom_monthly_work() {
+    let mut world = world();
+    world
+        .set_attributes(Attributes {
+            formulas: [(
+                EntityId(3),
+                [(
+                    MONTHLY_AUTONOMY_DELTA_ATTRIBUTE.into(),
+                    AttributeFormula {
+                        base: AttributeBase::Constant { micros: -1_000 },
+                        channels: Vec::new(),
+                        minimum_micros: None,
+                        maximum_micros: None,
+                        result_quantum_micros: None,
+                        unresolved: Default::default(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert!(world.update_monthly_autonomy().unwrap());
+    assert_eq!(
+        world.administration().provinces[&EntityId(3)].raw_autonomy_micros,
+        Some(350_000)
+    );
+}
+
+#[test]
 fn monthly_autonomy_clamps_before_tax_and_resumes_with_identical_state() {
     let mut world = world();
     let border = EntityId(3);

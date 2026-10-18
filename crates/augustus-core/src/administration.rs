@@ -379,6 +379,18 @@ impl Administration {
 }
 
 impl World {
+    /// Applies the shared monthly province-autonomy phase and reports whether
+    /// any administration state was replaced. Custom monthly systems can use
+    /// this before their own tax or country work.
+    pub fn update_monthly_autonomy(&mut self) -> Result<bool, Error> {
+        self.require_running()?;
+        let Some(administration) = self.prepare_monthly_autonomy()? else {
+            return Ok(false);
+        };
+        self.replace_administration(administration)?;
+        Ok(true)
+    }
+
     pub(crate) fn prepare_monthly_autonomy(&self) -> Result<Option<Administration>, Error> {
         let attribute = crate::MONTHLY_AUTONOMY_DELTA_ATTRIBUTE;
         if !self
