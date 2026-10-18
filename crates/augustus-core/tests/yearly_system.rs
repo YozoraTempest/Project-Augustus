@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, Calendar, EntityId, EntityKind, Error, MonthlySystem, Schema, World, WorldDate,
-    YearlySystem,
+    Action, Calendar, DailyEventCountry, DailyEventGroup, EntityId, EntityKind, Error,
+    EventCatalog, EventDefinition, EventOption, MonthlySystem, Schema, World, WorldDate,
+    YearlyEventRules, YearlySystem,
 };
 
 struct MonthlyRecorder {
@@ -122,6 +123,36 @@ fn yearly_phase_runs_after_monthly_on_the_shared_year_boundary() {
 }
 
 #[test]
+fn split_resume_matches_continuous_run_across_month_and_year_boundaries() {
+    let (mut split, country) = world();
+    let monthly = MonthlyRecorder { country };
+    let yearly = YearlyRecorder { country };
+    split.select_monthly_system(&monthly).unwrap();
+    split.select_yearly_system(&yearly).unwrap();
+
+    split
+        .advance_with_systems_and_yearly(21, None, Some(&monthly), Some(&yearly))
+        .unwrap();
+    let saved = split.save("yearly-resume-test").unwrap();
+    let mut continuous = split.clone();
+    continuous
+        .advance_with_systems_and_yearly(52, None, Some(&monthly), Some(&yearly))
+        .unwrap();
+
+    let mut resumed = World::restore(&saved, "yearly-resume-test", split.schema()).unwrap();
+    resumed
+        .advance_with_systems_and_yearly(52, None, Some(&monthly), Some(&yearly))
+        .unwrap();
+
+    assert_eq!(resumed.date().unwrap(), continuous.date().unwrap());
+    assert_eq!(resumed.events(), continuous.events());
+    assert_eq!(
+        resumed.save("yearly-resume-test").unwrap(),
+        continuous.save("yearly-resume-test").unwrap()
+    );
+}
+
+#[test]
 fn yearly_provider_must_match_the_selected_system() {
     let (mut world, country) = world();
     let selected = YearlyRecorder { country };
@@ -129,4 +160,45 @@ fn yearly_provider_must_match_the_selected_system() {
     world.select_yearly_system(&selected).unwrap();
     assert!(world.advance_with_yearly_system(52, &other).is_err());
     assert!(world.advance_to(52).is_err());
+}
+
+#[test]
+fn yearly_event_rules_dispatch_translated_candidates() {
+    let (mut world, country) = world();
+    let catalog = EventCatalog::new([EventDefinition {
+        id: "annual".into(),
+        scope: EntityKind::Country,
+        immediate: vec![Action::Emit("annual".into())],
+        options: vec![EventOption {
+            id: "accept".into(),
+            effects: Vec::new(),
+        }],
+        after: Vec::new(),
+    }])
+    .unwrap();
+    world.set_event_catalog(catalog.clone()).unwrap();
+
+    let rules = YearlyEventRules::new(
+        "yearly-events:test:v1",
+        vec![DailyEventCountry {
+            country,
+            groups: vec![DailyEventGroup::all(["annual"])],
+        }],
+    )
+    .unwrap();
+    world.select_yearly_system(&rules).unwrap();
+    world.advance_with_yearly_system(52, &rules).unwrap();
+
+    assert_eq!(world.pending_events().len(), 1);
+    assert_eq!(world.pending_events()[0].event, "annual");
+    assert_eq!(
+        world.events().last().map(|event| event.2.as_str()),
+        Some("annual")
+    );
+
+    let save = world.save("yearly-events").unwrap();
+    let restored =
+        World::restore_with_events(&save, "yearly-events", world.schema(), Vec::new(), catalog)
+            .unwrap();
+    assert_eq!(restored.yearly_system_id(), Some("yearly-events:test:v1"));
 }

@@ -103,7 +103,7 @@ impl DailyEventRules {
         Ok(rules)
     }
 
-    fn validate_content(&self, world: &World) -> Result<(), Error> {
+    pub(crate) fn validate_for_schedule(&self, world: &World) -> Result<(), Error> {
         let mut countries = BTreeSet::new();
         for entry in &self.countries {
             if !countries.insert(entry.country) {
@@ -144,7 +144,7 @@ impl DailyEventRules {
         Ok(())
     }
 
-    fn dispatch_group(
+    pub(crate) fn dispatch_group_for_schedule(
         &self,
         world: &mut World,
         country: EntityId,
@@ -211,14 +211,14 @@ impl DailySystem for DailyEventRules {
     }
 
     fn validate(&self, world: &World) -> Result<(), Error> {
-        self.validate_content(world)
+        self.validate_for_schedule(world)
     }
 
     fn tick(&self, world: &mut World) -> Result<(), Error> {
         let mut budget = 100_000;
         for entry in &self.countries {
             for group in &entry.groups {
-                self.dispatch_group(world, entry.country, group, &mut budget)?;
+                self.dispatch_group_for_schedule(world, entry.country, group, &mut budget)?;
             }
         }
         Ok(())

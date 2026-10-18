@@ -83,7 +83,7 @@ Rust 原生系统可以实现 `MonthlySystem`，在开局前整体替换月度�
 
 每日业务也有同样的替换入口。实现 `DailySystem` 后，在开局前调用 `select_daily_system`；核心会在每个推进日调用一次 `tick`，再处理当天任务和月度执行器。存档只保存执行器标识，恢复后必须重新提供相同标识的实现；没有选择每日执行器时，现有 `advance` 行为不变。核心自带的 `DailyEventRules` 提供了翻译后事件候选的通用执行器：普通组先冻结资格再按声明顺序派发，加权组只选一个正权重候选，事件目录自己的 once 记录继续负责重复触发限制。它只接收已经翻译好的事件候选，不替兼容层猜测 EU4 的具体日常规则。
 
-年度业务也有独立的 `YearlySystem` 替换入口。实现后，在开局前调用 `select_yearly_system`，推进时通过 `advance_with_yearly_system` 或 `advance_with_systems_and_yearly` 提供相同实现；跨年当天先执行月度系统，再执行年度系统。年度执行器标识会写入项目存档，恢复时必须匹配，未选择年度执行器时不会改变原有推进路径。这个接口只提供阶段边界和顺序，不代表 EU4 的年度规则已经全部翻译。
+年度业务也有独立的 `YearlySystem` 替换入口。实现后，在开局前调用 `select_yearly_system`，推进时通过 `advance_with_yearly_system` 或 `advance_with_systems_and_yearly` 提供相同实现；跨年当天先执行月度系统，再执行年度系统。年度执行器标识会写入项目存档，恢复时必须匹配，未选择年度执行器时不会改变原有推进路径。核心自带的 `YearlyEventRules` 可执行兼容层已经翻译好的年度事件候选，使用与 `DailyEventRules` 相同的普通组和加权组语义。这个接口只提供阶段边界和顺序，不代表 EU4 的年度规则已经全部翻译。
 
 原生内容也可通过 `Taxation::with_country_annual_attribute` 指定国家级年化税收属性。EU4 加载器会将 `all_nations.global_tax_income` 用于已知拥有省份的国家；当前皇帝还会按 HRE 成员中已选 `free_city` 改革的国家数，计入 `free_cities_in_hre.global_tax_income`。无领土国家的特殊资格尚未接入，年税保留为未知。未知国家属性会阻止实际入账，已知省份小计仍保留；配置与账项参与保存和恢复校验。原版 HRE 状态变更后的缓存刷新时序尚未完整验证。
 

@@ -156,7 +156,7 @@ pub use trade::{
 pub use truces::{Truce, Truces};
 pub use unit_templates::{UnitTemplate, UnitTemplateProperty, UnitTemplates};
 pub use world::{Entity, EntityId, EntityKind, FieldId, RuleId, Schema, World};
-pub use yearly::YearlySystem;
+pub use yearly::{YearlyEventRules, YearlySystem};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
