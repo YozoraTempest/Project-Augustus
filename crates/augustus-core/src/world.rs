@@ -13,7 +13,7 @@ use crate::rng::{Eu4Rng, RandomSource};
 use crate::{
     Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryResources,
     DailySystem, Economy, Error, Governments, Ideas, Modifiers, MonthlySystem, MonthlyTax, Plan,
-    Politics, Target, Taxation, Technology, WorldDate,
+    Politics, Target, Taxation, Technology, WorldDate, YearlySystem,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -123,6 +123,7 @@ pub struct World {
     pub(crate) monthly_cashflows: Option<crate::MonthlyExternalCashflows>,
     pub(crate) monthly_system_id: Option<String>,
     pub(crate) daily_system_id: Option<String>,
+    pub(crate) yearly_system_id: Option<String>,
     attributes: Attributes,
     pub(crate) administration: Arc<Administration>,
     pub(crate) affiliations: Affiliations,
@@ -217,6 +218,8 @@ struct Snapshot {
     monthly_system_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     daily_system_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    yearly_system_id: Option<String>,
     #[serde(default, skip_serializing_if = "Attributes::is_empty")]
     attributes: Attributes,
     #[serde(default, skip_serializing_if = "Administration::is_empty")]
@@ -301,6 +304,7 @@ impl World {
             monthly_cashflows: None,
             monthly_system_id: None,
             daily_system_id: None,
+            yearly_system_id: None,
             attributes: Attributes::default(),
             administration: Arc::default(),
             affiliations: Affiliations::default(),
@@ -675,6 +679,10 @@ impl World {
         self.daily_system_id.as_deref()
     }
 
+    pub fn yearly_system_id(&self) -> Option<&str> {
+        self.yearly_system_id.as_deref()
+    }
+
     /// Select a replaceable daily phase before the campaign starts.
     pub fn select_daily_system(&mut self, system: &dyn DailySystem) -> Result<(), Error> {
         self.require_running()?;
@@ -683,6 +691,17 @@ impl World {
         }
         system.validate(self)?;
         self.daily_system_id = Some(system.id().into());
+        Ok(())
+    }
+
+    /// Select a replaceable yearly phase before the campaign starts.
+    pub fn select_yearly_system(&mut self, system: &dyn YearlySystem) -> Result<(), Error> {
+        self.require_running()?;
+        if self.day != 0 || self.calendar.is_none() || system.id().trim().is_empty() {
+            return Err(Error::Invalid("invalid yearly system selection".into()));
+        }
+        system.validate(self)?;
+        self.yearly_system_id = Some(system.id().into());
         Ok(())
     }
 
@@ -943,13 +962,13 @@ impl World {
     /// execute in insertion order before taxation reads the resulting state.
     pub fn advance_to(&mut self, day: u64) -> Result<(), Error> {
         self.require_running()?;
-        if self.daily_system_id.is_some() {
+        if self.daily_system_id.is_some() || self.yearly_system_id.is_some() {
             return Err(Error::Invalid(
-                "selected daily system requires its matching provider".into(),
+                "selected daily or yearly system requires its matching provider".into(),
             ));
         }
         let monthly = self.builtin_monthly_system()?;
-        self.advance_inner(day, None, monthly)
+        self.advance_inner(day, None, monthly, None)
     }
 
     pub fn advance_with_monthly_system(
@@ -965,7 +984,15 @@ impl World {
         day: u64,
         system: &dyn DailySystem,
     ) -> Result<(), Error> {
-        self.advance_with_systems(day, Some(system), None)
+        self.advance_with_systems_and_yearly(day, Some(system), None, None)
+    }
+
+    pub fn advance_with_yearly_system(
+        &mut self,
+        day: u64,
+        system: &dyn YearlySystem,
+    ) -> Result<(), Error> {
+        self.advance_with_systems_and_yearly(day, None, None, Some(system))
     }
 
     /// Advance with the selected daily phase and monthly executor.
@@ -979,6 +1006,20 @@ impl World {
         daily: Option<&dyn DailySystem>,
         monthly: Option<&dyn MonthlySystem>,
     ) -> Result<(), Error> {
+        self.advance_with_systems_and_yearly(day, daily, monthly, None)
+    }
+
+    /// Advance with replaceable daily, monthly, and yearly phases.
+    ///
+    /// When a month and year boundary coincide, the monthly phase settles
+    /// first and the yearly phase runs immediately afterward.
+    pub fn advance_with_systems_and_yearly(
+        &mut self,
+        day: u64,
+        daily: Option<&dyn DailySystem>,
+        monthly: Option<&dyn MonthlySystem>,
+        yearly: Option<&dyn YearlySystem>,
+    ) -> Result<(), Error> {
         self.require_running()?;
         match (self.daily_system_id.as_deref(), daily) {
             (Some(expected), Some(system)) if expected == system.id() => system.validate(self)?,
@@ -989,6 +1030,18 @@ impl World {
             }
             (None, Some(_)) => {
                 return Err(Error::Invalid("no daily system has been selected".into()));
+            }
+            (None, None) => {}
+        }
+        match (self.yearly_system_id.as_deref(), yearly) {
+            (Some(expected), Some(system)) if expected == system.id() => system.validate(self)?,
+            (Some(_), _) => {
+                return Err(Error::Invalid(
+                    "yearly system identifier does not match".into(),
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(Error::Invalid("no yearly system has been selected".into()));
             }
             (None, None) => {}
         }
@@ -1013,7 +1066,7 @@ impl World {
             }
             (None, None) => None,
         };
-        self.advance_inner(day, daily, monthly)
+        self.advance_inner(day, daily, monthly, yearly)
     }
 
     fn builtin_monthly_system(&self) -> Result<Option<&'static dyn MonthlySystem>, Error> {
@@ -1032,6 +1085,7 @@ impl World {
         day: u64,
         daily: Option<&dyn DailySystem>,
         monthly: Option<&dyn MonthlySystem>,
+        yearly: Option<&dyn YearlySystem>,
     ) -> Result<(), Error> {
         self.require_running()?;
         if day < self.day {
@@ -1048,6 +1102,14 @@ impl World {
                         .as_ref()
                         .expect("validated calendar")
                         .next_month(self.day)
+                })
+                .transpose()?;
+            let year = yearly
+                .map(|_| {
+                    self.calendar
+                        .as_ref()
+                        .expect("validated calendar")
+                        .next_year(self.day)
                 })
                 .transpose()?;
             let task_day = self.tasks.first_key_value().map(|(key, _)| key.0);
@@ -1078,6 +1140,7 @@ impl World {
             let next = task_day
                 .into_iter()
                 .chain(month)
+                .chain(year)
                 .chain(expiration)
                 .chain(truce_retirement)
                 .chain(grant_tick)
@@ -1134,6 +1197,13 @@ impl World {
                     return Err(error);
                 }
             }
+            if year == Some(next) {
+                let result = yearly.expect("selected yearly provider").settle(self);
+                if let Err(error) = result {
+                    self.failed = true;
+                    return Err(error);
+                }
+            }
             self.process_event_commands()?;
         }
         self.day = day;
@@ -1182,6 +1252,7 @@ impl World {
             monthly_cashflows: self.monthly_cashflows.clone(),
             monthly_system_id: self.monthly_system_id.clone(),
             daily_system_id: self.daily_system_id.clone(),
+            yearly_system_id: self.yearly_system_id.clone(),
             attributes: self.attributes.clone(),
             administration: self.administration.as_ref().clone(),
             affiliations: self.affiliations.clone(),
@@ -1302,6 +1373,7 @@ impl World {
             monthly_cashflows: snapshot.monthly_cashflows,
             monthly_system_id: snapshot.monthly_system_id,
             daily_system_id: snapshot.daily_system_id,
+            yearly_system_id: snapshot.yearly_system_id,
             attributes: snapshot.attributes,
             administration: Arc::new(snapshot.administration),
             affiliations: snapshot.affiliations,
@@ -1451,6 +1523,15 @@ impl World {
         {
             return Err(Error::Invalid(
                 "invalid saved daily system selection".into(),
+            ));
+        }
+        if world
+            .yearly_system_id()
+            .is_some_and(|id| id.trim().is_empty())
+            || (world.yearly_system_id().is_some() && world.calendar.is_none())
+        {
+            return Err(Error::Invalid(
+                "invalid saved yearly system selection".into(),
             ));
         }
         let mut sequences = std::collections::BTreeSet::new();

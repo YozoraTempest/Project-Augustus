@@ -2379,12 +2379,27 @@ impl VanillaWorld {
         self.initial.select_daily_system(system)
     }
 
+    pub fn select_yearly_system(
+        &mut self,
+        system: &dyn augustus_core::YearlySystem,
+    ) -> Result<(), augustus_core::Error> {
+        self.initial.select_yearly_system(system)
+    }
+
     pub fn advance_with_daily_system(
         &mut self,
         days: u64,
         system: &dyn augustus_core::DailySystem,
     ) -> Result<(), augustus_core::Error> {
         self.initial.advance_with_daily_system(days, system)
+    }
+
+    pub fn advance_with_yearly_system(
+        &mut self,
+        days: u64,
+        system: &dyn augustus_core::YearlySystem,
+    ) -> Result<(), augustus_core::Error> {
+        self.initial.advance_with_yearly_system(days, system)
     }
 
     pub fn advance_with_systems(
@@ -2394,6 +2409,17 @@ impl VanillaWorld {
         monthly: Option<&dyn augustus_core::MonthlySystem>,
     ) -> Result<(), augustus_core::Error> {
         self.initial.advance_with_systems(days, daily, monthly)
+    }
+
+    pub fn advance_with_systems_and_yearly(
+        &mut self,
+        days: u64,
+        daily: Option<&dyn augustus_core::DailySystem>,
+        monthly: Option<&dyn augustus_core::MonthlySystem>,
+        yearly: Option<&dyn augustus_core::YearlySystem>,
+    ) -> Result<(), augustus_core::Error> {
+        self.initial
+            .advance_with_systems_and_yearly(days, daily, monthly, yearly)
     }
 
     pub fn save(&self) -> Result<String, augustus_core::Error> {

@@ -419,6 +419,14 @@ impl InitialWorld {
         self.world.daily_system_id()
     }
 
+    pub fn select_yearly_system(&mut self, system: &dyn crate::YearlySystem) -> Result<(), Error> {
+        self.world.select_yearly_system(system)
+    }
+
+    pub fn yearly_system_id(&self) -> Option<&str> {
+        self.world.yearly_system_id()
+    }
+
     pub fn set_taxation(&mut self, taxation: crate::Taxation) -> Result<(), Error> {
         self.world.set_taxation(taxation)
     }
@@ -495,6 +503,17 @@ impl InitialWorld {
         result
     }
 
+    pub fn advance_with_yearly_system(
+        &mut self,
+        days: u64,
+        system: &dyn crate::YearlySystem,
+    ) -> Result<(), Error> {
+        let day = self.world.day().checked_add(days).ok_or(Error::Overflow)?;
+        let result = self.world.advance_with_yearly_system(day, system);
+        self.refresh_province_relations();
+        result
+    }
+
     pub fn advance_with_systems(
         &mut self,
         days: u64,
@@ -503,6 +522,21 @@ impl InitialWorld {
     ) -> Result<(), Error> {
         let day = self.world.day().checked_add(days).ok_or(Error::Overflow)?;
         let result = self.world.advance_with_systems(day, daily, monthly);
+        self.refresh_province_relations();
+        result
+    }
+
+    pub fn advance_with_systems_and_yearly(
+        &mut self,
+        days: u64,
+        daily: Option<&dyn crate::DailySystem>,
+        monthly: Option<&dyn crate::MonthlySystem>,
+        yearly: Option<&dyn crate::YearlySystem>,
+    ) -> Result<(), Error> {
+        let day = self.world.day().checked_add(days).ok_or(Error::Overflow)?;
+        let result = self
+            .world
+            .advance_with_systems_and_yearly(day, daily, monthly, yearly);
         self.refresh_province_relations();
         result
     }
@@ -528,6 +562,7 @@ impl InitialWorld {
             || restored.calendar() != self.world.calendar()
             || restored.monthly_system_id() != self.world.monthly_system_id()
             || restored.daily_system_id() != self.world.daily_system_id()
+            || restored.yearly_system_id() != self.world.yearly_system_id()
             || restored.monthly_accruals().map(|a| &a.rules)
                 != self.world.monthly_accruals().map(|a| &a.rules)
             || restored.monthly_production().map(|p| &p.inputs)

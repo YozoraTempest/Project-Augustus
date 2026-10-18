@@ -84,6 +84,20 @@ impl Calendar {
             .ok_or(Error::Overflow)
     }
 
+    /// The next January 1 boundary, strictly after the current day.
+    pub fn next_year(&self, day: u64) -> Result<u64, Error> {
+        let date = self.date(day)?;
+        let year = date.year.checked_add(1).ok_or(Error::Overflow)?;
+        let target = WorldDate {
+            year,
+            month: 1,
+            day: 1,
+        };
+        self.ordinal(target)?
+            .checked_sub(self.ordinal(self.start)?)
+            .ok_or(Error::Overflow)
+    }
+
     pub fn elapsed_months(&self, day: u64) -> Result<u64, Error> {
         let date = self.date(day)?;
         u64::try_from(

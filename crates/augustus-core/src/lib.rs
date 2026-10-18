@@ -53,6 +53,7 @@ mod truces;
 mod unit_selections;
 mod unit_templates;
 mod world;
+mod yearly;
 
 pub use accruals::{
     AccrualAccount, AccrualRule, AccrualSettlement, MonthlyAccruals, MonthlyEconomy,
@@ -155,6 +156,7 @@ pub use trade::{
 pub use truces::{Truce, Truces};
 pub use unit_templates::{UnitTemplate, UnitTemplateProperty, UnitTemplates};
 pub use world::{Entity, EntityId, EntityKind, FieldId, RuleId, Schema, World};
+pub use yearly::YearlySystem;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
