@@ -5,12 +5,12 @@ use augustus_core::{
     Economy, EntityKind, Schema, TradeGoodDefinition, TradeProductionInput, TradeProductionResult,
     VanillaDerivedModifierInput, VanillaGoldBaseInput, VanillaGoldProductionInput,
     VanillaModifierAggregationInput, VanillaProductionBaseValueInput, VanillaProductionInput,
-    VanillaProductionResult, VanillaTradeGoodPriceInput, VanillaTradeGoodsSizeInput, World,
-    aggregate_vanilla_modifier_contributions, calculate_trade_production,
-    calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
+    VanillaProductionResult, VanillaTradeGoodPriceInput, VanillaTradeGoodPriceTableInput,
+    VanillaTradeGoodsSizeInput, World, aggregate_vanilla_modifier_contributions,
+    calculate_trade_production, calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
     calculate_vanilla_gold_production, calculate_vanilla_production,
     calculate_vanilla_production_base_value, calculate_vanilla_trade_good_price,
-    calculate_vanilla_trade_goods_size,
+    calculate_vanilla_trade_good_price_table, calculate_vanilla_trade_goods_size,
 };
 
 fn world() -> World {
@@ -376,6 +376,25 @@ fn vanilla_trade_good_price_rebuilds_runtime_impact_before_production() {
 
     assert_eq!(result.factor_milli, 1_500);
     assert_eq!(result.effective_price_milli, 3_750);
+}
+
+#[test]
+fn vanilla_trade_good_price_table_accumulates_impacts_before_the_lower_bound() {
+    let result = calculate_vanilla_trade_good_price_table(VanillaTradeGoodPriceTableInput {
+        base_price_milli: 2_500,
+        price_impacts_milli: vec![200, 300],
+    });
+    assert_eq!(result.combined_impact_milli, 500);
+    assert_eq!(result.factor_milli, 1_500);
+    assert_eq!(result.effective_price_milli, 3_750);
+
+    let wrapped = calculate_vanilla_trade_good_price_table(VanillaTradeGoodPriceTableInput {
+        base_price_milli: 2_500,
+        price_impacts_milli: vec![i32::MAX, 1],
+    });
+    assert_eq!(wrapped.combined_impact_milli, i32::MIN);
+    assert_eq!(wrapped.factor_milli, 10);
+    assert_eq!(wrapped.effective_price_milli, 25);
 }
 
 #[test]

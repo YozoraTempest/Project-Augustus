@@ -95,13 +95,14 @@ pub use economy::{
     VanillaProductionBaseValueInput, VanillaProductionBaseValueResult,
     VanillaProductionCountryResult, VanillaProductionInput, VanillaProductionInputState,
     VanillaProductionProvinceResult, VanillaProductionResult, VanillaTradeGoodPriceInput,
-    VanillaTradeGoodPriceResult, VanillaTradeGoodsSizeInput, VanillaTradeGoodsSizeResult,
+    VanillaTradeGoodPriceResult, VanillaTradeGoodPriceTableInput, VanillaTradeGoodPriceTableResult,
+    VanillaTradeGoodsSizeInput, VanillaTradeGoodsSizeResult,
     aggregate_vanilla_modifier_contributions, calculate_trade_production,
     calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
     calculate_vanilla_gold_production, calculate_vanilla_gold_production_for_country,
     calculate_vanilla_production, calculate_vanilla_production_base_value,
     calculate_vanilla_production_for_country, calculate_vanilla_trade_good_price,
-    calculate_vanilla_trade_goods_size,
+    calculate_vanilla_trade_good_price_table, calculate_vanilla_trade_goods_size,
 };
 pub use estate_actions::EstateMetric;
 pub use estate_initialization::EstateLandRules;

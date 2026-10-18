@@ -64,6 +64,23 @@ pub struct VanillaTradeGoodPriceResult {
     pub effective_price_milli: i32,
 }
 
+/// Inputs for rebuilding one runtime trade-good price from ordered price
+/// impact entries. The compatibility layer resolves the entries; the core
+/// preserves their 32-bit accumulation and the native price stage.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeGoodPriceTableInput {
+    pub base_price_milli: i32,
+    pub price_impacts_milli: Vec<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaTradeGoodPriceTableResult {
+    pub combined_impact_milli: i32,
+    pub factor_milli: i32,
+    pub effective_price_milli: i32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TradeProductionInput {
     pub province_base_quantity_milli: i32,
@@ -210,6 +227,27 @@ pub fn calculate_vanilla_trade_good_price(
     VanillaTradeGoodPriceResult {
         factor_milli,
         effective_price_milli,
+    }
+}
+
+/// Rebuilds a runtime trade-good price after aggregating all resolved impact
+/// entries. The impact sum uses signed 32-bit wrapping before the factor lower
+/// bound and price multiplication are applied.
+pub fn calculate_vanilla_trade_good_price_table(
+    input: VanillaTradeGoodPriceTableInput,
+) -> VanillaTradeGoodPriceTableResult {
+    let combined_impact = input
+        .price_impacts_milli
+        .into_iter()
+        .fold(0_i32, i32::wrapping_add);
+    let price = calculate_vanilla_trade_good_price(VanillaTradeGoodPriceInput {
+        base_price_milli: input.base_price_milli,
+        price_impact_milli: combined_impact,
+    });
+    VanillaTradeGoodPriceTableResult {
+        combined_impact_milli: combined_impact,
+        factor_milli: price.factor_milli,
+        effective_price_milli: price.effective_price_milli,
     }
 }
 
