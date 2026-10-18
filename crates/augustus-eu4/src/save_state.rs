@@ -13,8 +13,8 @@ use serde::Serialize;
 
 use crate::administration_validation::plaintext_save_document;
 use crate::bootstrap::{
-    VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalNavalUnit, VanillaExternalState,
-    VanillaWorld,
+    VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState,
+    VanillaExternalNavalUnit, VanillaExternalState, VanillaWorld,
 };
 use crate::{Error, ParsedText, TextEncoding};
 
@@ -114,6 +114,28 @@ impl VanillaSaveState {
                     .collect::<BTreeMap<_, _>>();
                 if !filtered.is_empty() {
                     state.estate_privileges.insert((*country).into(), filtered);
+                }
+            }
+            if let Some(estates) = self.external_state.estate_states.get(*country) {
+                let entity = world.initial.country_entity(country).ok_or_else(|| {
+                    Error::message("save state", "save country is missing from the world")
+                })?;
+                let available = world
+                    .initial
+                    .world()
+                    .estates()
+                    .countries
+                    .get(&entity)
+                    .ok_or_else(|| {
+                        Error::message("save state", "save country has no estate state")
+                    })?;
+                let filtered = estates
+                    .iter()
+                    .filter(|(estate, _)| available.contains_key(*estate))
+                    .map(|(estate, values)| (estate.clone(), values.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                if !filtered.is_empty() {
+                    state.estate_states.insert((*country).into(), filtered);
                 }
             }
         }
@@ -343,6 +365,7 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
         }
 
         let mut estates = BTreeMap::new();
+        let mut estate_states = BTreeMap::new();
         for (estate_key, estate_op, estate_value) in country
             .fields()
             .filter(|(key, _, _)| key.read_string() == "estate")
@@ -357,6 +380,23 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
             let Some(estate_name) = optional_scalar(&parsed, &estate, "type")? else {
                 continue;
             };
+            let loyalty_milli = optional_milli(&parsed, &estate, "loyalty")?;
+            let land_share_micros = optional_milli(&parsed, &estate, "territory")?
+                .map(|value| {
+                    value.checked_mul(10).ok_or_else(|| {
+                        Error::message(parsed.source(), "saved estate territory overflows")
+                    })
+                })
+                .transpose()?;
+            if loyalty_milli.is_some() || land_share_micros.is_some() {
+                estate_states.insert(
+                    estate_name.clone(),
+                    VanillaExternalEstateState {
+                        loyalty_milli,
+                        land_share_micros,
+                    },
+                );
+            }
             let privileges = optional_field(&parsed, &estate, "granted_privileges")?
                 .map(|value| privilege_names(&value))
                 .unwrap_or_default();
@@ -367,6 +407,11 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
             external_state
                 .estate_privileges
                 .insert(tag.clone(), estates);
+        }
+        if !estate_states.is_empty() {
+            external_state
+                .estate_states
+                .insert(tag.clone(), estate_states);
         }
 
         for (key, op, value) in country
@@ -467,22 +512,22 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
             };
             external_state.province_is_city.insert(id, Some(is_city));
         }
-        if let Some(history) = optional_object(&parsed, &province, "history")? {
-            if let Some(value) = optional_scalar(&parsed, &history, "hre")? {
-                let in_empire = match value.as_str() {
-                    "yes" => true,
-                    "no" => false,
-                    _ => {
-                        return Err(Error::message(
-                            parsed.source(),
-                            format!("province {id} has an invalid HRE membership flag"),
-                        ));
-                    }
-                };
-                external_state
-                    .province_in_empire
-                    .insert(id, Some(in_empire));
-            }
+        if let Some(history) = optional_object(&parsed, &province, "history")?
+            && let Some(value) = optional_scalar(&parsed, &history, "hre")?
+        {
+            let in_empire = match value.as_str() {
+                "yes" => true,
+                "no" => false,
+                _ => {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("province {id} has an invalid HRE membership flag"),
+                    ));
+                }
+            };
+            external_state
+                .province_in_empire
+                .insert(id, Some(in_empire));
         }
     }
 
@@ -914,6 +959,7 @@ countries={
 		}
 		estate={
 			type="estate_nobles"
+			loyalty=44.600
 			territory=40.000
 			granted_privileges={
 				{
@@ -1025,6 +1071,14 @@ provinces={
         );
         assert_eq!(state.external_state.province_is_city[&1], Some(true));
         assert_eq!(state.external_state.province_in_empire[&1], Some(true));
+        assert_eq!(
+            state.external_state.estate_states["AAA"]["estate_nobles"].loyalty_milli,
+            Some(44_600)
+        );
+        assert_eq!(
+            state.external_state.estate_states["AAA"]["estate_nobles"].land_share_micros,
+            Some(400_000)
+        );
         assert_eq!(
             state.external_state.estate_privileges["AAA"]["estate_nobles"]
                 .as_ref()

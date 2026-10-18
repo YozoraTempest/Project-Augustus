@@ -210,6 +210,20 @@ pub struct VanillaExternalAdvisor {
 pub type VanillaExternalEstatePrivileges =
     BTreeMap<String, BTreeMap<String, Option<BTreeSet<String>>>>;
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalEstateState {
+    /// Current loyalty in EU4 thousandths of a percentage point.
+    #[serde(default)]
+    pub loyalty_milli: Option<i64>,
+    /// Current land share as a millionth fraction of the country's land.
+    #[serde(default)]
+    pub land_share_micros: Option<i64>,
+}
+
+pub type VanillaExternalEstateStates =
+    BTreeMap<String, BTreeMap<String, VanillaExternalEstateState>>;
+
 /// Country flag namespaces supplied by a compatibility provider.
 ///
 /// `Some(set)` means the namespace is complete and only the listed flags are
@@ -290,6 +304,10 @@ pub struct VanillaExternalState {
     /// means the estate is known to have no privileges; `None` remains unknown.
     #[serde(default)]
     pub estate_privileges: VanillaExternalEstatePrivileges,
+    /// Current estate loyalty and land share supplied by a save reader or
+    /// another compatibility provider. Omitted metrics remain unresolved.
+    #[serde(default)]
+    pub estate_states: VanillaExternalEstateStates,
     /// Current country flag namespaces supplied by a save reader. A complete
     /// set replaces the historical namespace for that country.
     #[serde(default)]
@@ -342,6 +360,7 @@ struct LoadOverrides<'a> {
     province_in_empire: Option<&'a BTreeMap<u32, Option<bool>>>,
     province_raw_autonomy_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
     estate_privileges: Option<&'a VanillaExternalEstatePrivileges>,
+    estate_states: Option<&'a VanillaExternalEstateStates>,
     country_markers: Option<&'a VanillaExternalCountryMarkers>,
     country_statuses: Option<&'a VanillaExternalCountryStatuses>,
     estate_loyalty_targets: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
@@ -381,6 +400,7 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.province_raw_autonomy_milli),
             estate_privileges: (!state.estate_privileges.is_empty())
                 .then_some(&state.estate_privileges),
+            estate_states: (!state.estate_states.is_empty()).then_some(&state.estate_states),
             country_markers: (!state.country_markers.is_empty()).then_some(&state.country_markers),
             country_statuses: (!state.country_statuses.is_empty())
                 .then_some(&state.country_statuses),
@@ -440,6 +460,7 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     base.province_raw_autonomy_milli
         .extend(overlay.province_raw_autonomy_milli.clone());
     overlay_nested_map(&mut base.estate_privileges, &overlay.estate_privileges);
+    overlay_nested_map(&mut base.estate_states, &overlay.estate_states);
     base.country_markers.extend(overlay.country_markers.clone());
     overlay_nested_map(&mut base.country_statuses, &overlay.country_statuses);
     overlay_nested_map(
@@ -582,6 +603,47 @@ fn bind_external_estate_privileges(
         .map_err(|e| Error::caused_by("external estate privileges", e))
 }
 
+fn bind_external_estate_states(
+    initial: &mut InitialWorld,
+    values: Option<&VanillaExternalEstateStates>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut estates = initial.world().estates().clone();
+    for (country, estate_values) in values {
+        let entity = initial.country_entity(country).ok_or_else(|| {
+            Error::message(
+                "external estate state",
+                format!("unknown EU4 estate country {country}"),
+            )
+        })?;
+        let states = estates.countries.get_mut(&entity).ok_or_else(|| {
+            Error::message(
+                "external estate state",
+                format!("country {country} has no estate state"),
+            )
+        })?;
+        for (estate, values) in estate_values {
+            let state = states.get_mut(estate).ok_or_else(|| {
+                Error::message(
+                    "external estate state",
+                    format!("country {country} has no estate {estate}"),
+                )
+            })?;
+            if let Some(loyalty) = values.loyalty_milli {
+                state.loyalty_milli = Some(loyalty);
+            }
+            if let Some(land_share) = values.land_share_micros {
+                state.land_share_micros = Some(land_share);
+            }
+        }
+    }
+    initial
+        .set_estates(estates)
+        .map_err(|e| Error::caused_by("external estate state", e))
+}
+
 fn bind_external_country_markers(
     initial: &mut InitialWorld,
     values: Option<&VanillaExternalCountryMarkers>,
@@ -611,6 +673,85 @@ fn bind_external_country_markers(
     initial
         .set_markers(markers)
         .map_err(|e| Error::caused_by("external country markers", e))
+}
+
+fn bind_external_province_in_empire(
+    initial: &mut InitialWorld,
+    values: Option<&BTreeMap<u32, Option<bool>>>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut affiliations = initial.world().affiliations().clone();
+    let dimension = affiliations
+        .0
+        .entry(crate::imperial_membership::DIMENSION.into())
+        .or_default();
+    dimension.groups.entry("hre".into()).or_insert(None);
+    for (province, value) in values {
+        let entity = initial.province_entity(*province).ok_or_else(|| {
+            Error::message(
+                "external HRE membership",
+                format!("unknown EU4 HRE province {province}"),
+            )
+        })?;
+        dimension.members.remove(&entity);
+        dimension.absent_members.remove(&entity);
+        match value {
+            Some(true) => {
+                dimension.members.insert(entity, Some("hre".into()));
+            }
+            Some(false) => {
+                dimension.absent_members.insert(entity);
+            }
+            None => {}
+        }
+    }
+    initial
+        .set_affiliations(affiliations)
+        .map_err(|e| Error::caused_by("external HRE membership", e))
+}
+
+fn bind_external_country_metrics(
+    initial: &mut InitialWorld,
+    values: Option<&BTreeMap<String, BTreeMap<String, Option<i64>>>>,
+    ceilings: Option<&BTreeMap<String, BTreeMap<String, Option<i64>>>>,
+) -> Result<(), Error> {
+    if let Some(values) = values {
+        let bound = values
+            .iter()
+            .map(|(country, metrics)| {
+                let entity = initial.country_entity(country).ok_or_else(|| {
+                    Error::message(
+                        "external country metrics",
+                        format!("unknown EU4 metric country {country}"),
+                    )
+                })?;
+                Ok((entity, metrics.clone()))
+            })
+            .collect::<Result<BTreeMap<_, _>, Error>>()?;
+        initial
+            .set_metric_values(bound)
+            .map_err(|e| Error::caused_by("external country metrics", e))?;
+    }
+    if let Some(ceilings) = ceilings {
+        let bound = ceilings
+            .iter()
+            .map(|(country, metrics)| {
+                let entity = initial.country_entity(country).ok_or_else(|| {
+                    Error::message(
+                        "external country metric ceilings",
+                        format!("unknown EU4 metric ceiling country {country}"),
+                    )
+                })?;
+                Ok((entity, metrics.clone()))
+            })
+            .collect::<Result<BTreeMap<_, _>, Error>>()?;
+        initial
+            .set_metric_ceilings(bound)
+            .map_err(|e| Error::caused_by("external country metric ceilings", e))?;
+    }
+    Ok(())
 }
 
 fn bind_external_country_statuses(
@@ -1897,36 +2038,7 @@ impl VanillaWorld {
         initial
             .set_affiliations(affiliations)
             .map_err(|e| Error::caused_by(root.path(), e))?;
-        if let Some(values) = overrides.province_in_empire {
-            let mut affiliations = initial.world().affiliations().clone();
-            let dimension = affiliations
-                .0
-                .entry(crate::imperial_membership::DIMENSION.into())
-                .or_default();
-            dimension.groups.entry("hre".into()).or_insert(None);
-            for (province, value) in values {
-                let entity = initial.province_entity(*province).ok_or_else(|| {
-                    Error::message(
-                        "external HRE membership",
-                        format!("unknown EU4 HRE province {province}"),
-                    )
-                })?;
-                dimension.members.remove(&entity);
-                dimension.absent_members.remove(&entity);
-                match value {
-                    Some(true) => {
-                        dimension.members.insert(entity, Some("hre".into()));
-                    }
-                    Some(false) => {
-                        dimension.absent_members.insert(entity);
-                    }
-                    None => {}
-                }
-            }
-            initial
-                .set_affiliations(affiliations)
-                .map_err(|e| Error::caused_by("external HRE membership", e))?;
-        }
+        bind_external_province_in_empire(&mut initial, overrides.province_in_empire)?;
         let area_scopes = administration.ordered_areas();
         let mut metrics = crate::province_metrics::bind(
             &initial,
@@ -1970,40 +2082,11 @@ impl VanillaWorld {
         initial
             .set_metrics(metrics)
             .map_err(|e| Error::caused_by("world metrics", e))?;
-        if let Some(values) = overrides.country_metric_values {
-            let bound = values
-                .iter()
-                .map(|(country, metrics)| {
-                    let entity = initial.country_entity(country).ok_or_else(|| {
-                        Error::message(
-                            "external country metrics",
-                            format!("unknown EU4 metric country {country}"),
-                        )
-                    })?;
-                    Ok((entity, metrics.clone()))
-                })
-                .collect::<Result<BTreeMap<_, _>, Error>>()?;
-            initial
-                .set_metric_values(bound)
-                .map_err(|e| Error::caused_by("external country metrics", e))?;
-        }
-        if let Some(values) = overrides.country_metric_ceilings {
-            let bound = values
-                .iter()
-                .map(|(country, metrics)| {
-                    let entity = initial.country_entity(country).ok_or_else(|| {
-                        Error::message(
-                            "external country metric ceilings",
-                            format!("unknown EU4 metric ceiling country {country}"),
-                        )
-                    })?;
-                    Ok((entity, metrics.clone()))
-                })
-                .collect::<Result<BTreeMap<_, _>, Error>>()?;
-            initial
-                .set_metric_ceilings(bound)
-                .map_err(|e| Error::caused_by("external country metric ceilings", e))?;
-        }
+        bind_external_country_metrics(
+            &mut initial,
+            overrides.country_metric_values,
+            overrides.country_metric_ceilings,
+        )?;
         if let Some(resources) = overrides.country_resources {
             let bound = resources
                 .iter()
@@ -2139,6 +2222,18 @@ impl VanillaWorld {
             crate::missions::MissionDraft::load(&root, &files, initial.world(), &area_scopes)?;
         missions.register_identifiers(&mut initial)?;
         crate::truces::bind(&files, &defines, &mut report.setup)?;
+        let external_privileges =
+            overrides
+                .estate_privileges
+                .map_or_else(BTreeSet::new, |values| {
+                    values
+                        .values()
+                        .flat_map(|estates| estates.values())
+                        .filter_map(|privileges| privileges.as_ref())
+                        .flatten()
+                        .cloned()
+                        .collect()
+                });
         let startup = crate::estates::EstateStartup::load(
             &root,
             &files,
@@ -2178,6 +2273,7 @@ impl VanillaWorld {
                 .groups
                 .clone(),
             casus_belli.types,
+            external_privileges,
             &mut report.estates,
         )?;
         report.casus_belli = casus_belli.report;
@@ -2186,6 +2282,7 @@ impl VanillaWorld {
             .set_estates(estates)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         bind_external_estate_privileges(&mut initial, overrides.estate_privileges)?;
+        bind_external_estate_states(&mut initial, overrides.estate_states)?;
         let ideas = ideas.bind(&initial, report.start_date, &mut report.ideas);
         initial
             .set_ideas(ideas)
@@ -2410,9 +2507,19 @@ impl VanillaWorld {
             &country_order,
             clock_origin,
         )?;
+        if !report.estates.pending_startup_effects.is_empty() {
+            bind_external_country_metrics(
+                &mut initial,
+                overrides.country_metric_values,
+                overrides.country_metric_ceilings,
+            )?;
+            bind_external_province_in_empire(&mut initial, overrides.province_in_empire)?;
+        }
         bind_external_country_statuses(&mut initial, overrides.country_statuses)?;
         bind_external_country_markers(&mut initial, overrides.country_markers)?;
         bind_external_estate_privileges(&mut initial, overrides.estate_privileges)?;
+        bind_external_estate_states(&mut initial, overrides.estate_states)?;
+        startup.resolve_external_privilege_validity(&mut initial, overrides.estate_privileges)?;
         report.missions.known_countries = initial.world().objectives().entities.len();
         report.missions.unresolved.retain(|tag, _| {
             !initial

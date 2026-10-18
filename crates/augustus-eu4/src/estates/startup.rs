@@ -572,6 +572,91 @@ impl EstateStartup {
         names
     }
 
+    /// Resolve validity checks for privileges supplied by an external save
+    /// snapshot. The snapshot already contains the granted privilege and any
+    /// resulting state, so only the declarative validity predicate is safe to
+    /// replay; grant callbacks are deliberately left untouched.
+    pub(crate) fn resolve_external_privilege_validity(
+        &self,
+        initial: &mut InitialWorld,
+        values: Option<&crate::bootstrap::VanillaExternalEstatePrivileges>,
+    ) -> Result<(), Error> {
+        let Some(values) = values else {
+            return Ok(());
+        };
+        for (tag, estates) in values {
+            let entity = initial.country_entity(tag).ok_or_else(|| {
+                Error::message(
+                    "external estate privileges",
+                    format!("unknown EU4 estate country {tag}"),
+                )
+            })?;
+            for (estate, selected) in estates {
+                let Some(selected) = selected.as_ref() else {
+                    continue;
+                };
+                let active = initial
+                    .world()
+                    .estates()
+                    .countries
+                    .get(&entity)
+                    .and_then(|states| states.get(estate))
+                    .is_some_and(|state| state.active == Some(true));
+                if !active {
+                    continue;
+                }
+                for privilege in selected {
+                    let Some(callback) = self.callbacks.get(privilege) else {
+                        continue;
+                    };
+                    let needs_resolution = initial
+                        .world()
+                        .estates()
+                        .privileges
+                        .get(privilege)
+                        .is_some_and(|definition| {
+                            definition.effect.unresolved_effects.contains("is_valid")
+                        });
+                    if !needs_resolution {
+                        continue;
+                    }
+                    let mut reasons = BTreeSet::new();
+                    let lookup = |id: &str| {
+                        initial
+                            .world()
+                            .estates()
+                            .countries
+                            .get(&entity)
+                            .and_then(|states| states.get(id))
+                            .and_then(|state| state.active)
+                    };
+                    let valid = callback.valid.evaluate_with_root(
+                        initial,
+                        tag,
+                        &mut reasons,
+                        None,
+                        Some(&lookup),
+                        entity,
+                    );
+                    if valid == Some(true) {
+                        initial
+                            .execute(
+                                entity,
+                                &[Action::ResolveEstatePrivilegeEffect {
+                                    privilege: privilege.clone(),
+                                    effect: "is_valid".into(),
+                                }],
+                            )
+                            .map_err(|error| {
+                                Error::caused_by("external estate privileges", error)
+                            })?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn load(
         root: &impl ContentView,
@@ -586,6 +671,7 @@ impl EstateStartup {
         area_scopes: BTreeMap<String, Vec<u32>>,
         religious_school_groups: BTreeMap<String, Option<String>>,
         casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
+        external_privileges: BTreeSet<String>,
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
         let age_rules = crate::country_conditions::AgeRules::load(root, files)?;
@@ -597,7 +683,7 @@ impl EstateStartup {
             effect_index: BTreeMap::new(),
             triggers: super::library(root, files, report)?,
             visiting: Vec::new(),
-            needed_privileges: BTreeSet::new(),
+            needed_privileges: external_privileges,
             startup_metadata: false,
             mission_ids: crate::missions::identifiers(root, files)?,
             modifier_ids,

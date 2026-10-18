@@ -5,9 +5,9 @@ use augustus_core::{
     Action, EstateDefinition, EstateEffect, EstateMetric, EstatePrivilege, EstateRules,
     EstateState, Estates, ModifierDefinition,
 };
-use augustus_eu4::VanillaWorld;
+use augustus_eu4::{VanillaExternalEstateState, VanillaExternalState, VanillaWorld};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -50,6 +50,43 @@ fn startup_fixture() -> tempfile::TempDir {
     "#,
     );
     temp
+}
+
+#[test]
+fn external_privilege_validity_is_resolved_after_pending_startup() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={unsupported_effect=yes}",
+    );
+    let state = VanillaExternalState {
+        estate_privileges: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([(
+                "estate_guild".into(),
+                Some(BTreeSet::from(["charter".into()])),
+            )]),
+        )]),
+        estate_states: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([(
+                "estate_guild".into(),
+                VanillaExternalEstateState {
+                    loyalty_milli: Some(50_000),
+                    land_share_micros: Some(150_000),
+                },
+            )]),
+        )]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &state).unwrap();
+    assert!(!loaded.report.estates.pending_startup_effects.is_empty());
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().estates().resolved_privilege_effects[&country]["charter"],
+        BTreeSet::from(["is_valid".into()])
+    );
 }
 
 fn loyalty(amount: i64) -> Action {

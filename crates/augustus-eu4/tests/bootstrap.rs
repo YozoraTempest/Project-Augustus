@@ -14,7 +14,8 @@ use augustus_core::{
 };
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
-    VanillaExternalArmy, VanillaExternalNavalUnit, VanillaExternalState, VanillaWorld,
+    VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalNavalUnit,
+    VanillaExternalState, VanillaWorld,
 };
 
 fn fixture() -> PathBuf {
@@ -338,6 +339,69 @@ fn external_province_city_status_reaches_the_loaded_province_state() {
     .unwrap_err()
     .to_string();
     assert!(error.contains("unknown EU4 city-status province 999"));
+}
+
+#[test]
+fn external_hre_membership_survives_pending_startup_fallback() {
+    let root = copy_fixture();
+    fs::create_dir_all(root.path().join("common/on_actions")).unwrap();
+    fs::write(
+        root.path().join("common/on_actions/pending.txt"),
+        "on_startup={unsupported_effect=yes}",
+    )
+    .unwrap();
+    let state = VanillaExternalState {
+        country_metric_values: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([("stability".into(), Some(2))]),
+        )]),
+        province_in_empire: BTreeMap::from([(2, Some(true))]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(root.path(), "1444.11.11", &state).unwrap();
+    assert!(!loaded.report.estates.pending_startup_effects.is_empty());
+    assert_eq!(
+        loaded.country("AAA").unwrap().metrics.as_ref().unwrap()["stability"],
+        Some(2)
+    );
+    let province = loaded.initial.province_entity(2).unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .affiliations()
+            .belongs_to("imperial_membership", province, "hre"),
+        Some(true)
+    );
+}
+
+#[test]
+fn external_estate_state_reaches_live_loyalty_and_land_effects() {
+    let temp = copy_fixture();
+    fs::create_dir_all(temp.path().join("common/estates")).unwrap();
+    fs::write(
+        temp.path().join("common/estates/test.txt"),
+        "estate_guild = { trigger = { always = yes } base_influence = 12 }",
+    )
+    .unwrap();
+    let state = VanillaExternalState {
+        estate_states: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([(
+                "estate_guild".into(),
+                VanillaExternalEstateState {
+                    loyalty_milli: Some(44_600),
+                    land_share_micros: Some(400_000),
+                },
+            )]),
+        )]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &state).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let estate = &loaded.initial.world().estates().countries[&country]["estate_guild"];
+    assert_eq!(estate.loyalty_milli, Some(44_600));
+    assert_eq!(estate.land_share_micros, Some(400_000));
 }
 
 #[test]
