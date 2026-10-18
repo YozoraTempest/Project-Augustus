@@ -3,10 +3,12 @@
 
 use augustus_core::{
     Economy, EntityKind, Schema, TradeGoodDefinition, TradeProductionInput, TradeProductionResult,
-    VanillaDerivedModifierInput, VanillaModifierAggregationInput, VanillaProductionBaseValueInput,
-    VanillaProductionInput, VanillaProductionResult, VanillaTradeGoodPriceInput,
-    VanillaTradeGoodsSizeInput, World, aggregate_vanilla_modifier_contributions,
-    calculate_trade_production, calculate_vanilla_derived_modifier, calculate_vanilla_production,
+    VanillaDerivedModifierInput, VanillaGoldBaseInput, VanillaGoldProductionInput,
+    VanillaModifierAggregationInput, VanillaProductionBaseValueInput, VanillaProductionInput,
+    VanillaProductionResult, VanillaTradeGoodPriceInput, VanillaTradeGoodsSizeInput, World,
+    aggregate_vanilla_modifier_contributions, calculate_trade_production,
+    calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
+    calculate_vanilla_gold_production, calculate_vanilla_production,
     calculate_vanilla_production_base_value, calculate_vanilla_trade_good_price,
     calculate_vanilla_trade_goods_size,
 };
@@ -436,6 +438,39 @@ fn vanilla_production_base_value_keeps_negative_final_value() {
     assert_eq!(result.flat_value_milli, -5_000);
     assert_eq!(result.rate_factor_milli, 10);
     assert_eq!(result.value_milli, -50);
+}
+
+#[test]
+fn vanilla_gold_production_matches_the_confirmed_hab_path() {
+    let result = calculate_vanilla_gold_production(VanillaGoldProductionInput {
+        gold_size_milli: 800,
+        mine_base_milli: 39_640,
+        external_gold_size_milli: 0,
+    });
+
+    assert_eq!(result.combined_size_milli, 800);
+    assert_eq!(result.value_milli, 31_712);
+    assert_eq!(result.monthly_value_milli, 2_642);
+}
+
+#[test]
+fn vanilla_gold_base_matches_the_confirmed_a11b80_order() {
+    let result = calculate_vanilla_gold_base(VanillaGoldBaseInput {
+        province_field_2df0: 0,
+        province_field_428: 900,
+        province_field_2df4: 100_000,
+        global_base_milli: 40_000,
+    });
+
+    assert_eq!(
+        result,
+        augustus_core::VanillaGoldBaseResult {
+            selected_province_field_milli: 900,
+            bounded_province_field_milli: 900,
+            reduction_milli: 9,
+            base_value_milli: 39_640,
+        }
+    );
 }
 
 #[test]

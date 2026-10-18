@@ -88,13 +88,15 @@ pub use daily::{
 pub use economy::{
     BuildingDefinition, BuildingRole, Economy, ProvinceEconomy, TradeGoodDefinition, TradeNode,
     TradeProductionInput, TradeProductionResult, VanillaDerivedModifierInput,
-    VanillaDerivedModifierResult, VanillaModifierAggregationInput,
+    VanillaDerivedModifierResult, VanillaGoldBaseInput, VanillaGoldBaseResult,
+    VanillaGoldProductionInput, VanillaGoldProductionResult, VanillaModifierAggregationInput,
     VanillaModifierAggregationResult, VanillaProductionBaseValueInput,
     VanillaProductionBaseValueResult, VanillaProductionCountryResult, VanillaProductionInput,
     VanillaProductionInputState, VanillaProductionProvinceResult, VanillaProductionResult,
     VanillaTradeGoodPriceInput, VanillaTradeGoodPriceResult, VanillaTradeGoodsSizeInput,
     VanillaTradeGoodsSizeResult, aggregate_vanilla_modifier_contributions,
-    calculate_trade_production, calculate_vanilla_derived_modifier, calculate_vanilla_production,
+    calculate_trade_production, calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
+    calculate_vanilla_gold_production, calculate_vanilla_production,
     calculate_vanilla_production_base_value, calculate_vanilla_production_for_country,
     calculate_vanilla_trade_good_price, calculate_vanilla_trade_goods_size,
 };

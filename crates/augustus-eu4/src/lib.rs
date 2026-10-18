@@ -57,7 +57,8 @@ pub use administration_validation::{
 pub use attributes::AttributeReport;
 pub use augustus_core::{
     CashflowBreakdown, VanillaDerivedModifierInput, VanillaDerivedModifierResult,
-    VanillaModifierAggregationInput, VanillaModifierAggregationResult,
+    VanillaGoldBaseInput, VanillaGoldBaseResult, VanillaGoldProductionInput,
+    VanillaGoldProductionResult, VanillaModifierAggregationInput, VanillaModifierAggregationResult,
     VanillaProductionCountryResult, VanillaProductionInputState, VanillaProductionProvinceResult,
     VanillaTradeCandidate, VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
     VanillaTradeDistributionResult, VanillaTradeDistributionRouteInput,
@@ -66,6 +67,7 @@ pub use augustus_core::{
     VanillaTradePropagationResult, VanillaTradeRetentionInput, VanillaTradeRetentionResult,
     VanillaTradeRouteWeightInput, VanillaTradeRouteWeightResult,
     aggregate_vanilla_modifier_contributions, calculate_vanilla_derived_modifier,
+    calculate_vanilla_gold_base, calculate_vanilla_gold_production,
     calculate_vanilla_production_for_country, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_good_price, calculate_vanilla_trade_goods_size,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,

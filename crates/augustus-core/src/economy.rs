@@ -106,6 +106,26 @@ pub struct VanillaTradeGoodsSizeResult {
     pub quantity_milli: i32,
 }
 
+/// Inputs for the verified EU4 gold-province base stage (`A11B80`). The
+/// compatibility layer resolves the three province fields and the selected
+/// global base; the core owns the max/min and fixed-point order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaGoldBaseInput {
+    pub province_field_2df0: i32,
+    pub province_field_428: i32,
+    pub province_field_2df4: i32,
+    pub global_base_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaGoldBaseResult {
+    pub selected_province_field_milli: i32,
+    pub bounded_province_field_milli: i32,
+    pub reduction_milli: i32,
+    pub base_value_milli: i32,
+}
+
 /// Inputs for the native `a13fd0`-equivalent value stage. The first stage's
 /// output is supplied by `calculate_vanilla_trade_goods_size`; flat and rate
 /// contributions are kept separate because the original code adds the former
@@ -127,6 +147,24 @@ pub struct VanillaProductionBaseValueResult {
     pub flat_value_milli: i32,
     pub rate_factor_milli: i32,
     pub value_milli: i32,
+}
+
+/// Inputs for the verified gold-production value stage. The compatibility
+/// layer resolves the native gold quantity, mine base and any additional gold
+/// quantity; the core preserves the observed multiply-and-divide order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaGoldProductionInput {
+    pub gold_size_milli: i32,
+    pub mine_base_milli: i32,
+    pub external_gold_size_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaGoldProductionResult {
+    pub combined_size_milli: i32,
+    pub value_milli: i32,
+    pub monthly_value_milli: i32,
 }
 
 /// Rebuilds the effective EU4 trade-good price from its content price and the
@@ -207,6 +245,24 @@ pub fn calculate_vanilla_trade_goods_size(
     }
 }
 
+/// Reproduces the verified gold-province base stage used before the gold
+/// quantity is multiplied into the monthly ledger value. Division truncates
+/// toward zero, matching the native signed integer operations.
+pub fn calculate_vanilla_gold_base(input: VanillaGoldBaseInput) -> VanillaGoldBaseResult {
+    let selected = input.province_field_2df0.max(input.province_field_428);
+    let bounded = selected.min(input.province_field_2df4);
+    let reduction = ((i64::from(bounded) * 1_000) / 100_000) as i32;
+    let base =
+        (((1_000_i64 - i64::from(reduction)) * i64::from(input.global_base_milli)) / 1_000) as i32;
+
+    VanillaGoldBaseResult {
+        selected_province_field_milli: selected,
+        bounded_province_field_milli: bounded,
+        reduction_milli: reduction,
+        base_value_milli: base,
+    }
+}
+
 /// Reproduces the native ordinary production value stage after quantity
 /// calculation. Each division truncates toward zero. The price product is
 /// cast to a signed 32-bit value and negative results are replaced with zero
@@ -232,6 +288,24 @@ pub fn calculate_vanilla_production_base_value(
         flat_value_milli: flat_value,
         rate_factor_milli: rate_factor,
         value_milli: value,
+    }
+}
+
+/// Reproduces the confirmed gold path after its upstream values have been
+/// resolved. The monthly ledger uses truncation toward zero after division by
+/// twelve; no ordinary trade-good price is involved.
+pub fn calculate_vanilla_gold_production(
+    input: VanillaGoldProductionInput,
+) -> VanillaGoldProductionResult {
+    let combined_size = input
+        .gold_size_milli
+        .wrapping_add(input.external_gold_size_milli);
+    let value = ((i64::from(combined_size) * i64::from(input.mine_base_milli)) / 1_000) as i32;
+    let monthly_value = (i64::from(value) / 12) as i32;
+    VanillaGoldProductionResult {
+        combined_size_milli: combined_size,
+        value_milli: value,
+        monthly_value_milli: monthly_value,
     }
 }
 

@@ -9,8 +9,10 @@ use std::{
 use augustus_core::{
     Calendar, CashflowBreakdown, CountryResources, CountryState, EntityKind, InitialWorld,
     MonthlyExternalCashflows, MonthlyProduction, ProvinceClass, ProvinceState, Taxation,
-    TechnologyProperty, VanillaProductionBaseValueInput, VanillaProductionBaseValueResult,
+    TechnologyProperty, VanillaGoldBaseInput, VanillaGoldBaseResult, VanillaGoldProductionInput,
+    VanillaGoldProductionResult, VanillaProductionBaseValueInput, VanillaProductionBaseValueResult,
     VanillaProductionInput, VanillaTradeGoodPriceInput, VanillaTradeGoodsSizeInput, WorldDate,
+    calculate_vanilla_gold_base, calculate_vanilla_gold_production,
     calculate_vanilla_production_base_value, calculate_vanilla_trade_good_price,
     calculate_vanilla_trade_goods_size,
 };
@@ -3041,6 +3043,69 @@ impl VanillaWorld {
                 external_rate_modifier_milli: input.external_rate_modifier_milli,
             },
         )))
+    }
+
+    /// Applies the confirmed `A11B80` gold-base stage for a province whose
+    /// current trade good is marked as gold. The compatibility layer still
+    /// supplies the native fields and the selected global branch value.
+    pub fn calculate_vanilla_province_gold_base(
+        &self,
+        id: u32,
+        input: VanillaGoldBaseInput,
+    ) -> Result<Option<VanillaGoldBaseResult>, augustus_core::Error> {
+        let entity = self
+            .initial
+            .province_entity(id)
+            .ok_or_else(|| augustus_core::Error::Invalid("unknown province".into()))?;
+        let economy = self.initial.world().economy();
+        let Some(trade_good) = economy
+            .provinces
+            .get(&entity)
+            .and_then(|state| state.trade_good.as_deref())
+        else {
+            return Ok(None);
+        };
+        let Some(definition) = economy.trade_goods.get(trade_good) else {
+            return Err(augustus_core::Error::Invalid(format!(
+                "province {id} references unknown trade good {trade_good}"
+            )));
+        };
+        if definition.gold_type != Some(true) {
+            return Ok(None);
+        }
+        Ok(Some(calculate_vanilla_gold_base(input)))
+    }
+
+    /// Applies the confirmed gold-production value stage for a province whose
+    /// current trade good is marked as gold. The mine base and gold quantity
+    /// remain explicit compatibility inputs; no ordinary trade-good price is
+    /// consulted.
+    pub fn calculate_vanilla_province_gold_production(
+        &self,
+        id: u32,
+        input: VanillaGoldProductionInput,
+    ) -> Result<Option<VanillaGoldProductionResult>, augustus_core::Error> {
+        let entity = self
+            .initial
+            .province_entity(id)
+            .ok_or_else(|| augustus_core::Error::Invalid("unknown province".into()))?;
+        let economy = self.initial.world().economy();
+        let Some(trade_good) = economy
+            .provinces
+            .get(&entity)
+            .and_then(|state| state.trade_good.as_deref())
+        else {
+            return Ok(None);
+        };
+        let Some(definition) = economy.trade_goods.get(trade_good) else {
+            return Err(augustus_core::Error::Invalid(format!(
+                "province {id} references unknown trade good {trade_good}"
+            )));
+        };
+        if definition.gold_type != Some(true) {
+            return Ok(None);
+        }
+        Ok(Some(calculate_vanilla_gold_production(input)))
     }
 
     pub fn country_attributes(

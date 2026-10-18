@@ -423,6 +423,69 @@ fn external_cashflow_breakdowns_bind_category_slots_before_settlement() {
 }
 
 #[test]
+fn gold_production_uses_the_gold_path_without_a_trade_good_price() {
+    let root = copy_fixture();
+    let goods = root.path().join("common/tradegoods/test_goods.txt");
+    let text = fs::read_to_string(&goods).unwrap();
+    fs::write(
+        goods,
+        text.replace(
+            "gold = { color = { 1.0 0.9 0.0 } }",
+            "gold = { color = { 1.0 0.9 0.0 } goldtype = yes }",
+        ),
+    )
+    .unwrap();
+    let province = root.path().join("history/provinces/2 - East.txt");
+    let text = fs::read_to_string(&province).unwrap();
+    fs::write(
+        province,
+        text.replace("trade_goods = cloth", "trade_goods = gold"),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    let base = loaded
+        .calculate_vanilla_province_gold_base(
+            2,
+            augustus_eu4::VanillaGoldBaseInput {
+                province_field_2df0: 0,
+                province_field_428: 900,
+                province_field_2df4: 100_000,
+                global_base_milli: 40_000,
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(base.base_value_milli, 39_640);
+    let result = loaded
+        .calculate_vanilla_province_gold_production(
+            2,
+            augustus_eu4::VanillaGoldProductionInput {
+                gold_size_milli: 800,
+                mine_base_milli: 39_640,
+                external_gold_size_milli: 0,
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.value_milli, 31_712);
+    assert_eq!(result.monthly_value_milli, 2_642);
+    assert!(
+        loaded
+            .calculate_vanilla_province_gold_production(
+                1,
+                augustus_eu4::VanillaGoldProductionInput {
+                    gold_size_milli: 800,
+                    mine_base_milli: 39_640,
+                    external_gold_size_milli: 0,
+                },
+            )
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
 fn content_production_inputs_derive_country_efficiency_from_administrative_technology() {
     let fixture = copy_fixture();
     let technology = fixture.path().join("common/technologies/test_adm.txt");
