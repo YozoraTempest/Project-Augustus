@@ -426,7 +426,8 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
                 .transpose()?;
             let active_influences = optional_field(&parsed, &estate, "active_influences")?
                 .map(|value| numeric_id_set(&parsed, &value, "active_influences"))
-                .transpose()?;
+                .transpose()?
+                .or_else(|| Some(BTreeSet::new()));
             if loyalty_milli.is_some() || land_share_micros.is_some() || active_influences.is_some()
             {
                 estate_states.insert(

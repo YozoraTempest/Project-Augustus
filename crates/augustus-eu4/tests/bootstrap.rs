@@ -406,6 +406,51 @@ fn external_estate_state_reaches_live_loyalty_and_land_effects() {
 }
 
 #[test]
+fn estate_state_overlay_merges_each_snapshot_field() {
+    let mut base = VanillaExternalState {
+        estate_states: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([(
+                "estate_guild".into(),
+                VanillaExternalEstateState {
+                    loyalty_milli: Some(44_600),
+                    land_share_micros: Some(400_000),
+                    active_influences: Some(BTreeSet::from([1])),
+                },
+            )]),
+        )]),
+        ..Default::default()
+    };
+    let overlay = VanillaExternalState {
+        estate_states: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([(
+                "estate_guild".into(),
+                VanillaExternalEstateState {
+                    loyalty_milli: None,
+                    land_share_micros: None,
+                    active_influences: Some(BTreeSet::from([4])),
+                },
+            )]),
+        )]),
+        ..Default::default()
+    };
+    base.apply_overlay(&overlay);
+    assert_eq!(
+        base.estate_states["AAA"]["estate_guild"].loyalty_milli,
+        Some(44_600)
+    );
+    assert_eq!(
+        base.estate_states["AAA"]["estate_guild"].land_share_micros,
+        Some(400_000)
+    );
+    assert_eq!(
+        base.estate_states["AAA"]["estate_guild"].active_influences,
+        Some(BTreeSet::from([4]))
+    );
+}
+
+#[test]
 fn technology_levels_keep_enabled_unit_names_in_order_with_sources() {
     let fixture = copy_fixture();
     fs::write(

@@ -1769,6 +1769,123 @@ fn influence_initialization_uses_defines_and_selected_privileges() {
 }
 
 #[test]
+fn saved_active_influences_select_declaration_indices_without_rechecking_triggers() {
+    let temp = copy_fixture();
+    write(
+        temp.path(),
+        "common/estates/test.txt",
+        r#"
+        estate_guild = {
+            trigger = { tag = AAA }
+            base_influence = 10
+            privileges = { charter }
+            influence_modifier = {
+                desc = unresolved_trigger
+                trigger = { unknown_condition = yes }
+                influence = 2
+            }
+            influence_modifier = {
+                desc = selected_modifier
+                trigger = { always = yes }
+                influence = 4
+            }
+        }
+        "#,
+    );
+    let state = |active_influences| VanillaExternalState {
+        estate_privileges: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([(
+                "estate_guild".into(),
+                Some(BTreeSet::from(["charter".into()])),
+            )]),
+        )]),
+        estate_states: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([(
+                "estate_guild".into(),
+                VanillaExternalEstateState {
+                    loyalty_milli: Some(50_000),
+                    land_share_micros: None,
+                    active_influences: Some(active_influences),
+                },
+            )]),
+        )]),
+        ..Default::default()
+    };
+
+    let selected = VanillaWorld::load_with_external_state(
+        temp.path(),
+        "1444.11.11",
+        &state(BTreeSet::from([1])),
+    )
+    .unwrap();
+    assert_eq!(
+        selected.country("AAA").unwrap().estates.unwrap()["estate_guild"].influence_milli,
+        Some(14_000)
+    );
+    assert!(
+        !selected
+            .report
+            .estates
+            .unresolved_initialization
+            .get("AAA")
+            .is_some_and(|reasons| reasons
+                .iter()
+                .any(|reason| reason.contains("unknown_condition")))
+    );
+
+    let empty =
+        VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &state(BTreeSet::new()))
+            .unwrap();
+    assert_eq!(
+        empty.country("AAA").unwrap().estates.unwrap()["estate_guild"].influence_milli,
+        Some(10_000)
+    );
+}
+
+#[test]
+fn saved_active_influence_out_of_range_preserves_unknown_initialization() {
+    let temp = copy_fixture();
+    write(
+        temp.path(),
+        "common/estates/test.txt",
+        "estate_guild = { trigger = { tag = AAA } base_influence = 10 privileges = { charter } influence_modifier = { trigger = { always = yes } influence = 2 } }",
+    );
+    let state = VanillaExternalState {
+        estate_privileges: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([(
+                "estate_guild".into(),
+                Some(BTreeSet::from(["charter".into()])),
+            )]),
+        )]),
+        estate_states: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([(
+                "estate_guild".into(),
+                VanillaExternalEstateState {
+                    loyalty_milli: Some(50_000),
+                    land_share_micros: None,
+                    active_influences: Some(BTreeSet::from([4])),
+                },
+            )]),
+        )]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &state).unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap()["estate_guild"].influence_milli,
+        None
+    );
+    assert!(
+        loaded.report.estates.unresolved_initialization["AAA"]
+            .iter()
+            .any(|reason| reason.contains("unknown_modifier:4"))
+    );
+}
+
+#[test]
 fn dependency_conditions_macros_and_unknowns_select_without_order_guesses() {
     let temp = copy_fixture();
     write(

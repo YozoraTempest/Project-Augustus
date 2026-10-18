@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use super::{Condition, ENCODING, EstateReport, History, Reader};
+use crate::bootstrap::VanillaExternalEstateStates;
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::setup::{block, micros};
 use crate::{ContentView, Error, FileEntry, LoadedSource, ParsedText, SourceLocation};
@@ -267,6 +268,7 @@ impl EstateInitialization {
         states: &mut BTreeMap<String, EstateState>,
         lookup: &dyn Fn(&str) -> Option<bool>,
         external_privileges: &BTreeSet<String>,
+        external_states: Option<&VanillaExternalEstateStates>,
         report: &mut EstateReport,
     ) -> Result<(), Error> {
         let entity = initial.country_entity(tag).expect("registered country");
@@ -283,14 +285,34 @@ impl EstateInitialization {
             if value.is_none() {
                 reasons.insert(format!("{id}:missing_base_influence"));
             }
-            for (condition, amount) in &weight.conditions {
-                let mut pending = BTreeSet::new();
-                match condition.evaluate(initial, tag, &mut pending, None, Some(lookup)) {
-                    Some(false) => (),
-                    Some(true) => value = value.and_then(|v| v.checked_add(*amount)),
-                    None => {
+            let saved_influences = external_states
+                .and_then(|values| values.get(tag))
+                .and_then(|values| values.get(*id))
+                .and_then(|state| state.active_influences.as_ref());
+            if let Some(saved_influences) = saved_influences {
+                for modifier_id in saved_influences {
+                    let Some((_, amount)) = (*modifier_id)
+                        .try_into()
+                        .ok()
+                        .and_then(|index: usize| weight.conditions.get(index))
+                    else {
                         value = None;
-                        reasons.extend(pending.into_iter().map(|r| format!("{id}:influence:{r}")));
+                        reasons.insert(format!("{id}:influence:unknown_modifier:{modifier_id}"));
+                        continue;
+                    };
+                    value = value.and_then(|v| v.checked_add(*amount));
+                }
+            } else {
+                for (condition, amount) in &weight.conditions {
+                    let mut pending = BTreeSet::new();
+                    match condition.evaluate(initial, tag, &mut pending, None, Some(lookup)) {
+                        Some(false) => (),
+                        Some(true) => value = value.and_then(|v| v.checked_add(*amount)),
+                        None => {
+                            value = None;
+                            reasons
+                                .extend(pending.into_iter().map(|r| format!("{id}:influence:{r}")));
+                        }
                     }
                 }
             }
@@ -392,6 +414,16 @@ impl EstateInitialization {
         if self.land_rules.is_none() {
             reasons.insert("missing_land_distribution_defines".into());
         }
+        // A translated save may contain a partial territory snapshot. Once any
+        // saved territory is present, leave omitted estates unresolved instead
+        // of combining the snapshot with a newly generated allocation.
+        let saved_land_snapshot = external_states
+            .and_then(|values| values.get(tag))
+            .is_some_and(|values| {
+                values
+                    .values()
+                    .any(|state| state.land_share_micros.is_some())
+            });
         let influence_known =
             !uncertain_presence && !selected_unknown && weights.iter().all(Option::is_some);
         if influence_known {
@@ -399,7 +431,8 @@ impl EstateInitialization {
                 states.get_mut(*id).unwrap().influence_milli = Some(influence);
             }
         }
-        let land_known = !uncertain_presence
+        let land_known = !saved_land_snapshot
+            && !uncertain_presence
             && !selected_unknown
             && !unexecuted_privilege
             && history.is_some_and(|h| !h.unknown_land)

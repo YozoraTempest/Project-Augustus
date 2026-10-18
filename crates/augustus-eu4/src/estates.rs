@@ -14,7 +14,10 @@ use augustus_core::{
 use jomini::text::ObjectReader;
 use serde::Serialize;
 
-use crate::bootstrap::{VanillaExternalEstatePrivileges, dated_name, direct_txt, equal, source};
+use crate::bootstrap::{
+    VanillaExternalEstatePrivileges, VanillaExternalEstateStates, dated_name, direct_txt, equal,
+    source,
+};
 use crate::country_conditions::Condition;
 use crate::setup::{PropertyDiagnostics, block, micros, properties};
 use crate::{
@@ -664,6 +667,7 @@ impl EstateDraft {
         mut self,
         initial: &InitialWorld,
         external_privileges: Option<&VanillaExternalEstatePrivileges>,
+        external_states: Option<&VanillaExternalEstateStates>,
         report: &mut EstateReport,
     ) -> Result<Estates, Error> {
         if self.content.definitions.is_empty() {
@@ -836,6 +840,7 @@ impl EstateDraft {
                 &mut states,
                 &lookup,
                 &country_external_privileges,
+                external_states,
                 report,
             )?;
             if !reasons.is_empty() {

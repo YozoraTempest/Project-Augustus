@@ -220,9 +220,10 @@ pub struct VanillaExternalEstateState {
     /// Current land share as a millionth fraction of the country's land.
     #[serde(default)]
     pub land_share_micros: Option<i64>,
-    /// Native active influence modifier identifiers. Their numeric meaning is
-    /// content-defined and remains at the compatibility boundary until the
-    /// corresponding estate definition is resolved.
+    /// Native active influence modifier identifiers from an EU4 save. The
+    /// compatibility layer resolves zero-based identifiers against the estate's
+    /// declaration order; identifiers without a matching definition remain
+    /// unresolved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_influences: Option<BTreeSet<u32>>,
 }
@@ -314,8 +315,9 @@ pub struct VanillaExternalState {
     /// means the estate is known to have no privileges; `None` remains unknown.
     #[serde(default)]
     pub estate_privileges: VanillaExternalEstatePrivileges,
-    /// Current estate loyalty and land share supplied by a save reader or
-    /// another compatibility provider. Omitted metrics remain unresolved.
+    /// Current estate loyalty, land share, and active influence identifiers
+    /// supplied by a save reader or another compatibility provider. Omitted
+    /// metrics remain unresolved.
     #[serde(default)]
     pub estate_states: VanillaExternalEstateStates,
     /// Current country flag namespaces supplied by a save reader. A complete
@@ -443,6 +445,27 @@ fn overlay_nested_map<K1, K2, V>(
     }
 }
 
+fn overlay_estate_states(
+    base: &mut VanillaExternalEstateStates,
+    overlay: &VanillaExternalEstateStates,
+) {
+    for (country, estates) in overlay {
+        let destination = base.entry(country.clone()).or_default();
+        for (estate, values) in estates {
+            let current = destination.entry(estate.clone()).or_default();
+            if values.loyalty_milli.is_some() {
+                current.loyalty_milli = values.loyalty_milli;
+            }
+            if values.land_share_micros.is_some() {
+                current.land_share_micros = values.land_share_micros;
+            }
+            if values.active_influences.is_some() {
+                current.active_influences = values.active_influences.clone();
+            }
+        }
+    }
+}
+
 fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExternalState) {
     overlay_nested_map(
         &mut base.country_metric_values,
@@ -475,7 +498,7 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     base.province_raw_autonomy_milli
         .extend(overlay.province_raw_autonomy_milli.clone());
     overlay_nested_map(&mut base.estate_privileges, &overlay.estate_privileges);
-    overlay_nested_map(&mut base.estate_states, &overlay.estate_states);
+    overlay_estate_states(&mut base.estate_states, &overlay.estate_states);
     base.country_markers.extend(overlay.country_markers.clone());
     overlay_nested_map(&mut base.country_statuses, &overlay.country_statuses);
     overlay_nested_map(
@@ -2337,7 +2360,12 @@ impl VanillaWorld {
             &mut report.estates,
         )?;
         report.casus_belli = casus_belli.report;
-        let estates = estates.bind(&initial, overrides.estate_privileges, &mut report.estates)?;
+        let estates = estates.bind(
+            &initial,
+            overrides.estate_privileges,
+            overrides.estate_states,
+            &mut report.estates,
+        )?;
         initial
             .set_estates(estates)
             .map_err(|e| Error::caused_by(root.path(), e))?;
