@@ -148,12 +148,24 @@ impl MonthlySystem for MonthlyTax {
     }
 
     fn settle(&self, world: &mut World) -> Result<(), Error> {
-        let mut taxation = world
-            .taxation
-            .take()
-            .ok_or_else(|| Error::Invalid("missing taxation state".into()))?;
-        let result = taxation.settle(world);
-        world.taxation = Some(taxation);
+        let previous_administration = world
+            .prepare_monthly_autonomy()?
+            .map(|administration| world.replace_administration(administration))
+            .transpose()?;
+        let result = (|| {
+            let mut taxation = world
+                .taxation
+                .take()
+                .ok_or_else(|| Error::Invalid("missing taxation state".into()))?;
+            let result = taxation.settle(world);
+            world.taxation = Some(taxation);
+            result
+        })();
+        if result.is_err()
+            && let Some(previous) = previous_administration
+        {
+            world.restore_administration(previous);
+        }
         result
     }
 }

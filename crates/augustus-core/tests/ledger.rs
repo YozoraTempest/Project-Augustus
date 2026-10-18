@@ -4,9 +4,10 @@
 use std::collections::BTreeMap;
 
 use augustus_core::{
-    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
-    COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY, CountryLedger, CountryResources, EntityKind, Schema,
-    World, country_ledger_expense_key, country_ledger_income_key,
+    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES,
+    COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY, COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY,
+    CountryLedger, CountryResources, EntityKind, Schema, World, country_ledger_expense_key,
+    country_ledger_income_key,
 };
 
 fn world() -> (World, augustus_core::EntityId) {
@@ -209,6 +210,20 @@ fn monthly_consolidation_runs_after_relation_expense_and_annual_rollover_is_expl
             .iter()
             .all(|value| *value == 0)
     );
+}
+
+#[test]
+fn monthly_consolidation_uses_the_native_filtered_expense_set_by_default() {
+    let (mut world, country) = world();
+    world.record_country_expense(country, 11, 10).unwrap();
+    world
+        .consolidate_country_ledgers_monthly(&BTreeMap::new())
+        .unwrap();
+
+    let ledger = &world.country_ledgers()[&country];
+    assert!(COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES.contains(&11));
+    assert_eq!(ledger.expense_total_milli, 10);
+    assert_eq!(ledger.expense_filtered_total_milli, 0);
 }
 
 #[test]

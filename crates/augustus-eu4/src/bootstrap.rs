@@ -3572,8 +3572,9 @@ impl VanillaWorld {
     }
 
     /// Consolidates translated country ledgers at the native monthly boundary.
-    /// Omitted countries use an empty filtered-expense set; unknown EU4 tags
-    /// fail before any ledger is changed.
+    /// Omitted countries use the native filtered-expense set; an explicit
+    /// empty set requests an unfiltered total. Unknown EU4 tags fail before
+    /// any ledger is changed.
     pub fn consolidate_country_ledgers_monthly(
         &mut self,
         expense_filtered_categories: BTreeMap<String, BTreeSet<u32>>,

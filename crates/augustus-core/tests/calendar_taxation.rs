@@ -475,6 +475,114 @@ fn monthly_autonomy_updates_before_tax_and_survives_save_resume() {
 }
 
 #[test]
+fn tax_only_monthly_system_updates_autonomy_before_tax() {
+    let mut world = World::new(Schema::new(["annual_tax"]).unwrap());
+    let country = world.add_entity("Alpha", EntityKind::Country);
+    let province = world.add_entity("North", EntityKind::Province);
+    world.set_owner(province, country).unwrap();
+    world.set(province, FieldId(0), 24_000).unwrap();
+    world
+        .set_attributes(Attributes {
+            formulas: [(
+                province,
+                [
+                    (
+                        "annual_tax".into(),
+                        AttributeFormula {
+                            base: AttributeBase::Field {
+                                field: FieldId(0),
+                                micros_per_unit: 1_000,
+                            },
+                            channels: vec![AttributeChannel {
+                                flat: vec![],
+                                rates: vec![AttributeTerm::Autonomy],
+                            }],
+                            minimum_micros: None,
+                            maximum_micros: None,
+                            result_quantum_micros: None,
+                            unresolved: BTreeSet::new(),
+                        },
+                    ),
+                    (
+                        MONTHLY_AUTONOMY_DELTA_ATTRIBUTE.into(),
+                        AttributeFormula {
+                            base: AttributeBase::Constant { micros: -1_000 },
+                            channels: vec![],
+                            minimum_micros: None,
+                            maximum_micros: None,
+                            result_quantum_micros: None,
+                            unresolved: BTreeSet::new(),
+                        },
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        })
+        .unwrap();
+    world
+        .set_administration(Administration {
+            areas: ["test".into()].into(),
+            country_areas: [(country, [("test".into(), AreaStatus::State)].into())].into(),
+            provinces: [(
+                province,
+                ProvinceAdministration {
+                    area: Some("test".into()),
+                    cores_known: true,
+                    cores: [(country, CoreType::Full)].into(),
+                    raw_autonomy_micros: Some(35_000),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            rules: AdministrationRules {
+                state_full_minimum_micros: Some(0),
+                capital_maximum_micros: Some(1_000_000),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .unwrap();
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(0),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    world.set_calendar(calendar(date(1444, 11, 11))).unwrap();
+    world
+        .set_taxation(Taxation::new("annual_tax", [country].into()))
+        .unwrap();
+
+    world.advance_to(20).unwrap();
+
+    assert_eq!(
+        world.administration().provinces[&province].raw_autonomy_micros,
+        Some(34_000)
+    );
+    assert_eq!(
+        world
+            .taxation()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&country]
+            .income_milli,
+        Some(1_932)
+    );
+}
+
+#[test]
 fn country_tax_configuration_rejects_missing_or_empty_attributes() {
     let mut current = scenario();
     let before = current.clone();

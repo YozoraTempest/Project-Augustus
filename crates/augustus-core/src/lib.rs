@@ -132,7 +132,8 @@ pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, Worl
 pub use justifications::{GrantTerm, Justification, JustificationDefinition, Justifications};
 pub use ledger::{
     COUNTRY_LEDGER_CATEGORY_COUNT, COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT,
-    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_INCOME_KEYS, COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
+    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_INCOME_KEYS,
+    COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES, COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
     COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY, CountryLedger, CountryLedgerCategory,
     country_ledger_expense_key, country_ledger_income_key,
 };

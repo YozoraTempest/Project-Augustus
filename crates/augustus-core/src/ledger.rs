@@ -78,6 +78,11 @@ pub const COUNTRY_LEDGER_EXPENSE_KEYS: [&str; COUNTRY_LEDGER_EXPENSE_CATEGORY_CO
 ];
 pub const COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY: u32 = 23;
 pub const COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY: u32 = 24;
+/// Expense vector indices excluded from the native filtered monthly total.
+/// The set is recovered from the native consolidation switch after translating
+/// its control value (`vector_index - 11`) back to the vector index.
+pub const COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES: [u32; 13] =
+    [11, 12, 13, 14, 16, 17, 18, 19, 20, 28, 32, 35, 36];
 
 pub fn country_ledger_income_key(category: u32) -> Option<&'static str> {
     usize::try_from(category)
@@ -487,7 +492,11 @@ impl World {
             let categories = expense_filtered_categories
                 .get(&country)
                 .cloned()
-                .unwrap_or_default();
+                .unwrap_or_else(|| {
+                    COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES
+                        .into_iter()
+                        .collect()
+                });
             ledger.consolidate_monthly(&categories)?;
         }
         self.country_ledgers = ledgers;
