@@ -30,7 +30,7 @@ struct Cli {
     #[arg(
         long = "eu4-save",
         value_name = "FILE",
-        conflicts_with_all = ["external_state", "player", "ai_only", "seed", "load"]
+        conflicts_with_all = ["external_state", "player", "ai_only", "seed"]
     )]
     eu4_save: Option<PathBuf>,
     /// Export the translated state from --eu4-save as a VanillaExternalState JSON file.

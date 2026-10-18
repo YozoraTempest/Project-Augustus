@@ -37,6 +37,21 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
 
 之后用 `--external-state` 载入状态包，并按需要用 `--player` 指定控制身份。状态包只包含兼容层已经翻译的运行时输入，未支持的 EU4 字段不会被伪装成完整状态。
 
+从 EU4 存档启动后，也可以继续使用同一份 EU4 存档作为内容基线恢复 Augustus 快照：
+
+```sh
+cargo run -p augustus-run --bin augustus-world --locked -- \
+  --game-root "/path/to/Europa Universalis IV" \
+  --eu4-save "/path/to/Austria1444_11_11.eu4" --days 30 \
+  --save augustus-from-eu4.json
+cargo run -p augustus-run --bin augustus-world --locked -- \
+  --game-root "/path/to/Europa Universalis IV" \
+  --eu4-save "/path/to/Austria1444_11_11.eu4" \
+  --load augustus-from-eu4.json --days 30
+```
+
+恢复时必须使用生成快照时的同一份 EU4 存档和内容；存档或本地内容变化会被内容指纹拒绝。
+
 需要读取目录 Mod 时，可重复提供 `--mod`，并用 `--launcher-config "<EU4 用户目录>/dlc_load.json"` 按启动器的 `enabled_mods` 筛选；Godot 启动参数也接受这些选项及 `--user-directory`。启用列表中的每个 Mod 仍须提供其目录。默认使用安装目录内可用的全部 DLC，不读取启动器的 DLC 禁用列表。
 
 省份查询的 `metrics.devastation` 使用千分位整数，`null` 表示当前数值未知。直接荒废度效果、查询和按比例生效的省份属性已接入；月度恢复与繁荣度尚未实现。开局脚本未能完整执行时，不会把初始化的零当作最终值。

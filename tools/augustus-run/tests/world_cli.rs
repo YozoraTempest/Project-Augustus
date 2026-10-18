@@ -366,6 +366,50 @@ provinces={
     assert_eq!(reloaded["country"]["metrics"]["prestige"], 26_942);
     assert_eq!(reloaded["country"]["politics"]["statuses"]["at_war"], true);
     assert_eq!(reloaded["simulation"]["naval_units"], 1);
+
+    let snapshot = temp.path().join("eu4-save-snapshot.json");
+    let initial_snapshot = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&save)
+        .args(["--days", "30"])
+        .arg("--save")
+        .arg(&snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        initial_snapshot.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initial_snapshot.stderr)
+    );
+
+    let resumed_snapshot = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&save)
+        .arg("--load")
+        .arg(&snapshot)
+        .args(["--days", "30", "--country", "AAA"])
+        .output()
+        .unwrap();
+    assert!(
+        resumed_snapshot.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resumed_snapshot.stderr)
+    );
+    let resumed_snapshot: serde_json::Value =
+        serde_json::from_slice(&resumed_snapshot.stdout).unwrap();
+    assert_eq!(resumed_snapshot["simulation"]["day"], 60);
+    assert_eq!(
+        resumed_snapshot["simulation"]["date"],
+        serde_json::json!({"year": 1445, "month": 1, "day": 10})
+    );
+    assert_eq!(resumed_snapshot["simulation"]["tax_settlements"], 2);
+    assert_eq!(resumed_snapshot["simulation"]["last_tax_day"], 51);
+    assert_eq!(resumed_snapshot["country_controllers"]["AAA"], "human");
+    assert_eq!(resumed_snapshot["simulation"]["naval_units"], 1);
 }
 
 #[test]
