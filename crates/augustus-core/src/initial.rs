@@ -349,6 +349,10 @@ impl InitialWorld {
         result
     }
 
+    pub fn update_monthly_autonomy(&mut self) -> Result<bool, Error> {
+        self.world.update_monthly_autonomy()
+    }
+
     pub fn world(&self) -> &World {
         &self.world
     }

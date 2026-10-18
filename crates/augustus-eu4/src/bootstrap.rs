@@ -2942,6 +2942,11 @@ impl VanillaWorld {
         self.initial.select_monthly_system(system)
     }
 
+    /// Runs the shared province-autonomy phase for a replaceable monthly system.
+    pub fn update_monthly_autonomy(&mut self) -> Result<bool, augustus_core::Error> {
+        self.initial.update_monthly_autonomy()
+    }
+
     pub fn select_yearly_system(
         &mut self,
         system: &dyn augustus_core::YearlySystem,
