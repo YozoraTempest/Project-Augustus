@@ -301,7 +301,7 @@ impl MonthlySystem for MonthlyEconomy {
                     cashflows.prepare(world, taxes.as_ref(), production_receipts.as_ref())
                 })
                 .transpose()?;
-            let ledger_income_updates = crate::ledger::prepare_monthly_income_ledger_updates(
+            let ledger_income_updates = crate::ledger::prepare_monthly_ledger_updates(
                 world,
                 taxes.as_ref(),
                 production_receipts.as_ref(),

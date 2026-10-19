@@ -47,7 +47,8 @@ impl EventCatalog {
         for definition in definitions {
             let mut options = BTreeSet::new();
             if definition.id.is_empty()
-                || definition.options.is_empty()
+                || (definition.options.is_empty()
+                    && (definition.immediate.is_empty() || !definition.after.is_empty()))
                 || definition
                     .options
                     .iter()
@@ -436,6 +437,11 @@ impl EventQueue {
             }
             previous = Some(pending.id);
             let definition = world.event_catalog.get(&pending.event)?;
+            if definition.options.is_empty() {
+                return Err(Error::Invalid(
+                    "immediate-only event cannot be pending".into(),
+                ));
+            }
             match (
                 world.event_catalog.pictures.get(&pending.event),
                 self.pictures.get(&pending.id),
@@ -619,6 +625,11 @@ impl World {
         if self.entity(current)?.kind != definition.scope {
             return Err(Error::Invalid("event scope does not match entity".into()));
         }
+        if definition.options.is_empty() {
+            return Err(Error::Invalid(
+                "immediate-only event does not produce a pending choice".into(),
+            ));
+        }
         if self.event_queue.fired.contains(event) {
             return Err(Error::Invalid(format!(
                 "once-only event {event} has already fired"
@@ -665,6 +676,17 @@ impl World {
             depth,
             None,
         )?;
+        if definition.options.is_empty() {
+            if catalog.once_events.contains(event) {
+                self.event_queue.next_id = self
+                    .event_queue
+                    .next_id
+                    .checked_add(1)
+                    .ok_or(Error::Overflow)?;
+                self.event_queue.fired.insert(event.into());
+            }
+            return Ok(None);
+        }
         let picture = catalog
             .pictures
             .get(event)

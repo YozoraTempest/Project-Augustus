@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_core::{EntityKind, Schema, World};
+use augustus_core::{
+    Action, AdvisorState, Advisors, AttributeBase, AttributeChannel, AttributeFormula,
+    AttributeTerm, Attributes, Calendar, EntityKind, EventCatalog, RulerSkill, Schema, Target,
+    World, WorldDate,
+};
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, DefinitionKind, ScriptCompiler, ScriptLibrary,
     TextDocument, TextEncoding,
@@ -13,6 +17,204 @@ fn document(text: &str) -> TextDocument {
         text.as_bytes().to_vec(),
         TextEncoding::Utf8,
     )
+}
+
+#[test]
+fn remove_advisor_by_category_compiles_and_clears_only_that_category() {
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let compiled = ScriptCompiler::new(&schema, &ScriptLibrary::new(), true)
+        .compile(
+            &document("remove_advisor_by_category = MIL"),
+            EntityKind::Country,
+        )
+        .unwrap();
+    assert!(matches!(
+        compiled.plan.as_slice(),
+        [Action::RemoveAdvisorByCategory {
+            target: Target::Current,
+            category: RulerSkill::Military
+        }]
+    ));
+
+    let mut world = World::new(schema.clone());
+    let country = world.add_entity("AAA", EntityKind::Country);
+    world
+        .set_advisors(Advisors {
+            countries: [(
+                country,
+                Some(vec![
+                    AdvisorState {
+                        type_name: "treasurer".into(),
+                        category: RulerSkill::Administration,
+                        skill: 2,
+                    },
+                    AdvisorState {
+                        type_name: "army_reformer".into(),
+                        category: RulerSkill::Military,
+                        skill: 1,
+                    },
+                ]),
+            )]
+            .into(),
+        })
+        .unwrap();
+    world
+        .set_attributes(Attributes {
+            formulas: [(
+                country,
+                [(
+                    "monthly_mil".into(),
+                    AttributeFormula {
+                        base: AttributeBase::Constant { micros: 3_000_000 },
+                        channels: vec![AttributeChannel {
+                            flat: vec![AttributeTerm::AdvisorSkill {
+                                target: Target::Current,
+                                skill: RulerSkill::Military,
+                                micros_per_unit: 1_000_000,
+                            }],
+                            rates: Vec::new(),
+                        }],
+                        minimum_micros: None,
+                        maximum_micros: None,
+                        result_quantum_micros: None,
+                        unresolved: Default::default(),
+                    },
+                )]
+                .into(),
+            )]
+            .into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(&world, country, "monthly_mil")
+            .unwrap()
+            .value_micros,
+        Some(4_000_000)
+    );
+    world.execute(country, &compiled.plan).unwrap();
+    assert_eq!(
+        world.advisors().countries[&country],
+        Some(vec![AdvisorState {
+            type_name: "treasurer".into(),
+            category: RulerSkill::Administration,
+            skill: 2,
+        }])
+    );
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(&world, country, "monthly_mil")
+            .unwrap()
+            .value_micros,
+        Some(3_000_000)
+    );
+
+    let snapshot = world.save("advisor-removal").unwrap();
+    let restored = World::restore(&snapshot, "advisor-removal", world.schema()).unwrap();
+    assert_eq!(
+        restored
+            .attributes()
+            .evaluate(&restored, country, "monthly_mil")
+            .unwrap()
+            .value_micros,
+        Some(3_000_000)
+    );
+}
+
+#[test]
+fn advisor_removal_rejects_unknown_state_and_invalid_script_operands() {
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let library = ScriptLibrary::new();
+    let compiled = ScriptCompiler::new(&schema, &library, true)
+        .compile(
+            &document("remove_advisor_by_category = DIP"),
+            EntityKind::Country,
+        )
+        .unwrap();
+    let mut unknown = World::new(schema.clone());
+    let country = unknown.add_entity("AAA", EntityKind::Country);
+    assert!(unknown.execute(country, &compiled.plan).is_err());
+
+    for (text, scope) in [
+        ("remove_advisor_by_category = ART", EntityKind::Country),
+        ("remove_advisor_by_category = MIL", EntityKind::Province),
+    ] {
+        assert!(
+            ScriptCompiler::new(&schema, &library, true)
+                .compile(&document(text), scope)
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn delayed_advisor_removal_executes_after_save_restore() {
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let library = ScriptLibrary::new();
+    let events = ScriptCompiler::new(&schema, &library, true)
+        .compile_events(&document(
+            "country_event={id=probe.1 is_triggered_only=yes hidden=yes immediate={remove_advisor_by_category=MIL}}",
+        ))
+        .unwrap();
+    let catalog = EventCatalog::new(events.definitions)
+        .unwrap()
+        .with_conditions(events.conditions)
+        .unwrap()
+        .with_once_events(events.once_events)
+        .unwrap();
+    let call = ScriptCompiler::new(&schema, &library, true)
+        .compile(
+            &document("country_event={id=probe.1 days=25}"),
+            EntityKind::Country,
+        )
+        .unwrap();
+
+    let mut world = World::new(schema.clone());
+    let country = world.add_entity("AAA", EntityKind::Country);
+    world
+        .set_calendar(Calendar {
+            start: WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            },
+            month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+        })
+        .unwrap();
+    world
+        .set_advisors(Advisors {
+            countries: [(
+                country,
+                Some(vec![AdvisorState {
+                    type_name: "army_reformer".into(),
+                    category: RulerSkill::Military,
+                    skill: 1,
+                }]),
+            )]
+            .into(),
+        })
+        .unwrap();
+    world.set_event_catalog(catalog).unwrap();
+    world.execute(country, &call.plan).unwrap();
+    world.advance_to(24).unwrap();
+    assert!(matches!(
+        world.advisors().countries[&country],
+        Some(ref advisors) if advisors.len() == 1
+    ));
+
+    let mut resumed = World::restore_with_events(
+        &world.save("advisor-delay").unwrap(),
+        "advisor-delay",
+        world.schema(),
+        Vec::new(),
+        world.event_catalog().clone(),
+    )
+    .unwrap();
+    resumed.advance_to(25).unwrap();
+    assert_eq!(resumed.advisors().countries[&country], Some(Vec::new()));
 }
 
 #[test]

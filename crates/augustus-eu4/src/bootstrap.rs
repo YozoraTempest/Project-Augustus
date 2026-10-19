@@ -293,6 +293,20 @@ pub type VanillaExternalCountryMarkers = BTreeMap<String, Option<BTreeSet<String
 /// keeps one status unresolved.
 pub type VanillaExternalCountryStatuses = BTreeMap<String, BTreeMap<String, Option<bool>>>;
 
+/// Current province development values translated from an EU4 save or another
+/// compatibility provider, in thousandths. Omitted values remain
+/// content-derived.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalProvinceDevelopment {
+    #[serde(default)]
+    pub base_tax_milli: Option<i64>,
+    #[serde(default)]
+    pub base_production_milli: Option<i64>,
+    #[serde(default)]
+    pub base_manpower_milli: Option<i64>,
+}
+
 #[derive(Debug)]
 pub struct VanillaWorld {
     pub initial: InitialWorld,
@@ -353,6 +367,18 @@ pub struct VanillaExternalState {
     /// keeps that province unresolved while other provinces remain usable.
     #[serde(default)]
     pub province_annual_tax_milli: BTreeMap<u32, Option<i64>>,
+    /// Current province owner supplied by a save reader. An omitted province
+    /// remains content-derived; `None` explicitly records an unowned province.
+    #[serde(default)]
+    pub province_owners: BTreeMap<u32, Option<String>>,
+    /// Current province controller supplied by a save reader. An omitted
+    /// province remains content-derived; `None` keeps its controller unknown.
+    #[serde(default)]
+    pub province_controllers: BTreeMap<u32, Option<String>>,
+    /// Current base tax, production, and manpower values supplied by a save
+    /// reader. An omitted province or value remains content-derived.
+    #[serde(default)]
+    pub province_development: BTreeMap<u32, VanillaExternalProvinceDevelopment>,
     /// Current city status supplied by a save reader. An omitted province
     /// remains unknown; `Some(false)` preserves an explicit non-city state.
     #[serde(default)]
@@ -408,9 +434,9 @@ pub struct VanillaExternalState {
 
 impl VanillaExternalState {
     /// Applies supplemental translated inputs on top of this state bundle.
-    /// Nested country maps merge by country and field; non-empty unit rosters
-    /// replace the existing roster so an external provider can supply an
-    /// authoritative snapshot.
+    /// Nested country maps and province development merge by field; non-empty
+    /// unit rosters replace the existing roster so an external provider can
+    /// supply an authoritative snapshot.
     pub fn apply_overlay(&mut self, overlay: &Self) {
         overlay_external_state(self, overlay);
     }
@@ -430,6 +456,9 @@ struct LoadOverrides<'a> {
     trade_good_prices_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     country_annual_tax_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
+    province_owners: Option<&'a BTreeMap<u32, Option<String>>>,
+    province_controllers: Option<&'a BTreeMap<u32, Option<String>>>,
+    province_development: Option<&'a BTreeMap<u32, VanillaExternalProvinceDevelopment>>,
     province_is_city: Option<&'a BTreeMap<u32, Option<bool>>>,
     province_in_empire: Option<&'a BTreeMap<u32, Option<bool>>>,
     province_raw_autonomy_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
@@ -474,6 +503,11 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_annual_tax_milli),
             province_annual_tax_milli: (!state.province_annual_tax_milli.is_empty())
                 .then_some(&state.province_annual_tax_milli),
+            province_owners: (!state.province_owners.is_empty()).then_some(&state.province_owners),
+            province_controllers: (!state.province_controllers.is_empty())
+                .then_some(&state.province_controllers),
+            province_development: (!state.province_development.is_empty())
+                .then_some(&state.province_development),
             province_is_city: (!state.province_is_city.is_empty())
                 .then_some(&state.province_is_city),
             province_in_empire: (!state.province_in_empire.is_empty())
@@ -537,6 +571,24 @@ fn overlay_estate_states(
     }
 }
 
+fn overlay_province_development(
+    base: &mut BTreeMap<u32, VanillaExternalProvinceDevelopment>,
+    overlay: &BTreeMap<u32, VanillaExternalProvinceDevelopment>,
+) {
+    for (province, values) in overlay {
+        let current = base.entry(*province).or_default();
+        if values.base_tax_milli.is_some() {
+            current.base_tax_milli = values.base_tax_milli;
+        }
+        if values.base_production_milli.is_some() {
+            current.base_production_milli = values.base_production_milli;
+        }
+        if values.base_manpower_milli.is_some() {
+            current.base_manpower_milli = values.base_manpower_milli;
+        }
+    }
+}
+
 fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExternalState) {
     overlay_nested_map(
         &mut base.country_metric_values,
@@ -564,6 +616,13 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.country_annual_tax_milli.clone());
     base.province_annual_tax_milli
         .extend(overlay.province_annual_tax_milli.clone());
+    base.province_owners.extend(overlay.province_owners.clone());
+    base.province_controllers
+        .extend(overlay.province_controllers.clone());
+    overlay_province_development(
+        &mut base.province_development,
+        &overlay.province_development,
+    );
     base.province_is_city
         .extend(overlay.province_is_city.clone());
     base.province_in_empire
@@ -2140,6 +2199,78 @@ impl VanillaWorld {
             .filter(|id| !province_histories.contains(id))
             .copied()
             .collect();
+        if let Some(owners) = overrides.province_owners {
+            for (&id, owner) in owners {
+                let Some(province) = provinces.get_mut(&id) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("external province ownership references unknown province {id}"),
+                    ));
+                };
+                if let Some(owner) = owner
+                    && !countries.contains_key(owner)
+                {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("province {id} references unknown saved owner {owner}"),
+                    ));
+                }
+                province.owner.clone_from(owner);
+                unresolved_ownership.remove(&id);
+            }
+        }
+        if let Some(controllers) = overrides.province_controllers {
+            for (&id, controller) in controllers {
+                let Some(province) = provinces.get_mut(&id) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("external province controller references unknown province {id}"),
+                    ));
+                };
+                if let Some(controller) = controller
+                    && !countries.contains_key(controller)
+                {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("province {id} references unknown saved controller {controller}"),
+                    ));
+                }
+                province.controller.clone_from(controller);
+            }
+        }
+        if let Some(development) = overrides.province_development {
+            for (&id, values) in development {
+                let Some(province) = provinces.get_mut(&id) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("external province development references unknown province {id}"),
+                    ));
+                };
+                for (field, value, target) in [
+                    ("base_tax", values.base_tax_milli, &mut province.tax_milli),
+                    (
+                        "base_production",
+                        values.base_production_milli,
+                        &mut province.production_milli,
+                    ),
+                    (
+                        "base_manpower",
+                        values.base_manpower_milli,
+                        &mut province.manpower_milli,
+                    ),
+                ] {
+                    if let Some(value) = value {
+                        if value < 0 {
+                            return Err(Error::message(
+                                root.path(),
+                                format!("province {id} has negative saved {field}"),
+                            ));
+                        }
+                        *target = Some(value);
+                    }
+                }
+            }
+        }
         let mut initial = InitialWorld::new_with_eu4_seed(
             countries.into_values().collect(),
             provinces.into_values().collect(),
@@ -2153,7 +2284,10 @@ impl VanillaWorld {
             .filter(|province| {
                 province.owner.is_none()
                     && !unresolved_ownership.contains(&province.id)
-                    && (province.class != ProvinceClass::Land
+                    && (overrides
+                        .province_owners
+                        .is_some_and(|owners| owners.contains_key(&province.id))
+                        || province.class != ProvinceClass::Land
                         || province_histories.contains(&province.id))
             })
             .map(|province| {

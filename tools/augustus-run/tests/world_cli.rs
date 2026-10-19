@@ -283,7 +283,12 @@ countries={
 }
 provinces={
 	-1={
+		owner="AAA"
+		controller="AAA"
 		local_autonomy=12.500
+		base_tax=12.345
+		base_production=7.890
+		base_manpower=4.250
 	}
 	-2={
 		local_autonomy=0.000
@@ -318,6 +323,10 @@ provinces={
         value["province"]["administration"]["raw_autonomy_micros"],
         125_000
     );
+    assert_eq!(value["province"]["tax_milli"], 12_345);
+    assert_eq!(value["province"]["production_milli"], 7_890);
+    assert_eq!(value["province"]["manpower_milli"], 4_250);
+    assert_eq!(value["province"]["controller"], "AAA");
 
     let export = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
         .arg("--game-root")
@@ -346,6 +355,19 @@ provinces={
     assert_eq!(exported_state["country_statuses"]["AAA"]["at_war"], true);
     assert_eq!(exported_state["naval_units"].as_array().unwrap().len(), 1);
     assert_eq!(exported_state["naval_units"][0]["location"], 2);
+    assert_eq!(
+        exported_state["province_development"]["1"]["base_tax_milli"],
+        12_345
+    );
+    assert_eq!(
+        exported_state["province_development"]["1"]["base_production_milli"],
+        7_890
+    );
+    assert_eq!(
+        exported_state["province_development"]["1"]["base_manpower_milli"],
+        4_250
+    );
+    assert_eq!(exported_state["province_controllers"]["1"], "AAA");
 
     let reloaded = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
         .arg("--game-root")
@@ -356,6 +378,8 @@ provinces={
         .arg("AAA")
         .arg("--country")
         .arg("AAA")
+        .arg("--province")
+        .arg("1")
         .output()
         .unwrap();
     assert!(
@@ -368,6 +392,10 @@ provinces={
     assert_eq!(reloaded["country"]["metrics"]["prestige"], 26_942);
     assert_eq!(reloaded["country"]["politics"]["statuses"]["at_war"], true);
     assert_eq!(reloaded["simulation"]["naval_units"], 1);
+    assert_eq!(reloaded["province"]["tax_milli"], 12_345);
+    assert_eq!(reloaded["province"]["production_milli"], 7_890);
+    assert_eq!(reloaded["province"]["manpower_milli"], 4_250);
+    assert_eq!(reloaded["province"]["controller"], "AAA");
 
     let snapshot = temp.path().join("eu4-save-snapshot.json");
     let initial_snapshot = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
@@ -505,6 +533,7 @@ fn world_cli_saves_and_resumes_across_monthly_tax_settlements() {
     );
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["simulation"]["day"], 30);
+    assert!(value["simulation"]["yearly_system_id"].is_null());
     assert_eq!(
         value["simulation"]["date"],
         serde_json::json!({"year": 1444, "month": 12, "day": 11})
@@ -549,6 +578,303 @@ fn world_cli_saves_and_resumes_across_monthly_tax_settlements() {
     let resumed: serde_json::Value =
         serde_json::from_slice(&fs::read(resumed_snapshot).unwrap()).unwrap();
     assert_eq!(resumed["eu4_event_seed"], 8_351_375);
+}
+
+#[test]
+fn world_cli_runs_and_resumes_the_monthly_ledger_pipeline() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let external = temp.path().join("external-state.json");
+    let snapshot = temp.path().join("monthly-ledger.json");
+    fs::write(
+        &external,
+        serde_json::json!({
+            "country_resources": {
+                "AAA": {"treasury_milli": 10_000}
+            },
+            "province_annual_tax_milli": {
+                "1": 12_000,
+                "2": 8_000
+            },
+            "production_inputs": {
+                "2": {
+                    "input": {
+                        "base_value_milli": 1_000,
+                        "country_modifier_milli": 20,
+                        "legacy_province_modifier_milli": 0,
+                        "queried_province_modifier_milli": -10
+                    },
+                    "unresolved": []
+                }
+            },
+            "country_monthly_cashflows_milli": {"AAA": 250},
+            "country_monthly_cashflow_breakdowns": {
+                "AAA": {
+                    "trade_milli": 200,
+                    "gold_milli": 100,
+                    "expenses_milli": 50
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let first = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external)
+        .args([
+            "--monthly-ledger-pipeline",
+            "--days",
+            "30",
+            "--country",
+            "AAA",
+        ])
+        .arg("--save")
+        .arg(&snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let first: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(
+        first["simulation"]["monthly_system_id"],
+        "augustus-world-monthly-ledger:v2"
+    );
+    assert_eq!(first["simulation"]["cashflow_settlements"], 1);
+    assert_eq!(first["country"]["ledger"]["income_snapshot_milli"][2], 200);
+    assert_eq!(first["country"]["ledger"]["income_snapshot_milli"][3], 100);
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&snapshot).unwrap()).unwrap();
+    assert_eq!(
+        saved["monthly_system_id"],
+        "augustus-world-monthly-ledger:v2"
+    );
+
+    let resumed = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external)
+        .args([
+            "--monthly-ledger-pipeline",
+            "--days",
+            "31",
+            "--country",
+            "AAA",
+        ])
+        .arg("--load")
+        .arg(&snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        resumed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resumed.stderr)
+    );
+    let resumed: serde_json::Value = serde_json::from_slice(&resumed.stdout).unwrap();
+    assert_eq!(resumed["simulation"]["day"], 61);
+    assert_eq!(resumed["simulation"]["cashflow_settlements"], 2);
+    assert_eq!(
+        resumed["simulation"]["monthly_system_id"],
+        "augustus-world-monthly-ledger:v2"
+    );
+    assert_eq!(
+        resumed["country"]["ledger"]["income_snapshot_milli"][2],
+        200
+    );
+    assert_eq!(
+        resumed["country"]["ledger"]["income_snapshot_milli"][3],
+        100
+    );
+
+    let legacy_snapshot = temp.path().join("monthly-ledger-v1.json");
+    let mut legacy_saved = saved;
+    legacy_saved["monthly_system_id"] = serde_json::json!("augustus-world-monthly-ledger:v1");
+    fs::write(&legacy_snapshot, serde_json::to_vec(&legacy_saved).unwrap()).unwrap();
+    let legacy_resume = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external)
+        .args([
+            "--monthly-ledger-pipeline",
+            "--days",
+            "1",
+            "--country",
+            "AAA",
+        ])
+        .arg("--load")
+        .arg(&legacy_snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        legacy_resume.status.success(),
+        "{}",
+        String::from_utf8_lossy(&legacy_resume.stderr)
+    );
+    let legacy_resume: serde_json::Value = serde_json::from_slice(&legacy_resume.stdout).unwrap();
+    assert_eq!(legacy_resume["simulation"]["day"], 31);
+    assert_eq!(
+        legacy_resume["simulation"]["monthly_system_id"],
+        "augustus-world-monthly-ledger:v1"
+    );
+}
+
+#[test]
+fn world_cli_runs_and_resumes_an_explicit_annual_ledger_rollover() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let external = temp.path().join("external-state.json");
+    let snapshot = temp.path().join("before-annual-rollover.json");
+    fs::write(
+        &external,
+        serde_json::json!({
+            "country_resources": {
+                "AAA": {"treasury_milli": 10_000}
+            },
+            "province_annual_tax_milli": {
+                "1": 12_000,
+                "2": 8_000
+            },
+            "production_inputs": {
+                "2": {
+                    "input": {
+                        "base_value_milli": 1_000,
+                        "country_modifier_milli": 20,
+                        "legacy_province_modifier_milli": 0,
+                        "queried_province_modifier_milli": -10
+                    },
+                    "unresolved": []
+                }
+            },
+            "country_monthly_cashflows_milli": {"AAA": 250},
+            "country_monthly_cashflow_breakdowns": {
+                "AAA": {
+                    "trade_milli": 200,
+                    "gold_milli": 100,
+                    "expenses_milli": 50
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let before_rollover = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external)
+        .args([
+            "--annual-ledger-rollover",
+            "--days",
+            "415",
+            "--seed",
+            "8351375",
+            "--country",
+            "AAA",
+        ])
+        .arg("--save")
+        .arg(&snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        before_rollover.status.success(),
+        "{}",
+        String::from_utf8_lossy(&before_rollover.stderr)
+    );
+    let before_rollover: serde_json::Value =
+        serde_json::from_slice(&before_rollover.stdout).unwrap();
+    assert_eq!(before_rollover["simulation"]["day"], 415);
+    assert_eq!(
+        before_rollover["simulation"]["date"],
+        serde_json::json!({"year": 1445, "month": 12, "day": 31})
+    );
+    assert_eq!(
+        before_rollover["simulation"]["yearly_system_id"],
+        "country-ledger-annual-rollover:1"
+    );
+    assert!(
+        before_rollover["country"]["ledger"]["income_rollover_total_milli"]
+            .as_i64()
+            .unwrap()
+            > 0
+    );
+    assert!(
+        before_rollover["country"]["ledger"]["income_accumulator_milli"][2]
+            .as_i64()
+            .unwrap()
+            > 0
+    );
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&snapshot).unwrap()).unwrap();
+    assert_eq!(
+        saved["yearly_system_id"],
+        "country-ledger-annual-rollover:1"
+    );
+
+    let after_rollover = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external)
+        .args([
+            "--annual-ledger-rollover",
+            "--days",
+            "1",
+            "--seed",
+            "1",
+            "--country",
+            "AAA",
+        ])
+        .arg("--load")
+        .arg(&snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        after_rollover.status.success(),
+        "{}",
+        String::from_utf8_lossy(&after_rollover.stderr)
+    );
+    let after_rollover: serde_json::Value = serde_json::from_slice(&after_rollover.stdout).unwrap();
+    assert_eq!(after_rollover["simulation"]["day"], 416);
+    assert_eq!(
+        after_rollover["simulation"]["date"],
+        serde_json::json!({"year": 1446, "month": 1, "day": 1})
+    );
+    assert_eq!(
+        after_rollover["simulation"]["yearly_system_id"],
+        "country-ledger-annual-rollover:1"
+    );
+    assert!(
+        after_rollover["country"]["ledger"]["income_rollover_total_milli"]
+            .as_i64()
+            .unwrap()
+            > 0
+    );
+    assert!(
+        after_rollover["country"]["ledger"]["income_rollover_milli"][2]
+            .as_i64()
+            .unwrap()
+            > 0
+    );
+    assert!(
+        after_rollover["country"]["ledger"]["income_rollover_milli"][3]
+            .as_i64()
+            .unwrap()
+            > 0
+    );
+    assert!(
+        after_rollover["country"]["ledger"]["income_accumulator_milli"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|value| value == 0)
+    );
 }
 
 #[test]

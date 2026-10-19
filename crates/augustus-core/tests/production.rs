@@ -232,6 +232,7 @@ fn cashflow_breakdowns_derive_net_receipts_and_round_trip() {
         trade_milli: Some(100),
         gold_milli: Some(40),
         expenses_milli: Some(30),
+        expense_categories_milli: BTreeMap::new(),
     };
     world
         .set_monthly_cashflows(Some(
@@ -272,11 +273,30 @@ fn cashflow_breakdown_rejects_a_conflicting_explicit_net_amount() {
                     trade_milli: Some(100),
                     gold_milli: Some(40),
                     expenses_milli: Some(30),
+                    expense_categories_milli: BTreeMap::new(),
                 },
             )]),
         ),
     ));
     assert!(result.is_err());
+}
+
+#[test]
+fn cashflow_breakdown_rejects_invalid_expense_categories() {
+    let (mut world, country) = world(known_input());
+    for (category, amount, total) in [(38, 1, 1), (11, 2, 1)] {
+        let breakdown = CashflowBreakdown {
+            trade_milli: Some(0),
+            gold_milli: Some(0),
+            expenses_milli: Some(total),
+            expense_categories_milli: BTreeMap::from([(category, amount)]),
+        };
+        let result = world.set_monthly_cashflows(Some(
+            MonthlyExternalCashflows::new(BTreeMap::from([(country, Some(-total))]))
+                .with_breakdowns(BTreeMap::from([(country, breakdown)])),
+        ));
+        assert!(result.is_err());
+    }
 }
 
 #[test]

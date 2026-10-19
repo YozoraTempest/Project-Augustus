@@ -3,6 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub(crate) const TREASURY_MIN_MILLI: i64 = -1_000_000_000;
+pub(crate) const TREASURY_MAX_MILLI: i64 = 1_000_000_000;
+
 /// Uninitialized stocks remain unknown until an initialization rule supplies them.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -44,10 +47,22 @@ impl CountryResource {
 
     pub(crate) fn bounded(self, value: i128) -> i128 {
         match self {
-            Self::Treasury => value,
+            Self::Treasury => value.clamp(
+                i128::from(TREASURY_MIN_MILLI),
+                i128::from(TREASURY_MAX_MILLI),
+            ),
             Self::Manpower | Self::Mercantilism => value.max(0),
         }
     }
+}
+
+pub(crate) fn treasury_after_adjustment(
+    before_milli: i64,
+    adjustment_milli: i64,
+) -> Result<i64, crate::Error> {
+    let value =
+        CountryResource::Treasury.bounded(i128::from(before_milli) + i128::from(adjustment_milli));
+    i64::try_from(value).map_err(|_| crate::Error::Overflow)
 }
 
 impl crate::World {

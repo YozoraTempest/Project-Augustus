@@ -108,6 +108,32 @@ fn established_resource_bounds_and_scope_checks_precede_writes() {
 }
 
 #[test]
+fn treasury_adjustments_use_signed_native_bounds() {
+    let mut world = world();
+    let treasury = NumericSlot::Resource(CountryResource::Treasury);
+
+    world
+        .update_numeric(EntityId(0), &treasury, NumericOperation::Add, i64::MAX)
+        .unwrap();
+    assert_eq!(
+        world
+            .resource_value(EntityId(0), CountryResource::Treasury)
+            .unwrap(),
+        1_000_000_000
+    );
+
+    world
+        .update_numeric(EntityId(0), &treasury, NumericOperation::Subtract, i64::MAX)
+        .unwrap();
+    assert_eq!(
+        world
+            .resource_value(EntityId(0), CountryResource::Treasury)
+            .unwrap(),
+        -1_000_000_000
+    );
+}
+
+#[test]
 fn mercantilism_thresholds_read_live_known_state_and_keep_unknown_unknown() {
     let mut world = world();
     let condition = Condition::NumericCompare {

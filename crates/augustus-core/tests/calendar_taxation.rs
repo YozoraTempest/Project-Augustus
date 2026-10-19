@@ -945,16 +945,17 @@ fn unknown_income_taints_the_balance_and_known_subtotals_are_never_credited() {
 }
 
 #[test]
-fn overflow_cannot_partially_credit_other_countries_and_stops_the_run() {
+fn country_tax_clamps_at_the_native_treasury_maximum() {
     let mut world = scenario();
     let mut resources = world.country_resources().clone();
-    resources.get_mut(&EntityId(1)).unwrap().treasury_milli = Some(i64::MAX);
-    world.set_country_resources(resources.clone()).unwrap();
-    assert!(world.advance_to(20).is_err());
-    assert_eq!(world.country_resources(), &resources);
-    assert_eq!(world.taxation().unwrap().settlement_count, 0);
-    assert!(world.save("overflow-fixture").is_err());
-    assert!(world.advance_to(21).is_err());
+    resources.get_mut(&EntityId(1)).unwrap().treasury_milli = Some(999_999_500);
+    world.set_country_resources(resources).unwrap();
+
+    world.advance_to(20).unwrap();
+    assert_eq!(balance(&world, 0), Some(11_000));
+    assert_eq!(balance(&world, 1), Some(1_000_000_000));
+    assert_eq!(world.taxation().unwrap().settlement_count, 1);
+    assert!(world.save("treasury-tax-bound").is_ok());
 }
 
 #[test]

@@ -191,7 +191,7 @@ impl MonthlyProduction {
             let (treasury_after, credited) = if unresolved.is_empty() {
                 let before = treasury_before.expect("known treasury");
                 let income = monthly.expect("known monthly production");
-                let after = before.checked_add(income).ok_or(Error::Overflow)?;
+                let after = crate::resources::treasury_after_adjustment(before, income)?;
                 (Some(after), Some(income))
             } else {
                 (None, None)
@@ -303,7 +303,7 @@ impl MonthlyProduction {
                         .treasury_before_milli
                         .zip(account.credited_milli)
                         .map(|(before, credited)| {
-                            before.checked_add(credited).ok_or(Error::Overflow)
+                            crate::resources::treasury_after_adjustment(before, credited)
                         })
                         .transpose()?;
                     if account.treasury_after_milli != expected_after

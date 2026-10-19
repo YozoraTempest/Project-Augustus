@@ -11,10 +11,11 @@ use augustus_core::{CountryResources, NationalFocus, RulerSkill};
 use jomini::{TextToken, text::ValueReader};
 use serde::Serialize;
 
-use crate::administration_validation::plaintext_save_document;
+use crate::administration_validation::read_eu4_save_documents;
 use crate::bootstrap::{
     VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState,
-    VanillaExternalNavalUnit, VanillaExternalState, VanillaWorld,
+    VanillaExternalNavalUnit, VanillaExternalProvinceDevelopment, VanillaExternalState,
+    VanillaWorld,
 };
 use crate::{Error, ParsedText, TextEncoding};
 
@@ -197,6 +198,43 @@ impl VanillaSaveState {
             }
         }
 
+        for (province, owner) in &self.external_state.province_owners {
+            if world.initial.province_entity(*province).is_none() {
+                continue;
+            }
+            if let Some(owner) = owner
+                && !countries.contains(owner.as_str())
+            {
+                return Err(Error::message(
+                    "save state",
+                    format!("province {province} references unknown saved owner {owner}"),
+                ));
+            }
+            state.province_owners.insert(*province, owner.clone());
+        }
+
+        for province in self.external_state.province_owners.keys() {
+            if world.initial.province_entity(*province).is_none() {
+                continue;
+            }
+            let controller = self
+                .external_state
+                .province_controllers
+                .get(province)
+                .and_then(|controller| controller.as_ref())
+                .filter(|tag| countries.contains(tag.as_str()))
+                .cloned();
+            state.province_controllers.insert(*province, controller);
+        }
+
+        for (province, development) in &self.external_state.province_development {
+            if world.initial.province_entity(*province).is_some() {
+                state
+                    .province_development
+                    .insert(*province, development.clone());
+            }
+        }
+
         for (province, value) in &self.external_state.province_raw_autonomy_milli {
             let Some(entity) = world.initial.province_entity(*province) else {
                 continue;
@@ -234,7 +272,7 @@ impl VanillaSaveState {
     }
 }
 
-/// Read a plaintext `EU4txt` save without modifying it.
+/// Read supported state from an EU4 text save or a ZIP-wrapped text save.
 pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveState, Error> {
     let path = path.as_ref().to_path_buf();
     let parser_path = path.clone();
@@ -249,13 +287,34 @@ pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveStat
 }
 
 fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error> {
-    let document = plaintext_save_document(path)?;
-    let parsed = document.parse()?;
+    let documents = read_eu4_save_documents(path)?;
+    let parsed = documents.game_state.parse()?;
+    let metadata = documents
+        .meta
+        .as_ref()
+        .map(|document| document.parse())
+        .transpose()?;
     let root = parsed.reader();
-    let date = scalar(&parsed, &required(&parsed, &root, "date")?)?;
+    let date = match optional_scalar(&parsed, &root, "date")? {
+        Some(date) => date,
+        None => {
+            let Some(metadata) = metadata.as_ref() else {
+                return Err(Error::message(parsed.source(), "missing save field date"));
+            };
+            optional_scalar(metadata, &metadata.reader(), "date")?
+                .ok_or_else(|| Error::message(parsed.source(), "missing save field date"))?
+        }
+    };
     let current_date =
         date_key(&date).ok_or_else(|| Error::message(parsed.source(), "invalid save date"))?;
-    let player = optional_scalar(&parsed, &root, "player")?;
+    let player = match optional_scalar(&parsed, &root, "player")? {
+        Some(player) => Some(player),
+        None => metadata
+            .as_ref()
+            .map(|metadata| optional_scalar(metadata, &metadata.reader(), "player"))
+            .transpose()?
+            .flatten(),
+    };
     let mut players = BTreeSet::new();
     if let Some(player) = &player
         && is_country_tag(player)
@@ -525,9 +584,52 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
             ));
         };
         let province = object(&parsed, &value)?;
-        if let Some(owner) =
-            optional_scalar(&parsed, &province, "owner")?.filter(|owner| is_country_tag(owner))
+        let owner = optional_scalar(&parsed, &province, "owner")?;
+        if let Some(owner) = &owner
+            && !is_country_tag(owner)
         {
+            return Err(Error::message(
+                parsed.source(),
+                format!("province {id} has an invalid owner tag"),
+            ));
+        }
+        external_state.province_owners.insert(id, owner.clone());
+        if let Some(controller) = optional_scalar(&parsed, &province, "controller")? {
+            if !is_country_tag(&controller) {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("province {id} has an invalid controller tag"),
+                ));
+            }
+            external_state
+                .province_controllers
+                .insert(id, Some(controller));
+        }
+        let development = VanillaExternalProvinceDevelopment {
+            base_tax_milli: optional_milli(&parsed, &province, "base_tax")?,
+            base_production_milli: optional_milli(&parsed, &province, "base_production")?,
+            base_manpower_milli: optional_milli(&parsed, &province, "base_manpower")?,
+        };
+        if development.base_tax_milli.is_some_and(|value| value < 0)
+            || development
+                .base_production_milli
+                .is_some_and(|value| value < 0)
+            || development
+                .base_manpower_milli
+                .is_some_and(|value| value < 0)
+        {
+            return Err(Error::message(
+                parsed.source(),
+                format!("province {id} has negative saved development"),
+            ));
+        }
+        if development.base_tax_milli.is_some()
+            || development.base_production_milli.is_some()
+            || development.base_manpower_milli.is_some()
+        {
+            external_state.province_development.insert(id, development);
+        }
+        if let Some(owner) = owner {
             let advisors = external_state.advisors.entry(owner).or_default();
             collect_saved_advisors(&parsed, &province, current_date, advisors, 0)?;
         }
@@ -989,6 +1091,9 @@ fn numeric_id_set(
 #[cfg(test)]
 mod tests {
     use super::{NationalFocus, RulerSkill, read_vanilla_save_state};
+    use crate::{ContentRoot, ContentSet, ContentSource, VanillaExternalProvinceDevelopment};
+    use std::{collections::BTreeMap, fs::File, io::Write, path::Path};
+    use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
     #[test]
     fn reads_startup_state_from_plaintext_save() {
@@ -1152,6 +1257,10 @@ provinces={
         assert_eq!(state.external_state.province_is_city[&1], Some(true));
         assert_eq!(state.external_state.province_in_empire[&1], Some(true));
         assert_eq!(
+            state.external_state.province_owners[&1].as_deref(),
+            Some("AAA")
+        );
+        assert_eq!(
             state.external_state.estate_states["AAA"]["estate_nobles"].loyalty_milli,
             Some(44_600)
         );
@@ -1169,5 +1278,250 @@ provinces={
                 .unwrap(),
             &std::collections::BTreeSet::from(["estate_nobles_habsburg_disunity".into()])
         );
+    }
+
+    #[test]
+    fn imports_saved_province_development_and_controller_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("development.eu4");
+        std::fs::write(
+            &path,
+            r#"EU4txt
+date=1444.11.11
+player="AAA"
+countries={
+    AAA={ human=yes }
+}
+provinces={
+    -1={
+        owner="AAA"
+        controller="AAA"
+        base_tax=12.345
+        base_production=7.890
+        base_manpower=4.250
+    }
+    -2={
+        owner="AAA"
+    }
+    -999={
+        base_tax=99.000
+        base_production=88.000
+        base_manpower=77.000
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&path).unwrap();
+        assert_eq!(
+            save.external_state.province_development[&1].base_tax_milli,
+            Some(12_345)
+        );
+        assert_eq!(
+            save.external_state.province_development[&1].base_production_milli,
+            Some(7_890)
+        );
+        assert_eq!(
+            save.external_state.province_development[&1].base_manpower_milli,
+            Some(4_250)
+        );
+        assert!(save.external_state.province_development.contains_key(&999));
+        assert_eq!(
+            save.external_state.province_controllers[&1].as_deref(),
+            Some("AAA")
+        );
+        assert!(!save.external_state.province_controllers.contains_key(&2));
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let baseline_tax = baseline.initial.province(1).unwrap().tax_milli;
+        assert_ne!(baseline_tax, Some(12_345));
+        assert_eq!(
+            baseline.initial.province(1).unwrap().controller.as_deref(),
+            Some("BBB")
+        );
+        assert_eq!(
+            baseline.initial.province(2).unwrap().controller.as_deref(),
+            Some("AAA")
+        );
+        let (_, filtered) = save.for_world(&baseline).unwrap();
+        assert_eq!(filtered.province_controllers[&1].as_deref(), Some("AAA"));
+        assert!(filtered.province_controllers.contains_key(&2));
+        assert_eq!(filtered.province_controllers[&2], None);
+
+        let loaded =
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        let province = loaded.initial.province(1).unwrap();
+        assert_eq!(province.tax_milli, Some(12_345));
+        assert_eq!(province.production_milli, Some(7_890));
+        assert_eq!(province.manpower_milli, Some(4_250));
+        assert_eq!(province.controller.as_deref(), Some("AAA"));
+        assert_eq!(loaded.initial.province(2).unwrap().controller, None);
+        assert!(loaded.initial.province(999).is_none());
+
+        let unknown_controller_path = directory.path().join("unknown-controller.eu4");
+        std::fs::write(
+            &unknown_controller_path,
+            r#"EU4txt
+date=1444.11.11
+player="AAA"
+countries={
+    AAA={ human=yes }
+}
+provinces={
+    -2={
+        owner="AAA"
+        controller="ZZZ"
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let unknown_controller_save = read_vanilla_save_state(&unknown_controller_path).unwrap();
+        assert_eq!(
+            unknown_controller_save.external_state.province_controllers[&2].as_deref(),
+            Some("ZZZ")
+        );
+        let (_, filtered) = unknown_controller_save.for_world(&baseline).unwrap();
+        assert_eq!(filtered.province_controllers[&2], None);
+        let loaded = crate::VanillaWorld::load_from_content_with_save_state(
+            &content,
+            &unknown_controller_save,
+        )
+        .unwrap();
+        assert_eq!(loaded.initial.province(2).unwrap().controller, None);
+    }
+
+    #[test]
+    fn external_province_development_overlay_merges_by_component() {
+        let mut base = crate::VanillaExternalState {
+            province_development: BTreeMap::from([(
+                1,
+                VanillaExternalProvinceDevelopment {
+                    base_tax_milli: Some(1_000),
+                    base_production_milli: Some(2_000),
+                    base_manpower_milli: Some(3_000),
+                },
+            )]),
+            ..Default::default()
+        };
+        let overlay = crate::VanillaExternalState {
+            province_development: BTreeMap::from([(
+                1,
+                VanillaExternalProvinceDevelopment {
+                    base_tax_milli: None,
+                    base_production_milli: Some(8_000),
+                    base_manpower_milli: None,
+                },
+            )]),
+            ..Default::default()
+        };
+
+        base.apply_overlay(&overlay);
+
+        assert_eq!(
+            base.province_development[&1],
+            VanillaExternalProvinceDevelopment {
+                base_tax_milli: Some(1_000),
+                base_production_milli: Some(8_000),
+                base_manpower_milli: Some(3_000),
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_negative_external_province_development() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let state = crate::VanillaExternalState {
+            province_development: BTreeMap::from([(
+                1,
+                VanillaExternalProvinceDevelopment {
+                    base_tax_milli: Some(-1),
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        };
+
+        let error = crate::VanillaWorld::load_from_content_with_external_state(
+            &content,
+            "1444.11.11",
+            &state,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("negative saved base_tax"));
+    }
+
+    #[test]
+    fn reads_startup_state_from_zip_wrapped_text_save() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.eu4");
+        let mut archive = ZipWriter::new(File::create(&path).unwrap());
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        archive.start_file("meta", options).unwrap();
+        archive
+            .write_all(b"EU4txt\ndate=1444.11.11\nplayer=\"AAA\"\n")
+            .unwrap();
+        archive.start_file("gamestate", options).unwrap();
+        archive
+            .write_all(
+                br#"EU4txt
+start_date=1444.11.11
+countries={
+    AAA={
+        treasury=59.802
+        human=yes
+    }
+}
+provinces={
+    -1={
+        local_autonomy=3.500
+    }
+}
+"#,
+            )
+            .unwrap();
+        archive.start_file("ai", options).unwrap();
+        archive.write_all(b"EU4txt\nai={}\n").unwrap();
+        archive.finish().unwrap();
+
+        let state = read_vanilla_save_state(&path).unwrap();
+
+        assert_eq!(state.date, "1444.11.11");
+        assert_eq!(state.player.as_deref(), Some("AAA"));
+        assert_eq!(
+            state.external_state.country_resources["AAA"].treasury_milli,
+            Some(59_802)
+        );
+        assert_eq!(
+            state.external_state.province_raw_autonomy_milli[&1],
+            Some(3_500)
+        );
+        assert_eq!(state.external_state.province_owners[&1], None);
+    }
+
+    #[test]
+    fn rejects_zip_save_without_gamestate_entry() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.eu4");
+        let mut archive = ZipWriter::new(File::create(&path).unwrap());
+        archive
+            .start_file("meta", SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(b"EU4txt\ndate=1444.11.11\n").unwrap();
+        archive.finish().unwrap();
+
+        assert!(read_vanilla_save_state(&path).is_err());
     }
 }

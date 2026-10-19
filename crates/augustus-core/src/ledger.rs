@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::resources::treasury_after_adjustment;
 use crate::{
     CashflowSettlement, EntityId, EntityKind, Error, ProductionSettlement, TaxSettlement, World,
 };
@@ -450,7 +451,117 @@ impl CountryLedger {
     }
 }
 
-pub(crate) fn prepare_monthly_income_ledger_updates(
+/// Rolls every loaded country ledger into its annual snapshot vectors.
+///
+/// The caller places this provider in the selected yearly pipeline where the
+/// translated ruleset requires it; this type does not infer a calendar order.
+pub struct CountryLedgerAnnualRollover;
+
+impl crate::YearlySystem for CountryLedgerAnnualRollover {
+    fn id(&self) -> &str {
+        "country-ledger-annual-rollover:1"
+    }
+
+    fn validate(&self, _world: &World) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        world.rollover_country_ledgers_annual()
+    }
+}
+
+/// Consolidates the loaded country ledgers into their monthly snapshots.
+///
+/// Keep this as a separate provider so a pipeline can place it after its
+/// monthly cash-flow producers. An empty expense-filter map uses the native
+/// category set; the compatibility layer may override it per country. A custom
+/// filter mapping must use an ID that changes when that mapping changes.
+#[derive(Debug, Clone)]
+pub struct CountryLedgerMonthlyConsolidation {
+    id: String,
+    expense_filtered_categories: BTreeMap<EntityId, BTreeSet<u32>>,
+}
+
+impl CountryLedgerMonthlyConsolidation {
+    pub fn new(
+        id: impl Into<String>,
+        expense_filtered_categories: BTreeMap<EntityId, BTreeSet<u32>>,
+    ) -> Result<Self, Error> {
+        let system = Self {
+            id: id.into(),
+            expense_filtered_categories,
+        };
+        if system.id.trim().is_empty() {
+            return Err(Error::Invalid(
+                "monthly ledger consolidation requires an id".into(),
+            ));
+        }
+        Ok(system)
+    }
+}
+
+impl Default for CountryLedgerMonthlyConsolidation {
+    fn default() -> Self {
+        Self {
+            id: "country-ledger-monthly-consolidation:1".into(),
+            expense_filtered_categories: BTreeMap::new(),
+        }
+    }
+}
+
+impl crate::MonthlySystem for CountryLedgerMonthlyConsolidation {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        world.validate_country_ledger_expense_filters(&self.expense_filtered_categories)?;
+        for (&country, ledger) in world.country_ledgers() {
+            world.require_country(country)?;
+            ledger.validate()?;
+        }
+        Ok(())
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        world.consolidate_country_ledgers_monthly(&self.expense_filtered_categories)
+    }
+}
+
+/// Applies pending country-ledger balances at an explicit monthly stage.
+///
+/// Pipelines place this provider after ordinary monthly producers have
+/// recorded delayed flows and before later monthly producers and consolidation.
+pub struct CountryLedgerPendingFlush;
+
+impl crate::MonthlySystem for CountryLedgerPendingFlush {
+    fn id(&self) -> &str {
+        "country-ledger-pending-flush:1"
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        for (&country, ledger) in world.country_ledgers() {
+            world.require_country(country)?;
+            ledger.validate()?;
+            if world
+                .country_resources()
+                .get(&country)
+                .and_then(|resources| resources.treasury_milli)
+                .is_none()
+            {
+                return Err(Error::Invalid("country treasury is unknown".into()));
+            }
+        }
+        Ok(())
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        world.flush_country_ledgers_pending().map(|_| ())
+    }
+}
+
+pub(crate) fn prepare_monthly_ledger_updates(
     world: &World,
     taxes: Option<&TaxSettlement>,
     production: Option<&ProductionSettlement>,
@@ -480,6 +591,28 @@ pub(crate) fn prepare_monthly_income_ledger_updates(
                 .unwrap_or_default()
         });
         ledger.add_income(category, amount)
+    }
+
+    fn append_expense(
+        world: &World,
+        updates: &mut BTreeMap<EntityId, CountryLedger>,
+        country: EntityId,
+        category: u32,
+        amount: i64,
+    ) -> Result<(), Error> {
+        if world.entity(country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "monthly ledger expense requires a country".into(),
+            ));
+        }
+        let ledger = updates.entry(country).or_insert_with(|| {
+            world
+                .country_ledgers
+                .get(&country)
+                .cloned()
+                .unwrap_or_default()
+        });
+        ledger.add_expense(category, amount)
     }
 
     let mut updates = BTreeMap::new();
@@ -527,13 +660,13 @@ pub(crate) fn prepare_monthly_income_ledger_updates(
                 COUNTRY_LEDGER_INCOME_GOLD_CATEGORY,
                 breakdown.gold_milli,
             )?;
+            for (&category, &amount) in &breakdown.expense_categories_milli {
+                append_expense(world, &mut updates, country, category, amount)?;
+            }
         }
     }
     Ok(updates)
 }
-
-const TREASURY_MIN_MILLI: i64 = -1_000_000_000;
-const TREASURY_MAX_MILLI: i64 = 1_000_000_000;
 
 impl World {
     pub fn country_ledgers(&self) -> &BTreeMap<EntityId, CountryLedger> {
@@ -564,20 +697,7 @@ impl World {
         expense_filtered_categories: &BTreeMap<EntityId, BTreeSet<u32>>,
     ) -> Result<(), Error> {
         self.require_running()?;
-        for (&country, categories) in expense_filtered_categories {
-            self.require_country(country)?;
-            if !self.country_ledgers.contains_key(&country) {
-                return Err(Error::Invalid("country ledger is unknown".into()));
-            }
-            if categories
-                .iter()
-                .any(|category| *category >= COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT)
-            {
-                return Err(Error::Invalid(
-                    "country ledger expense filter category is outside 0..38".into(),
-                ));
-            }
-        }
+        self.validate_country_ledger_expense_filters(expense_filtered_categories)?;
 
         let mut ledgers = self.country_ledgers.clone();
         for (&country, ledger) in &mut ledgers {
@@ -592,6 +712,27 @@ impl World {
             ledger.consolidate_monthly(&categories)?;
         }
         self.country_ledgers = ledgers;
+        Ok(())
+    }
+
+    fn validate_country_ledger_expense_filters(
+        &self,
+        expense_filtered_categories: &BTreeMap<EntityId, BTreeSet<u32>>,
+    ) -> Result<(), Error> {
+        for (&country, categories) in expense_filtered_categories {
+            self.require_country(country)?;
+            if !self.country_ledgers.contains_key(&country) {
+                return Err(Error::Invalid("country ledger is unknown".into()));
+            }
+            if categories
+                .iter()
+                .any(|category| *category >= COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT)
+            {
+                return Err(Error::Invalid(
+                    "country ledger expense filter category is outside 0..38".into(),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -661,10 +802,7 @@ impl World {
             .get(&country)
             .and_then(|resources| resources.treasury_milli)
             .ok_or_else(|| Error::Invalid("country treasury is unknown".into()))?;
-        let next = treasury
-            .checked_add(pending)
-            .ok_or(Error::Overflow)?
-            .clamp(TREASURY_MIN_MILLI, TREASURY_MAX_MILLI);
+        let next = treasury_after_adjustment(treasury, pending)?;
         self.country_resources
             .entry(country)
             .or_default()
@@ -694,10 +832,7 @@ impl World {
                 .get(&country)
                 .and_then(|resources| resources.treasury_milli)
                 .ok_or_else(|| Error::Invalid("country treasury is unknown".into()))?;
-            let next = treasury
-                .checked_add(ledger.pending_milli)
-                .ok_or(Error::Overflow)?
-                .clamp(TREASURY_MIN_MILLI, TREASURY_MAX_MILLI);
+            let next = treasury_after_adjustment(treasury, ledger.pending_milli)?;
             resources.entry(country).or_default().treasury_milli = Some(next);
             ledger.pending_milli = 0;
             balances.insert(country, next);
@@ -768,10 +903,7 @@ impl World {
             } else {
                 amount_milli.checked_neg().ok_or(Error::Overflow)?
             };
-            let next = treasury
-                .checked_add(delta)
-                .ok_or(Error::Overflow)?
-                .clamp(TREASURY_MIN_MILLI, TREASURY_MAX_MILLI);
+            let next = treasury_after_adjustment(treasury, delta)?;
             self.country_resources
                 .entry(country)
                 .or_default()

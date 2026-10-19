@@ -1421,8 +1421,14 @@ impl<'a> ScriptCompiler<'a> {
                     _ => return Err(part.error(format!("unsupported event field {}", part.name))),
                 }
             }
-            if !explicit || definition.id.is_empty() || definition.options.is_empty() {
-                return Err(field.error("event requires id, is_triggered_only=yes and options"));
+            if !explicit
+                || definition.id.is_empty()
+                || (definition.options.is_empty()
+                    && (definition.immediate.is_empty() || !definition.after.is_empty()))
+            {
+                return Err(field.error(
+                    "event requires id and is_triggered_only=yes; immediate-only events need an immediate body and no after block",
+                ));
             }
             if !unavailable_options.is_empty() {
                 self.unavailable_event_options
@@ -1895,6 +1901,21 @@ impl<'a> ScriptCompiler<'a> {
                     plan.push(Action::ChangeNationalFocus {
                         target: Target::Current,
                         focus: augustus_core::NationalFocus { skill },
+                    });
+                }
+                "remove_advisor_by_category" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("advisor removal requires country scope"));
+                    }
+                    let category = match field.scalar()? {
+                        "ADM" => augustus_core::RulerSkill::Administration,
+                        "DIP" => augustus_core::RulerSkill::Diplomacy,
+                        "MIL" => augustus_core::RulerSkill::Military,
+                        _ => return Err(field.error("unsupported advisor category")),
+                    };
+                    plan.push(Action::RemoveAdvisorByCategory {
+                        target: Target::Current,
+                        category,
                     });
                 }
                 name if self.area_scopes.contains_key(name) => {

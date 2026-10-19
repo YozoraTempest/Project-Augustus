@@ -18,7 +18,7 @@ use augustus_core::{
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
     VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalNavalUnit,
-    VanillaExternalState, VanillaWorld,
+    VanillaExternalState, VanillaWorld, read_vanilla_save_state,
 };
 
 fn fixture() -> PathBuf {
@@ -372,6 +372,223 @@ fn external_province_city_status_reaches_the_loaded_province_state() {
     .unwrap_err()
     .to_string();
     assert!(error.contains("unknown EU4 city-status province 999"));
+}
+
+#[test]
+fn external_province_owners_replace_history_before_ownership_is_indexed() {
+    let state = VanillaExternalState {
+        province_owners: BTreeMap::from([(1, Some("BBB".into())), (2, None)]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let north = loaded.initial.province_entity(1).unwrap();
+    let east = loaded.initial.province_entity(2).unwrap();
+    let aaa = loaded.initial.country_entity("AAA").unwrap();
+    let bbb = loaded.initial.country_entity("BBB").unwrap();
+
+    assert_eq!(
+        loaded.province(1).unwrap().state.owner.as_deref(),
+        Some("BBB")
+    );
+    assert_eq!(
+        loaded.initial.world().entity(north).unwrap().owner,
+        Some(bbb)
+    );
+    assert_eq!(loaded.province(2).unwrap().state.owner, None);
+    assert_eq!(loaded.initial.world().entity(east).unwrap().owner, None);
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .owned_provinces(aaa)
+            .unwrap()
+            .contains(&north)
+    );
+    assert!(
+        loaded
+            .initial
+            .world()
+            .owned_provinces(bbb)
+            .unwrap()
+            .contains(&north)
+    );
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .owned_provinces(bbb)
+            .unwrap()
+            .contains(&east)
+    );
+
+    let error = VanillaWorld::load_with_external_state(
+        fixture(),
+        "1444.11.11",
+        &VanillaExternalState {
+            province_owners: BTreeMap::from([(1, Some("ZZZ".into()))]),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("province 1 references unknown saved owner ZZZ"));
+
+    let error = VanillaWorld::load_with_external_state(
+        fixture(),
+        "1444.11.11",
+        &VanillaExternalState {
+            province_owners: BTreeMap::from([(999, None)]),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("external province ownership references unknown province 999"));
+}
+
+#[test]
+fn imported_save_ownership_replaces_content_history_before_startup() {
+    let temp = tempfile::tempdir().unwrap();
+    let save_path = temp.path().join("state.eu4");
+    fs::write(
+        &save_path,
+        b"EU4txt\ndate=1444.11.11\ncountries={ AAA={} BBB={} }\nprovinces={ -1={ owner=BBB } -2={} }\n",
+    )
+    .unwrap();
+    let save = read_vanilla_save_state(&save_path).unwrap();
+    let content_world = VanillaWorld::load(fixture(), &save.date).unwrap();
+    let external_state = save.state_for_world(&content_world).unwrap();
+    let loaded =
+        VanillaWorld::load_with_external_state(fixture(), &save.date, &external_state).unwrap();
+    let north = loaded.initial.province_entity(1).unwrap();
+    let east = loaded.initial.province_entity(2).unwrap();
+    let bbb = loaded.initial.country_entity("BBB").unwrap();
+
+    assert_eq!(
+        loaded.initial.world().entity(north).unwrap().owner,
+        Some(bbb)
+    );
+    assert_eq!(loaded.initial.world().entity(east).unwrap().owner, None);
+    assert!(
+        loaded
+            .initial
+            .world()
+            .owned_provinces(bbb)
+            .unwrap()
+            .contains(&north)
+    );
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .owned_provinces(bbb)
+            .unwrap()
+            .contains(&east)
+    );
+}
+
+#[test]
+fn startup_actions_from_separate_files_are_all_applied() {
+    let root = copy_fixture();
+    let on_actions = root.path().join("common/on_actions");
+    fs::create_dir_all(&on_actions).unwrap();
+    fs::write(
+        on_actions.join("00_base.txt"),
+        "on_startup = { log = base_startup }",
+    )
+    .unwrap();
+    fs::write(
+        on_actions.join("advisor_replace.txt"),
+        "on_startup = { log = mod_startup }",
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    let messages = loaded
+        .initial
+        .world()
+        .events()
+        .iter()
+        .map(|event| event.2.as_str())
+        .collect::<BTreeSet<_>>();
+    assert!(messages.contains("base_startup"));
+    assert!(messages.contains("mod_startup"));
+
+    let duplicate = copy_fixture();
+    let path = duplicate.path().join("common/on_actions/repeated.txt");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        &path,
+        "on_startup = { log = first } on_startup = { log = second }",
+    )
+    .unwrap();
+    let error = VanillaWorld::load(duplicate.path(), "1444.11.11")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("duplicate startup action"));
+}
+
+#[test]
+fn delayed_immediate_only_event_from_mod_startup_survives_save_resume() {
+    let root = copy_fixture();
+    let on_actions = root.path().join("common/on_actions");
+    fs::create_dir_all(&on_actions).unwrap();
+    fs::write(
+        on_actions.join("00_base.txt"),
+        "on_startup = { log = base_startup }",
+    )
+    .unwrap();
+    fs::write(
+        on_actions.join("advisor_replace.txt"),
+        "on_startup = { if = { limit = { tag = AAA } country_event = { id = probe.1 days = 25 } } }",
+    )
+    .unwrap();
+    let events = root.path().join("events");
+    fs::create_dir_all(&events).unwrap();
+    fs::write(
+        events.join("advisor_replace.txt"),
+        "namespace = probe country_event = { id = probe.1 hidden = yes is_triggered_only = yes immediate = { log = PKREP_SYR_BEGIN log = PKREP_SYR_END } }",
+    )
+    .unwrap();
+
+    let mut continuous = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    assert!(continuous.report.estates.pending_startup_effects.is_empty());
+    assert!(
+        continuous
+            .initial
+            .world()
+            .events()
+            .iter()
+            .any(|event| event.2 == "base_startup")
+    );
+    assert!(
+        continuous
+            .initial
+            .world()
+            .events()
+            .iter()
+            .all(|event| { event.2 != "PKREP_SYR_BEGIN" && event.2 != "PKREP_SYR_END" })
+    );
+
+    let mut segmented = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    segmented.advance(20).unwrap();
+    let snapshot = segmented.save().unwrap();
+    let mut resumed = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    resumed.restore(&snapshot).unwrap();
+    resumed.advance(5).unwrap();
+    continuous.advance(25).unwrap();
+
+    let events = resumed.initial.world().events();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.2 == "PKREP_SYR_BEGIN" || event.2 == "PKREP_SYR_END")
+            .map(|event| (event.0, event.2.as_str()))
+            .collect::<Vec<_>>(),
+        [(25, "PKREP_SYR_BEGIN"), (25, "PKREP_SYR_END")]
+    );
+    assert!(resumed.initial.world().pending_events().is_empty());
+    assert_eq!(continuous.save().unwrap(), resumed.save().unwrap());
 }
 
 #[test]
@@ -2162,6 +2379,7 @@ fn loaded_vanilla_world_can_run_standard_economy_inside_a_monthly_pipeline() {
                 trade_milli: Some(200),
                 gold_milli: Some(100),
                 expenses_milli: Some(50),
+                expense_categories_milli: BTreeMap::new(),
             },
         )]),
         ..Default::default()

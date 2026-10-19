@@ -94,6 +94,49 @@ fn host_binding_selects_one_store_and_existing_field_plans_remain_identical() {
 }
 
 #[test]
+fn scripted_treasury_adjustments_clamp_to_signed_native_bounds() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    let add = ScriptCompiler::new(&schema, &library, true)
+        .with_treasury_slot(Some(slot()))
+        .compile(&document("add_treasury=1"), EntityKind::Country)
+        .unwrap();
+    let subtract = ScriptCompiler::new(&schema, &library, true)
+        .with_treasury_slot(Some(slot()))
+        .compile(&document("add_treasury=-2000000"), EntityKind::Country)
+        .unwrap();
+    let mut world = World::new(schema);
+    let country = world.add_entity("AAA", EntityKind::Country);
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(999_999_500),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+
+    world.execute(country, &add.plan).unwrap();
+    assert_eq!(
+        world
+            .resource_value(country, CountryResource::Treasury)
+            .unwrap(),
+        1_000_000_000
+    );
+    world.execute(country, &subtract.plan).unwrap();
+    assert_eq!(
+        world
+            .resource_value(country, CountryResource::Treasury)
+            .unwrap(),
+        -1_000_000_000
+    );
+}
+
+#[test]
 fn missing_bindings_and_unsupported_operands_report_source_without_guessing_balances() {
     let schema = Schema::new(["unused"]).unwrap();
     let library = ScriptLibrary::new();

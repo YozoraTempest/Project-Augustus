@@ -3,6 +3,8 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fs::File,
+    io::{Read, Seek, SeekFrom},
     path::Path,
 };
 
@@ -15,6 +17,7 @@ use jomini::{
 };
 use serde::Serialize;
 use serde_json::{Value, json};
+use zip::ZipArchive;
 
 use crate::bootstrap::equal;
 use crate::setup::micros;
@@ -142,12 +145,88 @@ fn strings(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<Vec<String>
     array.values().map(|v| scalar(parsed, &v)).collect()
 }
 
-pub(crate) fn plaintext_save_document(path: &Path) -> Result<TextDocument, Error> {
-    let mut bytes = std::fs::read(path).map_err(|e| Error::caused_by(path, e))?;
+pub(crate) struct Eu4SaveDocuments {
+    pub(crate) game_state: TextDocument,
+    pub(crate) meta: Option<TextDocument>,
+    pub(crate) zip_container: bool,
+}
+
+pub(crate) fn read_eu4_save_documents(path: &Path) -> Result<Eu4SaveDocuments, Error> {
+    let mut file = File::open(path).map_err(|error| Error::caused_by(path, error))?;
+    let mut prefix = [0; 6];
+    let prefix_length = file
+        .read(&mut prefix)
+        .map_err(|error| Error::caused_by(path, error))?;
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| Error::caused_by(path, error))?;
+
+    let mut bytes = Vec::new();
+    if prefix_length == prefix.len() && prefix == *b"EU4txt" {
+        file.read_to_end(&mut bytes)
+            .map_err(|error| Error::caused_by(path, error))?;
+        return Ok(Eu4SaveDocuments {
+            game_state: eu4_text_document(path, bytes, "save")?,
+            meta: None,
+            zip_container: false,
+        });
+    }
+
+    if prefix.starts_with(b"PK\x03\x04") {
+        let mut archive = ZipArchive::new(file).map_err(|error| Error::caused_by(path, error))?;
+        let game_state = eu4_text_document(
+            path,
+            zip_entry_bytes(&mut archive, path, "gamestate")?,
+            "gamestate",
+        )?;
+        let mut has_meta = false;
+        for name in archive.file_names() {
+            if name.map_err(|error| Error::caused_by(path, error))? == "meta" {
+                has_meta = true;
+                break;
+            }
+        }
+        let meta = if has_meta {
+            Some(eu4_text_document(
+                path,
+                zip_entry_bytes(&mut archive, path, "meta")?,
+                "meta",
+            )?)
+        } else {
+            None
+        };
+        return Ok(Eu4SaveDocuments {
+            game_state,
+            meta,
+            zip_container: true,
+        });
+    }
+
+    Err(Error::message(
+        path,
+        "expected an EU4txt save or ZIP-wrapped EU4 save",
+    ))
+}
+
+fn zip_entry_bytes<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &Path,
+    name: &str,
+) -> Result<Vec<u8>, Error> {
+    let mut entry = archive
+        .by_name(name)
+        .map_err(|error| Error::caused_by(path, error))?;
+    let mut bytes = Vec::new();
+    entry
+        .read_to_end(&mut bytes)
+        .map_err(|error| Error::caused_by(path, error))?;
+    Ok(bytes)
+}
+
+fn eu4_text_document(path: &Path, mut bytes: Vec<u8>, entry: &str) -> Result<TextDocument, Error> {
     if !bytes.starts_with(b"EU4txt") {
         return Err(Error::message(
             path,
-            "expected uncompressed plaintext EU4txt save",
+            format!("EU4 save {entry} must use EU4txt text encoding"),
         ));
     }
     bytes[..6].fill(b' ');
@@ -156,6 +235,17 @@ pub(crate) fn plaintext_save_document(path: &Path) -> Result<TextDocument, Error
         bytes,
         TextEncoding::Windows1252,
     ))
+}
+
+pub(crate) fn plaintext_save_document(path: &Path) -> Result<TextDocument, Error> {
+    let documents = read_eu4_save_documents(path)?;
+    if documents.zip_container {
+        return Err(Error::message(
+            path,
+            "administration comparison requires an uncompressed EU4txt save",
+        ));
+    }
+    Ok(documents.game_state)
 }
 
 fn check_metadata(parsed: &ParsedText<'_>) -> Result<usize, Error> {
@@ -599,7 +689,7 @@ impl AdministrationComparison {
 }
 
 /// Checks a plaintext baseline save without changing either input or the core world.
-/// Compressed and binary saves must be saved as uncompressed non-Ironman text first.
+/// Compares an unadvanced EU4 save with the initialized administration state.
 pub fn compare_administration_save(
     loaded: &VanillaWorld,
     path: impl AsRef<Path>,

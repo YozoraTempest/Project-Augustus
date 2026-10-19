@@ -16,6 +16,10 @@ pub struct CashflowBreakdown {
     pub trade_milli: Option<i64>,
     pub gold_milli: Option<i64>,
     pub expenses_milli: Option<i64>,
+    /// Known portions of aggregate expenses, keyed by native ledger category.
+    /// Omitted categories remain unclassified rather than being inferred as zero.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub expense_categories_milli: BTreeMap<u32, i64>,
 }
 
 impl CashflowBreakdown {
@@ -90,6 +94,25 @@ impl MonthlyExternalCashflows {
                     "cashflow expenses must be nonnegative".into(),
                 ));
             }
+            let mut categorized_expenses = 0_i64;
+            for (&category, &amount) in &breakdown.expense_categories_milli {
+                if category >= crate::ledger::COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT || amount < 0 {
+                    return Err(Error::Invalid(
+                        "invalid cashflow expense category or amount".into(),
+                    ));
+                }
+                categorized_expenses = categorized_expenses
+                    .checked_add(amount)
+                    .ok_or(Error::Overflow)?;
+            }
+            if breakdown
+                .expenses_milli
+                .is_some_and(|expenses| categorized_expenses > expenses)
+            {
+                return Err(Error::Invalid(
+                    "categorized expenses exceed the cashflow expense total".into(),
+                ));
+            }
             if let (Some(amount), Some(net)) = (self.amounts_milli[&country], breakdown.net_milli())
                 && amount != net
             {
@@ -157,7 +180,7 @@ impl MonthlyExternalCashflows {
             }
             let after = before
                 .zip(amount)
-                .map(|(before, amount)| before.checked_add(amount).ok_or(Error::Overflow))
+                .map(|(before, amount)| crate::resources::treasury_after_adjustment(before, amount))
                 .transpose()?;
             let credited = unresolved.is_empty().then_some(amount).flatten();
             accounts.insert(
@@ -231,7 +254,9 @@ impl MonthlyExternalCashflows {
                     let expected = account
                         .treasury_before_milli
                         .zip(account.amount_milli)
-                        .map(|(before, amount)| before.checked_add(amount).ok_or(Error::Overflow))
+                        .map(|(before, amount)| {
+                            crate::resources::treasury_after_adjustment(before, amount)
+                        })
                         .transpose()?;
                     if account.unresolved.is_empty()
                         && (account.amount_milli.is_none()

@@ -78,4 +78,28 @@ impl World {
         self.advisors = advisors;
         Ok(())
     }
+
+    /// Remove the active advisor in a category when that country's advisor
+    /// slots are known. The active advisor pool is owned by the compatibility
+    /// layer and is not changed by this core operation.
+    pub fn remove_advisor_by_category(
+        &mut self,
+        entity: EntityId,
+        category: RulerSkill,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        if self.entity(entity)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "advisor removal requires country scope".into(),
+            ));
+        }
+        let advisors = self
+            .advisors
+            .countries
+            .get_mut(&entity)
+            .and_then(Option::as_mut)
+            .ok_or_else(|| Error::Invalid("advisor state is unknown".into()))?;
+        advisors.retain(|advisor| advisor.category != category);
+        Ok(())
+    }
 }

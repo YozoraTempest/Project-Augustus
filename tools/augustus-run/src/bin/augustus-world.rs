@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
+use augustus_core::{
+    CountryLedgerAnnualRollover, CountryLedgerMonthlyConsolidation, CountryLedgerPendingFlush,
+    MonthlyEconomy, MonthlyPipeline,
+};
 use augustus_eu4::{ContentSet, TextEncoding, VanillaExternalState, VanillaWorld};
 use clap::Parser;
 use std::{fs::OpenOptions, io::Write, path::PathBuf, process::ExitCode};
@@ -27,7 +31,7 @@ struct Cli {
     /// With --eu4-save, fields in this bundle supplement the translated save state.
     #[arg(long, value_name = "FILE")]
     external_state: Option<PathBuf>,
-    /// Plaintext EU4 save whose supported state is translated before startup.
+    /// EU4 text save or ZIP-wrapped text save whose supported state is translated before startup.
     #[arg(
         long = "eu4-save",
         value_name = "FILE",
@@ -42,13 +46,19 @@ struct Cli {
     /// Explicit EU4 random seed; omitted seeds use the runtime clock for local AI event choices.
     #[arg(long)]
     seed: Option<u32>,
-    /// Advance calendar days and execute supported monthly settlements.
+    /// Advance calendar days and execute selected monthly and yearly systems.
     #[arg(
         long,
         default_value_t = 0,
         conflicts_with = "compare_administration_save"
     )]
     days: u64,
+    /// Use the monthly ledger pipeline; loaded snapshots select their recorded version.
+    #[arg(long, conflicts_with = "compare_administration_save")]
+    monthly_ledger_pipeline: bool,
+    /// Run the explicit annual ledger rollover; keep this option when restoring its snapshots.
+    #[arg(long, conflicts_with = "compare_administration_save")]
+    annual_ledger_rollover: bool,
     /// Restore an Augustus snapshot after loading matching local content.
     #[arg(long, conflicts_with = "compare_administration_save")]
     load: Option<PathBuf>,
@@ -69,7 +79,7 @@ struct Cli {
     diplomacy: bool,
     #[arg(long)]
     economy: bool,
-    /// Compare administrative inputs with an uncompressed, unadvanced vanilla baseline save.
+    /// Compare administration with an uncompressed, unadvanced EU4txt baseline save.
     #[arg(long)]
     compare_administration_save: Option<PathBuf>,
     #[arg(long)]
@@ -112,6 +122,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         .as_ref()
         .map(augustus_eu4::read_vanilla_save_state)
         .transpose()?;
+    let load_snapshot = cli.load.as_ref().map(std::fs::read_to_string).transpose()?;
+    let loaded_monthly_system_id = load_snapshot
+        .as_deref()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .transpose()?
+        .and_then(|snapshot| {
+            snapshot
+                .get("monthly_system_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
     let mut loaded = if cli.eu4_save.is_some() {
         let save = save_state
             .as_ref()
@@ -169,10 +190,92 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             .open(output_path)?;
         file.write_all(&bytes)?;
     }
-    if let Some(path) = cli.load {
-        loaded.restore(&std::fs::read_to_string(path)?)?;
+    let pending_flush = CountryLedgerPendingFlush;
+    let economy = MonthlyEconomy;
+    let ledger_consolidation = CountryLedgerMonthlyConsolidation::default();
+    let legacy_monthly_pipeline = MonthlyPipeline::new(
+        "augustus-world-monthly-ledger:v1",
+        Some(&pending_flush),
+        Some(&economy),
+        Some(&ledger_consolidation),
+    )?;
+    let ledger_tail = MonthlyPipeline::new(
+        "augustus-world-monthly-ledger-tail:v1",
+        Some(&pending_flush),
+        None,
+        Some(&ledger_consolidation),
+    )?;
+    let current_monthly_pipeline = MonthlyPipeline::new(
+        "augustus-world-monthly-ledger:v2",
+        Some(&economy),
+        None,
+        Some(&ledger_tail),
+    )?;
+    let monthly_pipeline = if cli.monthly_ledger_pipeline {
+        if loaded_monthly_system_id.as_deref() == Some("augustus-world-monthly-ledger:v1") {
+            Some(&legacy_monthly_pipeline)
+        } else {
+            Some(&current_monthly_pipeline)
+        }
+    } else {
+        None
+    };
+    let annual_rollover = CountryLedgerAnnualRollover;
+    if let Some(pipeline) = monthly_pipeline {
+        let (
+            taxation,
+            monthly_accruals,
+            monthly_convergence,
+            monthly_stocks,
+            monthly_production,
+            monthly_cashflows,
+        ) = {
+            let world = loaded.initial.world();
+            (
+                world.taxation().cloned(),
+                world.monthly_accruals().cloned(),
+                world.monthly_convergence().cloned(),
+                world.monthly_stocks().cloned(),
+                world.monthly_production().cloned(),
+                world.monthly_cashflows().cloned(),
+            )
+        };
+        loaded.select_monthly_system(pipeline)?;
+        if let Some(state) = taxation {
+            loaded.initial.set_taxation(state)?;
+        }
+        if let Some(state) = monthly_accruals {
+            loaded.initial.set_monthly_accruals(state)?;
+        }
+        if let Some(state) = monthly_convergence {
+            loaded.initial.set_monthly_convergence(Some(state))?;
+        }
+        if let Some(state) = monthly_stocks {
+            loaded.initial.set_monthly_stocks(Some(state))?;
+        }
+        if let Some(state) = monthly_production {
+            loaded.initial.set_monthly_production(state)?;
+        }
+        if let Some(state) = monthly_cashflows {
+            loaded.initial.set_monthly_cashflows(Some(state))?;
+        }
     }
-    loaded.advance(cli.days)?;
+    if cli.annual_ledger_rollover {
+        loaded.select_yearly_system(&annual_rollover)?;
+    }
+    if cli.load.is_some() {
+        loaded.restore(load_snapshot.as_deref().expect("snapshot was loaded"))?;
+    }
+    if monthly_pipeline.is_some() || cli.annual_ledger_rollover {
+        let monthly =
+            monthly_pipeline.map(|pipeline| pipeline as &dyn augustus_core::MonthlySystem);
+        let yearly = cli
+            .annual_ledger_rollover
+            .then_some(&annual_rollover as &dyn augustus_core::YearlySystem);
+        loaded.advance_with_systems_and_yearly(cli.days, None, monthly, yearly)?;
+    } else {
+        loaded.advance(cli.days)?;
+    }
     if let Some(path) = cli.save {
         let snapshot = loaded.save()?;
         let mut file = std::fs::OpenOptions::new()
@@ -183,6 +286,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut output = serde_json::json!({"report": loaded.report,
         "simulation": {"day": loaded.initial.world().day(), "date": loaded.initial.world().date()?,
+            "monthly_system_id": loaded.initial.world().monthly_system_id(),
+            "yearly_system_id": loaded.initial.world().yearly_system_id(),
             "eu4_random": loaded.initial.world().eu4_random_state().map(|(seed, count, index)| {
                 serde_json::json!({"seed": seed, "count": count, "index": index})
             }),
@@ -302,15 +407,21 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(id) = cli.country {
         output["country"] = serde_json::to_value(loaded.country(&id).ok_or("unknown country")?)?;
         output["country"]["attributes"] = serde_json::to_value(loaded.country_attributes(&id)?)?;
+        let country_entity = loaded.initial.country_entity(&id).expect("known country");
+        if let Some(ledger) = loaded
+            .initial
+            .world()
+            .country_ledgers()
+            .get(&country_entity)
+        {
+            output["country"]["ledger"] = serde_json::to_value(ledger)?;
+        }
         if let Some(accounts) = loaded
             .initial
             .world()
             .monthly_accruals()
             .and_then(|state| state.last_settlement.as_ref())
-            .and_then(|last| {
-                last.accounts
-                    .get(&loaded.initial.country_entity(&id).expect("known country"))
-            })
+            .and_then(|last| last.accounts.get(&country_entity))
         {
             output["country"]["last_monthly_accruals"] = serde_json::to_value(accounts)?;
         }

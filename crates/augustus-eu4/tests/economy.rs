@@ -657,6 +657,7 @@ fn external_cashflow_breakdowns_bind_category_slots_before_settlement() {
                 trade_milli: Some(100),
                 gold_milli: Some(40),
                 expenses_milli: Some(30),
+                expense_categories_milli: BTreeMap::from([(11, 30)]),
             },
         )]),
         ..Default::default()
@@ -671,6 +672,7 @@ fn external_cashflow_breakdowns_bind_category_slots_before_settlement() {
             trade_milli: Some(100),
             gold_milli: Some(40),
             expenses_milli: Some(30),
+            expense_categories_milli: BTreeMap::from([(11, 30)]),
         }
     );
 }

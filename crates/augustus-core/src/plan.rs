@@ -346,6 +346,10 @@ pub enum Action {
         target: Target,
         focus: crate::NationalFocus,
     },
+    RemoveAdvisorByCategory {
+        target: Target,
+        category: crate::RulerSkill,
+    },
     RefreshObjectives,
     RecordCompletion {
         id: String,
@@ -1304,6 +1308,10 @@ impl World {
                 Action::ChangeNationalFocus { target, focus } => {
                     let entity = self.target(current, *target)?;
                     self.change_national_focus(entity, *focus)?;
+                }
+                Action::RemoveAdvisorByCategory { target, category } => {
+                    let entity = self.target(current, *target)?;
+                    self.remove_advisor_by_category(entity, *category)?;
                 }
                 Action::RecordCompletion { id } => {
                     self.record_completion(current, id)?;

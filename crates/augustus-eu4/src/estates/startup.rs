@@ -715,13 +715,13 @@ impl EstateStartup {
             compiler.effects.push(Arc::new(document));
         }
         let mut steps = Vec::new();
-        let mut seen = false;
         for file in files
             .iter()
             .filter(|f| direct_txt(&f.relative_path, "common/on_actions"))
         {
             let document = root.read_text(&file.relative_path, ENCODING)?;
             let parsed = document.parse()?;
+            let mut seen = false;
             for (key, op, value) in parsed
                 .reader()
                 .fields()

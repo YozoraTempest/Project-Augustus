@@ -325,12 +325,8 @@ impl Taxation {
 
     pub(crate) fn settle(&mut self, world: &mut World) -> Result<(), Error> {
         let settlement = self.prepare(world)?;
-        let ledger_income_updates = crate::ledger::prepare_monthly_income_ledger_updates(
-            world,
-            Some(&settlement),
-            None,
-            None,
-        )?;
+        let ledger_income_updates =
+            crate::ledger::prepare_monthly_ledger_updates(world, Some(&settlement), None, None)?;
         self.commit(world, settlement);
         world.country_ledgers.extend(ledger_income_updates);
         Ok(())
@@ -391,7 +387,9 @@ impl Taxation {
             }
             let after = before
                 .zip(income_milli)
-                .map(|(balance, income)| balance.checked_add(income).ok_or(Error::Overflow))
+                .map(|(balance, income)| {
+                    crate::resources::treasury_after_adjustment(balance, income)
+                })
                 .transpose()?;
             accounts.insert(
                 country,
@@ -495,7 +493,9 @@ impl Taxation {
                     let expected = account
                         .treasury_before_milli
                         .zip(account.income_milli)
-                        .map(|(before, income)| before.checked_add(income).ok_or(Error::Overflow))
+                        .map(|(before, income)| {
+                            crate::resources::treasury_after_adjustment(before, income)
+                        })
                         .transpose()?;
                     if account.treasury_after_milli != expected
                         || account.credited_milli != expected.and(account.income_milli)
