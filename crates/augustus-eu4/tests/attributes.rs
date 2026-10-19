@@ -9,7 +9,7 @@ use std::{
 
 use augustus_core::{
     EstateDefinition, EstateEffect, EstatePrivilege, EstateState, Estates,
-    MONTHLY_AUTONOMY_DELTA_ATTRIBUTE, ModifierDefinition, ModifierInstance,
+    MONTHLY_AUTONOMY_DELTA_ATTRIBUTE, ModifierDefinition, ModifierInstance, World,
 };
 use augustus_eu4::{VanillaExternalState, VanillaWorld};
 
@@ -371,8 +371,21 @@ fn monthly_settlement_applies_the_estate_global_autonomy_delta_to_province_state
 
     let (mut without_privilege, country, province) = build(false);
     let (mut with_privilege, _, _) = build(true);
+    let (mut resumed_with_privilege, _, _) = build(true);
     without_privilege.advance_to(51).unwrap();
     with_privilege.advance_to(51).unwrap();
+    resumed_with_privilege.advance_to(20).unwrap();
+    let snapshot = resumed_with_privilege
+        .save("autonomy-tax-save-resume:1")
+        .unwrap();
+    resumed_with_privilege = World::restore(
+        &snapshot,
+        "autonomy-tax-save-resume:1",
+        resumed_with_privilege.schema(),
+    )
+    .unwrap();
+    resumed_with_privilege.advance_to(51).unwrap();
+    assert_eq!(resumed_with_privilege, with_privilege);
 
     assert_eq!(
         without_privilege.administration().provinces[&province].raw_autonomy_micros,
