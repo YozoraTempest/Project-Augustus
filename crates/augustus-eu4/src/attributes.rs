@@ -598,31 +598,16 @@ impl AttributeDraft {
                 } else {
                     "manpower_after_autonomy"
                 };
-                if let Some(efficiency_terms) = tax_efficiency_terms {
-                    after_autonomy.channels[0].rates = vec![AttributeTerm::ProductOfSums {
-                        source: "province_tax_efficiency_and_autonomy".into(),
-                        factors: vec![
-                            efficiency_terms,
-                            vec![
-                                AttributeTerm::Constant {
-                                    source: "autonomy_factor_base".into(),
-                                    micros: ATTRIBUTE_ONE_MICROS,
-                                },
-                                AttributeTerm::Autonomy,
-                            ],
-                        ],
-                        quantum_micros: 1000,
-                    }];
-                    after_autonomy.result_quantum_micros = Some(1000);
+                if tax_efficiency_terms.is_some() {
                     after_autonomy
                         .unresolved
                         .remove("original_runtime_comparison");
-                } else {
-                    after_autonomy.channels.push(AttributeChannel {
-                        flat: Vec::new(),
-                        rates: vec![AttributeTerm::Autonomy],
-                    });
                 }
+                // Apply autonomy after province tax efficiency has run.
+                after_autonomy.channels.push(AttributeChannel {
+                    flat: Vec::new(),
+                    rates: vec![AttributeTerm::Autonomy],
+                });
                 formulas.insert(derived.into(), after_autonomy);
                 formulas.insert(name.into(), formula);
             }

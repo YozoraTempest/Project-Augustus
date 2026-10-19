@@ -534,8 +534,10 @@ fn translated_core_effects_join_direct_tax_efficiency_before_autonomy() {
     let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     let north = loaded.province(1).unwrap();
     let tax = &north.attributes["tax_after_autonomy"];
-    assert_eq!(tax.steps.len(), 1);
-    assert_eq!(tax.steps[0].output_micros, Some(637_000));
+    assert_eq!(tax.steps.len(), 2);
+    assert_eq!(tax.steps[0].output_micros, Some(637_500));
+    assert_eq!(tax.steps[1].rate_micros, 0);
+    assert_eq!(tax.steps[1].output_micros, Some(637_000));
     assert!(
         tax.steps[0]
             .contributions

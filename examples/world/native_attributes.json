@@ -1091,7 +1091,10 @@
     },
     "2": {
       "province_autonomy_monthly_delta": {
-        "base": { "kind": "constant", "micros": 0 },
+        "base": {
+          "kind": "constant",
+          "micros": 0
+        },
         "channels": [
           {
             "flat": [
@@ -1103,16 +1106,54 @@
                   "source": "eu4_monthly_autonomy_modifiers",
                   "quantum_micros": 1,
                   "terms": [
-                    { "kind": "administration", "mapping": "province_status", "property": "local_autonomy" },
-                    { "kind": "metrics", "target": "Current", "property": "local_autonomy" },
-                    { "kind": "metrics", "target": "Owner", "property": "global_autonomy" },
-                    { "kind": "buildings", "property": "local_autonomy" },
-                    { "kind": "trade_good", "property": "local_autonomy" },
-                    { "kind": "modifiers", "target": "Current", "property": "local_autonomy" },
-                    { "kind": "modifiers", "target": "Owner", "property": "global_autonomy" },
-                    { "kind": "estates", "target": "Owner", "property": "global_autonomy" },
-                    { "kind": "ideas", "target": "Owner", "property": "global_autonomy" },
-                    { "kind": "government", "target": "Owner", "property": "global_autonomy" },
+                    {
+                      "kind": "administration",
+                      "mapping": "province_status",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Current",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Owner",
+                      "property": "global_autonomy"
+                    },
+                    {
+                      "kind": "buildings",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "trade_good",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Owner",
+                      "property": "global_autonomy"
+                    },
+                    {
+                      "kind": "estates",
+                      "target": "Owner",
+                      "property": "global_autonomy"
+                    },
+                    {
+                      "kind": "ideas",
+                      "target": "Owner",
+                      "property": "global_autonomy"
+                    },
+                    {
+                      "kind": "government",
+                      "target": "Owner",
+                      "property": "global_autonomy"
+                    },
                     {
                       "kind": "affiliation_relation",
                       "dimension": "culture",
@@ -1123,15 +1164,54 @@
                       },
                       "property": "local_autonomy"
                     },
-                    { "kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_autonomy" },
-                    { "kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_autonomy" },
-                    { "kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_autonomy" },
-                    { "kind": "static", "definition": "city", "property": "local_autonomy" },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Current",
+                      "scope": "province",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_autonomy"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religious_school",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_autonomy"
+                    },
+                    {
+                      "kind": "static",
+                      "definition": "city",
+                      "property": "local_autonomy"
+                    },
                     {
                       "kind": "conditional",
-                      "condition": { "PoliticalStatus": { "target": "Owner", "name": "at_war" } },
-                      "then": [ { "kind": "static", "definition": "war", "property": "global_autonomy" } ],
-                      "otherwise": [ { "kind": "static", "definition": "peace", "property": "global_autonomy" } ]
+                      "condition": {
+                        "PoliticalStatus": {
+                          "target": "Owner",
+                          "name": "at_war"
+                        }
+                      },
+                      "then": [
+                        {
+                          "kind": "static",
+                          "definition": "war",
+                          "property": "global_autonomy"
+                        }
+                      ],
+                      "otherwise": [
+                        {
+                          "kind": "static",
+                          "definition": "peace",
+                          "property": "global_autonomy"
+                        }
+                      ]
                     }
                   ]
                 }
@@ -1432,7 +1512,7 @@
             "rates": [
               {
                 "kind": "product_of_sums",
-                "source": "province_tax_efficiency_and_autonomy",
+                "source": "province_tax_efficiency",
                 "factors": [
                   [
                     {
@@ -1523,15 +1603,20 @@
                   [
                     {
                       "kind": "constant",
-                      "source": "autonomy_factor_base",
+                      "source": "tax_efficiency_baseline",
                       "micros": 1000000
-                    },
-                    {
-                      "kind": "autonomy"
                     }
                   ]
                 ],
                 "quantum_micros": 1000
+              }
+            ]
+          },
+          {
+            "flat": [],
+            "rates": [
+              {
+                "kind": "autonomy"
               }
             ]
           }
@@ -1664,7 +1749,10 @@
     },
     "3": {
       "province_autonomy_monthly_delta": {
-        "base": { "kind": "constant", "micros": 0 },
+        "base": {
+          "kind": "constant",
+          "micros": 0
+        },
         "channels": [
           {
             "flat": [
@@ -1676,16 +1764,54 @@
                   "source": "eu4_monthly_autonomy_modifiers",
                   "quantum_micros": 1,
                   "terms": [
-                    { "kind": "administration", "mapping": "province_status", "property": "local_autonomy" },
-                    { "kind": "metrics", "target": "Current", "property": "local_autonomy" },
-                    { "kind": "metrics", "target": "Owner", "property": "global_autonomy" },
-                    { "kind": "buildings", "property": "local_autonomy" },
-                    { "kind": "trade_good", "property": "local_autonomy" },
-                    { "kind": "modifiers", "target": "Current", "property": "local_autonomy" },
-                    { "kind": "modifiers", "target": "Owner", "property": "global_autonomy" },
-                    { "kind": "estates", "target": "Owner", "property": "global_autonomy" },
-                    { "kind": "ideas", "target": "Owner", "property": "global_autonomy" },
-                    { "kind": "government", "target": "Owner", "property": "global_autonomy" },
+                    {
+                      "kind": "administration",
+                      "mapping": "province_status",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Current",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Owner",
+                      "property": "global_autonomy"
+                    },
+                    {
+                      "kind": "buildings",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "trade_good",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Owner",
+                      "property": "global_autonomy"
+                    },
+                    {
+                      "kind": "estates",
+                      "target": "Owner",
+                      "property": "global_autonomy"
+                    },
+                    {
+                      "kind": "ideas",
+                      "target": "Owner",
+                      "property": "global_autonomy"
+                    },
+                    {
+                      "kind": "government",
+                      "target": "Owner",
+                      "property": "global_autonomy"
+                    },
                     {
                       "kind": "affiliation_relation",
                       "dimension": "culture",
@@ -1696,14 +1822,49 @@
                       },
                       "property": "local_autonomy"
                     },
-                    { "kind": "affiliation_modifiers", "dimension": "religion", "target": "Current", "scope": "province", "property": "local_autonomy" },
-                    { "kind": "affiliation_modifiers", "dimension": "religion", "target": "Owner", "scope": "country", "property": "global_autonomy" },
-                    { "kind": "affiliation_modifiers", "dimension": "religious_school", "target": "Owner", "scope": "country", "property": "global_autonomy" },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Current",
+                      "scope": "province",
+                      "property": "local_autonomy"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_autonomy"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religious_school",
+                      "target": "Owner",
+                      "scope": "country",
+                      "property": "global_autonomy"
+                    },
                     {
                       "kind": "conditional",
-                      "condition": { "PoliticalStatus": { "target": "Owner", "name": "at_war" } },
-                      "then": [ { "kind": "static", "definition": "war", "property": "global_autonomy" } ],
-                      "otherwise": [ { "kind": "static", "definition": "peace", "property": "global_autonomy" } ]
+                      "condition": {
+                        "PoliticalStatus": {
+                          "target": "Owner",
+                          "name": "at_war"
+                        }
+                      },
+                      "then": [
+                        {
+                          "kind": "static",
+                          "definition": "war",
+                          "property": "global_autonomy"
+                        }
+                      ],
+                      "otherwise": [
+                        {
+                          "kind": "static",
+                          "definition": "peace",
+                          "property": "global_autonomy"
+                        }
+                      ]
                     }
                   ]
                 }
@@ -1715,7 +1876,9 @@
         "minimum_micros": null,
         "maximum_micros": null,
         "result_quantum_micros": 10,
-        "unresolved": ["city_status"]
+        "unresolved": [
+          "city_status"
+        ]
       },
       "tax_basis": {
         "base": {
@@ -1996,7 +2159,7 @@
             "rates": [
               {
                 "kind": "product_of_sums",
-                "source": "province_tax_efficiency_and_autonomy",
+                "source": "province_tax_efficiency",
                 "factors": [
                   [
                     {
@@ -2082,15 +2245,20 @@
                   [
                     {
                       "kind": "constant",
-                      "source": "autonomy_factor_base",
+                      "source": "tax_efficiency_baseline",
                       "micros": 1000000
-                    },
-                    {
-                      "kind": "autonomy"
                     }
                   ]
                 ],
                 "quantum_micros": 1000
+              }
+            ]
+          },
+          {
+            "flat": [],
+            "rates": [
+              {
+                "kind": "autonomy"
               }
             ]
           }
