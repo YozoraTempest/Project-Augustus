@@ -256,6 +256,28 @@ impl VanillaSaveState {
             state.province_owners.insert(*province, owner.clone());
         }
 
+        for (province, trade_good) in &self.external_state.province_trade_goods {
+            if world.initial.province_entity(*province).is_none() {
+                continue;
+            }
+            if let Some(trade_good) = trade_good
+                && !world
+                    .initial
+                    .world()
+                    .economy()
+                    .trade_goods
+                    .contains_key(trade_good)
+            {
+                return Err(Error::message(
+                    "save state",
+                    format!("province {province} references unknown saved trade good {trade_good}"),
+                ));
+            }
+            state
+                .province_trade_goods
+                .insert(*province, trade_good.clone());
+        }
+
         for province in self.external_state.province_owners.keys() {
             if world.initial.province_entity(*province).is_none() {
                 continue;
@@ -749,6 +771,11 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
         }
         if let Some(religion) = optional_scalar(&parsed, &province, "religion")? {
             external_state.province_religions.insert(id, Some(religion));
+        }
+        if let Some(trade_good) = optional_scalar(&parsed, &province, "trade_goods")? {
+            external_state
+                .province_trade_goods
+                .insert(id, Some(trade_good));
         }
         if let Some(controller) = optional_scalar(&parsed, &province, "controller")? {
             if !is_country_tag(&controller) {
@@ -1332,6 +1359,7 @@ provinces={
 		owner="AAA"
 		culture=saved_province_culture
 		religion=saved_province_religion
+		trade_goods=cloth
 		is_city=yes
 		local_autonomy=3.500
 		history={
@@ -1457,6 +1485,10 @@ provinces={
         assert_eq!(
             state.external_state.province_religions[&1].as_deref(),
             Some("saved_province_religion")
+        );
+        assert_eq!(
+            state.external_state.province_trade_goods[&1].as_deref(),
+            Some("cloth")
         );
         assert_eq!(
             state.external_state.estate_states["AAA"]["estate_nobles"].loyalty_milli,
@@ -1761,6 +1793,70 @@ provinces={
             Some("saved_province_religion")
         );
         assert!(loaded.initial.province(999).is_none());
+    }
+
+    #[test]
+    fn saved_trade_goods_override_content_and_filter_unknown_provinces() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("trade-goods.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+countries={
+    AAA={ human=yes }
+}
+provinces={
+    -1={
+        owner="AAA"
+        trade_goods=cloth
+    }
+    -999={
+        trade_goods=missing_good
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert_eq!(
+            save.external_state.province_trade_goods[&1].as_deref(),
+            Some("cloth")
+        );
+        assert_eq!(
+            save.external_state.province_trade_goods[&999].as_deref(),
+            Some("missing_good")
+        );
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let filtered = save.state_for_world(&baseline).unwrap();
+        assert_eq!(filtered.province_trade_goods[&1].as_deref(), Some("cloth"));
+        assert!(!filtered.province_trade_goods.contains_key(&999));
+
+        let mut invalid = save.clone();
+        invalid
+            .external_state
+            .province_trade_goods
+            .insert(1, Some("missing_good".into()));
+        assert!(invalid.state_for_world(&baseline).is_err());
+
+        let loaded =
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        let province = loaded.initial.province(1).unwrap();
+        assert_eq!(province.trade_good.as_deref(), Some("cloth"));
+        let entity = loaded.initial.province_entity(1).unwrap();
+        assert_eq!(
+            loaded.initial.world().economy().provinces[&entity]
+                .trade_good
+                .as_deref(),
+            Some("cloth")
+        );
     }
 
     #[test]

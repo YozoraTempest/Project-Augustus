@@ -389,6 +389,10 @@ pub struct VanillaExternalState {
     /// remains content-derived; `None` explicitly records an unowned province.
     #[serde(default)]
     pub province_owners: BTreeMap<u32, Option<String>>,
+    /// Current province trade goods supplied by a save reader. An omitted
+    /// province keeps its content-derived good; `None` explicitly clears it.
+    #[serde(default)]
+    pub province_trade_goods: BTreeMap<u32, Option<String>>,
     /// Current province culture and religion supplied by a save reader. An
     /// omitted province keeps its content-derived values; `None` clears one.
     #[serde(default)]
@@ -486,6 +490,7 @@ struct LoadOverrides<'a> {
     country_annual_tax_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
     province_owners: Option<&'a BTreeMap<u32, Option<String>>>,
+    province_trade_goods: Option<&'a BTreeMap<u32, Option<String>>>,
     province_cultures: Option<&'a BTreeMap<u32, Option<String>>>,
     province_religions: Option<&'a BTreeMap<u32, Option<String>>>,
     province_controllers: Option<&'a BTreeMap<u32, Option<String>>>,
@@ -544,6 +549,8 @@ impl<'a> LoadOverrides<'a> {
             province_annual_tax_milli: (!state.province_annual_tax_milli.is_empty())
                 .then_some(&state.province_annual_tax_milli),
             province_owners: (!state.province_owners.is_empty()).then_some(&state.province_owners),
+            province_trade_goods: (!state.province_trade_goods.is_empty())
+                .then_some(&state.province_trade_goods),
             province_cultures: (!state.province_cultures.is_empty())
                 .then_some(&state.province_cultures),
             province_religions: (!state.province_religions.is_empty())
@@ -672,6 +679,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     base.province_annual_tax_milli
         .extend(overlay.province_annual_tax_milli.clone());
     base.province_owners.extend(overlay.province_owners.clone());
+    base.province_trade_goods
+        .extend(overlay.province_trade_goods.clone());
     base.province_cultures
         .extend(overlay.province_cultures.clone());
     base.province_religions
@@ -2328,6 +2337,17 @@ impl VanillaWorld {
                         *target = Some(value);
                     }
                 }
+            }
+        }
+        if let Some(trade_goods) = overrides.province_trade_goods {
+            for (id, trade_good) in trade_goods {
+                let Some(province) = provinces.get_mut(id) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("external province trade good references unknown province {id}"),
+                    ));
+                };
+                province.trade_good.clone_from(trade_good);
             }
         }
         if let Some(cultures) = overrides.country_primary_cultures {
