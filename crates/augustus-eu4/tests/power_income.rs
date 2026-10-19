@@ -5,6 +5,23 @@ use augustus_core::*;
 use augustus_eu4::*;
 use std::{fs, path::Path};
 
+fn copy_fixture() -> tempfile::TempDir {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    for entry in walkdir::WalkDir::new(&source) {
+        let entry = entry.unwrap();
+        let target = temp
+            .path()
+            .join(entry.path().strip_prefix(&source).unwrap());
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(target).unwrap();
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
+    temp
+}
+
 fn scene() -> World {
     let mut world = World::new(Schema::new(["unused"]).unwrap());
     world.add_entity("AAA", EntityKind::Country);
@@ -259,19 +276,7 @@ fn invalid_focus_income_operands_and_scopes_keep_source_diagnostics() {
 
 #[test]
 fn history_focus_defines_and_unknown_producers_are_reported_without_guessed_stock() {
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
-    let temp = tempfile::tempdir().unwrap();
-    for entry in walkdir::WalkDir::new(source.clone()) {
-        let entry = entry.unwrap();
-        let target = temp
-            .path()
-            .join(entry.path().strip_prefix(&source).unwrap());
-        if entry.file_type().is_dir() {
-            fs::create_dir_all(target).unwrap();
-        } else {
-            fs::copy(entry.path(), target).unwrap();
-        }
-    }
+    let temp = copy_fixture();
     let defines = temp.path().join("common/defines.lua");
     let original = fs::read_to_string(&defines).unwrap();
     fs::write(&defines,original.replace("HRE_RANK = 3,","HRE_RANK = 3,\nBASE_POWER_INCREASE = 5,\nNAT_FOCUS_INCREASE = 4,\nNAT_FOCUS_DECREASE = -3,")).unwrap();
@@ -327,4 +332,102 @@ fn history_focus_defines_and_unknown_producers_are_reported_without_guessed_stoc
             .unresolved
             .contains("power_income:missing_base_define")
     );
+}
+
+#[test]
+fn plaintext_save_advisors_feed_the_supported_monthly_power_sources() {
+    let temp = copy_fixture();
+    fs::create_dir_all(temp.path().join("common/advisortypes")).unwrap();
+    fs::write(
+        temp.path().join("common/advisortypes/test.txt"),
+        "army_reformer = { monarch_power = MIL }",
+    )
+    .unwrap();
+    let defines = temp.path().join("common/defines.lua");
+    let original = fs::read_to_string(&defines).unwrap();
+    fs::write(
+        &defines,
+        original.replace(
+            "HRE_RANK = 3,",
+            "HRE_RANK = 3,\nBASE_POWER_INCREASE = 3,\nNAT_FOCUS_INCREASE = 2,\nNAT_FOCUS_DECREASE = -1,",
+        ),
+    )
+    .unwrap();
+
+    let save_path = temp.path().join("advisor-state.eu4");
+    fs::write(
+        &save_path,
+        r#"EU4txt
+date=1444.11.11
+player="AAA"
+countries={
+    AAA={
+        human=yes
+        national_focus=ADM
+        powers={ 0 0 0 }
+        powers={ 98 98 42 }
+        treasury=10.000
+        manpower=9.000
+    }
+}
+provinces={
+    -2={
+        owner="AAA"
+        local_autonomy=0.000
+        history={
+            advisor={
+                type=army_reformer
+                skill=1
+                hire_date=1444.11.10
+                id={ id=3478 type=51 }
+            }
+        }
+    }
+}
+"#,
+    )
+    .unwrap();
+    let content = ContentSet::resolve(vec![ContentSource::base(
+        ContentRoot::open(temp.path()).unwrap(),
+    )])
+    .unwrap();
+
+    let loaded = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let world = loaded.initial.world();
+    assert_eq!(
+        world.national_focus(country).unwrap().skill,
+        Some(RulerSkill::Administration)
+    );
+    let advisor = &world.advisors().countries[&country].as_ref().unwrap()[0];
+    assert_eq!(advisor.type_name, "army_reformer");
+    assert_eq!(advisor.category, RulerSkill::Military);
+    assert_eq!(advisor.skill, 1);
+
+    let income = world
+        .attributes()
+        .evaluate(world, country, "monthly_mil")
+        .unwrap();
+    assert!(
+        income
+            .steps
+            .iter()
+            .flat_map(|step| &step.contributions)
+            .any(|source| {
+                source.source == "advisor:army_reformer"
+                    && source.property == "skill"
+                    && source.micros == 1_000_000
+            })
+    );
+    assert!(
+        !income
+            .unresolved
+            .contains("power_income:advisors_not_initialized")
+    );
+    assert!(
+        income
+            .unresolved
+            .contains("power_income:remaining_sources_not_bound")
+    );
+    assert!(income.value_micros.is_none());
 }
