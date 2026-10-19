@@ -734,6 +734,17 @@ impl InitialWorld {
         self.world.set_country_ledgers(ledgers)
     }
 
+    /// Records income and changes the treasury immediately.
+    pub fn record_country_income(
+        &mut self,
+        country: EntityId,
+        category: u32,
+        amount_milli: i64,
+    ) -> Result<(), Error> {
+        self.world
+            .record_country_income(country, category, amount_milli)
+    }
+
     /// Records an expense and changes the treasury immediately.
     pub fn record_country_expense(
         &mut self,
@@ -743,6 +754,28 @@ impl InitialWorld {
     ) -> Result<(), Error> {
         self.world
             .record_country_expense(country, category, amount_milli)
+    }
+
+    /// Records delayed income without changing the treasury yet.
+    pub fn record_delayed_country_income(
+        &mut self,
+        country: EntityId,
+        category: u32,
+        amount_milli: i64,
+    ) -> Result<(), Error> {
+        self.world
+            .record_delayed_country_income(country, category, amount_milli)
+    }
+
+    /// Records delayed expense without changing the treasury yet.
+    pub fn record_delayed_country_expense(
+        &mut self,
+        country: EntityId,
+        category: u32,
+        amount_milli: i64,
+    ) -> Result<(), Error> {
+        self.world
+            .record_delayed_country_expense(country, category, amount_milli)
     }
 
     pub fn consolidate_country_ledgers_monthly(

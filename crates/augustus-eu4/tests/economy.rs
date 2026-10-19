@@ -172,6 +172,55 @@ fn relationship_expenses_update_treasury_and_ledger_through_eu4_tags() {
 }
 
 #[test]
+fn country_cashflow_writers_bind_by_tag_and_flush_pending_at_month_boundary() {
+    let state = VanillaExternalState {
+        country_resources: BTreeMap::from([(
+            "AAA".into(),
+            CountryResources {
+                treasury_milli: Some(1_000),
+                ..Default::default()
+            },
+        )]),
+        ..Default::default()
+    };
+    let mut loaded =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+
+    loaded.record_country_income("AAA", 3, 40).unwrap();
+    loaded.record_delayed_country_income("AAA", 1, 50).unwrap();
+    loaded.record_delayed_country_expense("AAA", 5, 30).unwrap();
+
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().country_resources()[&country].treasury_milli,
+        Some(1_040)
+    );
+    let ledger = &loaded.initial.world().country_ledgers()[&country];
+    assert_eq!(ledger.pending_milli, 20);
+    assert_eq!(ledger.income_sources_milli[3], 40);
+    assert_eq!(ledger.income_sources_milli[1], 50);
+    assert_eq!(ledger.expense_sources_milli[5], 30);
+
+    let balances = loaded.flush_country_ledgers_pending().unwrap();
+    assert_eq!(balances["AAA"], 1_060);
+    let ledger = &loaded.initial.world().country_ledgers()[&country];
+    assert_eq!(ledger.pending_milli, 0);
+    assert_eq!(ledger.income_accumulator_milli[3], 40);
+    assert_eq!(ledger.income_accumulator_milli[1], 50);
+    assert_eq!(ledger.expense_accumulator_milli[5], 30);
+
+    loaded
+        .consolidate_country_ledgers_monthly(BTreeMap::new())
+        .unwrap();
+    let ledger = &loaded.initial.world().country_ledgers()[&country];
+    assert_eq!(ledger.income_snapshot_milli[3], 40);
+    assert_eq!(ledger.income_snapshot_milli[1], 50);
+    assert_eq!(ledger.expense_snapshot_milli[5], 30);
+    assert_eq!(ledger.income_total_milli, 90);
+    assert_eq!(ledger.expense_total_milli, 30);
+}
+
+#[test]
 fn country_ledger_pending_flush_returns_balances_by_eu4_tag() {
     let mut loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
     loaded

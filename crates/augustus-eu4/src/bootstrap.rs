@@ -3566,14 +3566,21 @@ impl VanillaWorld {
     ) -> Result<(), augustus_core::Error> {
         let bound = ledgers
             .into_iter()
-            .map(|(country, ledger)| {
-                let entity = self.initial.country_entity(&country).ok_or_else(|| {
-                    augustus_core::Error::Invalid(format!("unknown EU4 ledger country {country}"))
-                })?;
-                Ok((entity, ledger))
-            })
+            .map(|(country, ledger)| Ok((self.ledger_country_entity(&country)?, ledger)))
             .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
         self.initial.set_country_ledgers(bound)
+    }
+
+    /// Records an immediate country income by EU4 tag and native ledger slot.
+    pub fn record_country_income(
+        &mut self,
+        country: &str,
+        category: u32,
+        amount_milli: i64,
+    ) -> Result<(), augustus_core::Error> {
+        let country = self.ledger_country_entity(country)?;
+        self.initial
+            .record_country_income(country, category, amount_milli)
     }
 
     /// Records an immediate country expense by EU4 tag and native ledger slot.
@@ -3583,11 +3590,33 @@ impl VanillaWorld {
         category: u32,
         amount_milli: i64,
     ) -> Result<(), augustus_core::Error> {
-        let country = self.initial.country_entity(country).ok_or_else(|| {
-            augustus_core::Error::Invalid(format!("unknown EU4 ledger country {country}"))
-        })?;
+        let country = self.ledger_country_entity(country)?;
         self.initial
             .record_country_expense(country, category, amount_milli)
+    }
+
+    /// Records delayed country income by EU4 tag and native ledger slot.
+    pub fn record_delayed_country_income(
+        &mut self,
+        country: &str,
+        category: u32,
+        amount_milli: i64,
+    ) -> Result<(), augustus_core::Error> {
+        let country = self.ledger_country_entity(country)?;
+        self.initial
+            .record_delayed_country_income(country, category, amount_milli)
+    }
+
+    /// Records delayed country expense by EU4 tag and native ledger slot.
+    pub fn record_delayed_country_expense(
+        &mut self,
+        country: &str,
+        category: u32,
+        amount_milli: i64,
+    ) -> Result<(), augustus_core::Error> {
+        let country = self.ledger_country_entity(country)?;
+        self.initial
+            .record_delayed_country_expense(country, category, amount_milli)
     }
 
     /// Consolidates translated country ledgers at the native monthly boundary.
@@ -3610,6 +3639,15 @@ impl VanillaWorld {
             })
             .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
         self.initial.consolidate_country_ledgers_monthly(&bound)
+    }
+
+    fn ledger_country_entity(
+        &self,
+        country: &str,
+    ) -> Result<augustus_core::EntityId, augustus_core::Error> {
+        self.initial.country_entity(country).ok_or_else(|| {
+            augustus_core::Error::Invalid(format!("unknown EU4 ledger country {country}"))
+        })
     }
 
     /// Performs the translated country-ledger annual rollover.
