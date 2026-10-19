@@ -30,6 +30,19 @@ pub struct GovernmentMetric {
     pub unresolved_properties: BTreeSet<String>,
 }
 
+/// A saved value and freeze flag for a government-specific resource.
+///
+/// Resource growth and spending rules are declared by compatibility content;
+/// the core keeps only the authoritative current state here.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GovernmentMechanicResourceState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub power_milli: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frozen: Option<bool>,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GovernmentState {
@@ -44,6 +57,9 @@ pub struct GovernmentState {
     /// Explicitly retained inactive values do not contribute institutional effects.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inactive_metrics: BTreeMap<String, Option<i64>>,
+    /// Current resources grouped by mechanic and power identifier.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mechanic_powers: BTreeMap<String, BTreeMap<String, GovernmentMechanicResourceState>>,
 }
 
 /// State installed when entering a different form. Metrics omitted here retain
@@ -365,6 +381,12 @@ impl Governments {
                     }) {
                         return Err(Error::Invalid("government metric outside bounds".into()));
                     }
+                }
+            }
+            for (mechanic, powers) in &state.mechanic_powers {
+                validate_identifier(mechanic)?;
+                for power in powers.keys() {
+                    validate_identifier(power)?;
                 }
             }
             for (name, value) in &state.inactive_metrics {

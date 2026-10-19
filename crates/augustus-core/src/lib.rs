@@ -122,8 +122,8 @@ pub use event_decisions::{
 pub use event_locations::EventLocations;
 pub use event_pictures::{EventPictures, PictureVariant};
 pub use governments::{
-    GovernmentContribution, GovernmentEvaluation, GovernmentForm, GovernmentMetric,
-    GovernmentReform, GovernmentState, Governments,
+    GovernmentContribution, GovernmentEvaluation, GovernmentForm, GovernmentMechanicResourceState,
+    GovernmentMetric, GovernmentReform, GovernmentState, Governments,
 };
 pub use ideas::{
     IdeaContribution, IdeaDefinition, IdeaEffect, IdeaEvaluation, IdeaGroup, IdeaState, Ideas,

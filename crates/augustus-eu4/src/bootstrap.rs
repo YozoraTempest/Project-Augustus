@@ -281,6 +281,13 @@ pub struct VanillaExternalEstateState {
 pub type VanillaExternalEstateStates =
     BTreeMap<String, BTreeMap<String, VanillaExternalEstateState>>;
 
+/// Saved government mechanic resource state, keyed by country, mechanic, and
+/// power identifier. Values stay separate from monarch power stocks.
+pub type VanillaExternalGovernmentMechanicPowers = BTreeMap<
+    String,
+    BTreeMap<String, BTreeMap<String, augustus_core::GovernmentMechanicResourceState>>,
+>;
+
 /// Country flag namespaces supplied by a compatibility provider.
 ///
 /// `Some(set)` means the namespace is complete and only the listed flags are
@@ -361,6 +368,9 @@ pub struct VanillaExternalState {
     /// metric definitions, separately from generic country attributes.
     #[serde(default)]
     pub country_government_metric_values: BTreeMap<String, BTreeMap<String, Option<i64>>>,
+    /// Current government-specific resource values and freeze flags from a save.
+    #[serde(default)]
+    pub country_government_mechanic_powers: VanillaExternalGovernmentMechanicPowers,
     /// Current country culture and religion supplied by a save reader. A
     /// missing country keeps its content-derived values; `None` clears one.
     #[serde(default)]
@@ -503,6 +513,7 @@ struct LoadOverrides<'a> {
     country_government_kinds: Option<&'a BTreeMap<String, Option<String>>>,
     country_government_reforms: Option<&'a BTreeMap<String, Option<BTreeSet<String>>>>,
     country_government_metric_values: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
+    country_government_mechanic_powers: Option<&'a VanillaExternalGovernmentMechanicPowers>,
     country_primary_cultures: Option<&'a BTreeMap<String, Option<String>>>,
     country_religions: Option<&'a BTreeMap<String, Option<String>>>,
     country_ideas: Option<&'a BTreeMap<String, augustus_core::IdeaState>>,
@@ -561,6 +572,10 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_government_reforms),
             country_government_metric_values: (!state.country_government_metric_values.is_empty())
                 .then_some(&state.country_government_metric_values),
+            country_government_mechanic_powers: (!state
+                .country_government_mechanic_powers
+                .is_empty())
+            .then_some(&state.country_government_mechanic_powers),
             country_primary_cultures: (!state.country_primary_cultures.is_empty())
                 .then_some(&state.country_primary_cultures),
             country_religions: (!state.country_religions.is_empty())
@@ -661,6 +676,21 @@ fn overlay_estate_states(
     }
 }
 
+fn overlay_government_mechanic_powers(
+    base: &mut VanillaExternalGovernmentMechanicPowers,
+    overlay: &VanillaExternalGovernmentMechanicPowers,
+) {
+    for (country, mechanics) in overlay {
+        let destination = base.entry(country.clone()).or_default();
+        for (mechanic, powers) in mechanics {
+            destination
+                .entry(mechanic.clone())
+                .or_default()
+                .extend(powers.clone());
+        }
+    }
+}
+
 fn overlay_province_development(
     base: &mut BTreeMap<u32, VanillaExternalProvinceDevelopment>,
     overlay: &BTreeMap<u32, VanillaExternalProvinceDevelopment>,
@@ -705,6 +735,10 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     overlay_nested_map(
         &mut base.country_government_metric_values,
         &overlay.country_government_metric_values,
+    );
+    overlay_government_mechanic_powers(
+        &mut base.country_government_mechanic_powers,
+        &overlay.country_government_mechanic_powers,
     );
     base.country_primary_cultures
         .extend(overlay.country_primary_cultures.clone());
@@ -2609,6 +2643,9 @@ impl VanillaWorld {
         if let Some(values) = overrides.country_government_metric_values {
             saved_government_countries.extend(values.keys());
         }
+        if let Some(mechanics) = overrides.country_government_mechanic_powers {
+            saved_government_countries.extend(mechanics.keys());
+        }
         for tag in saved_government_countries {
             let entity = initial.country_entity(tag).ok_or_else(|| {
                 Error::message(
@@ -2634,6 +2671,12 @@ impl VanillaWorld {
                         .iter()
                         .all(|reform| governments.reforms.contains_key(reform))
                 });
+            }
+            if let Some(mechanics) = overrides
+                .country_government_mechanic_powers
+                .and_then(|values| values.get(tag))
+            {
+                state.mechanic_powers = mechanics.clone();
             }
             if let Some(form) = state
                 .kind

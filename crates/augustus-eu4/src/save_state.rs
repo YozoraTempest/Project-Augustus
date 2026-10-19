@@ -161,6 +161,15 @@ impl VanillaSaveState {
                         .insert((*country).into(), filtered);
                 }
             }
+            if let Some(mechanics) = self
+                .external_state
+                .country_government_mechanic_powers
+                .get(*country)
+            {
+                state
+                    .country_government_mechanic_powers
+                    .insert((*country).into(), mechanics.clone());
+            }
             if let Some(culture) = self.external_state.country_primary_cultures.get(*country) {
                 state
                     .country_primary_cultures
@@ -535,6 +544,13 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
             external_state
                 .country_government_reforms
                 .insert(tag.clone(), reforms);
+
+            let mechanics = saved_government_mechanic_powers(&parsed, &government)?;
+            if !mechanics.is_empty() {
+                external_state
+                    .country_government_mechanic_powers
+                    .insert(tag.clone(), mechanics);
+            }
         }
 
         if let Some(value) = optional_scalar(&parsed, &country, "primary_culture")? {
@@ -1390,6 +1406,83 @@ fn string_id_set(
     Ok(result)
 }
 
+fn saved_government_mechanic_powers(
+    parsed: &ParsedText<'_>,
+    government: &Object<'_, '_>,
+) -> Result<BTreeMap<String, BTreeMap<String, augustus_core::GovernmentMechanicResourceState>>, Error>
+{
+    let mut mechanics = BTreeMap::new();
+    for (key, op, value) in government
+        .fields()
+        .filter(|(key, _, _)| key.read_string() == "mechanic_type")
+    {
+        if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                "invalid saved mechanic block",
+            ));
+        }
+        let block = object(parsed, &value)?;
+        let mechanic = optional_scalar(parsed, &block, "mechanic_type")?
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| Error::message(parsed.source(), "saved mechanic has no type"))?;
+        let mut powers = BTreeMap::new();
+        for (power_key, power_op, value) in block
+            .fields()
+            .filter(|(key, _, _)| key.read_string() != "mechanic_type")
+        {
+            if power_op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                return Err(Error::message(
+                    parsed.source(),
+                    "invalid saved government power field",
+                ));
+            }
+            let power_id = power_key.read_string();
+            if power_id.is_empty() {
+                return Err(Error::message(
+                    parsed.source(),
+                    "saved government power has an empty identifier",
+                ));
+            }
+            let power = object(parsed, &value)?;
+            let power_milli = optional_milli(parsed, &power, "power")?;
+            let frozen = optional_scalar(parsed, &power, "frozen")?
+                .map(|value| match value.as_str() {
+                    "yes" => Ok(true),
+                    "no" => Ok(false),
+                    _ => Err(Error::message(
+                        parsed.source(),
+                        format!("saved government power {power_id} has an invalid frozen flag"),
+                    )),
+                })
+                .transpose()?;
+            if powers
+                .insert(
+                    power_id,
+                    augustus_core::GovernmentMechanicResourceState {
+                        power_milli,
+                        frozen,
+                    },
+                )
+                .is_some()
+            {
+                return Err(Error::message(
+                    parsed.source(),
+                    "duplicate saved government power",
+                ));
+            }
+        }
+        if mechanics.insert(mechanic, powers).is_some() {
+            return Err(Error::message(
+                parsed.source(),
+                "duplicate saved government mechanic",
+            ));
+        }
+        let _ = key;
+    }
+    Ok(mechanics)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{NationalFocus, RulerSkill, read_vanilla_save_state};
@@ -1949,6 +2042,17 @@ countries={
                     "test_court"
                 }
             }
+            mechanic_type={
+                mechanic_type=test_mechanic
+                test_power={
+                    power=1.744
+                    frozen=no
+                }
+                reserved_power={
+                    power=0.250
+                    frozen=yes
+                }
+            }
         }
         human=yes
     }
@@ -1970,6 +2074,20 @@ provinces={}
                 "test_charter".to_owned(),
                 "test_council".to_owned()
             ]))
+        );
+        assert_eq!(
+            save.external_state.country_government_mechanic_powers["AAA"]["test_mechanic"]["test_power"],
+            augustus_core::GovernmentMechanicResourceState {
+                power_milli: Some(1_744),
+                frozen: Some(false),
+            }
+        );
+        assert_eq!(
+            save.external_state.country_government_mechanic_powers["AAA"]["test_mechanic"]["reserved_power"],
+            augustus_core::GovernmentMechanicResourceState {
+                power_milli: Some(250),
+                frozen: Some(true),
+            }
         );
 
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
@@ -1998,6 +2116,32 @@ provinces={}
             )]))
         );
         assert_eq!(government.inactive_metrics["legitimacy"], Some(82_750));
+        assert_eq!(
+            government.mechanic_powers["test_mechanic"]["test_power"],
+            augustus_core::GovernmentMechanicResourceState {
+                power_milli: Some(1_744),
+                frozen: Some(false),
+            }
+        );
+
+        let snapshot = loaded
+            .initial
+            .world()
+            .save("saved-government-mechanics")
+            .unwrap();
+        let restored = augustus_core::World::restore(
+            &snapshot,
+            "saved-government-mechanics",
+            loaded.initial.world().schema(),
+        )
+        .unwrap();
+        assert_eq!(
+            restored.governments().countries[&country].mechanic_powers["test_mechanic"]["test_power"],
+            augustus_core::GovernmentMechanicResourceState {
+                power_milli: Some(1_744),
+                frozen: Some(false),
+            }
+        );
 
         let mut unsupported = save.clone();
         unsupported

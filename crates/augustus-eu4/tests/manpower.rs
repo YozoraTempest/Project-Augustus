@@ -234,6 +234,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         country_government_kinds: Default::default(),
         country_government_reforms: Default::default(),
         country_government_metric_values: Default::default(),
+        country_government_mechanic_powers: Default::default(),
         country_primary_cultures: Default::default(),
         country_religions: Default::default(),
         country_ideas: Default::default(),
