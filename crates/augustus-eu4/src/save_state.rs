@@ -112,6 +112,16 @@ impl VanillaSaveState {
                         .insert((*country).into(), filtered);
                 }
             }
+            if let Some(group) = self.external_state.country_technology_groups.get(*country) {
+                state
+                    .country_technology_groups
+                    .insert((*country).into(), group.clone());
+            }
+            if let Some(unit_type) = self.external_state.country_unit_types.get(*country) {
+                state
+                    .country_unit_types
+                    .insert((*country).into(), unit_type.clone());
+            }
             if let Some(culture) = self.external_state.country_primary_cultures.get(*country) {
                 state
                     .country_primary_cultures
@@ -441,6 +451,17 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
         external_state
             .country_resources
             .insert(tag.clone(), resources);
+
+        if let Some(value) = optional_scalar(&parsed, &country, "technology_group")? {
+            external_state
+                .country_technology_groups
+                .insert(tag.clone(), Some(value));
+        }
+        if let Some(value) = optional_scalar(&parsed, &country, "unit_type")? {
+            external_state
+                .country_unit_types
+                .insert(tag.clone(), Some(value));
+        }
 
         if let Some(value) = optional_scalar(&parsed, &country, "primary_culture")? {
             external_state
@@ -1296,6 +1317,8 @@ change_price={
 countries={
 	AAA={
 		capital=1
+		technology_group=test_group
+		unit_type=saved_unit_type
 		primary_culture=saved_country_culture
 		religion=saved_country_religion
 		technology={
@@ -1401,6 +1424,14 @@ provinces={
             Some(9_754)
         );
         assert_eq!(state.external_state.country_capitals["AAA"], Some(1));
+        assert_eq!(
+            state.external_state.country_technology_groups["AAA"].as_deref(),
+            Some("test_group")
+        );
+        assert_eq!(
+            state.external_state.country_unit_types["AAA"].as_deref(),
+            Some("saved_unit_type")
+        );
         assert_eq!(
             state.external_state.country_primary_cultures["AAA"].as_deref(),
             Some("saved_country_culture")
@@ -1733,6 +1764,57 @@ provinces={}
         assert_eq!(technology.country_level(country, "administrative"), Some(1));
         assert_eq!(technology.country_level(country, "diplomatic"), Some(2));
         assert_eq!(technology.country_level(country, "military"), Some(3));
+    }
+
+    #[test]
+    fn saved_country_technology_group_and_unit_type_override_content_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("country-types.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+countries={
+    AAA={
+        technology_group=test_group
+        unit_type=saved_unit_type
+        human=yes
+    }
+}
+provinces={}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert_eq!(
+            save.external_state.country_technology_groups["AAA"].as_deref(),
+            Some("test_group")
+        );
+        assert_eq!(
+            save.external_state.country_unit_types["AAA"].as_deref(),
+            Some("saved_unit_type")
+        );
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let loaded =
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        let country = loaded.initial.country("AAA").unwrap();
+        assert_eq!(country.technology_group.as_deref(), Some("test_group"));
+        assert_eq!(country.unit_type.as_deref(), Some("saved_unit_type"));
+
+        let mut invalid = save.clone();
+        invalid
+            .external_state
+            .country_technology_groups
+            .insert("AAA".into(), Some("missing_group".into()));
+        assert!(
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &invalid).is_err()
+        );
     }
 
     #[test]

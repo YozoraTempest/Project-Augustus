@@ -340,6 +340,12 @@ pub struct VanillaExternalState {
     /// save reader. Omitted branches keep the content-derived level.
     #[serde(default)]
     pub country_technology_levels: BTreeMap<String, BTreeMap<String, u16>>,
+    /// Current country technology group and unit type supplied by a save
+    /// reader. Omitted countries keep their content-derived values.
+    #[serde(default)]
+    pub country_technology_groups: BTreeMap<String, Option<String>>,
+    #[serde(default)]
+    pub country_unit_types: BTreeMap<String, Option<String>>,
     /// Current country culture and religion supplied by a save reader. A
     /// missing country keeps its content-derived values; `None` clears one.
     #[serde(default)]
@@ -476,6 +482,8 @@ struct LoadOverrides<'a> {
     country_national_focus: Option<&'a BTreeMap<String, augustus_core::NationalFocus>>,
     country_capitals: Option<&'a BTreeMap<String, Option<u32>>>,
     country_technology_levels: Option<&'a BTreeMap<String, BTreeMap<String, u16>>>,
+    country_technology_groups: Option<&'a BTreeMap<String, Option<String>>>,
+    country_unit_types: Option<&'a BTreeMap<String, Option<String>>>,
     country_primary_cultures: Option<&'a BTreeMap<String, Option<String>>>,
     country_religions: Option<&'a BTreeMap<String, Option<String>>>,
     country_ideas: Option<&'a BTreeMap<String, augustus_core::IdeaState>>,
@@ -522,6 +530,10 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_capitals),
             country_technology_levels: (!state.country_technology_levels.is_empty())
                 .then_some(&state.country_technology_levels),
+            country_technology_groups: (!state.country_technology_groups.is_empty())
+                .then_some(&state.country_technology_groups),
+            country_unit_types: (!state.country_unit_types.is_empty())
+                .then_some(&state.country_unit_types),
             country_primary_cultures: (!state.country_primary_cultures.is_empty())
                 .then_some(&state.country_primary_cultures),
             country_religions: (!state.country_religions.is_empty())
@@ -653,6 +665,10 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         &mut base.country_technology_levels,
         &overlay.country_technology_levels,
     );
+    base.country_technology_groups
+        .extend(overlay.country_technology_groups.clone());
+    base.country_unit_types
+        .extend(overlay.country_unit_types.clone());
     base.country_primary_cultures
         .extend(overlay.country_primary_cultures.clone());
     base.country_religions
@@ -2359,6 +2375,28 @@ impl VanillaWorld {
                     ));
                 };
                 country.primary_culture.clone_from(culture);
+            }
+        }
+        if let Some(groups) = overrides.country_technology_groups {
+            for (tag, group) in groups {
+                let Some(country) = countries.get_mut(tag) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("saved technology group references unknown country {tag}"),
+                    ));
+                };
+                country.technology_group.clone_from(group);
+            }
+        }
+        if let Some(unit_types) = overrides.country_unit_types {
+            for (tag, unit_type) in unit_types {
+                let Some(country) = countries.get_mut(tag) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("saved unit type references unknown country {tag}"),
+                    ));
+                };
+                country.unit_type.clone_from(unit_type);
             }
         }
         if let Some(religions) = overrides.country_religions {
