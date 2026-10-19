@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
+use augustus_core::{AttributeBase, AttributeFormula, MONTHLY_AUTONOMY_DELTA_ATTRIBUTE};
 use augustus_eu4::{VanillaExternalState, VanillaWorld};
 use std::{
     collections::BTreeMap,
@@ -55,6 +56,45 @@ fn external_raw_autonomy_binds_before_monthly_rules_run() {
     };
     let loaded = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
     assert_eq!(raw(&loaded, 1), Some(35_000));
+}
+
+#[test]
+fn adapter_monthly_autonomy_phase_applies_capital_bound_to_loaded_state() {
+    let state = VanillaExternalState {
+        province_raw_autonomy_milli: BTreeMap::from([(1, Some(50_000))]),
+        ..Default::default()
+    };
+    let mut loaded =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    let province = loaded.initial.province_entity(1).unwrap();
+    let mut attributes = loaded.initial.world().attributes().clone();
+    attributes.formulas.get_mut(&province).unwrap().insert(
+        MONTHLY_AUTONOMY_DELTA_ATTRIBUTE.into(),
+        AttributeFormula {
+            base: AttributeBase::Constant { micros: -1_000 },
+            channels: Vec::new(),
+            minimum_micros: None,
+            maximum_micros: None,
+            result_quantum_micros: None,
+            unresolved: Default::default(),
+        },
+    );
+    loaded.initial.set_attributes(attributes).unwrap();
+    let before = raw(&loaded, 1).unwrap();
+    assert!(
+        loaded
+            .province(1)
+            .unwrap()
+            .administration
+            .unwrap()
+            .is_capital
+    );
+
+    assert!(loaded.update_monthly_autonomy().unwrap());
+
+    let after = raw(&loaded, 1).unwrap();
+    assert_eq!(before, 500_000);
+    assert_eq!(after, 0);
 }
 
 fn identities(root: &Path) {

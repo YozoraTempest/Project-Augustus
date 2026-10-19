@@ -350,7 +350,9 @@ impl InitialWorld {
     }
 
     pub fn update_monthly_autonomy(&mut self) -> Result<bool, Error> {
-        self.world.update_monthly_autonomy()
+        let result = self.world.update_monthly_autonomy();
+        self.refresh_province_relations();
+        result
     }
 
     pub fn world(&self) -> &World {
