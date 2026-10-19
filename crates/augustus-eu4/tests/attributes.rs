@@ -371,25 +371,77 @@ fn monthly_settlement_applies_the_estate_global_autonomy_delta_to_province_state
 
     let (mut without_privilege, country, province) = build(false);
     let (mut with_privilege, _, _) = build(true);
-    without_privilege.advance_to(20).unwrap();
-    with_privilege.advance_to(20).unwrap();
+    without_privilege.advance_to(51).unwrap();
+    with_privilege.advance_to(51).unwrap();
 
     assert_eq!(
         without_privilege.administration().provinces[&province].raw_autonomy_micros,
-        Some(33_500)
+        Some(32_000)
     );
     assert_eq!(
         with_privilege.administration().provinces[&province].raw_autonomy_micros,
-        Some(34_000)
+        Some(33_000)
     );
-    let settlement = with_privilege
+    let without_tax = without_privilege
         .taxation()
         .unwrap()
         .last_settlement
         .as_ref()
         .unwrap();
-    assert_eq!(settlement.day, 20);
-    assert!(settlement.accounts.contains_key(&country));
+    let with_tax = with_privilege
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap();
+    assert_eq!(with_tax.day, 51);
+    assert!(with_tax.accounts.contains_key(&country));
+    let without_effective_autonomy = without_privilege
+        .administration()
+        .evaluate(&without_privilege, province)
+        .unwrap()
+        .effective_autonomy_micros;
+    let with_effective_autonomy = with_privilege
+        .administration()
+        .evaluate(&with_privilege, province)
+        .unwrap()
+        .effective_autonomy_micros;
+    let without_province_tax_micros = without_privilege
+        .attributes()
+        .evaluate(&without_privilege, province, "tax_after_autonomy")
+        .unwrap()
+        .known_subtotal_micros
+        .expect("known provincial tax subtotal");
+    let with_province_tax_micros = with_privilege
+        .attributes()
+        .evaluate(&with_privilege, province, "tax_after_autonomy")
+        .unwrap()
+        .known_subtotal_micros
+        .expect("known provincial tax subtotal");
+    let without_country_tax_micros = without_privilege
+        .attributes()
+        .sum_owned(&without_privilege, country, "tax_after_autonomy")
+        .unwrap()
+        .known_subtotal_micros;
+    let with_country_tax_micros = with_privilege
+        .attributes()
+        .sum_owned(&with_privilege, country, "tax_after_autonomy")
+        .unwrap()
+        .known_subtotal_micros;
+    assert!(
+        with_province_tax_micros < without_province_tax_micros,
+        "higher core-generated autonomy should reduce the tax subtotal: with={with_province_tax_micros}, without={without_province_tax_micros}, effective=({with_effective_autonomy:?}, {without_effective_autonomy:?}), monthly=({}, {})",
+        with_tax.accounts[&country].known_subtotal_milli,
+        without_tax.accounts[&country].known_subtotal_milli
+    );
+    assert_eq!(
+        with_tax.accounts[&country].known_subtotal_milli,
+        with_country_tax_micros / 12_000
+    );
+    assert_eq!(
+        without_tax.accounts[&country].known_subtotal_milli,
+        without_country_tax_micros / 12_000
+    );
 }
 
 #[test]
