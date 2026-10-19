@@ -3,10 +3,10 @@
 
 use augustus_core::{
     Action, Administration, AdministrationRules, AreaStatus, AttributeBase, AttributeChannel,
-    AttributeFormula, AttributeTerm, Attributes, Calendar, CoreType, CountryResource,
-    CountryResources, EntityId, EntityKind, FieldId, MONTHLY_AUTONOMY_DELTA_ATTRIBUTE,
-    MonthlyExternalCashflows, MonthlyStocks, MonthlySystem, ProvinceAdministration, Schema,
-    StockRule, Target, Taxation, World, WorldDate,
+    AttributeFormula, AttributeTerm, Attributes, Calendar, CoreType, CountryLedger,
+    CountryResource, CountryResources, EntityId, EntityKind, FieldId,
+    MONTHLY_AUTONOMY_DELTA_ATTRIBUTE, MonthlyExternalCashflows, MonthlyStocks, MonthlySystem,
+    ProvinceAdministration, Schema, StockRule, Target, Taxation, World, WorldDate,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -580,6 +580,32 @@ fn tax_only_monthly_system_updates_autonomy_before_tax() {
             .income_milli,
         Some(1_932)
     );
+    assert_eq!(
+        world.country_ledgers()[&country].income_sources_milli[0],
+        1_932
+    );
+}
+
+#[test]
+fn monthly_tax_ledger_overflow_rolls_back_tax_and_treasury() {
+    let mut world = scenario();
+    let country = EntityId(0);
+    let mut ledger = CountryLedger {
+        income_sources_milli: vec![0; 19],
+        ..Default::default()
+    };
+    ledger.income_sources_milli[0] = i64::MAX;
+    world
+        .set_country_ledgers([(country, ledger.clone())].into())
+        .unwrap();
+    let treasury = world.country_resources()[&country].treasury_milli;
+
+    assert!(world.advance_to(20).is_err());
+
+    assert_eq!(world.country_ledgers()[&country], ledger);
+    assert_eq!(world.country_resources()[&country].treasury_milli, treasury);
+    assert_eq!(world.taxation().unwrap().settlement_count, 0);
+    assert!(world.taxation().unwrap().last_settlement.is_none());
 }
 
 #[test]

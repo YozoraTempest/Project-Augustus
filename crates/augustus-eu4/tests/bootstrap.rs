@@ -8,9 +8,12 @@ use std::{
 };
 
 use augustus_core::{
-    Action, CountryResources, EntityId, EntityKind, Error, MonthlyEconomy, MonthlyPipeline,
-    MonthlySystem, NationalFocus, ProvinceClass, RulerSkill, Schema, VanillaProductionInput,
-    VanillaProductionInputState, World, YearlyPipeline, YearlySystem,
+    Action, COUNTRY_LEDGER_INCOME_GOLD_CATEGORY, COUNTRY_LEDGER_INCOME_PRODUCTION_CATEGORY,
+    COUNTRY_LEDGER_INCOME_TAX_CATEGORY, COUNTRY_LEDGER_INCOME_TRADE_CATEGORY,
+    COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY, CashflowBreakdown, CountryResources, EntityId,
+    EntityKind, Error, MonthlyEconomy, MonthlyPipeline, MonthlySystem, NationalFocus,
+    ProvinceClass, RulerSkill, Schema, VanillaProductionInput, VanillaProductionInputState, World,
+    YearlyPipeline, YearlySystem,
 };
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
@@ -74,6 +77,36 @@ impl MonthlySystem for PipelinePhase {
     }
 
     fn settle(&self, world: &mut World) -> Result<(), Error> {
+        world.execute(self.country, &[Action::Emit(self.message.into())])
+    }
+}
+
+struct MonthlyRelationExpensePhase {
+    country: EntityId,
+    amount_milli: i64,
+    message: &'static str,
+}
+
+impl MonthlySystem for MonthlyRelationExpensePhase {
+    fn id(&self) -> &str {
+        "vanilla-relation-expense:v1"
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        if world.entity(self.country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "relation expense phase requires a country".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        world.record_country_expense(
+            self.country,
+            COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
+            self.amount_milli,
+        )?;
         world.execute(self.country, &[Action::Emit(self.message.into())])
     }
 }
@@ -2123,6 +2156,14 @@ fn loaded_vanilla_world_can_run_standard_economy_inside_a_monthly_pipeline() {
             },
         )]),
         country_monthly_cashflows_milli: BTreeMap::from([("AAA".into(), Some(250))]),
+        country_monthly_cashflow_breakdowns: BTreeMap::from([(
+            "AAA".into(),
+            CashflowBreakdown {
+                trade_milli: Some(200),
+                gold_milli: Some(100),
+                expenses_milli: Some(50),
+            },
+        )]),
         ..Default::default()
     };
     let mut loaded =
@@ -2148,9 +2189,9 @@ fn loaded_vanilla_world_can_run_standard_economy_inside_a_monthly_pipeline() {
         country,
         message: "parallel",
     };
-    let serial = PipelinePhase {
-        id: "vanilla-serial-after-economy:v1",
+    let serial = MonthlyRelationExpensePhase {
         country,
+        amount_milli: 25,
         message: "serial",
     };
     let pipeline = MonthlyPipeline::new(
@@ -2177,51 +2218,100 @@ fn loaded_vanilla_world_can_run_standard_economy_inside_a_monthly_pipeline() {
         .advance_with_systems(21, None, Some(&pipeline))
         .unwrap();
 
-    let world = loaded.initial.world();
-    let tax = &world
-        .taxation()
-        .unwrap()
-        .last_settlement
-        .as_ref()
-        .unwrap()
-        .accounts[&country];
-    let production = &world
-        .monthly_production()
-        .unwrap()
-        .last_settlement
-        .as_ref()
-        .unwrap()
-        .accounts[&country];
-    let cashflow = &world
-        .monthly_cashflows()
-        .unwrap()
-        .last_settlement
-        .as_ref()
-        .unwrap()
-        .accounts[&country];
-    let tax_credit = tax.credited_milli.expect("known tax credit");
-    let production_credit = production.credited_milli.expect("known production credit");
-    let cashflow_credit = cashflow.credited_milli.expect("known cashflow credit");
-    assert_eq!(tax_credit, 666);
-    assert_eq!(production_credit, 84);
-    assert_eq!(cashflow_credit, 250);
-    assert_eq!(before, 10_000);
+    {
+        let world = loaded.initial.world();
+        let tax = &world
+            .taxation()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&country];
+        let production = &world
+            .monthly_production()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&country];
+        let cashflow = &world
+            .monthly_cashflows()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&country];
+        let tax_credit = tax.credited_milli.expect("known tax credit");
+        let production_credit = production.credited_milli.expect("known production credit");
+        let cashflow_credit = cashflow.credited_milli.expect("known cashflow credit");
+        assert_eq!(tax_credit, 666);
+        assert_eq!(production_credit, 84);
+        assert_eq!(cashflow_credit, 250);
+        assert_eq!(before, 10_000);
+        assert_eq!(
+            world.country_resources()[&country].treasury_milli,
+            Some(10_975)
+        );
+        assert_eq!(
+            world.country_resources()[&country].treasury_milli,
+            Some(before + tax_credit + production_credit + cashflow_credit - 25)
+        );
+        let ledger = &world.country_ledgers()[&country];
+        assert_eq!(
+            ledger.income_sources_milli[COUNTRY_LEDGER_INCOME_TAX_CATEGORY as usize],
+            666
+        );
+        assert_eq!(
+            ledger.income_sources_milli[COUNTRY_LEDGER_INCOME_PRODUCTION_CATEGORY as usize],
+            84
+        );
+        assert_eq!(
+            ledger.income_sources_milli[COUNTRY_LEDGER_INCOME_TRADE_CATEGORY as usize],
+            200
+        );
+        assert_eq!(
+            ledger.income_sources_milli[COUNTRY_LEDGER_INCOME_GOLD_CATEGORY as usize],
+            100
+        );
+        assert_eq!(
+            ledger.expense_sources_milli[COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY as usize],
+            25
+        );
+        assert_eq!(
+            world
+                .events()
+                .iter()
+                .map(|event| event.2.as_str())
+                .collect::<Vec<_>>(),
+            ["parallel", "serial"]
+        );
+    }
+    loaded
+        .consolidate_country_ledgers_monthly(BTreeMap::new())
+        .unwrap();
+    let ledger = &loaded.initial.world().country_ledgers()[&country];
     assert_eq!(
-        world.country_resources()[&country].treasury_milli,
-        Some(11_000)
+        ledger.income_snapshot_milli[COUNTRY_LEDGER_INCOME_TAX_CATEGORY as usize],
+        666
     );
     assert_eq!(
-        world.country_resources()[&country].treasury_milli,
-        Some(before + tax_credit + production_credit + cashflow_credit)
+        ledger.income_snapshot_milli[COUNTRY_LEDGER_INCOME_PRODUCTION_CATEGORY as usize],
+        84
     );
     assert_eq!(
-        world
-            .events()
-            .iter()
-            .map(|event| event.2.as_str())
-            .collect::<Vec<_>>(),
-        ["parallel", "serial"]
+        ledger.income_snapshot_milli[COUNTRY_LEDGER_INCOME_TRADE_CATEGORY as usize],
+        200
     );
+    assert_eq!(
+        ledger.income_snapshot_milli[COUNTRY_LEDGER_INCOME_GOLD_CATEGORY as usize],
+        100
+    );
+    assert_eq!(
+        ledger.expense_snapshot_milli[COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY as usize],
+        25
+    );
+    assert_eq!(ledger.expense_total_milli, 25);
+    assert_eq!(ledger.expense_filtered_total_milli, 25);
 
     let save = loaded.save().unwrap();
     let mut resumed =

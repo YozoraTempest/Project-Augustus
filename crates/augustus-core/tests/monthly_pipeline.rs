@@ -301,6 +301,22 @@ fn standard_monthly_economy_runs_inside_the_world_pipeline_and_resumes() {
         Some(11_334)
     );
     assert_eq!(
+        world.country_ledgers()[&country].income_sources_milli[0],
+        1_000
+    );
+    assert_eq!(
+        world.country_ledgers()[&country].income_sources_milli[1],
+        84
+    );
+    assert_eq!(
+        world.country_ledgers()[&country].income_accumulator_milli[0],
+        1_000
+    );
+    assert_eq!(
+        world.country_ledgers()[&country].income_accumulator_milli[1],
+        84
+    );
+    assert_eq!(
         world
             .events()
             .iter()

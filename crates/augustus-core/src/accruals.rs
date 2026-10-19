@@ -301,6 +301,12 @@ impl MonthlySystem for MonthlyEconomy {
                     cashflows.prepare(world, taxes.as_ref(), production_receipts.as_ref())
                 })
                 .transpose()?;
+            let ledger_income_updates = crate::ledger::prepare_monthly_income_ledger_updates(
+                world,
+                taxes.as_ref(),
+                production_receipts.as_ref(),
+                cashflow_receipts.as_ref(),
+            )?;
             if let Some(taxes) = taxes {
                 let mut taxation = world.taxation.take().expect("prepared taxation");
                 taxation.commit(world, taxes);
@@ -340,6 +346,7 @@ impl MonthlySystem for MonthlyEconomy {
                 stocks.commit(world, receipts);
                 world.monthly_stocks = Some(stocks);
             }
+            world.country_ledgers.extend(ledger_income_updates);
             Ok(())
         })();
         if result.is_err()

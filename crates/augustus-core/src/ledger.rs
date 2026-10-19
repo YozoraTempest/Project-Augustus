@@ -5,12 +5,22 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntityKind, Error, World};
+use crate::{
+    CashflowSettlement, EntityId, EntityKind, Error, ProductionSettlement, TaxSettlement, World,
+};
 
 /// Native country-ledger income categories occupy slots 0 through 18.
 pub const COUNTRY_LEDGER_CATEGORY_COUNT: u32 = 19;
 /// Native country-ledger expense categories occupy slots 0 through 37.
 pub const COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT: u32 = 38;
+/// Monthly tax receipt slot in the native income vector.
+pub const COUNTRY_LEDGER_INCOME_TAX_CATEGORY: u32 = 0;
+/// Ordinary production receipt slot in the native income vector.
+pub const COUNTRY_LEDGER_INCOME_PRODUCTION_CATEGORY: u32 = 1;
+/// Trade receipt slot in the native income vector.
+pub const COUNTRY_LEDGER_INCOME_TRADE_CATEGORY: u32 = 2;
+/// Gold receipt slot in the native income vector.
+pub const COUNTRY_LEDGER_INCOME_GOLD_CATEGORY: u32 = 3;
 /// Native internal keys for the 19 income slots. These are content/runtime
 /// identifiers, not player-facing localization strings.
 pub const COUNTRY_LEDGER_INCOME_KEYS: [&str; COUNTRY_LEDGER_CATEGORY_COUNT as usize] = [
@@ -438,6 +448,88 @@ impl CountryLedger {
         self.expense_sources_milli.fill(0);
         Ok(())
     }
+}
+
+pub(crate) fn prepare_monthly_income_ledger_updates(
+    world: &World,
+    taxes: Option<&TaxSettlement>,
+    production: Option<&ProductionSettlement>,
+    cashflows: Option<&CashflowSettlement>,
+) -> Result<BTreeMap<EntityId, CountryLedger>, Error> {
+    fn append_income(
+        world: &World,
+        updates: &mut BTreeMap<EntityId, CountryLedger>,
+        country: EntityId,
+        category: u32,
+        amount: Option<i64>,
+    ) -> Result<(), Error> {
+        let Some(amount) = amount.filter(|amount| *amount >= 0) else {
+            // Signed losses need a separately verified expense category.
+            return Ok(());
+        };
+        if world.entity(country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "monthly ledger income requires a country".into(),
+            ));
+        }
+        let ledger = updates.entry(country).or_insert_with(|| {
+            world
+                .country_ledgers
+                .get(&country)
+                .cloned()
+                .unwrap_or_default()
+        });
+        ledger.add_income(category, amount)
+    }
+
+    let mut updates = BTreeMap::new();
+    if let Some(taxes) = taxes {
+        for (&country, account) in &taxes.accounts {
+            append_income(
+                world,
+                &mut updates,
+                country,
+                COUNTRY_LEDGER_INCOME_TAX_CATEGORY,
+                account.credited_milli,
+            )?;
+        }
+    }
+    if let Some(production) = production {
+        for (&country, account) in &production.accounts {
+            append_income(
+                world,
+                &mut updates,
+                country,
+                COUNTRY_LEDGER_INCOME_PRODUCTION_CATEGORY,
+                account.credited_milli,
+            )?;
+        }
+    }
+    if let Some(cashflows) = cashflows {
+        for (&country, account) in &cashflows.accounts {
+            if account.credited_milli.is_none() {
+                continue;
+            }
+            let Some(breakdown) = &account.breakdown else {
+                continue;
+            };
+            append_income(
+                world,
+                &mut updates,
+                country,
+                COUNTRY_LEDGER_INCOME_TRADE_CATEGORY,
+                breakdown.trade_milli,
+            )?;
+            append_income(
+                world,
+                &mut updates,
+                country,
+                COUNTRY_LEDGER_INCOME_GOLD_CATEGORY,
+                breakdown.gold_milli,
+            )?;
+        }
+    }
+    Ok(updates)
 }
 
 const TREASURY_MIN_MILLI: i64 = -1_000_000_000;
