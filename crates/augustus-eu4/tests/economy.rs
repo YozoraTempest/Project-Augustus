@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
+    COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY, COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY,
     CountryLedger, CountryLedgerCategory, CountryResources, VanillaProductionInput, World,
 };
 use augustus_eu4::{
@@ -106,6 +107,68 @@ fn country_ledger_lifecycle_binds_filters_by_eu4_tag() {
     let rolled = &loaded.initial.world().country_ledgers()[&country];
     assert_eq!(rolled.expense_rollover_milli[23], 10);
     assert_eq!(rolled.expense_rollover_total_milli, 10);
+}
+
+#[test]
+fn relationship_expenses_update_treasury_and_ledger_through_eu4_tags() {
+    let state = VanillaExternalState {
+        country_resources: BTreeMap::from([(
+            "AAA".into(),
+            CountryResources {
+                treasury_milli: Some(1_000),
+                ..Default::default()
+            },
+        )]),
+        ..Default::default()
+    };
+    let mut loaded =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+
+    loaded
+        .record_country_expense("AAA", COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY, 125)
+        .unwrap();
+    loaded
+        .record_country_expense("AAA", COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY, 75)
+        .unwrap();
+
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().country_resources()[&country].treasury_milli,
+        Some(800)
+    );
+    let ledger = &loaded.initial.world().country_ledgers()[&country];
+    assert_eq!(ledger.pending_milli, 0);
+    assert_eq!(
+        ledger.expense_sources_milli[COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY as usize],
+        125
+    );
+    assert_eq!(
+        ledger.expense_sources_milli[COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY as usize],
+        75
+    );
+    assert_eq!(
+        ledger.expense_accumulator_milli[COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY as usize],
+        125
+    );
+    assert_eq!(
+        ledger.expense_accumulator_milli[COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY as usize],
+        75
+    );
+
+    loaded
+        .consolidate_country_ledgers_monthly(BTreeMap::new())
+        .unwrap();
+    let ledger = &loaded.initial.world().country_ledgers()[&country];
+    assert_eq!(
+        ledger.expense_snapshot_milli[COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY as usize],
+        125
+    );
+    assert_eq!(
+        ledger.expense_snapshot_milli[COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY as usize],
+        75
+    );
+    assert_eq!(ledger.expense_total_milli, 200);
+    assert_eq!(ledger.expense_filtered_total_milli, 200);
 }
 
 #[test]

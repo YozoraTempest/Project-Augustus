@@ -3576,6 +3576,20 @@ impl VanillaWorld {
         self.initial.set_country_ledgers(bound)
     }
 
+    /// Records an immediate country expense by EU4 tag and native ledger slot.
+    pub fn record_country_expense(
+        &mut self,
+        country: &str,
+        category: u32,
+        amount_milli: i64,
+    ) -> Result<(), augustus_core::Error> {
+        let country = self.initial.country_entity(country).ok_or_else(|| {
+            augustus_core::Error::Invalid(format!("unknown EU4 ledger country {country}"))
+        })?;
+        self.initial
+            .record_country_expense(country, category, amount_milli)
+    }
+
     /// Consolidates translated country ledgers at the native monthly boundary.
     /// Omitted countries use the native filtered-expense set; an explicit
     /// empty set requests an unfiltered total. Unknown EU4 tags fail before

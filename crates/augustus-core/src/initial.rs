@@ -734,6 +734,17 @@ impl InitialWorld {
         self.world.set_country_ledgers(ledgers)
     }
 
+    /// Records an expense and changes the treasury immediately.
+    pub fn record_country_expense(
+        &mut self,
+        country: EntityId,
+        category: u32,
+        amount_milli: i64,
+    ) -> Result<(), Error> {
+        self.world
+            .record_country_expense(country, category, amount_milli)
+    }
+
     pub fn consolidate_country_ledgers_monthly(
         &mut self,
         expense_filtered_categories: &BTreeMap<EntityId, BTreeSet<u32>>,
