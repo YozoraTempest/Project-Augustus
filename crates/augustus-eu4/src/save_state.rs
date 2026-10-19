@@ -122,6 +122,11 @@ impl VanillaSaveState {
                     .country_unit_types
                     .insert((*country).into(), unit_type.clone());
             }
+            if let Some(rank) = self.external_state.country_government_ranks.get(*country) {
+                state
+                    .country_government_ranks
+                    .insert((*country).into(), *rank);
+            }
             if let Some(culture) = self.external_state.country_primary_cultures.get(*country) {
                 state
                     .country_primary_cultures
@@ -461,6 +466,23 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
             external_state
                 .country_unit_types
                 .insert(tag.clone(), Some(value));
+        }
+        if let Some(value) = optional_scalar(&parsed, &country, "government_rank")? {
+            let rank = value.parse::<u8>().map_err(|error| {
+                Error::message(
+                    parsed.source(),
+                    format!("country {tag} has invalid government rank: {error}"),
+                )
+            })?;
+            if !(1..=3).contains(&rank) {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("country {tag} government rank is outside 1..=3"),
+                ));
+            }
+            external_state
+                .country_government_ranks
+                .insert(tag.clone(), Some(rank));
         }
 
         if let Some(value) = optional_scalar(&parsed, &country, "primary_culture")? {
@@ -1317,6 +1339,7 @@ change_price={
 countries={
 	AAA={
 		capital=1
+		government_rank=3
 		technology_group=test_group
 		unit_type=saved_unit_type
 		primary_culture=saved_country_culture
@@ -1431,6 +1454,10 @@ provinces={
         assert_eq!(
             state.external_state.country_unit_types["AAA"].as_deref(),
             Some("saved_unit_type")
+        );
+        assert_eq!(
+            state.external_state.country_government_ranks["AAA"],
+            Some(3)
         );
         assert_eq!(
             state.external_state.country_primary_cultures["AAA"].as_deref(),
@@ -1812,6 +1839,48 @@ provinces={}
             .external_state
             .country_technology_groups
             .insert("AAA".into(), Some("missing_group".into()));
+        assert!(
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &invalid).is_err()
+        );
+    }
+
+    #[test]
+    fn saved_government_rank_overrides_history_and_validates_range() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("government-rank.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+countries={
+    AAA={
+        government_rank=3
+        human=yes
+    }
+}
+provinces={}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert_eq!(save.external_state.country_government_ranks["AAA"], Some(3));
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let loaded =
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        let country = loaded.initial.country_entity("AAA").unwrap();
+        assert_eq!(loaded.initial.world().government_rank(country).unwrap(), 3);
+
+        let mut invalid = save.clone();
+        invalid
+            .external_state
+            .country_government_ranks
+            .insert("AAA".into(), Some(4));
         assert!(
             crate::VanillaWorld::load_from_content_with_save_state(&content, &invalid).is_err()
         );

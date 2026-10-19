@@ -346,6 +346,10 @@ pub struct VanillaExternalState {
     pub country_technology_groups: BTreeMap<String, Option<String>>,
     #[serde(default)]
     pub country_unit_types: BTreeMap<String, Option<String>>,
+    /// Current government rank supplied by a save reader. An omitted country
+    /// keeps its content-derived rank; `None` explicitly leaves it unknown.
+    #[serde(default)]
+    pub country_government_ranks: BTreeMap<String, Option<u8>>,
     /// Current country culture and religion supplied by a save reader. A
     /// missing country keeps its content-derived values; `None` clears one.
     #[serde(default)]
@@ -484,6 +488,7 @@ struct LoadOverrides<'a> {
     country_technology_levels: Option<&'a BTreeMap<String, BTreeMap<String, u16>>>,
     country_technology_groups: Option<&'a BTreeMap<String, Option<String>>>,
     country_unit_types: Option<&'a BTreeMap<String, Option<String>>>,
+    country_government_ranks: Option<&'a BTreeMap<String, Option<u8>>>,
     country_primary_cultures: Option<&'a BTreeMap<String, Option<String>>>,
     country_religions: Option<&'a BTreeMap<String, Option<String>>>,
     country_ideas: Option<&'a BTreeMap<String, augustus_core::IdeaState>>,
@@ -534,6 +539,8 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_technology_groups),
             country_unit_types: (!state.country_unit_types.is_empty())
                 .then_some(&state.country_unit_types),
+            country_government_ranks: (!state.country_government_ranks.is_empty())
+                .then_some(&state.country_government_ranks),
             country_primary_cultures: (!state.country_primary_cultures.is_empty())
                 .then_some(&state.country_primary_cultures),
             country_religions: (!state.country_religions.is_empty())
@@ -669,6 +676,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.country_technology_groups.clone());
     base.country_unit_types
         .extend(overlay.country_unit_types.clone());
+    base.country_government_ranks
+        .extend(overlay.country_government_ranks.clone());
     base.country_primary_cultures
         .extend(overlay.country_primary_cultures.clone());
     base.country_religions
@@ -2565,6 +2574,19 @@ impl VanillaWorld {
         initial
             .set_governments(governments)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        if let Some(ranks) = overrides.country_government_ranks {
+            for (tag, rank) in ranks {
+                let entity = initial.country_entity(tag).ok_or_else(|| {
+                    Error::message(
+                        root.path(),
+                        format!("saved government rank references unknown country {tag}"),
+                    )
+                })?;
+                initial
+                    .set_government_rank(entity, *rank)
+                    .map_err(|error| Error::caused_by(root.path(), error))?;
+            }
+        }
         let mut affiliations = administration.affiliations(&initial);
         affiliations.0.insert(
             crate::imperial_membership::DIMENSION.into(),

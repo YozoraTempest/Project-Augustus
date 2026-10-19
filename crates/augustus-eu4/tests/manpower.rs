@@ -230,6 +230,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         country_technology_levels: Default::default(),
         country_technology_groups: Default::default(),
         country_unit_types: Default::default(),
+        country_government_ranks: Default::default(),
         country_primary_cultures: Default::default(),
         country_religions: Default::default(),
         country_ideas: Default::default(),
