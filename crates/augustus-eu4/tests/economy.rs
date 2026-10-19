@@ -201,23 +201,35 @@ fn country_cashflow_writers_bind_by_tag_and_flush_pending_at_month_boundary() {
     assert_eq!(ledger.income_sources_milli[1], 50);
     assert_eq!(ledger.expense_sources_milli[5], 30);
 
-    let balances = loaded.flush_country_ledgers_pending().unwrap();
-    assert_eq!(balances["AAA"], 1_060);
-    let ledger = &loaded.initial.world().country_ledgers()[&country];
-    assert_eq!(ledger.pending_milli, 0);
-    assert_eq!(ledger.income_accumulator_milli[3], 40);
-    assert_eq!(ledger.income_accumulator_milli[1], 50);
-    assert_eq!(ledger.expense_accumulator_milli[5], 30);
+    let saved = loaded.save().unwrap();
+    let mut resumed =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &state).unwrap();
+    resumed.restore(&saved).unwrap();
+    assert_eq!(
+        resumed.initial.world().country_ledgers()[&country],
+        loaded.initial.world().country_ledgers()[&country]
+    );
 
-    loaded
-        .consolidate_country_ledgers_monthly(BTreeMap::new())
-        .unwrap();
-    let ledger = &loaded.initial.world().country_ledgers()[&country];
-    assert_eq!(ledger.income_snapshot_milli[3], 40);
-    assert_eq!(ledger.income_snapshot_milli[1], 50);
-    assert_eq!(ledger.expense_snapshot_milli[5], 30);
-    assert_eq!(ledger.income_total_milli, 90);
-    assert_eq!(ledger.expense_total_milli, 30);
+    for world in [&mut loaded, &mut resumed] {
+        let balances = world.flush_country_ledgers_pending().unwrap();
+        assert_eq!(balances["AAA"], 1_060);
+        let ledger = &world.initial.world().country_ledgers()[&country];
+        assert_eq!(ledger.pending_milli, 0);
+        assert_eq!(ledger.income_accumulator_milli[3], 40);
+        assert_eq!(ledger.income_accumulator_milli[1], 50);
+        assert_eq!(ledger.expense_accumulator_milli[5], 30);
+
+        world
+            .consolidate_country_ledgers_monthly(BTreeMap::new())
+            .unwrap();
+        let ledger = &world.initial.world().country_ledgers()[&country];
+        assert_eq!(ledger.income_snapshot_milli[3], 40);
+        assert_eq!(ledger.income_snapshot_milli[1], 50);
+        assert_eq!(ledger.expense_snapshot_milli[5], 30);
+        assert_eq!(ledger.income_total_milli, 90);
+        assert_eq!(ledger.expense_total_milli, 30);
+    }
+    assert_eq!(loaded.save().unwrap(), resumed.save().unwrap());
 }
 
 #[test]
