@@ -408,6 +408,7 @@ provinces={
         .attributes()
         .evaluate(world, country, "monthly_mil")
         .unwrap();
+    assert_eq!(income.base_micros, Some(3_000_000));
     assert!(
         income
             .steps
