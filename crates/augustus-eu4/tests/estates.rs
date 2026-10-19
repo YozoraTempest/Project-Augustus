@@ -5,7 +5,10 @@ use augustus_core::{
     Action, EstateDefinition, EstateEffect, EstateMetric, EstatePrivilege, EstateRules,
     EstateState, Estates, ModifierDefinition,
 };
-use augustus_eu4::{VanillaExternalEstateState, VanillaExternalState, VanillaWorld};
+use augustus_eu4::{
+    ContentRoot, ContentSet, ContentSource, VanillaExternalEstateState, VanillaExternalState,
+    VanillaWorld,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -87,6 +90,86 @@ fn external_privilege_validity_is_resolved_after_pending_startup() {
     assert_eq!(
         loaded.initial.world().estates().resolved_privilege_effects[&country]["charter"],
         BTreeSet::from(["is_valid".into()])
+    );
+}
+
+#[test]
+fn plaintext_save_binds_estate_state_and_resolves_privilege_validity() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        "charter = { benefits = { global_tax_modifier = 0.1 } is_valid = { has_country_flag = permission_flag } on_granted = {} }",
+    );
+    write(temp.path(), "common/on_actions/test.txt", "on_startup = {}");
+    let save_path = temp.path().join("estate-state.eu4");
+    let save_text = r#"EU4txt
+date=1444.11.11
+player="AAA"
+countries={
+    AAA={
+        human=yes
+        flags={ permission_flag=1444.11.11 }
+        estate={
+            type="estate_guild"
+            loyalty=50.000
+            territory=15.000
+            active_influences={ 4 }
+            granted_privileges={ { charter 1444.11.11 } }
+        }
+    }
+}
+provinces={
+    -1={ owner="AAA" local_autonomy=0.000 }
+}
+"#;
+    fs::write(&save_path, save_text).unwrap();
+    let content = ContentSet::resolve(vec![ContentSource::base(
+        ContentRoot::open(temp.path()).unwrap(),
+    )])
+    .unwrap();
+
+    let loaded = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let view = loaded.country("AAA").unwrap();
+    let estate = &view.estates.unwrap()["estate_guild"];
+
+    assert!(view.flags.unwrap().contains_key("permission_flag"));
+    assert_eq!(estate.loyalty_milli, Some(50_000));
+    assert_eq!(estate.land_share_micros, Some(150_000));
+    assert_eq!(estate.privileges, Some(BTreeSet::from(["charter".into()])));
+    assert_eq!(
+        loaded.initial.world().estates().resolved_privilege_effects[&country]["charter"],
+        BTreeSet::from(["is_valid".into()])
+    );
+    assert_eq!(
+        view.declared_estate_effects.known_totals_micros["global_tax_modifier"],
+        100_000
+    );
+
+    let denied_save_path = temp.path().join("estate-state-without-permission.eu4");
+    let denied_save_text = save_text.replace("flags={ permission_flag=1444.11.11 }", "flags={}");
+    fs::write(&denied_save_path, denied_save_text).unwrap();
+    let denied = VanillaWorld::load_from_content_with_save(&content, &denied_save_path).unwrap();
+    let denied_country = denied.initial.country_entity("AAA").unwrap();
+    assert!(
+        !denied
+            .initial
+            .world()
+            .estates()
+            .resolved_privilege_effects
+            .get(&denied_country)
+            .and_then(|effects| effects.get("charter"))
+            .is_some_and(|effects| effects.contains("is_valid"))
+    );
+    assert!(
+        denied
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .unresolved
+            .iter()
+            .any(|reason| reason.ends_with(":unexecuted:is_valid"))
     );
 }
 
