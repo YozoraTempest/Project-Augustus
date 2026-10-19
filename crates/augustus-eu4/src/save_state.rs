@@ -82,6 +82,13 @@ impl VanillaSaveState {
                     .country_national_focus
                     .insert((*country).into(), *focus);
             }
+            if let Some(capital) = self.external_state.country_capitals.get(*country).copied()
+                && (capital.is_none()
+                    || capital
+                        .is_some_and(|province| world.initial.province_entity(province).is_some()))
+            {
+                state.country_capitals.insert((*country).into(), capital);
+            }
             if let Some(ideas) = self.external_state.country_ideas.get(*country) {
                 state.country_ideas.insert((*country).into(), ideas.clone());
             }
@@ -367,6 +374,18 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
         external_state
             .country_resources
             .insert(tag.clone(), resources);
+
+        if let Some(value) = optional_scalar(&parsed, &country, "capital")? {
+            let capital = value.parse::<u32>().map_err(|error| {
+                Error::message(
+                    parsed.source(),
+                    format!("country {tag} has invalid capital province: {error}"),
+                )
+            })?;
+            external_state
+                .country_capitals
+                .insert(tag.clone(), (capital != 0).then_some(capital));
+        }
 
         if let Some(active_ideas) = optional_object(&parsed, &country, "active_idea_groups")? {
             let mut groups = BTreeMap::new();
@@ -1152,6 +1171,7 @@ change_price={
 }
 countries={
 	AAA={
+		capital=1
 		national_focus=DIP
 		active_idea_groups={
 			test_alpha=2
@@ -1246,6 +1266,7 @@ provinces={
             state.external_state.country_resources["AAA"].manpower_milli,
             Some(9_754)
         );
+        assert_eq!(state.external_state.country_capitals["AAA"], Some(1));
         assert_eq!(
             state.external_state.country_metric_values["AAA"]["adm_power"],
             Some(98)
@@ -1443,6 +1464,50 @@ provinces={
         )
         .unwrap();
         assert_eq!(loaded.initial.province(2).unwrap().controller, None);
+    }
+
+    #[test]
+    fn saved_capitals_override_clear_and_filter_unknown_provinces() {
+        let directory = tempfile::tempdir().unwrap();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        assert_eq!(baseline.initial.bound_capital("AAA"), Some(2));
+
+        for (name, saved_capital, parsed_capital, expected_capital) in [
+            ("changed", 1, Some(1), Some(1)),
+            ("cleared", 0, None, None),
+            ("unknown", 999, Some(999), Some(2)),
+        ] {
+            let path = directory.path().join(format!("{name}.eu4"));
+            std::fs::write(
+                &path,
+                format!(
+                    "EU4txt\ndate=1444.11.11\nplayer=\"AAA\"\ncountries={{\n    AAA={{ capital={saved_capital} human=yes }}\n}}\nprovinces={{\n    -1={{ owner=\"AAA\" }}\n}}\n"
+                ),
+            )
+            .unwrap();
+
+            let save = read_vanilla_save_state(&path).unwrap();
+            assert_eq!(save.external_state.country_capitals["AAA"], parsed_capital);
+            let filtered = save.state_for_world(&baseline).unwrap();
+            if saved_capital == 999 {
+                assert!(!filtered.country_capitals.contains_key("AAA"));
+            } else {
+                assert_eq!(filtered.country_capitals.get("AAA"), Some(&parsed_capital));
+            }
+
+            let loaded =
+                crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+            assert_eq!(
+                loaded.initial.bound_capital("AAA"),
+                expected_capital,
+                "unexpected bound capital for {name} save"
+            );
+        }
     }
 
     #[test]

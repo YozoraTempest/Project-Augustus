@@ -332,6 +332,10 @@ pub struct VanillaExternalState {
     /// with no skill records an explicitly cleared focus.
     #[serde(default)]
     pub country_national_focus: BTreeMap<String, augustus_core::NationalFocus>,
+    /// Current country capital supplied by a save reader. `None` explicitly
+    /// records a country with no capital; an omitted country keeps history.
+    #[serde(default)]
+    pub country_capitals: BTreeMap<String, Option<u32>>,
     /// Current active idea groups and unlocked idea counts supplied by a save
     /// reader. A missing country keeps the content-derived idea state.
     #[serde(default)]
@@ -450,6 +454,7 @@ impl VanillaExternalState {
 struct LoadOverrides<'a> {
     country_metric_values: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_national_focus: Option<&'a BTreeMap<String, augustus_core::NationalFocus>>,
+    country_capitals: Option<&'a BTreeMap<String, Option<u32>>>,
     country_ideas: Option<&'a BTreeMap<String, augustus_core::IdeaState>>,
     country_metric_ceilings: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_resources: Option<&'a BTreeMap<String, CountryResources>>,
@@ -487,6 +492,8 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_metric_values),
             country_national_focus: (!state.country_national_focus.is_empty())
                 .then_some(&state.country_national_focus),
+            country_capitals: (!state.country_capitals.is_empty())
+                .then_some(&state.country_capitals),
             country_ideas: (!state.country_ideas.is_empty()).then_some(&state.country_ideas),
             country_metric_ceilings: (!state.country_metric_ceilings.is_empty())
                 .then_some(&state.country_metric_ceilings),
@@ -602,6 +609,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     );
     base.country_national_focus
         .extend(overlay.country_national_focus.clone());
+    base.country_capitals
+        .extend(overlay.country_capitals.clone());
     base.country_ideas.extend(overlay.country_ideas.clone());
     overlay_nested_map(
         &mut base.country_metric_ceilings,
@@ -2276,6 +2285,25 @@ impl VanillaWorld {
                         *target = Some(value);
                     }
                 }
+            }
+        }
+        if let Some(capitals) = overrides.country_capitals {
+            for (tag, capital) in capitals {
+                let Some(country) = countries.get_mut(tag) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("external country capital references unknown country {tag}"),
+                    ));
+                };
+                if let Some(capital) = capital
+                    && !provinces.contains_key(capital)
+                {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("country {tag} capital references unknown province {capital}"),
+                    ));
+                }
+                country.declared_capital = *capital;
             }
         }
         let mut initial = InitialWorld::new_with_eu4_seed(
