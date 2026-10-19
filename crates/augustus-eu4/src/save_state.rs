@@ -58,6 +58,7 @@ impl VanillaSaveState {
             .map(|country| country.id.as_str())
             .collect();
         let definitions = &world.initial.world().metrics().definitions;
+        let government_definitions = world.initial.world().governments();
 
         for country in &countries {
             if let Some(values) = self.external_state.country_metric_values.get(*country) {
@@ -126,6 +127,39 @@ impl VanillaSaveState {
                 state
                     .country_government_ranks
                     .insert((*country).into(), *rank);
+            }
+            if let Some(kind) = self.external_state.country_government_kinds.get(*country) {
+                state.country_government_kinds.insert(
+                    (*country).into(),
+                    kind.clone()
+                        .filter(|kind| government_definitions.forms.contains_key(kind)),
+                );
+            }
+            if let Some(reforms) = self.external_state.country_government_reforms.get(*country) {
+                let supported = reforms.as_ref().filter(|reforms| {
+                    reforms
+                        .iter()
+                        .all(|reform| government_definitions.reforms.contains_key(reform))
+                });
+                state
+                    .country_government_reforms
+                    .insert((*country).into(), supported.cloned());
+            }
+            if let Some(values) = self
+                .external_state
+                .country_government_metric_values
+                .get(*country)
+            {
+                let filtered = values
+                    .iter()
+                    .filter(|(name, _)| government_definitions.metrics.contains_key(name.as_str()))
+                    .map(|(name, value)| (name.clone(), *value))
+                    .collect::<BTreeMap<_, _>>();
+                if !filtered.is_empty() {
+                    state
+                        .country_government_metric_values
+                        .insert((*country).into(), filtered);
+                }
             }
             if let Some(culture) = self.external_state.country_primary_cultures.get(*country) {
                 state
@@ -484,6 +518,24 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
                 .country_government_ranks
                 .insert(tag.clone(), Some(rank));
         }
+        if let Some(government) = optional_object(&parsed, &country, "government")? {
+            external_state.country_government_kinds.insert(
+                tag.clone(),
+                optional_scalar(&parsed, &government, "government")?,
+            );
+
+            let reforms =
+                if let Some(stack) = optional_object(&parsed, &government, "reform_stack")? {
+                    optional_field(&parsed, &stack, "reforms")?
+                        .map(|value| string_id_set(&parsed, &value, "government reform"))
+                        .transpose()?
+                } else {
+                    None
+                };
+            external_state
+                .country_government_reforms
+                .insert(tag.clone(), reforms);
+        }
 
         if let Some(value) = optional_scalar(&parsed, &country, "primary_culture")? {
             external_state
@@ -633,6 +685,9 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
             metrics.insert("mil_power".into(), Some(values[2]));
         }
         if !metrics.is_empty() {
+            external_state
+                .country_government_metric_values
+                .insert(tag.clone(), metrics.clone());
             external_state
                 .country_metric_values
                 .insert(tag.clone(), metrics);
@@ -1314,11 +1369,37 @@ fn numeric_id_set(
         .collect()
 }
 
+fn string_id_set(
+    parsed: &ParsedText<'_>,
+    value: &Field<'_, '_>,
+    field: &str,
+) -> Result<BTreeSet<String>, Error> {
+    let array = value
+        .read_array()
+        .map_err(|error| Error::caused_by(parsed.source(), error))?;
+    let mut result = BTreeSet::new();
+    for item in array.values() {
+        let id = scalar(parsed, &item)?;
+        if id.is_empty() || !result.insert(id) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("invalid or duplicate saved {field} identifier"),
+            ));
+        }
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{NationalFocus, RulerSkill, read_vanilla_save_state};
     use crate::{ContentRoot, ContentSet, ContentSource, VanillaExternalProvinceDevelopment};
-    use std::{collections::BTreeMap, fs::File, io::Write, path::Path};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        fs::File,
+        io::Write,
+        path::Path,
+    };
     use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
     #[test]
@@ -1845,7 +1926,7 @@ provinces={}
     }
 
     #[test]
-    fn saved_government_rank_overrides_history_and_validates_range() {
+    fn saved_government_state_overrides_history_and_validates_rank() {
         let directory = tempfile::tempdir().unwrap();
         let save_path = directory.path().join("government-rank.eu4");
         std::fs::write(
@@ -1855,6 +1936,20 @@ date=1444.11.11
 countries={
     AAA={
         government_rank=3
+        legitimacy=82.750
+        republican_tradition=63.125
+        government={
+            government="republic"
+            reform_stack={
+                reforms={
+                    "test_council"
+                    "test_charter"
+                }
+                history={
+                    "test_court"
+                }
+            }
+        }
         human=yes
     }
 }
@@ -1865,6 +1960,17 @@ provinces={}
 
         let save = read_vanilla_save_state(&save_path).unwrap();
         assert_eq!(save.external_state.country_government_ranks["AAA"], Some(3));
+        assert_eq!(
+            save.external_state.country_government_kinds["AAA"].as_deref(),
+            Some("republic")
+        );
+        assert_eq!(
+            save.external_state.country_government_reforms["AAA"],
+            Some(BTreeSet::from([
+                "test_charter".to_owned(),
+                "test_council".to_owned()
+            ]))
+        );
 
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
         let content = ContentSet::resolve(vec![ContentSource::base(
@@ -1875,6 +1981,42 @@ provinces={}
             crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
         let country = loaded.initial.country_entity("AAA").unwrap();
         assert_eq!(loaded.initial.world().government_rank(country).unwrap(), 3);
+        let government = &loaded.initial.world().governments().countries[&country];
+        assert_eq!(government.kind.as_deref(), Some("republic"));
+        assert_eq!(
+            government.reforms,
+            Some(BTreeSet::from([
+                "test_charter".to_owned(),
+                "test_council".to_owned()
+            ]))
+        );
+        assert_eq!(
+            government.metrics,
+            Some(BTreeMap::from([(
+                "republican_tradition".into(),
+                Some(63_125)
+            )]))
+        );
+        assert_eq!(government.inactive_metrics["legitimacy"], Some(82_750));
+
+        let mut unsupported = save.clone();
+        unsupported
+            .external_state
+            .country_government_reforms
+            .insert("AAA".into(), Some(["missing_reform".into()].into()));
+        let filtered = unsupported.state_for_world(&loaded).unwrap();
+        assert_eq!(filtered.country_government_reforms["AAA"], None);
+        let unknown_loaded = crate::VanillaWorld::load_from_content_with_external_state(
+            &content,
+            &unsupported.date,
+            &filtered,
+        )
+        .unwrap();
+        let country = unknown_loaded.initial.country_entity("AAA").unwrap();
+        assert_eq!(
+            unknown_loaded.initial.world().governments().countries[&country].reforms,
+            None
+        );
 
         let mut invalid = save.clone();
         invalid

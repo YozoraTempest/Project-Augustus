@@ -350,6 +350,17 @@ pub struct VanillaExternalState {
     /// keeps its content-derived rank; `None` explicitly leaves it unknown.
     #[serde(default)]
     pub country_government_ranks: BTreeMap<String, Option<u8>>,
+    /// Current government kind and selected reforms supplied by a save
+    /// reader. A present `None` marks that component unknown.
+    #[serde(default)]
+    pub country_government_kinds: BTreeMap<String, Option<String>>,
+    #[serde(default)]
+    pub country_government_reforms: BTreeMap<String, Option<BTreeSet<String>>>,
+    /// Current active or inactive government metric values supplied by a save
+    /// reader. The compatibility loader filters these against government
+    /// metric definitions, separately from generic country attributes.
+    #[serde(default)]
+    pub country_government_metric_values: BTreeMap<String, BTreeMap<String, Option<i64>>>,
     /// Current country culture and religion supplied by a save reader. A
     /// missing country keeps its content-derived values; `None` clears one.
     #[serde(default)]
@@ -489,6 +500,9 @@ struct LoadOverrides<'a> {
     country_technology_groups: Option<&'a BTreeMap<String, Option<String>>>,
     country_unit_types: Option<&'a BTreeMap<String, Option<String>>>,
     country_government_ranks: Option<&'a BTreeMap<String, Option<u8>>>,
+    country_government_kinds: Option<&'a BTreeMap<String, Option<String>>>,
+    country_government_reforms: Option<&'a BTreeMap<String, Option<BTreeSet<String>>>>,
+    country_government_metric_values: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_primary_cultures: Option<&'a BTreeMap<String, Option<String>>>,
     country_religions: Option<&'a BTreeMap<String, Option<String>>>,
     country_ideas: Option<&'a BTreeMap<String, augustus_core::IdeaState>>,
@@ -541,6 +555,12 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_unit_types),
             country_government_ranks: (!state.country_government_ranks.is_empty())
                 .then_some(&state.country_government_ranks),
+            country_government_kinds: (!state.country_government_kinds.is_empty())
+                .then_some(&state.country_government_kinds),
+            country_government_reforms: (!state.country_government_reforms.is_empty())
+                .then_some(&state.country_government_reforms),
+            country_government_metric_values: (!state.country_government_metric_values.is_empty())
+                .then_some(&state.country_government_metric_values),
             country_primary_cultures: (!state.country_primary_cultures.is_empty())
                 .then_some(&state.country_primary_cultures),
             country_religions: (!state.country_religions.is_empty())
@@ -678,6 +698,14 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.country_unit_types.clone());
     base.country_government_ranks
         .extend(overlay.country_government_ranks.clone());
+    base.country_government_kinds
+        .extend(overlay.country_government_kinds.clone());
+    base.country_government_reforms
+        .extend(overlay.country_government_reforms.clone());
+    overlay_nested_map(
+        &mut base.country_government_metric_values,
+        &overlay.country_government_metric_values,
+    );
     base.country_primary_cultures
         .extend(overlay.country_primary_cultures.clone());
     base.country_religions
@@ -2565,12 +2593,85 @@ impl VanillaWorld {
                 .set_technology(technology)
                 .map_err(|error| Error::caused_by(root.path(), error))?;
         }
-        let governments = governments.bind(
+        let mut governments = governments.bind(
             &initial,
             &attribute_draft,
             &report.start_date,
             &mut report.governments,
         );
+        let mut saved_government_countries = BTreeSet::new();
+        if let Some(kinds) = overrides.country_government_kinds {
+            saved_government_countries.extend(kinds.keys());
+        }
+        if let Some(reforms) = overrides.country_government_reforms {
+            saved_government_countries.extend(reforms.keys());
+        }
+        if let Some(values) = overrides.country_government_metric_values {
+            saved_government_countries.extend(values.keys());
+        }
+        for tag in saved_government_countries {
+            let entity = initial.country_entity(tag).ok_or_else(|| {
+                Error::message(
+                    root.path(),
+                    format!("saved government state references unknown country {tag}"),
+                )
+            })?;
+            let state = governments.countries.entry(entity).or_default();
+            if let Some(kind) = overrides
+                .country_government_kinds
+                .and_then(|values| values.get(tag))
+            {
+                state.kind = kind
+                    .clone()
+                    .filter(|kind| governments.forms.contains_key(kind));
+            }
+            if let Some(reforms) = overrides
+                .country_government_reforms
+                .and_then(|values| values.get(tag))
+            {
+                state.reforms = reforms.clone().filter(|reforms| {
+                    reforms
+                        .iter()
+                        .all(|reform| governments.reforms.contains_key(reform))
+                });
+            }
+            if let Some(form) = state
+                .kind
+                .as_ref()
+                .and_then(|kind| governments.forms.get(kind))
+            {
+                let saved_metrics = overrides
+                    .country_government_metric_values
+                    .and_then(|values| values.get(tag));
+                state.metrics = Some(
+                    form.metrics
+                        .keys()
+                        .map(|name| {
+                            (
+                                name.clone(),
+                                saved_metrics
+                                    .and_then(|values| values.get(name))
+                                    .copied()
+                                    .unwrap_or(None),
+                            )
+                        })
+                        .collect(),
+                );
+                state.inactive_metrics = governments
+                    .metrics
+                    .keys()
+                    .filter(|name| !form.metrics.contains_key(*name))
+                    .filter_map(|name| {
+                        saved_metrics
+                            .and_then(|values| values.get(name))
+                            .map(|value| (name.clone(), *value))
+                    })
+                    .collect();
+            } else {
+                state.metrics = None;
+                state.inactive_metrics.clear();
+            }
+        }
         initial
             .set_governments(governments)
             .map_err(|e| Error::caused_by(root.path(), e))?;
