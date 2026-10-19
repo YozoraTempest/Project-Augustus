@@ -89,6 +89,29 @@ impl VanillaSaveState {
             {
                 state.country_capitals.insert((*country).into(), capital);
             }
+            if let Some(levels) = self.external_state.country_technology_levels.get(*country) {
+                let tables = &world.initial.world().technology().tables;
+                let mut filtered = BTreeMap::new();
+                for (branch, level) in levels {
+                    let Some(table) = tables.get(branch) else {
+                        continue;
+                    };
+                    if usize::from(*level) >= table.len() {
+                        return Err(Error::message(
+                            "save state",
+                            format!(
+                                "country {country} has invalid saved {branch} technology level {level}"
+                            ),
+                        ));
+                    }
+                    filtered.insert(branch.clone(), *level);
+                }
+                if !filtered.is_empty() {
+                    state
+                        .country_technology_levels
+                        .insert((*country).into(), filtered);
+                }
+            }
             if let Some(ideas) = self.external_state.country_ideas.get(*country) {
                 state.country_ideas.insert((*country).into(), ideas.clone());
             }
@@ -385,6 +408,41 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
             external_state
                 .country_capitals
                 .insert(tag.clone(), (capital != 0).then_some(capital));
+        }
+
+        if let Some(technology) = optional_object(&parsed, &country, "technology")? {
+            let mut levels = BTreeMap::new();
+            for (key, op, value) in technology.fields() {
+                if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {tag} has an invalid technology level"),
+                    ));
+                }
+                let branch = match key.read_string().as_str() {
+                    "adm_tech" => "administrative",
+                    "dip_tech" => "diplomatic",
+                    "mil_tech" => "military",
+                    _ => continue,
+                };
+                let level = scalar(&parsed, &value)?.parse::<u16>().map_err(|error| {
+                    Error::message(
+                        parsed.source(),
+                        format!("country {tag} has invalid {branch} technology level: {error}"),
+                    )
+                })?;
+                if levels.insert(branch.to_owned(), level).is_some() {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {tag} repeats its {branch} technology level"),
+                    ));
+                }
+            }
+            if !levels.is_empty() {
+                external_state
+                    .country_technology_levels
+                    .insert(tag.clone(), levels);
+            }
         }
 
         if let Some(active_ideas) = optional_object(&parsed, &country, "active_idea_groups")? {
@@ -1172,6 +1230,11 @@ change_price={
 countries={
 	AAA={
 		capital=1
+		technology={
+			adm_tech=3
+			dip_tech=4
+			mil_tech=5
+		}
 		national_focus=DIP
 		active_idea_groups={
 			test_alpha=2
@@ -1267,6 +1330,14 @@ provinces={
             Some(9_754)
         );
         assert_eq!(state.external_state.country_capitals["AAA"], Some(1));
+        assert_eq!(
+            state.external_state.country_technology_levels["AAA"],
+            BTreeMap::from([
+                ("administrative".into(), 3),
+                ("diplomatic".into(), 4),
+                ("military".into(), 5),
+            ])
+        );
         assert_eq!(
             state.external_state.country_metric_values["AAA"]["adm_power"],
             Some(98)
@@ -1508,6 +1579,69 @@ provinces={
                 "unexpected bound capital for {name} save"
             );
         }
+    }
+
+    #[test]
+    fn saved_technology_levels_override_content_start_levels() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("technology.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+countries={
+    AAA={
+        technology={
+            adm_tech=1
+            dip_tech=2
+            mil_tech=3
+        }
+        human=yes
+    }
+}
+provinces={}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert_eq!(
+            save.external_state.country_technology_levels["AAA"],
+            BTreeMap::from([
+                ("administrative".into(), 1),
+                ("diplomatic".into(), 2),
+                ("military".into(), 3),
+            ])
+        );
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let filtered = save.state_for_world(&baseline).unwrap();
+        assert_eq!(
+            filtered.country_technology_levels["AAA"],
+            save.external_state.country_technology_levels["AAA"]
+        );
+
+        let mut invalid = save.clone();
+        invalid
+            .external_state
+            .country_technology_levels
+            .get_mut("AAA")
+            .unwrap()
+            .insert("administrative".into(), u16::MAX);
+        assert!(invalid.state_for_world(&baseline).is_err());
+
+        let loaded =
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        let country = loaded.initial.country_entity("AAA").unwrap();
+        let technology = loaded.initial.world().technology();
+        assert_eq!(technology.country_level(country, "administrative"), Some(1));
+        assert_eq!(technology.country_level(country, "diplomatic"), Some(2));
+        assert_eq!(technology.country_level(country, "military"), Some(3));
     }
 
     #[test]

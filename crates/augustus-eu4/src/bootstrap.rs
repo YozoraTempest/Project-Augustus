@@ -336,6 +336,10 @@ pub struct VanillaExternalState {
     /// records a country with no capital; an omitted country keeps history.
     #[serde(default)]
     pub country_capitals: BTreeMap<String, Option<u32>>,
+    /// Current administrative, diplomatic, and military levels supplied by a
+    /// save reader. Omitted branches keep the content-derived level.
+    #[serde(default)]
+    pub country_technology_levels: BTreeMap<String, BTreeMap<String, u16>>,
     /// Current active idea groups and unlocked idea counts supplied by a save
     /// reader. A missing country keeps the content-derived idea state.
     #[serde(default)]
@@ -455,6 +459,7 @@ struct LoadOverrides<'a> {
     country_metric_values: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_national_focus: Option<&'a BTreeMap<String, augustus_core::NationalFocus>>,
     country_capitals: Option<&'a BTreeMap<String, Option<u32>>>,
+    country_technology_levels: Option<&'a BTreeMap<String, BTreeMap<String, u16>>>,
     country_ideas: Option<&'a BTreeMap<String, augustus_core::IdeaState>>,
     country_metric_ceilings: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_resources: Option<&'a BTreeMap<String, CountryResources>>,
@@ -494,6 +499,8 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_national_focus),
             country_capitals: (!state.country_capitals.is_empty())
                 .then_some(&state.country_capitals),
+            country_technology_levels: (!state.country_technology_levels.is_empty())
+                .then_some(&state.country_technology_levels),
             country_ideas: (!state.country_ideas.is_empty()).then_some(&state.country_ideas),
             country_metric_ceilings: (!state.country_metric_ceilings.is_empty())
                 .then_some(&state.country_metric_ceilings),
@@ -611,6 +618,10 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.country_national_focus.clone());
     base.country_capitals
         .extend(overlay.country_capitals.clone());
+    overlay_nested_map(
+        &mut base.country_technology_levels,
+        &overlay.country_technology_levels,
+    );
     base.country_ideas.extend(overlay.country_ideas.clone());
     overlay_nested_map(
         &mut base.country_metric_ceilings,
@@ -2392,6 +2403,25 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by(root.path(), e))?;
         bind_external_trade_good_prices(&mut initial, overrides.trade_good_prices_milli)?;
         setup.bind(&mut initial, date, &mut report.setup)?;
+        if let Some(saved_levels) = overrides.country_technology_levels {
+            let mut technology = initial.world().technology().clone();
+            for (tag, levels) in saved_levels {
+                let entity = initial.country_entity(tag).ok_or_else(|| {
+                    Error::message(
+                        root.path(),
+                        format!("saved technology references unknown country {tag}"),
+                    )
+                })?;
+                technology
+                    .countries
+                    .entry(entity)
+                    .or_default()
+                    .extend(levels.clone());
+            }
+            initial
+                .set_technology(technology)
+                .map_err(|error| Error::caused_by(root.path(), error))?;
+        }
         let governments = governments.bind(
             &initial,
             &attribute_draft,
