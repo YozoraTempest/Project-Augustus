@@ -112,6 +112,16 @@ impl VanillaSaveState {
                         .insert((*country).into(), filtered);
                 }
             }
+            if let Some(culture) = self.external_state.country_primary_cultures.get(*country) {
+                state
+                    .country_primary_cultures
+                    .insert((*country).into(), culture.clone());
+            }
+            if let Some(religion) = self.external_state.country_religions.get(*country) {
+                state
+                    .country_religions
+                    .insert((*country).into(), religion.clone());
+            }
             if let Some(ideas) = self.external_state.country_ideas.get(*country) {
                 state.country_ideas.insert((*country).into(), ideas.clone());
             }
@@ -260,6 +270,18 @@ impl VanillaSaveState {
             state.province_controllers.insert(*province, controller);
         }
 
+        for (province, culture) in &self.external_state.province_cultures {
+            if world.initial.province_entity(*province).is_some() {
+                state.province_cultures.insert(*province, culture.clone());
+            }
+        }
+
+        for (province, religion) in &self.external_state.province_religions {
+            if world.initial.province_entity(*province).is_some() {
+                state.province_religions.insert(*province, religion.clone());
+            }
+        }
+
         for (province, development) in &self.external_state.province_development {
             if world.initial.province_entity(*province).is_some() {
                 state
@@ -397,6 +419,17 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
         external_state
             .country_resources
             .insert(tag.clone(), resources);
+
+        if let Some(value) = optional_scalar(&parsed, &country, "primary_culture")? {
+            external_state
+                .country_primary_cultures
+                .insert(tag.clone(), Some(value));
+        }
+        if let Some(value) = optional_scalar(&parsed, &country, "religion")? {
+            external_state
+                .country_religions
+                .insert(tag.clone(), Some(value));
+        }
 
         if let Some(value) = optional_scalar(&parsed, &country, "capital")? {
             let capital = value.parse::<u32>().map_err(|error| {
@@ -711,6 +744,12 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
             ));
         }
         external_state.province_owners.insert(id, owner.clone());
+        if let Some(culture) = optional_scalar(&parsed, &province, "culture")? {
+            external_state.province_cultures.insert(id, Some(culture));
+        }
+        if let Some(religion) = optional_scalar(&parsed, &province, "religion")? {
+            external_state.province_religions.insert(id, Some(religion));
+        }
         if let Some(controller) = optional_scalar(&parsed, &province, "controller")? {
             if !is_country_tag(&controller) {
                 return Err(Error::message(
@@ -1230,6 +1269,8 @@ change_price={
 countries={
 	AAA={
 		capital=1
+		primary_culture=saved_country_culture
+		religion=saved_country_religion
 		technology={
 			adm_tech=3
 			dip_tech=4
@@ -1289,6 +1330,8 @@ countries={
 provinces={
 	-1={
 		owner="AAA"
+		culture=saved_province_culture
+		religion=saved_province_religion
 		is_city=yes
 		local_autonomy=3.500
 		history={
@@ -1330,6 +1373,14 @@ provinces={
             Some(9_754)
         );
         assert_eq!(state.external_state.country_capitals["AAA"], Some(1));
+        assert_eq!(
+            state.external_state.country_primary_cultures["AAA"].as_deref(),
+            Some("saved_country_culture")
+        );
+        assert_eq!(
+            state.external_state.country_religions["AAA"].as_deref(),
+            Some("saved_country_religion")
+        );
         assert_eq!(
             state.external_state.country_technology_levels["AAA"],
             BTreeMap::from([
@@ -1398,6 +1449,14 @@ provinces={
         assert_eq!(
             state.external_state.province_owners[&1].as_deref(),
             Some("AAA")
+        );
+        assert_eq!(
+            state.external_state.province_cultures[&1].as_deref(),
+            Some("saved_province_culture")
+        );
+        assert_eq!(
+            state.external_state.province_religions[&1].as_deref(),
+            Some("saved_province_religion")
         );
         assert_eq!(
             state.external_state.estate_states["AAA"]["estate_nobles"].loyalty_milli,
@@ -1642,6 +1701,66 @@ provinces={}
         assert_eq!(technology.country_level(country, "administrative"), Some(1));
         assert_eq!(technology.country_level(country, "diplomatic"), Some(2));
         assert_eq!(technology.country_level(country, "military"), Some(3));
+    }
+
+    #[test]
+    fn saved_country_and_province_culture_religion_override_content_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("identity.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+countries={
+    AAA={
+        primary_culture=saved_country_culture
+        religion=saved_country_religion
+        human=yes
+    }
+}
+provinces={
+    -1={
+        owner="AAA"
+        culture=saved_province_culture
+        religion=saved_province_religion
+    }
+    -999={
+        culture=missing_culture
+        religion=missing_religion
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let filtered = save.state_for_world(&baseline).unwrap();
+        assert!(filtered.province_cultures.contains_key(&1));
+        assert!(filtered.province_religions.contains_key(&1));
+        assert!(!filtered.province_cultures.contains_key(&999));
+        assert!(!filtered.province_religions.contains_key(&999));
+
+        let loaded =
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        let country = loaded.initial.country("AAA").unwrap();
+        assert_eq!(
+            country.primary_culture.as_deref(),
+            Some("saved_country_culture")
+        );
+        assert_eq!(country.religion.as_deref(), Some("saved_country_religion"));
+        let province = loaded.initial.province(1).unwrap();
+        assert_eq!(province.culture.as_deref(), Some("saved_province_culture"));
+        assert_eq!(
+            province.religion.as_deref(),
+            Some("saved_province_religion")
+        );
+        assert!(loaded.initial.province(999).is_none());
     }
 
     #[test]

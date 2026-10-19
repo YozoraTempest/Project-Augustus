@@ -228,6 +228,8 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         country_national_focus: Default::default(),
         country_capitals: Default::default(),
         country_technology_levels: Default::default(),
+        country_primary_cultures: Default::default(),
+        country_religions: Default::default(),
         country_ideas: Default::default(),
         country_metric_ceilings: Default::default(),
         country_resources: BTreeMap::from([(
@@ -257,6 +259,8 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         country_annual_tax_milli: Default::default(),
         province_annual_tax_milli: Default::default(),
         province_owners: Default::default(),
+        province_cultures: Default::default(),
+        province_religions: Default::default(),
         province_controllers: Default::default(),
         province_development: Default::default(),
         province_is_city: Default::default(),

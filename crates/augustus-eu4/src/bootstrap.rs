@@ -340,6 +340,12 @@ pub struct VanillaExternalState {
     /// save reader. Omitted branches keep the content-derived level.
     #[serde(default)]
     pub country_technology_levels: BTreeMap<String, BTreeMap<String, u16>>,
+    /// Current country culture and religion supplied by a save reader. A
+    /// missing country keeps its content-derived values; `None` clears one.
+    #[serde(default)]
+    pub country_primary_cultures: BTreeMap<String, Option<String>>,
+    #[serde(default)]
+    pub country_religions: BTreeMap<String, Option<String>>,
     /// Current active idea groups and unlocked idea counts supplied by a save
     /// reader. A missing country keeps the content-derived idea state.
     #[serde(default)]
@@ -383,6 +389,12 @@ pub struct VanillaExternalState {
     /// remains content-derived; `None` explicitly records an unowned province.
     #[serde(default)]
     pub province_owners: BTreeMap<u32, Option<String>>,
+    /// Current province culture and religion supplied by a save reader. An
+    /// omitted province keeps its content-derived values; `None` clears one.
+    #[serde(default)]
+    pub province_cultures: BTreeMap<u32, Option<String>>,
+    #[serde(default)]
+    pub province_religions: BTreeMap<u32, Option<String>>,
     /// Current province controller supplied by a save reader. An omitted
     /// province remains content-derived; `None` keeps its controller unknown.
     #[serde(default)]
@@ -460,6 +472,8 @@ struct LoadOverrides<'a> {
     country_national_focus: Option<&'a BTreeMap<String, augustus_core::NationalFocus>>,
     country_capitals: Option<&'a BTreeMap<String, Option<u32>>>,
     country_technology_levels: Option<&'a BTreeMap<String, BTreeMap<String, u16>>>,
+    country_primary_cultures: Option<&'a BTreeMap<String, Option<String>>>,
+    country_religions: Option<&'a BTreeMap<String, Option<String>>>,
     country_ideas: Option<&'a BTreeMap<String, augustus_core::IdeaState>>,
     country_metric_ceilings: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_resources: Option<&'a BTreeMap<String, CountryResources>>,
@@ -472,6 +486,8 @@ struct LoadOverrides<'a> {
     country_annual_tax_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
     province_owners: Option<&'a BTreeMap<u32, Option<String>>>,
+    province_cultures: Option<&'a BTreeMap<u32, Option<String>>>,
+    province_religions: Option<&'a BTreeMap<u32, Option<String>>>,
     province_controllers: Option<&'a BTreeMap<u32, Option<String>>>,
     province_development: Option<&'a BTreeMap<u32, VanillaExternalProvinceDevelopment>>,
     province_is_city: Option<&'a BTreeMap<u32, Option<bool>>>,
@@ -501,6 +517,10 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_capitals),
             country_technology_levels: (!state.country_technology_levels.is_empty())
                 .then_some(&state.country_technology_levels),
+            country_primary_cultures: (!state.country_primary_cultures.is_empty())
+                .then_some(&state.country_primary_cultures),
+            country_religions: (!state.country_religions.is_empty())
+                .then_some(&state.country_religions),
             country_ideas: (!state.country_ideas.is_empty()).then_some(&state.country_ideas),
             country_metric_ceilings: (!state.country_metric_ceilings.is_empty())
                 .then_some(&state.country_metric_ceilings),
@@ -524,6 +544,10 @@ impl<'a> LoadOverrides<'a> {
             province_annual_tax_milli: (!state.province_annual_tax_milli.is_empty())
                 .then_some(&state.province_annual_tax_milli),
             province_owners: (!state.province_owners.is_empty()).then_some(&state.province_owners),
+            province_cultures: (!state.province_cultures.is_empty())
+                .then_some(&state.province_cultures),
+            province_religions: (!state.province_religions.is_empty())
+                .then_some(&state.province_religions),
             province_controllers: (!state.province_controllers.is_empty())
                 .then_some(&state.province_controllers),
             province_development: (!state.province_development.is_empty())
@@ -622,6 +646,10 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         &mut base.country_technology_levels,
         &overlay.country_technology_levels,
     );
+    base.country_primary_cultures
+        .extend(overlay.country_primary_cultures.clone());
+    base.country_religions
+        .extend(overlay.country_religions.clone());
     base.country_ideas.extend(overlay.country_ideas.clone());
     overlay_nested_map(
         &mut base.country_metric_ceilings,
@@ -644,6 +672,10 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     base.province_annual_tax_milli
         .extend(overlay.province_annual_tax_milli.clone());
     base.province_owners.extend(overlay.province_owners.clone());
+    base.province_cultures
+        .extend(overlay.province_cultures.clone());
+    base.province_religions
+        .extend(overlay.province_religions.clone());
     base.province_controllers
         .extend(overlay.province_controllers.clone());
     overlay_province_development(
@@ -2296,6 +2328,50 @@ impl VanillaWorld {
                         *target = Some(value);
                     }
                 }
+            }
+        }
+        if let Some(cultures) = overrides.country_primary_cultures {
+            for (tag, culture) in cultures {
+                let Some(country) = countries.get_mut(tag) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("external country culture references unknown country {tag}"),
+                    ));
+                };
+                country.primary_culture.clone_from(culture);
+            }
+        }
+        if let Some(religions) = overrides.country_religions {
+            for (tag, religion) in religions {
+                let Some(country) = countries.get_mut(tag) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("external country religion references unknown country {tag}"),
+                    ));
+                };
+                country.religion.clone_from(religion);
+            }
+        }
+        if let Some(cultures) = overrides.province_cultures {
+            for (id, culture) in cultures {
+                let Some(province) = provinces.get_mut(id) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("external province culture references unknown province {id}"),
+                    ));
+                };
+                province.culture.clone_from(culture);
+            }
+        }
+        if let Some(religions) = overrides.province_religions {
+            for (id, religion) in religions {
+                let Some(province) = provinces.get_mut(id) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("external province religion references unknown province {id}"),
+                    ));
+                };
+                province.religion.clone_from(religion);
             }
         }
         if let Some(capitals) = overrides.country_capitals {
