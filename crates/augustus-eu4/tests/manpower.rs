@@ -226,6 +226,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
             BTreeMap::from([("prestige".into(), Some(26_942))]),
         )]),
         country_national_focus: Default::default(),
+        country_ideas: Default::default(),
         country_metric_ceilings: Default::default(),
         country_resources: BTreeMap::from([(
             "AAA".into(),

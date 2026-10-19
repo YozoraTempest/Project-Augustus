@@ -332,6 +332,10 @@ pub struct VanillaExternalState {
     /// with no skill records an explicitly cleared focus.
     #[serde(default)]
     pub country_national_focus: BTreeMap<String, augustus_core::NationalFocus>,
+    /// Current active idea groups and unlocked idea counts supplied by a save
+    /// reader. A missing country keeps the content-derived idea state.
+    #[serde(default)]
+    pub country_ideas: BTreeMap<String, augustus_core::IdeaState>,
     /// Current per-country growth ceilings for metrics such as monarch power.
     /// A missing country or metric remains unresolved; `Some(value)` is an
     /// authoritative ceiling supplied by the compatibility provider.
@@ -446,6 +450,7 @@ impl VanillaExternalState {
 struct LoadOverrides<'a> {
     country_metric_values: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_national_focus: Option<&'a BTreeMap<String, augustus_core::NationalFocus>>,
+    country_ideas: Option<&'a BTreeMap<String, augustus_core::IdeaState>>,
     country_metric_ceilings: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_resources: Option<&'a BTreeMap<String, CountryResources>>,
     country_ledgers: Option<&'a BTreeMap<String, CountryLedger>>,
@@ -482,6 +487,7 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_metric_values),
             country_national_focus: (!state.country_national_focus.is_empty())
                 .then_some(&state.country_national_focus),
+            country_ideas: (!state.country_ideas.is_empty()).then_some(&state.country_ideas),
             country_metric_ceilings: (!state.country_metric_ceilings.is_empty())
                 .then_some(&state.country_metric_ceilings),
             country_resources: (!state.country_resources.is_empty())
@@ -596,6 +602,7 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     );
     base.country_national_focus
         .extend(overlay.country_national_focus.clone());
+    base.country_ideas.extend(overlay.country_ideas.clone());
     overlay_nested_map(
         &mut base.country_metric_ceilings,
         &overlay.country_metric_ceilings,
@@ -2664,7 +2671,22 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by(root.path(), e))?;
         bind_external_estate_privileges(&mut initial, overrides.estate_privileges)?;
         bind_external_estate_states(&mut initial, overrides.estate_states)?;
-        let ideas = ideas.bind(&initial, report.start_date, &mut report.ideas);
+        if let Some(saved_ideas) = overrides.country_ideas {
+            for tag in saved_ideas.keys() {
+                if initial.country_entity(tag).is_none() {
+                    return Err(Error::message(
+                        "external country ideas",
+                        format!("unknown saved country {tag}"),
+                    ));
+                }
+            }
+        }
+        let ideas = ideas.bind(
+            &initial,
+            report.start_date,
+            &mut report.ideas,
+            overrides.country_ideas,
+        );
         initial
             .set_ideas(ideas)
             .map_err(|e| Error::caused_by(root.path(), e))?;

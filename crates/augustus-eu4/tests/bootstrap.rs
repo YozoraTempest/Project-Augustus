@@ -1160,6 +1160,47 @@ fn national_traditions_select_from_flags_and_ruler_and_progress_stays_explicit()
 }
 
 #[test]
+fn saved_idea_progress_overrides_unknown_historical_progress() {
+    let content =
+        ContentSet::from_installation(fixture(), &[], None, None, TextEncoding::Utf8).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("idea-progress.eu4");
+    fs::write(
+        &path,
+        r#"EU4txt
+date=1450.1.1
+player="AAA"
+countries={
+    AAA={
+        human=yes
+        active_idea_groups={
+            test_alpha=2
+        }
+    }
+}
+provinces={}
+"#,
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load_from_content_with_save(&content, &path).unwrap();
+    let entity = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().ideas().countries[&entity].groups,
+        Some(BTreeMap::from([("test_alpha".into(), Some(2))]))
+    );
+    assert!(!loaded.report.ideas.unresolved_countries.contains_key("AAA"));
+    assert!(
+        !loaded
+            .country("AAA")
+            .unwrap()
+            .declared_idea_effects
+            .unresolved
+            .contains("ideas:test_alpha:unknown_progress")
+    );
+}
+
+#[test]
 fn earlier_unknown_candidate_blocks_fallback_but_false_and_true_short_circuit() {
     let fixture = copy_fixture();
     let file = fixture.path().join("common/ideas/00_conditions.txt");

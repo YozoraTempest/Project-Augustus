@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use augustus_core::{CountryResources, NationalFocus, RulerSkill};
+use augustus_core::{CountryResources, IdeaState, NationalFocus, RulerSkill};
 use jomini::{TextToken, text::ValueReader};
 use serde::Serialize;
 
@@ -81,6 +81,9 @@ impl VanillaSaveState {
                 state
                     .country_national_focus
                     .insert((*country).into(), *focus);
+            }
+            if let Some(ideas) = self.external_state.country_ideas.get(*country) {
+                state.country_ideas.insert((*country).into(), ideas.clone());
             }
             if let Some(advisors) = self.external_state.advisors.get(*country) {
                 state.advisors.insert((*country).into(), advisors.clone());
@@ -364,6 +367,43 @@ fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error>
         external_state
             .country_resources
             .insert(tag.clone(), resources);
+
+        if let Some(active_ideas) = optional_object(&parsed, &country, "active_idea_groups")? {
+            let mut groups = BTreeMap::new();
+            for (key, op, value) in active_ideas.fields() {
+                if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {tag} has an invalid active idea group"),
+                    ));
+                }
+                let group = key.read_string();
+                if group.is_empty() {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {tag} has an empty active idea group"),
+                    ));
+                }
+                let progress = scalar(&parsed, &value)?.parse::<u16>().map_err(|error| {
+                    Error::message(
+                        parsed.source(),
+                        format!("country {tag} has invalid idea progress: {error}"),
+                    )
+                })?;
+                if groups.insert(group, Some(progress)).is_some() {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {tag} repeats an active idea group"),
+                    ));
+                }
+            }
+            external_state.country_ideas.insert(
+                tag.clone(),
+                IdeaState {
+                    groups: Some(groups),
+                },
+            );
+        }
 
         if let Some(value) = optional_scalar(&parsed, &country, "national_focus")? {
             let focus = match value.as_str() {
@@ -1113,6 +1153,9 @@ change_price={
 countries={
 	AAA={
 		national_focus=DIP
+		active_idea_groups={
+			test_alpha=2
+		}
 		treasury=59.802
 		manpower=9.754
 		mercantilism=10.000
@@ -1224,6 +1267,10 @@ provinces={
             NationalFocus {
                 skill: Some(RulerSkill::Diplomacy)
             }
+        );
+        assert_eq!(
+            state.external_state.country_ideas["AAA"].groups,
+            Some(BTreeMap::from([("test_alpha".into(), Some(2))]))
         );
         assert_eq!(state.external_state.armies.len(), 1);
         assert_eq!(state.external_state.armies[0].owner, "AAA");

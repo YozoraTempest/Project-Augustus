@@ -270,12 +270,22 @@ impl IdeaDraft {
         initial: &InitialWorld,
         date: WorldDate,
         report: &mut IdeaReport,
+        saved_states: Option<&BTreeMap<String, IdeaState>>,
     ) -> Ideas {
         let mut countries = BTreeMap::new();
         for country in initial.countries() {
             let mut reasons = BTreeSet::new();
             let mut groups = None;
-            if let Some(history) = self.histories.get(&country.id) {
+            let mut saved_selection = false;
+            if let Some(saved) = saved_states.and_then(|states| states.get(&country.id)) {
+                saved_selection = true;
+                groups = saved.groups.clone();
+                if groups.is_some() {
+                    report.selected_countries += 1;
+                } else {
+                    reasons.insert("saved_idea_selection_unknown".into());
+                }
+            } else if let Some(history) = self.histories.get(&country.id) {
                 if history.unknown_selection {
                     reasons.insert("unapplied_history_selection".into());
                 } else {
@@ -319,6 +329,8 @@ impl IdeaDraft {
                 report
                     .unresolved_countries
                     .insert(country.id.clone(), reasons);
+            } else if saved_selection {
+                report.unresolved_countries.remove(&country.id);
             }
             countries.insert(
                 initial
