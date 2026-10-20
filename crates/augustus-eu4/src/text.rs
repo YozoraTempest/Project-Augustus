@@ -150,6 +150,27 @@ impl ParsedText<'_> {
         self.encoding.decode(&bytes).into_owned()
     }
 
+    pub(crate) fn is_optional_block_parameter(&self, name: &str, location: SourceLocation) -> bool {
+        let Some(&line_start) = self.line_starts.get(location.line.saturating_sub(1)) else {
+            return false;
+        };
+        let start = line_start.saturating_add(location.column.saturating_sub(1));
+        let Some(end) = start.checked_add(name.len()) else {
+            return false;
+        };
+        let mut marker = start;
+        while marker > line_start && self.bytes[marker - 1].is_ascii_whitespace() {
+            marker -= 1;
+        }
+        marker >= line_start + 2
+            && self
+                .bytes
+                .get(marker - 2..marker)
+                .is_some_and(|prefix| prefix == b"[[")
+            && self.bytes.get(start..end) == Some(name.as_bytes())
+            && self.bytes.get(end).is_some_and(|byte| *byte == b']')
+    }
+
     pub(crate) fn field_location(
         &self,
         key: &jomini::text::ScalarReader<'_, TextEncoding>,

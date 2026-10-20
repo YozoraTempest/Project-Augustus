@@ -24,6 +24,7 @@ use crate::{
 struct Field {
     name: String,
     value: Value,
+    optional_parameter: Option<String>,
     path: PathBuf,
     location: SourceLocation,
 }
@@ -72,8 +73,24 @@ impl Field {
                 complete
             }
             Value::Block(fields) => {
-                for field in fields {
-                    used_parameters.extend(field.substitute_parameters(parameters)?);
+                let mut index = 0;
+                while index < fields.len() {
+                    if fields[index]
+                        .optional_parameter
+                        .as_ref()
+                        .is_some_and(|parameter| parameters.contains_key(parameter))
+                    {
+                        let optional = fields.remove(index);
+                        let Value::Block(children) = optional.value else {
+                            return None;
+                        };
+                        fields.splice(index..index, children);
+                    } else if fields[index].optional_parameter.is_some() {
+                        fields.remove(index);
+                    } else {
+                        used_parameters.extend(fields[index].substitute_parameters(parameters)?);
+                        index += 1;
+                    }
                 }
                 true
             }
@@ -113,6 +130,7 @@ impl ConditionSource {
         Ok(Self(Field {
             name: name.into(),
             value: Value::Block(read_fields(parsed, reader, 1, false)?),
+            optional_parameter: None,
             path: parsed.source().into(),
             location,
         }))
@@ -132,14 +150,19 @@ fn read_fields(
         .fields()
         .map(|(key, operator, value)| {
             let location = parsed.field_location(&key);
+            let name = key.read_string();
+            let optional_parameter = parsed
+                .is_optional_block_parameter(&name, location)
+                .then(|| name.clone());
             let fail = |message| Error::message(parsed.source(), message).with_location(location);
             if operator.is_some_and(|operator| operator != Operator::Equal) {
                 if !defer_unsupported {
                     return Err(fail("unsupported script operator"));
                 }
                 return Ok(Field {
-                    name: key.read_string(),
+                    name,
                     value: Value::Unsupported("unsupported script operator"),
+                    optional_parameter,
                     path: parsed.source().into(),
                     location,
                 });
@@ -165,8 +188,9 @@ fn read_fields(
                 _ => return Err(fail("unsupported script value")),
             };
             Ok(Field {
-                name: key.read_string(),
+                name,
                 value,
+                optional_parameter,
                 path: parsed.source().into(),
                 location,
             })
@@ -1142,6 +1166,7 @@ impl<'a> ScriptCompiler<'a> {
             &[Field {
                 name: name.into(),
                 value: Value::Scalar(value),
+                optional_parameter: None,
                 path: parsed.source().into(),
                 location,
             }],
@@ -1162,6 +1187,7 @@ impl<'a> ScriptCompiler<'a> {
             &[Field {
                 name: name.into(),
                 value: Value::Scalar(value),
+                optional_parameter: None,
                 path: parsed.source().into(),
                 location,
             }],
@@ -1239,6 +1265,7 @@ impl<'a> ScriptCompiler<'a> {
             &[Field {
                 name: name.into(),
                 value: Value::Block(read_fields(parsed, reader, 1, false)?),
+                optional_parameter: None,
                 path: parsed.source().into(),
                 location,
             }],
@@ -1304,6 +1331,7 @@ impl<'a> ScriptCompiler<'a> {
                 fields.push(Field {
                     name: key.read_string(),
                     value: Value::Block(read_fields(&parsed, body, 1, false)?),
+                    optional_parameter: None,
                     path: parsed.source().into(),
                     location,
                 });
@@ -3614,6 +3642,8 @@ fn simplify_event_calls(plan: &mut Plan, unconditional: &BTreeSet<String>) {
             Action::With { plan, .. }
             | Action::ChangeGovernment { before: plan, .. }
             | Action::InScope { plan, .. }
+            | Action::InPreviousScope { plan, .. }
+            | Action::Repeat { plan, .. }
             | Action::ForEach { plan, .. }
             | Action::ForEachOwnedProvince { plan, .. }
             | Action::ForEachSubjectCountry { plan, .. }
@@ -3688,6 +3718,8 @@ pub(crate) fn event_references(plan: &[Action], references: &mut BTreeSet<String
             Action::With { plan, .. }
             | Action::ChangeGovernment { before: plan, .. }
             | Action::InScope { plan, .. }
+            | Action::InPreviousScope { plan, .. }
+            | Action::Repeat { plan, .. }
             | Action::ForEach { plan, .. }
             | Action::ForEachOwnedProvince { plan, .. }
             | Action::ForEachSubjectCountry { plan, .. }
@@ -3696,5 +3728,49 @@ pub(crate) fn event_references(plan: &[Action], references: &mut BTreeSet<String
             | Action::Preview { plan } => event_references(plan, references),
             _ => (),
         }
+    }
+}
+
+#[cfg(test)]
+mod script_plan_tests {
+    use super::*;
+
+    #[test]
+    fn optional_script_header_marks_its_parameter_block() {
+        let document = TextDocument::from_bytes(
+            "optional.txt",
+            b"macro={ [[custom_tooltip] custom_tooltip=$custom_tooltip$ ] hidden_effect={ log=done } }"
+                .to_vec(),
+            TextEncoding::Utf8,
+        );
+        let parsed = document.parse().unwrap();
+        let fields = read_fields(&parsed, parsed.reader(), 0, true).unwrap();
+        let Value::Block(body) = &fields[0].value else {
+            panic!("script declaration must be a block");
+        };
+
+        assert_eq!(body[0].name, "custom_tooltip");
+        assert_eq!(
+            body[0].optional_parameter.as_deref(),
+            Some("custom_tooltip")
+        );
+    }
+
+    #[test]
+    fn event_reference_walker_visits_repeated_previous_scope_bodies() {
+        let plan = [Action::Repeat {
+            count: 2,
+            plan: vec![Action::InPreviousScope {
+                kind: EntityKind::Province,
+                plan: vec![Action::TryEvent {
+                    event: "units.spawned".into(),
+                }],
+            }],
+        }];
+        let mut references = BTreeSet::new();
+
+        event_references(&plan, &mut references);
+
+        assert_eq!(references, BTreeSet::from(["units.spawned".into()]));
     }
 }

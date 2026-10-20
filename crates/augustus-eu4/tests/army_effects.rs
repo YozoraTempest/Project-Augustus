@@ -152,6 +152,9 @@ fn parameterized_unit_spawn_effect_repeats_dynamic_creation_in_previous_province
         .add_effects(&document(
             r#"
             create_units_of_type_in_province = {
+                [[custom_tooltip]
+                    custom_tooltip = $custom_tooltip$
+                ]
                 $who$ = {
                     for = {
                         amount = $amount$
@@ -162,24 +165,28 @@ fn parameterized_unit_spawn_effect_repeats_dynamic_creation_in_previous_province
             "#,
         ))
         .unwrap();
-    let compiled = ScriptCompiler::new(&schema, &library, true)
-        .compile_events(&document(
-            r#"
+    let event_document = |arguments: &str| {
+        let source = r#"
             country_event = {
                 id = units.1
                 is_triggered_only = yes
                 immediate = {
                     112 = {
-                        create_units_of_type_in_province = {
-                            who = ROOT
-                            amount = 3
-                            unit_type = galley
-                        }
+                        create_units_of_type_in_province = { $UNIT_ARGUMENTS$ }
                     }
                 }
                 option = { name = continue }
             }
-            "#,
+        "#
+        .replace("$UNIT_ARGUMENTS$", arguments);
+        document(&source)
+    };
+    let compiled = ScriptCompiler::new(&schema, &library, true)
+        .compile_events(&event_document("who=ROOT amount=3 unit_type=galley"))
+        .unwrap();
+    ScriptCompiler::new(&schema, &library, true)
+        .compile_events(&event_document(
+            "who=ROOT amount=3 unit_type=galley custom_tooltip=unit_spawn_tooltip",
         ))
         .unwrap();
     let mut world = World::new(schema);
