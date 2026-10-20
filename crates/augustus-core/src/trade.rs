@@ -68,6 +68,81 @@ pub fn calculate_vanilla_trade_caravan(
     }
 }
 
+/// Inputs for the verified EU4 trade-income record calculation.
+///
+/// The compatibility layer resolves the node value, country record, context
+/// modifiers, and any post-context bonus. The core preserves the fixed-point
+/// stages without assigning EU4 semantics to an unresolved context key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeIncomeInput {
+    pub node_value_milli: i64,
+    pub country_record_value_milli: i64,
+    pub base_context_modifier_milli: i64,
+    pub selected_context_modifier_milli: i64,
+    pub virtual_context_modifier_milli: Option<i64>,
+    pub minimum_context_modifier_milli: i64,
+    pub maximum_context_modifier_milli: i64,
+    pub post_context_modifier_milli: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaTradeIncomeResult {
+    pub context_modifier_before_clamp_milli: i128,
+    pub context_modifier_milli: i64,
+    pub stage_one_product: i128,
+    pub stage_one_milli: i64,
+    pub effective_multiplier_milli: i128,
+    pub stage_two_product: i128,
+    pub trade_income_milli: i64,
+}
+
+/// Reproduces the observed trade-income calculation order.
+///
+/// Context terms are added before the lower-then-upper clamp. The node and
+/// country record are multiplied and truncated to thousandths first; the
+/// resulting amount is then multiplied by the 1000 baseline, clamped context
+/// modifier, and post-context modifier, with both divisions truncating toward
+/// zero.
+pub fn calculate_vanilla_trade_income(
+    input: VanillaTradeIncomeInput,
+) -> Result<VanillaTradeIncomeResult, Error> {
+    let context_modifier_before_clamp_milli = i128::from(input.base_context_modifier_milli)
+        + i128::from(input.selected_context_modifier_milli)
+        + i128::from(input.virtual_context_modifier_milli.unwrap_or(0));
+    let context_modifier_milli = if context_modifier_before_clamp_milli
+        < i128::from(input.minimum_context_modifier_milli)
+    {
+        input.minimum_context_modifier_milli
+    } else if context_modifier_before_clamp_milli > i128::from(input.maximum_context_modifier_milli)
+    {
+        input.maximum_context_modifier_milli
+    } else {
+        i64::try_from(context_modifier_before_clamp_milli).map_err(|_| Error::Overflow)?
+    };
+
+    let stage_one_product =
+        i128::from(input.node_value_milli) * i128::from(input.country_record_value_milli);
+    let stage_one_milli = i64::try_from(stage_one_product / 1_000).map_err(|_| Error::Overflow)?;
+    let effective_multiplier_milli =
+        1_000 + i128::from(context_modifier_milli) + i128::from(input.post_context_modifier_milli);
+    let stage_two_product = i128::from(stage_one_milli)
+        .checked_mul(effective_multiplier_milli)
+        .ok_or(Error::Overflow)?;
+    let trade_income_milli =
+        i64::try_from(stage_two_product / 1_000).map_err(|_| Error::Overflow)?;
+
+    Ok(VanillaTradeIncomeResult {
+        context_modifier_before_clamp_milli,
+        context_modifier_milli,
+        stage_one_product,
+        stage_one_milli,
+        effective_multiplier_milli,
+        stage_two_product,
+        trade_income_milli,
+    })
+}
+
 /// Inputs for the verified province/trade-power amount stage.
 ///
 /// The compatibility layer resolves the province, fleet and any conditional

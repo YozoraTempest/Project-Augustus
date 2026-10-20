@@ -3,14 +3,103 @@
 
 use augustus_core::{
     VanillaTradeCandidate, VanillaTradeCaravanInput, VanillaTradeDistributionCandidate,
-    VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput,
+    VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput,
     VanillaTradePowerAmountInput, VanillaTradePowerModifierInput, VanillaTradePropagationInput,
     VanillaTradeRetentionInput, VanillaTradeRouteWeightInput, calculate_vanilla_trade_caravan,
-    calculate_vanilla_trade_distribution, calculate_vanilla_trade_power_amount,
-    calculate_vanilla_trade_power_modifier, calculate_vanilla_trade_propagation,
-    calculate_vanilla_trade_retention, calculate_vanilla_trade_route_weights,
-    sort_vanilla_trade_candidates,
+    calculate_vanilla_trade_distribution, calculate_vanilla_trade_income,
+    calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
+    calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
+    calculate_vanilla_trade_route_weights, sort_vanilla_trade_candidates,
 };
+
+#[test]
+fn trade_income_matches_the_two_verified_syria_paths() {
+    let no_mod = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
+        node_value_milli: 3_837,
+        country_record_value_milli: 343,
+        base_context_modifier_milli: 20,
+        selected_context_modifier_milli: 100,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: 100,
+    })
+    .unwrap();
+    assert_eq!(no_mod.context_modifier_before_clamp_milli, 120);
+    assert_eq!(no_mod.context_modifier_milli, 120);
+    assert_eq!(no_mod.stage_one_product, 1_316_091);
+    assert_eq!(no_mod.stage_one_milli, 1_316);
+    assert_eq!(no_mod.effective_multiplier_milli, 1_220);
+    assert_eq!(no_mod.stage_two_product, 1_605_520);
+    assert_eq!(no_mod.trade_income_milli, 1_605);
+
+    let modded = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
+        node_value_milli: 3_845,
+        country_record_value_milli: 342,
+        base_context_modifier_milli: 20,
+        selected_context_modifier_milli: 50,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: 100,
+    })
+    .unwrap();
+    assert_eq!(modded.context_modifier_before_clamp_milli, 70);
+    assert_eq!(modded.context_modifier_milli, 70);
+    assert_eq!(modded.stage_one_product, 1_314_990);
+    assert_eq!(modded.stage_one_milli, 1_314);
+    assert_eq!(modded.effective_multiplier_milli, 1_170);
+    assert_eq!(modded.stage_two_product, 1_537_380);
+    assert_eq!(modded.trade_income_milli, 1_537);
+}
+
+#[test]
+fn trade_income_clamps_context_before_bonus_and_truncates_signed_stages() {
+    let upper = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
+        node_value_milli: 1,
+        country_record_value_milli: 1_000,
+        base_context_modifier_milli: 20,
+        selected_context_modifier_milli: 3_000,
+        virtual_context_modifier_milli: Some(2_000),
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: 100,
+    })
+    .unwrap();
+    assert_eq!(upper.context_modifier_before_clamp_milli, 5_020);
+    assert_eq!(upper.context_modifier_milli, 2_000);
+    assert_eq!(upper.effective_multiplier_milli, 3_100);
+    assert_eq!(upper.trade_income_milli, 3);
+
+    let negative = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
+        node_value_milli: 3,
+        country_record_value_milli: -500,
+        base_context_modifier_milli: 0,
+        selected_context_modifier_milli: 0,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: 0,
+    })
+    .unwrap();
+    assert_eq!(negative.stage_one_milli, -1);
+    assert_eq!(negative.trade_income_milli, -1);
+
+    let subunit = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
+        node_value_milli: 3,
+        country_record_value_milli: -333,
+        base_context_modifier_milli: 0,
+        selected_context_modifier_milli: 0,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: 0,
+    })
+    .unwrap();
+    assert_eq!(subunit.stage_one_product, -999);
+    assert_eq!(subunit.stage_one_milli, 0);
+    assert_eq!(subunit.trade_income_milli, 0);
+}
 
 #[test]
 fn trade_caravan_preserves_bounds_modifier_order_and_zero_floor() {
