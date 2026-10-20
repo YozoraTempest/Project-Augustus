@@ -109,6 +109,7 @@ fn owned_query_scope_and_body_are_checked_even_when_unreachable() {
             EntityKind::Province,
             "if={limit={any_owned_province={always=yes}} log=wrong}",
         ),
+        (EntityKind::Country, "if={limit={development=30} log=wrong}"),
         (
             EntityKind::Country,
             "if={limit={any_owned_province=yes} log=wrong}",

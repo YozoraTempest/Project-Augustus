@@ -6,8 +6,8 @@ use augustus_core::{
     EstateState, Estates, ModifierDefinition,
 };
 use augustus_eu4::{
-    ContentRoot, ContentSet, ContentSource, VanillaExternalEstateState, VanillaExternalState,
-    VanillaWorld,
+    ContentRoot, ContentSet, ContentSource, VanillaExternalEstateState,
+    VanillaExternalProvinceDevelopment, VanillaExternalState, VanillaWorld,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1867,6 +1867,10 @@ fn influence_initialization_resolves_owned_province_and_capital_triggers() {
                 trigger = { any_owned_province = { religion = test_faith } }
                 influence = 3
             }
+            influence_modifier = {
+                trigger = { any_owned_province = { development = 30 } }
+                influence = 4
+            }
             influence_modifier = { trigger = { owns = 1 } influence = 2 }
             influence_modifier = { trigger = { owns = 2 } influence = 4 }
             influence_modifier = { trigger = { capital = 1 } influence = 5 }
@@ -1882,13 +1886,21 @@ fn influence_initialization_resolves_owned_province_and_capital_triggers() {
     let state = VanillaExternalState {
         country_capitals: BTreeMap::from([("AAA".into(), Some(1))]),
         province_owners: BTreeMap::from([(1, Some("AAA".into())), (2, Some("BBB".into()))]),
+        province_development: BTreeMap::from([(
+            1,
+            VanillaExternalProvinceDevelopment {
+                base_tax_milli: Some(10_000),
+                base_production_milli: Some(11_000),
+                base_manpower_milli: Some(10_000),
+            },
+        )]),
         ..Default::default()
     };
 
     let loaded = VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &state).unwrap();
     assert_eq!(
         loaded.country("AAA").unwrap().estates.unwrap()["guild"].influence_milli,
-        Some(20_000),
+        Some(24_000),
         "{:?}",
         loaded.report.estates.unresolved_initialization.get("AAA")
     );
@@ -1917,10 +1929,30 @@ fn influence_initialization_resolves_owned_province_and_capital_triggers() {
     let unowned = VanillaExternalState {
         country_capitals: BTreeMap::from([("AAA".into(), Some(1))]),
         province_owners: BTreeMap::from([(1, Some("AAA".into())), (2, None)]),
+        province_development: state.province_development.clone(),
         ..Default::default()
     };
     let loaded =
         VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &unowned).unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap()["guild"].influence_milli,
+        Some(24_000)
+    );
+
+    let below_threshold = VanillaExternalState {
+        province_development: BTreeMap::from([(
+            1,
+            VanillaExternalProvinceDevelopment {
+                base_tax_milli: Some(10_000),
+                base_production_milli: Some(10_000),
+                base_manpower_milli: Some(9_999),
+            },
+        )]),
+        ..state.clone()
+    };
+    let loaded =
+        VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &below_threshold)
+            .unwrap();
     assert_eq!(
         loaded.country("AAA").unwrap().estates.unwrap()["guild"].influence_milli,
         Some(20_000)

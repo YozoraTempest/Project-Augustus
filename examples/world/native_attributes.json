@@ -1090,6 +1090,50 @@
       }
     },
     "2": {
+      "development": {
+        "base": {
+          "kind": "constant",
+          "micros": 0
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "numeric",
+                "source": "province.tax_base",
+                "target": "Current",
+                "slot": {
+                  "Field": 0
+                },
+                "micros_per_unit": 1000
+              },
+              {
+                "kind": "numeric",
+                "source": "province.production_base",
+                "target": "Current",
+                "slot": {
+                  "Field": 1
+                },
+                "micros_per_unit": 1000
+              },
+              {
+                "kind": "numeric",
+                "source": "province.manpower_base",
+                "target": "Current",
+                "slot": {
+                  "Field": 2
+                },
+                "micros_per_unit": 1000
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": 0,
+        "maximum_micros": null,
+        "result_quantum_micros": null,
+        "unresolved": []
+      },
       "province_autonomy_monthly_delta": {
         "base": {
           "kind": "constant",
@@ -1748,6 +1792,50 @@
       }
     },
     "3": {
+      "development": {
+        "base": {
+          "kind": "constant",
+          "micros": 0
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "numeric",
+                "source": "province.tax_base",
+                "target": "Current",
+                "slot": {
+                  "Field": 0
+                },
+                "micros_per_unit": 1000
+              },
+              {
+                "kind": "numeric",
+                "source": "province.production_base",
+                "target": "Current",
+                "slot": {
+                  "Field": 1
+                },
+                "micros_per_unit": 1000
+              },
+              {
+                "kind": "numeric",
+                "source": "province.manpower_base",
+                "target": "Current",
+                "slot": {
+                  "Field": 2
+                },
+                "micros_per_unit": 1000
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": 0,
+        "maximum_micros": null,
+        "result_quantum_micros": null,
+        "unresolved": []
+      },
       "province_autonomy_monthly_delta": {
         "base": {
           "kind": "constant",

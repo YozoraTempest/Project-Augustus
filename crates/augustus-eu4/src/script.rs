@@ -2635,6 +2635,20 @@ impl<'a> ScriptCompiler<'a> {
                         condition: Box::new(self.conditions(field.block()?, EntityKind::Province)?),
                     }
                 }
+                "development" => {
+                    if scope != EntityKind::Province {
+                        return Err(field.error("development conditions require province scope"));
+                    }
+                    Condition::NumericCompare {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Attribute {
+                            name: "development".into(),
+                            divisor: 1_000,
+                        },
+                        comparison: augustus_core::NumericComparison::AtLeast,
+                        value: decimal(field)?,
+                    }
+                }
                 "devastation" => {
                     self.devastation_scope(field, scope)?;
                     Condition::NumericCompare {

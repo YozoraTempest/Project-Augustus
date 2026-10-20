@@ -22,7 +22,8 @@ const ATTRIBUTE_ONE_MICROS: i64 = 1_000_000;
 const AUTONOMY_MONTHLY_SCALE_MICROS: i64 = 10_000;
 // One game autonomy tick is 0.001 percentage points, or 10 ratio millionths.
 const AUTONOMY_MONTHLY_QUANTUM_MICROS: i64 = 10;
-pub(super) const ATTRIBUTE_NAMES: [&str; 4] = [
+pub(super) const ATTRIBUTE_NAMES: [&str; 5] = [
+    "development",
     "tax_basis",
     "manpower_contribution",
     "tax_after_autonomy",
@@ -402,6 +403,47 @@ impl AttributeDraft {
                 .province_entity(province.id)
                 .expect("registered province");
             let mut formulas = BTreeMap::new();
+            let development_unresolved = [
+                ("province.tax_base", province.tax_milli),
+                ("province.production_base", province.production_milli),
+                ("province.manpower_base", province.manpower_milli),
+            ]
+            .into_iter()
+            .filter(|(_, value)| value.is_none())
+            .map(|(field, _)| format!("province:{}:missing_base:{field}", province.id))
+            .collect();
+            formulas.insert(
+                "development".into(),
+                AttributeFormula {
+                    base: AttributeBase::Constant { micros: 0 },
+                    channels: vec![AttributeChannel {
+                        flat: [
+                            "province.tax_base",
+                            "province.production_base",
+                            "province.manpower_base",
+                        ]
+                        .into_iter()
+                        .map(|field| AttributeTerm::Numeric {
+                            source: field.into(),
+                            target: Target::Current,
+                            slot: augustus_core::NumericSlot::Field(
+                                initial
+                                    .world()
+                                    .schema()
+                                    .field(field)
+                                    .expect("registered province base field"),
+                            ),
+                            micros_per_unit: 1_000,
+                        })
+                        .collect(),
+                        rates: Vec::new(),
+                    }],
+                    minimum_micros: Some(0),
+                    maximum_micros: None,
+                    result_quantum_micros: None,
+                    unresolved: development_unresolved,
+                },
+            );
             for (name, base, field, scale, local_rate, global_rate) in [
                 (
                     "tax_basis",

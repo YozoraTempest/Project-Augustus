@@ -37,6 +37,10 @@ fn copy_fixture() -> tempfile::TempDir {
 fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
     let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
     let north = loaded.province(1).unwrap();
+    assert_eq!(
+        north.attributes["development"].value_micros,
+        Some(7_625_000)
+    );
     let tax = &north.attributes["tax_basis"];
     assert_eq!(tax.base_micros, Some(2_125_000));
     assert_eq!(tax.known_subtotal_micros, Some(212_000));
@@ -98,6 +102,20 @@ fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
         occupied.province(1).unwrap().attributes["tax_basis"].known_subtotal_micros,
         Some(0)
     );
+}
+
+#[test]
+fn development_attribute_stays_unknown_when_a_base_component_is_missing() {
+    let root = copy_fixture();
+    let path = root.path().join("history/provinces/1 - North.txt");
+    let content = fs::read_to_string(&path).unwrap();
+    let content = content.replace("base_manpower = 3.5", "");
+    fs::write(path, content).unwrap();
+
+    let loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    let development = &loaded.province(1).unwrap().attributes["development"];
+    assert!(development.value_micros.is_none());
+    assert!(!development.unresolved.is_empty());
 }
 
 #[test]

@@ -217,7 +217,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 ## 部分属性计算
 
-省份查询的 `attributes` 包含 `tax_basis` 和 `manpower_contribution`；Godot 显示“已接入部分，自治前”，并列出参与计算的来源和缺项。税收基数从基础税收开始，人力贡献按本地 `NMilitary.BASE_MP_TO_MANPOWER` 的明确声明换算为人数。月结使用另一个自治后属性 `tax_after_autonomy`；完整国家人力上限及可用人力结算尚未建立。
+省份查询的 `attributes` 包含 `development`、`tax_basis` 和 `manpower_contribution`；`development` 为税收、生产与人力基础值之和，可用于省份作用域的 `development = n` 条件。任一基础值未知时，总发展度也保持未知。Godot 显示税收与人力的“已接入部分，自治前”计算，并列出来源和缺项。税收基数从基础税收开始，人力贡献按本地 `NMilitary.BASE_MP_TO_MANPOWER` 的明确声明换算为人数。月结使用另一个自治后属性 `tax_after_autonomy`；完整国家人力上限及可用人力结算尚未建立。
 
 当前组合城市状态、明确的占领状态、历史记载建筑、商品的 `province` 块、永久省份与所有者历史修正，以及文化待遇和宗教定义的直接效果。税收接入固定增量 `tax_income`、省份 `local_tax_modifier` 与所有者 `global_tax_modifier`；人力接入省份 `local_manpower_modifier` 与所有者 `global_manpower_modifier`。其他静态修正仍只是目录声明，未根据其名称自动生效。建筑保留条件尚未执行，参与计算的建筑仍是历史载入结果。
 
