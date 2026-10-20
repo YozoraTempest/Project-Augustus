@@ -1819,7 +1819,8 @@ fn influence_initialization_uses_defines_and_selected_privileges() {
         loaded.initial.world().estates().rules.influence_bands,
         Some(
             [
-                (0, 250_000),
+                (0, 0),
+                (1, 250_000),
                 (20_000, 500_000),
                 (40_000, 750_000),
                 (60_000, 1_000_000),

@@ -9,7 +9,7 @@ use std::{
 use augustus_core::{
     EstateConditionalModifier, EstateConditionalScale, EstateDefinition, EstateEffect,
     EstateInfluenceBand, EstateLoyaltyDecay, EstatePrivilege, EstateRules, EstateState, Estates,
-    InitialWorld,
+    InitialWorld, VanillaEstateInfluenceScaleInput, calculate_vanilla_estate_influence_scale,
 };
 use jomini::text::ObjectReader;
 use serde::Serialize;
@@ -483,20 +483,31 @@ impl EstateDraft {
                         "estate influence levels must be strictly increasing",
                     ));
                 }
-                let levels = [level_1 / 1000, level_2 / 1000, level_3 / 1000];
+                let thresholds_milli = [level_1 / 1000, level_2 / 1000, level_3 / 1000];
+                let mut band_starts_milli = vec![0, 1];
+                band_starts_milli.extend(thresholds_milli);
+                band_starts_milli.sort_unstable();
+                band_starts_milli.dedup();
                 rules.influence_bands = Some(
-                    [
-                        (0, 250_000),
-                        (levels[0], 500_000),
-                        (levels[1], 750_000),
-                        (levels[2], 1_000_000),
-                    ]
-                    .into_iter()
-                    .map(|(minimum_milli, scale_micros)| EstateInfluenceBand {
-                        minimum_milli,
-                        scale_micros,
-                    })
-                    .collect(),
+                    band_starts_milli
+                        .into_iter()
+                        .map(|minimum_milli| {
+                            let scale_milli = calculate_vanilla_estate_influence_scale(
+                                VanillaEstateInfluenceScaleInput {
+                                    raw_influence_milli: minimum_milli as i32,
+                                    additional_value_milli: 0,
+                                    first_threshold_milli: thresholds_milli[0] as i32,
+                                    second_threshold_milli: thresholds_milli[1] as i32,
+                                    third_threshold_milli: thresholds_milli[2] as i32,
+                                },
+                            )
+                            .scale_milli;
+                            EstateInfluenceBand {
+                                minimum_milli,
+                                scale_micros: i64::from(scale_milli) * 1_000,
+                            }
+                        })
+                        .collect(),
                 );
             }
             (None, None, None) => {}

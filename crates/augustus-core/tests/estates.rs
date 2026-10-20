@@ -107,7 +107,8 @@ fn world() -> World {
             happy_from_milli: Some(60_000),
             influence_bands: Some(
                 [
-                    (0, 250_000),
+                    (0, 0),
+                    (1, 250_000),
                     (20_000, 500_000),
                     (40_000, 750_000),
                     (60_000, 1_000_000),
@@ -255,6 +256,37 @@ fn current_loyalty_influence_land_privileges_and_owner_choose_effects() {
     assert_eq!(tax(&world).value_micros, Some(16_800_000));
     world.set_owner(EntityId(2), EntityId(1)).unwrap();
     assert_eq!(tax(&world).value_micros, Some(12_000_000));
+}
+
+#[test]
+fn zero_estate_influence_disables_the_source_modifier_but_positive_values_keep_the_floor() {
+    let mut world = world();
+
+    for (influence_milli, expected_micros) in [(0, 0), (1, 50_000), (19_999, 50_000)] {
+        let mut estates = world.estates().clone();
+        estates
+            .countries
+            .get_mut(&EntityId(0))
+            .unwrap()
+            .get_mut("guild")
+            .unwrap()
+            .influence_milli = Some(influence_milli);
+        world.set_estates(estates).unwrap();
+
+        let evaluation = world
+            .estates()
+            .property_effects(EntityId(0), "tax")
+            .unwrap();
+        let source = evaluation
+            .contributions
+            .iter()
+            .find(|contribution| contribution.source == "estates:guild:neutral")
+            .unwrap();
+        assert_eq!(
+            source.micros, expected_micros,
+            "influence {influence_milli}"
+        );
+    }
 }
 
 #[test]
