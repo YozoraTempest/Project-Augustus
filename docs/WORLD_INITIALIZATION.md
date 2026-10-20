@@ -273,7 +273,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 当前君主的 `adm`、`dip`、`mil` 条件与 `change_adm`、`change_dip`、`change_mil` 效果已经接入。条件实时读取人物状态；变更范围从字面 `MONARCH_MIN_SKILL`、`MONARCH_MAX_SKILL` 读取，并在 `setup.ruler_skill_bounds` 中报告。历史能力在载入时保持原值，执行变更时才按范围钳制。缺少任一范围定义时，变更规则保持未知。人物生成、继位和完整开局仍需其他系统。用法见 [当前君主能力](../examples/country-ruler/README.md)。
 
-国家历史中的字面 `national_focus = ADM/DIP/MIL` 已进入共享人物状态，受支持的事件可以直接切换或清除焦点。`setup.monarch_power_income_defines` 报告基础收入与焦点系数及声明来源。命令行和 Godot 国家查询的 `attributes.monthly_adm/dip/mil` 给出实时计算及缺项，`last_monthly_accruals` 给出上次入账记录。顾问类型定义会进入 `setup.advisor_types`；外部状态和未压缩 EU4 存档可以绑定当前顾问槽，核心按顾问类别选择第一个匹配顾问并保留其技能。国家查询的 `advisors_known` 表示顾问列表是否已由兼容层确定，`advisors` 的空数组表示已确认没有在职顾问，`null` 且 `advisors_known=false` 表示仍未知。新战役的顾问生成、力量投射及其他收入来源尚未全部接通，因此完整收入仍可能保持未知。已知的自制公式可以执行月结，见 [月度君主点数](../examples/country-income/README.md)。
+国家历史中的字面 `national_focus = ADM/DIP/MIL` 已进入共享人物状态，受支持的事件可以直接切换或清除焦点。`setup.monarch_power_income_defines` 报告基础收入与焦点系数及声明来源。命令行和 Godot 国家查询的 `attributes.monthly_adm/dip/mil` 给出实时计算及缺项，`last_monthly_accruals` 给出上次入账记录。顾问类型定义会进入 `setup.advisor_types`；外部状态和未压缩 EU4 存档可以绑定当前顾问槽，核心按顾问类别选择第一个匹配顾问并保留其技能。国家查询的 `advisors_known` 表示顾问列表是否已由兼容层确定，`advisors` 的空数组表示已确认没有在职顾问，`null` 且 `advisors_known=false` 表示仍未知。`advisor_slots` 可报告已单独确定的类别槽；未出现的类别仍未知，值为 `null` 表示该槽已确定为空。新战役的顾问生成、力量投射及其他收入来源尚未全部接通，因此完整收入仍可能保持未知。已知的自制公式可以执行月结，见 [月度君主点数](../examples/country-income/README.md)。
 
 国家查询中的 `metrics` 提供行政、外交、军事点数和已知的 `power_projection`，`metric_ceilings` 提供已知的增长上限。当前原版初始化规则尚未接入，这些值保留为未知；不能据此运行原版的完整开局。`setup` 报告列出 `POWER_MAX` 的基础值、声明来源及点数未知的国家。外交负值下限使用 Lua 求值后的 `DEBT_LIMIT_DIP`；缺少声明时不猜测下限。已知力量投射达到 50.000 时，月度三项君主点数公式会增加 1；缺少该指标仍保持未决。自制场景用法见 [国家点数库存](../examples/country-power/README.md)。
 

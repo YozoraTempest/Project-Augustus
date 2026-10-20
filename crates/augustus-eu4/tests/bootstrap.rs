@@ -2082,6 +2082,54 @@ fn external_advisors_are_translated_by_content_type_before_startup() {
 }
 
 #[test]
+fn country_view_reports_known_advisor_slots_without_claiming_a_full_roster() {
+    let root = copy_fixture();
+    fs::create_dir_all(root.path().join("common/advisortypes")).unwrap();
+    fs::write(
+        root.path().join("common/advisortypes/test.txt"),
+        "advisor = { monarch_power = ADM } army_reformer = { monarch_power = MIL }",
+    )
+    .unwrap();
+    fs::create_dir_all(root.path().join("common/on_actions")).unwrap();
+    fs::write(
+        root.path().join("common/on_actions/advisor_slots.txt"),
+        "on_startup = { if = { limit = { tag = AAA } country_event = { id = probe.1 days = 1 } } }",
+    )
+    .unwrap();
+    fs::create_dir_all(root.path().join("events")).unwrap();
+    fs::write(
+        root.path().join("events/advisor_slots.txt"),
+        "namespace = probe country_event = { id = probe.1 is_triggered_only = yes immediate = { remove_advisor_by_category = DIP hire_advisor = { type = army_reformer skill = 1 } } }",
+    )
+    .unwrap();
+
+    let mut loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    let initial = loaded.country("AAA").unwrap();
+    assert!(!initial.advisors_known);
+    assert!(initial.advisors.is_none());
+    assert!(initial.advisor_slots.is_none());
+
+    loaded.advance(1).unwrap();
+
+    let view = loaded.country("AAA").unwrap();
+    assert!(!view.advisors_known);
+    assert!(view.advisors.is_none());
+    let slots = view.advisor_slots.unwrap();
+    assert_eq!(slots.len(), 2);
+    assert!(!slots.contains_key(&RulerSkill::Administration));
+    assert!(slots[&RulerSkill::Diplomacy].is_none());
+    let military = slots[&RulerSkill::Military].as_ref().unwrap();
+    assert_eq!(military.type_name, "army_reformer");
+    assert_eq!(military.skill, 1);
+
+    let serialized = serde_json::to_value(loaded.country("AAA").unwrap()).unwrap();
+    let serialized_slots = serialized["advisor_slots"].as_object().unwrap();
+    assert!(!serialized_slots.contains_key("Administration"));
+    assert_eq!(serialized_slots["Diplomacy"], serde_json::Value::Null);
+    assert_eq!(serialized_slots["Military"]["type_name"], "army_reformer");
+}
+
+#[test]
 fn runtime_advisor_binding_refreshes_live_power_income_sources() {
     let root = copy_fixture();
     fs::create_dir_all(root.path().join("common/advisortypes")).unwrap();

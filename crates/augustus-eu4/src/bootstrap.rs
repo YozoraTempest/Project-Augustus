@@ -118,6 +118,11 @@ pub struct CountryView<'a> {
     /// active advisors. `advisors_known` distinguishes that from missing data.
     pub advisors: Option<&'a Vec<augustus_core::AdvisorState>>,
     pub advisors_known: bool,
+    /// Category slots that are known even when the full advisor roster is not.
+    /// Missing categories are unknown; `None` values are known-empty slots.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub advisor_slots:
+        Option<BTreeMap<augustus_core::RulerSkill, Option<augustus_core::AdvisorState>>>,
     pub flags: Option<&'a BTreeMap<String, bool>>,
     pub flag_namespace_known: bool,
     pub estates: Option<&'a BTreeMap<String, augustus_core::EstateState>>,
@@ -4456,6 +4461,22 @@ impl VanillaWorld {
                     .advisors()
                     .countries
                     .contains_key(&entity)
+            }),
+            advisor_slots: self.initial.country_entity(id).and_then(|entity| {
+                let advisors = self.initial.world().advisors();
+                let slots = [
+                    augustus_core::RulerSkill::Administration,
+                    augustus_core::RulerSkill::Diplomacy,
+                    augustus_core::RulerSkill::Military,
+                ]
+                .into_iter()
+                .filter_map(|category| {
+                    advisors
+                        .advisor_in_category(entity, category)
+                        .map(|advisor| (category, advisor.cloned()))
+                })
+                .collect::<BTreeMap<_, _>>();
+                (!slots.is_empty()).then_some(slots)
             }),
             estates: self
                 .initial
