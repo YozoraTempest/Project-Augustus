@@ -15,6 +15,13 @@ pub struct Calendar {
 }
 
 impl Calendar {
+    /// Convert a calendar date to the simulation day measured from its start.
+    pub fn day_offset(&self, date: WorldDate) -> Result<u64, Error> {
+        self.ordinal(date)?
+            .checked_sub(self.ordinal(self.start)?)
+            .ok_or_else(|| Error::Invalid("date precedes calendar start".into()))
+    }
+
     /// Add whole calendar months, retaining the day when the destination month
     /// permits it, and using its last day otherwise.
     pub fn after_months(&self, day: u64, months: u32) -> Result<u64, Error> {
@@ -28,9 +35,7 @@ impl Calendar {
             month,
             day: date.day.min(self.month_lengths[usize::from(month - 1)]),
         };
-        self.ordinal(end)?
-            .checked_sub(self.ordinal(self.start)?)
-            .ok_or(Error::Overflow)
+        self.day_offset(end)
     }
 
     fn ordinal(&self, date: WorldDate) -> Result<u64, Error> {

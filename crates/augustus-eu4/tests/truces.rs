@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_core::{EntityKind, Schema};
+use augustus_core::{EntityKind, Schema, WorldDate};
 use augustus_eu4::{ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding, VanillaWorld};
 use std::{fs, path::Path};
 
@@ -88,6 +88,124 @@ fn startup_translates_to_one_graph_and_restore_retains_renewed_deadlines() {
     );
     let mut changed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
     assert!(changed.restore(&saved).is_err());
+}
+
+#[test]
+fn country_history_truce_deadline_uses_its_historical_date() {
+    let temp = fixture();
+    let history = temp.path().join("history/countries/AAA - Alpha.txt");
+    let contents = fs::read_to_string(&history).unwrap();
+    fs::write(
+        history,
+        format!("{contents}\n1444.10.29 = {{ add_truce_with = BBB }}\n"),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let aaa = loaded.initial.country_entity("AAA").unwrap();
+    let bbb = loaded.initial.country_entity("BBB").unwrap();
+    assert!(loaded.initial.world().truce_with(aaa, bbb).unwrap());
+    assert!(loaded.initial.world().truce_with(bbb, aaa).unwrap());
+    assert!(
+        !loaded
+            .report
+            .unapplied_country_fields
+            .contains_key("add_truce_with")
+    );
+
+    let (first, second) = if aaa <= bbb { (aaa, bbb) } else { (bbb, aaa) };
+    let record = loaded.initial.world().truces().records[&first][&second]
+        .as_ref()
+        .unwrap();
+    assert!(record.monthly);
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .calendar()
+            .unwrap()
+            .date(record.expires_on.unwrap())
+            .unwrap(),
+        WorldDate {
+            year: 1445,
+            month: 10,
+            day: 29,
+        }
+    );
+}
+
+#[test]
+fn undated_country_history_truce_starts_at_the_campaign_date() {
+    let temp = fixture();
+    let history = temp.path().join("history/countries/AAA - Alpha.txt");
+    let contents = fs::read_to_string(&history).unwrap();
+    fs::write(history, format!("{contents}\nadd_truce_with = BBB\n")).unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let aaa = loaded.initial.country_entity("AAA").unwrap();
+    let bbb = loaded.initial.country_entity("BBB").unwrap();
+    assert!(loaded.initial.world().truce_with(aaa, bbb).unwrap());
+    let (first, second) = if aaa <= bbb { (aaa, bbb) } else { (bbb, aaa) };
+    let record = loaded.initial.world().truces().records[&first][&second]
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .calendar()
+            .unwrap()
+            .date(record.expires_on.unwrap())
+            .unwrap(),
+        WorldDate {
+            year: 1445,
+            month: 11,
+            day: 11,
+        }
+    );
+}
+
+#[test]
+fn expired_country_history_truce_is_known_absent() {
+    let temp = fixture();
+    let history = temp.path().join("history/countries/AAA - Alpha.txt");
+    let contents = fs::read_to_string(&history).unwrap();
+    fs::write(
+        history,
+        format!("{contents}\n1430.1.1 = {{ add_truce_with = BBB }}\n"),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let aaa = loaded.initial.country_entity("AAA").unwrap();
+    let bbb = loaded.initial.country_entity("BBB").unwrap();
+    assert!(!loaded.initial.world().truce_with(aaa, bbb).unwrap());
+    assert!(!loaded.initial.world().truce_with(bbb, aaa).unwrap());
+}
+
+#[test]
+fn country_history_truce_without_duration_stays_unresolved() {
+    let temp = fixture();
+    let defines = temp.path().join("common/defines.lua");
+    fs::write(
+        &defines,
+        fs::read_to_string(&defines)
+            .unwrap()
+            .replace(" TRUCE_YEARS = 1,\n", ""),
+    )
+    .unwrap();
+    let history = temp.path().join("history/countries/AAA - Alpha.txt");
+    let contents = fs::read_to_string(&history).unwrap();
+    fs::write(history, format!("{contents}\nadd_truce_with = BBB\n")).unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.report.unapplied_country_fields.get("add_truce_with"),
+        Some(&1)
+    );
+    let aaa = loaded.initial.country_entity("AAA").unwrap();
+    let bbb = loaded.initial.country_entity("BBB").unwrap();
+    assert!(loaded.initial.world().truce_with(aaa, bbb).is_err());
 }
 
 #[test]

@@ -761,6 +761,8 @@ fn calendar_has_content_defined_month_lengths_and_checked_dates() {
     let c = calendar(date(1444, 2, 28));
     assert_eq!(c.date(1).unwrap(), date(1444, 3, 1));
     assert_eq!(c.date(365).unwrap(), date(1445, 2, 28));
+    assert_eq!(c.day_offset(date(1444, 3, 1)).unwrap(), 1);
+    assert!(c.day_offset(date(1444, 2, 27)).is_err());
     assert_eq!(c.next_month(0).unwrap(), 1);
     assert_eq!(
         calendar(date(1600, 2, 28)).date(1).unwrap(),

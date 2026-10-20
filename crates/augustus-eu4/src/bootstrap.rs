@@ -2130,6 +2130,7 @@ impl VanillaWorld {
             &mut report.religious_schools,
         )?;
         let mut country_histories = BTreeSet::new();
+        let mut historical_truce_grants = Vec::new();
         let mut country_metric_history_unknown = BTreeSet::new();
         let mut country_metric_scoped_history_unknown = false;
         let mut liberty_history_unknown = BTreeSet::new();
@@ -2267,7 +2268,7 @@ impl VanillaWorld {
                     line: 1,
                     column: 1,
                 });
-            visit_history(&parsed, date, |reader| {
+            visit_history_with_date(&parsed, date, |history_date, reader| {
                 match crate::country_markers::global_flag_mutations(&parsed, reader.clone(), 0)? {
                     Some(names) if !names.is_empty() => {
                         global_markers.mark_unknown();
@@ -2354,9 +2355,13 @@ impl VanillaWorld {
                             national_focus: Some(augustus_core::NationalFocus::default()),
                             ..Default::default()
                         }),
-                    &mut setup,
-                    &subsystem_handled,
-                    &mut report,
+                    CountryHistoryContext {
+                        date: crate::politics::label(history_date.unwrap_or(date)),
+                        historical_truce_grants: &mut historical_truce_grants,
+                        setup: &mut setup,
+                        subsystem_handled: &subsystem_handled,
+                        report: &mut report,
+                    },
                 )
             })?;
             if country.unit_type.is_none() {
@@ -3085,6 +3090,12 @@ impl VanillaWorld {
             crate::missions::MissionDraft::load(&root, &files, initial.world(), &area_scopes)?;
         missions.register_identifiers(&mut initial)?;
         crate::truces::bind(&files, &defines, &mut report.setup)?;
+        crate::truces::bind_history(
+            &mut initial,
+            &historical_truce_grants,
+            report.setup.truce_months,
+            &mut report,
+        )?;
         let external_privileges =
             overrides
                 .estate_privileges
@@ -4866,8 +4877,16 @@ fn visit_history<'a>(
     date: Date,
     mut apply: impl FnMut(ObjectReader<'a, 'a, TextEncoding>) -> Result<(), Error>,
 ) -> Result<(), Error> {
-    for (_, reader) in history_blocks(parsed, date)? {
-        apply(reader)?;
+    visit_history_with_date(parsed, date, |_, reader| apply(reader))
+}
+
+fn visit_history_with_date<'a>(
+    parsed: &'a ParsedText<'_>,
+    date: Date,
+    mut apply: impl FnMut(Option<Date>, ObjectReader<'a, 'a, TextEncoding>) -> Result<(), Error>,
+) -> Result<(), Error> {
+    for (history_date, reader) in history_blocks(parsed, date)? {
+        apply(history_date, reader)?;
     }
     Ok(())
 }
@@ -4923,15 +4942,28 @@ fn unapplied(
         .or_insert_with(|| source(parsed, location));
 }
 
+struct CountryHistoryContext<'a> {
+    date: WorldDate,
+    historical_truce_grants: &'a mut Vec<crate::truces::HistoricalTruceGrant>,
+    setup: &'a mut SetupDraft,
+    subsystem_handled: &'a BTreeSet<String>,
+    report: &'a mut BootstrapReport,
+}
+
 fn apply_country(
     parsed: &ParsedText<'_>,
     reader: ObjectReader<'_, '_, TextEncoding>,
     country: &mut CountryState,
     politics: &mut CountryDraft,
-    setup: &mut SetupDraft,
-    subsystem_handled: &BTreeSet<String>,
-    report: &mut BootstrapReport,
+    history: CountryHistoryContext<'_>,
 ) -> Result<(), Error> {
+    let CountryHistoryContext {
+        date,
+        historical_truce_grants,
+        setup,
+        subsystem_handled,
+        report,
+    } = history;
     let mut handled =
         setup.country_history(parsed, reader.clone(), &country.id, &mut report.setup)?;
     handled.extend(subsystem_handled.iter().cloned());
@@ -4965,6 +4997,18 @@ fn apply_country(
             | "add_government_reform"
             | "remove_government_reform"
             | "revolution_target" => (),
+            "add_truce_with" => {
+                equal(op, &fail)?;
+                let target = value
+                    .read_string()
+                    .map_err(|_| fail("expected historical truce target"))?;
+                historical_truce_grants.push(crate::truces::HistoricalTruceGrant {
+                    country: country.id.clone(),
+                    target,
+                    date,
+                    source: source(parsed, location),
+                });
+            }
             "monarch" | "heir" | "queen" | "monarch_consort" => {
                 equal(op, &fail)?;
                 let person = politics::person(parsed, value, &name, location, report)?;
