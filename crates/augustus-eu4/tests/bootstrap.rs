@@ -12,8 +12,8 @@ use augustus_core::{
     COUNTRY_LEDGER_INCOME_TAX_CATEGORY, COUNTRY_LEDGER_INCOME_TRADE_CATEGORY,
     COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY, CashflowBreakdown, CountryResources, EntityId,
     EntityKind, Error, MonthlyEconomy, MonthlyPipeline, MonthlySystem, NationalFocus,
-    ProvinceClass, RulerSkill, Schema, VanillaProductionInput, VanillaProductionInputState, World,
-    YearlyPipeline, YearlySystem,
+    ProvinceClass, RulerSkill, Schema, VanillaProductionInput, VanillaProductionInputState,
+    VanillaTradeIncomeInput, VanillaTradeIncomePassInput, World, YearlyPipeline, YearlySystem,
 };
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
@@ -2484,12 +2484,23 @@ fn loaded_vanilla_world_can_run_standard_economy_inside_a_monthly_pipeline() {
                 unresolved: BTreeSet::new(),
             },
         )]),
-        country_monthly_cashflows_milli: BTreeMap::from([("AAA".into(), Some(250))]),
+        country_monthly_cashflows_milli: BTreeMap::from([("AAA".into(), None)]),
         country_monthly_cashflow_breakdowns: BTreeMap::from([(
             "AAA".into(),
             CashflowBreakdown {
-                trade_milli: Some(200),
-                trade_income_pass: None,
+                trade_milli: None,
+                trade_income_pass: Some(VanillaTradeIncomePassInput {
+                    eligible_records: vec![VanillaTradeIncomeInput {
+                        node_value_milli: 3_817,
+                        country_record_value_milli: 349,
+                        base_context_modifier_milli: 20,
+                        selected_context_modifier_milli: 50,
+                        virtual_context_modifier_milli: None,
+                        minimum_context_modifier_milli: 10,
+                        maximum_context_modifier_milli: 2_000,
+                        post_context_modifier_milli: 100,
+                    }],
+                }),
                 gold_milli: Some(100),
                 expenses_milli: Some(50),
                 expense_categories_milli: BTreeMap::new(),
@@ -2577,11 +2588,11 @@ fn loaded_vanilla_world_can_run_standard_economy_inside_a_monthly_pipeline() {
         let cashflow_credit = cashflow.credited_milli.expect("known cashflow credit");
         assert_eq!(tax_credit, 666);
         assert_eq!(production_credit, 84);
-        assert_eq!(cashflow_credit, 250);
+        assert_eq!(cashflow_credit, 1_608);
         assert_eq!(before, 10_000);
         assert_eq!(
             world.country_resources()[&country].treasury_milli,
-            Some(10_975)
+            Some(12_333)
         );
         assert_eq!(
             world.country_resources()[&country].treasury_milli,
@@ -2598,7 +2609,7 @@ fn loaded_vanilla_world_can_run_standard_economy_inside_a_monthly_pipeline() {
         );
         assert_eq!(
             ledger.income_sources_milli[COUNTRY_LEDGER_INCOME_TRADE_CATEGORY as usize],
-            200
+            1_558
         );
         assert_eq!(
             ledger.income_sources_milli[COUNTRY_LEDGER_INCOME_GOLD_CATEGORY as usize],
@@ -2631,7 +2642,7 @@ fn loaded_vanilla_world_can_run_standard_economy_inside_a_monthly_pipeline() {
     );
     assert_eq!(
         ledger.income_snapshot_milli[COUNTRY_LEDGER_INCOME_TRADE_CATEGORY as usize],
-        200
+        1_558
     );
     assert_eq!(
         ledger.income_snapshot_milli[COUNTRY_LEDGER_INCOME_GOLD_CATEGORY as usize],
