@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-//! Translate the state portion of a plaintext EU4 save into the external
+//! Translate the state portion of a player-provided EU4 save into the external
 //! compatibility boundary. The simulation core never reads EU4 save syntax.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -22,7 +22,7 @@ use crate::{Error, ParsedText, TextEncoding};
 type Object<'a, 'b> = jomini::text::ObjectReader<'a, 'b, TextEncoding>;
 type Field<'a, 'b> = ValueReader<'a, 'b, TextEncoding>;
 
-/// State translated from a legal, uncompressed EU4 text save.
+/// State translated from a player-provided EU4 save.
 ///
 /// The parsed state is deliberately kept separate from [`VanillaWorld`]. A
 /// caller can inspect it, filter it against a loaded content set, and only
@@ -409,20 +409,45 @@ impl VanillaSaveState {
 
 /// Read supported state from an EU4 text save or a ZIP-wrapped text save.
 pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveState, Error> {
-    let path = path.as_ref().to_path_buf();
+    read_vanilla_save_state_inner_thread(path.as_ref(), None)
+}
+
+/// Read supported state from an EU4 save using a player-provided binary token map when needed.
+///
+/// Each token map line contains a hexadecimal token and its field name, for example
+/// `0x1234 date`. Augustus does not distribute EU4 token maps.
+pub fn read_vanilla_save_state_with_token_map(
+    path: impl AsRef<Path>,
+    token_map_path: impl AsRef<Path>,
+) -> Result<VanillaSaveState, Error> {
+    read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()))
+}
+
+fn read_vanilla_save_state_inner_thread(
+    path: &Path,
+    token_map_path: Option<&Path>,
+) -> Result<VanillaSaveState, Error> {
+    let path = path.to_path_buf();
+    let token_map_path = token_map_path.map(Path::to_path_buf);
     let parser_path = path.clone();
+    let parser_token_map_path = token_map_path.clone();
     let handle = std::thread::Builder::new()
         .name("augustus-eu4-save-parser".into())
         .stack_size(32 * 1024 * 1024)
-        .spawn(move || read_vanilla_save_state_inner(&parser_path))
+        .spawn(move || {
+            read_vanilla_save_state_inner(&parser_path, parser_token_map_path.as_deref())
+        })
         .map_err(|error| Error::caused_by(&path, error))?;
     handle
         .join()
         .map_err(|_| Error::message(&path, "EU4 save parser thread panicked"))?
 }
 
-fn read_vanilla_save_state_inner(path: &Path) -> Result<VanillaSaveState, Error> {
-    let documents = read_eu4_save_documents(path)?;
+fn read_vanilla_save_state_inner(
+    path: &Path,
+    token_map_path: Option<&Path>,
+) -> Result<VanillaSaveState, Error> {
+    let documents = read_eu4_save_documents(path, token_map_path)?;
     let parsed = documents.game_state.parse()?;
     let metadata = documents
         .meta
@@ -1485,8 +1510,11 @@ fn saved_government_mechanic_powers(
 
 #[cfg(test)]
 mod tests {
-    use super::{NationalFocus, RulerSkill, read_vanilla_save_state};
+    use super::{
+        NationalFocus, RulerSkill, read_vanilla_save_state, read_vanilla_save_state_with_token_map,
+    };
     use crate::{ContentRoot, ContentSet, ContentSource, VanillaExternalProvinceDevelopment};
+    use jomini::{binary::Token, common::Date};
     use std::{
         collections::{BTreeMap, BTreeSet},
         fs::File,
@@ -1494,6 +1522,44 @@ mod tests {
         path::Path,
     };
     use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
+
+    fn binary_startup_save() -> Vec<u8> {
+        let binary_date = Date::parse("1444.11.11").unwrap().to_binary();
+        let mut bytes = b"EU4bin".to_vec();
+        for token in [
+            Token::Id(0x3000),
+            Token::Equal,
+            Token::I32(binary_date),
+            Token::Id(0x3001),
+            Token::Equal,
+            Token::Open,
+            Token::Id(0x3002),
+            Token::Equal,
+            Token::Open,
+            Token::Id(0x3005),
+            Token::Equal,
+            Token::F32(12_345_i32.to_le_bytes()),
+            Token::Close,
+            Token::Close,
+            Token::Id(0x3003),
+            Token::Equal,
+            Token::Open,
+            Token::Close,
+        ] {
+            token.write(&mut bytes).unwrap();
+        }
+        bytes
+    }
+
+    fn binary_token_map(directory: &std::path::Path) -> std::path::PathBuf {
+        let path = directory.join("tokens.txt");
+        std::fs::write(
+            &path,
+            "0x3000 date\n0x3001 countries\n0x3002 AAA\n0x3003 provinces\n0x3005 treasury\n",
+        )
+        .unwrap();
+        path
+    }
 
     #[test]
     fn reads_startup_state_from_plaintext_save() {
@@ -2407,6 +2473,55 @@ provinces={
             Some(3_500)
         );
         assert_eq!(state.external_state.province_owners[&1], None);
+    }
+
+    #[test]
+    fn reads_startup_state_from_binary_save_with_player_token_map() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.eu4");
+        let token_map_path = binary_token_map(directory.path());
+        std::fs::write(&path, binary_startup_save()).unwrap();
+
+        let state = read_vanilla_save_state_with_token_map(&path, &token_map_path).unwrap();
+
+        assert_eq!(state.date, "1444.11.11");
+        assert_eq!(
+            state.external_state.country_resources["AAA"].treasury_milli,
+            Some(12_345)
+        );
+    }
+
+    #[test]
+    fn reports_missing_token_map_for_binary_save() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.eu4");
+        std::fs::write(&path, binary_startup_save()).unwrap();
+
+        let error = read_vanilla_save_state(&path).unwrap_err();
+
+        assert!(error.to_string().contains("requires a local token map"));
+    }
+
+    #[test]
+    fn reads_zip_wrapped_binary_save_with_player_token_map() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.eu4");
+        let token_map_path = binary_token_map(directory.path());
+        let mut archive = ZipWriter::new(File::create(&path).unwrap());
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        archive.start_file("gamestate", options).unwrap();
+        archive.write_all(&binary_startup_save()).unwrap();
+        archive.start_file("meta", options).unwrap();
+        archive.write_all(&binary_startup_save()).unwrap();
+        archive.finish().unwrap();
+
+        let state = read_vanilla_save_state_with_token_map(&path, &token_map_path).unwrap();
+
+        assert_eq!(state.date, "1444.11.11");
+        assert_eq!(
+            state.external_state.country_resources["AAA"].treasury_milli,
+            Some(12_345)
+        );
     }
 
     #[test]

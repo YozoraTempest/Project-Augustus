@@ -42,6 +42,7 @@ mod politics;
 mod province_map;
 mod province_metrics;
 mod religious_schools;
+mod save_binary;
 mod save_state;
 mod script;
 mod setup;
@@ -113,7 +114,9 @@ pub use ideas::IdeaReport;
 pub use load::{ContentSet, ContentSource, FileCandidate, FileOrigin, FileTrace, Suppression};
 pub use politics::{RelationSource, RelationView};
 pub use religious_schools::ReligiousSchoolReport;
-pub use save_state::{VanillaSaveState, read_vanilla_save_state};
+pub use save_state::{
+    VanillaSaveState, read_vanilla_save_state, read_vanilla_save_state_with_token_map,
+};
 pub use script::{CompiledEvents, CompiledScript, ScriptCompiler, ScriptLibrary};
 pub use setup::SetupReport;
 pub use text::{FieldSummary, ParsedText, TextDocument, TextEncoding};

@@ -17,4 +17,5 @@ clap.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+jomini.workspace = true
 tempfile.workspace = true

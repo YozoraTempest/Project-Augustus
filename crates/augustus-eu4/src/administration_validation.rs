@@ -4,7 +4,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::File,
-    io::{Read, Seek, SeekFrom},
+    io::{BufReader, Read, Seek, SeekFrom},
     path::Path,
 };
 
@@ -13,6 +13,7 @@ use augustus_core::{
 };
 use jomini::{
     TextToken,
+    binary::{BasicTokenResolver, TokenResolver},
     text::{ObjectReader, ValueReader},
 };
 use serde::Serialize;
@@ -151,7 +152,10 @@ pub(crate) struct Eu4SaveDocuments {
     pub(crate) zip_container: bool,
 }
 
-pub(crate) fn read_eu4_save_documents(path: &Path) -> Result<Eu4SaveDocuments, Error> {
+pub(crate) fn read_eu4_save_documents(
+    path: &Path,
+    token_map_path: Option<&Path>,
+) -> Result<Eu4SaveDocuments, Error> {
     let mut file = File::open(path).map_err(|error| Error::caused_by(path, error))?;
     let mut prefix = [0; 6];
     let prefix_length = file
@@ -161,11 +165,12 @@ pub(crate) fn read_eu4_save_documents(path: &Path) -> Result<Eu4SaveDocuments, E
         .map_err(|error| Error::caused_by(path, error))?;
 
     let mut bytes = Vec::new();
-    if prefix_length == prefix.len() && prefix == *b"EU4txt" {
+    if prefix_length == prefix.len() && (&prefix == b"EU4txt" || &prefix == b"EU4bin") {
         file.read_to_end(&mut bytes)
             .map_err(|error| Error::caused_by(path, error))?;
+        let mut token_map = None;
         return Ok(Eu4SaveDocuments {
-            game_state: eu4_text_document(path, bytes, "save")?,
+            game_state: eu4_save_document(path, bytes, "save", token_map_path, &mut token_map)?,
             meta: None,
             zip_container: false,
         });
@@ -173,10 +178,13 @@ pub(crate) fn read_eu4_save_documents(path: &Path) -> Result<Eu4SaveDocuments, E
 
     if prefix.starts_with(b"PK\x03\x04") {
         let mut archive = ZipArchive::new(file).map_err(|error| Error::caused_by(path, error))?;
-        let game_state = eu4_text_document(
+        let mut token_map = None;
+        let game_state = eu4_save_document(
             path,
             zip_entry_bytes(&mut archive, path, "gamestate")?,
             "gamestate",
+            token_map_path,
+            &mut token_map,
         )?;
         let mut has_meta = false;
         for name in archive.file_names() {
@@ -186,10 +194,12 @@ pub(crate) fn read_eu4_save_documents(path: &Path) -> Result<Eu4SaveDocuments, E
             }
         }
         let meta = if has_meta {
-            Some(eu4_text_document(
+            Some(eu4_save_document(
                 path,
                 zip_entry_bytes(&mut archive, path, "meta")?,
                 "meta",
+                token_map_path,
+                &mut token_map,
             )?)
         } else {
             None
@@ -203,7 +213,7 @@ pub(crate) fn read_eu4_save_documents(path: &Path) -> Result<Eu4SaveDocuments, E
 
     Err(Error::message(
         path,
-        "expected an EU4txt save or ZIP-wrapped EU4 save",
+        "expected an EU4txt/EU4bin save or ZIP-wrapped EU4 save",
     ))
 }
 
@@ -222,23 +232,56 @@ fn zip_entry_bytes<R: Read + Seek>(
     Ok(bytes)
 }
 
-fn eu4_text_document(path: &Path, mut bytes: Vec<u8>, entry: &str) -> Result<TextDocument, Error> {
-    if !bytes.starts_with(b"EU4txt") {
-        return Err(Error::message(
+fn eu4_save_document(
+    path: &Path,
+    mut bytes: Vec<u8>,
+    entry: &str,
+    token_map_path: Option<&Path>,
+    token_map: &mut Option<BasicTokenResolver>,
+) -> Result<TextDocument, Error> {
+    if bytes.starts_with(b"EU4txt") {
+        bytes[..6].fill(b' ');
+        return Ok(TextDocument::from_bytes(
             path,
-            format!("EU4 save {entry} must use EU4txt text encoding"),
+            bytes,
+            TextEncoding::Windows1252,
         ));
     }
-    bytes[..6].fill(b' ');
-    Ok(TextDocument::from_bytes(
+
+    if bytes.starts_with(b"EU4bin") {
+        if token_map.is_none() {
+            let Some(token_map_path) = token_map_path else {
+                return Err(Error::message(
+                    path,
+                    format!(
+                        "EU4 save {entry} is binary and requires a local token map; use read_vanilla_save_state_with_token_map"
+                    ),
+                ));
+            };
+            let file = File::open(token_map_path)
+                .map_err(|error| Error::caused_by(token_map_path, error))?;
+            let loaded = BasicTokenResolver::from_text_lines(BufReader::new(file))
+                .map_err(|error| Error::caused_by(token_map_path, error))?;
+            if loaded.is_empty() {
+                return Err(Error::message(token_map_path, "EU4 token map is empty"));
+            }
+            *token_map = Some(loaded);
+        }
+        return crate::save_binary::decode_eu4_binary_save(
+            path,
+            &bytes,
+            token_map.as_ref().expect("loaded EU4 token map"),
+        );
+    }
+
+    Err(Error::message(
         path,
-        bytes,
-        TextEncoding::Windows1252,
+        format!("EU4 save {entry} must start with EU4txt or EU4bin"),
     ))
 }
 
 pub(crate) fn plaintext_save_document(path: &Path) -> Result<TextDocument, Error> {
-    let documents = read_eu4_save_documents(path)?;
+    let documents = read_eu4_save_documents(path, None)?;
     if documents.zip_container {
         return Err(Error::message(
             path,

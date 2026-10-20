@@ -1,7 +1,39 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
+use jomini::{binary::Token, common::Date};
 use std::{fs, path::Path, process::Command};
+
+fn binary_startup_save() -> Vec<u8> {
+    let date = Date::parse("1444.11.11").unwrap().to_binary();
+    let mut bytes = b"EU4bin".to_vec();
+    for token in [
+        Token::Id(0x3000),
+        Token::Equal,
+        Token::I32(date),
+        Token::Id(0x3001),
+        Token::Equal,
+        Token::Id(0x3002),
+        Token::Id(0x3003),
+        Token::Equal,
+        Token::Open,
+        Token::Id(0x3002),
+        Token::Equal,
+        Token::Open,
+        Token::Id(0x3005),
+        Token::Equal,
+        Token::F32(12_345_i32.to_le_bytes()),
+        Token::Close,
+        Token::Close,
+        Token::Id(0x3004),
+        Token::Equal,
+        Token::Open,
+        Token::Close,
+    ] {
+        token.write(&mut bytes).unwrap();
+    }
+    bytes
+}
 
 #[test]
 fn world_cli_reports_state_sources_and_query_failures() {
@@ -232,6 +264,40 @@ fn world_cli_loads_external_state_from_another_simulation() {
     assert_eq!(value["simulation"]["armies"], 1);
     assert_eq!(value["simulation"]["naval_units"], 0);
     assert!(value["country"]["last_monthly_production"].is_object());
+}
+
+#[test]
+fn world_cli_loads_tokenized_eu4_save_before_startup() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let save = temp.path().join("state.eu4");
+    let token_map = temp.path().join("tokens.txt");
+    fs::write(
+        &token_map,
+        "0x3000 date\n0x3001 player\n0x3002 AAA\n0x3003 countries\n0x3004 provinces\n0x3005 treasury\n",
+    )
+    .unwrap();
+    fs::write(&save, binary_startup_save()).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&save)
+        .arg("--eu4-token-map")
+        .arg(&token_map)
+        .args(["--country", "AAA"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["country_controllers"]["AAA"], "human");
+    assert_eq!(value["country"]["resources"]["treasury_milli"], 12_345);
 }
 
 #[test]

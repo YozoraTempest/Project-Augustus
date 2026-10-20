@@ -113,6 +113,7 @@ dependencies = [
  "augustus-demo",
  "augustus-eu4",
  "clap",
+ "jomini",
  "serde_json",
  "tempfile",
 ]

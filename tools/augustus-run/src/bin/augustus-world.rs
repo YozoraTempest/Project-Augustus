@@ -31,13 +31,16 @@ struct Cli {
     /// With --eu4-save, fields in this bundle supplement the translated save state.
     #[arg(long, value_name = "FILE")]
     external_state: Option<PathBuf>,
-    /// EU4 text save or ZIP-wrapped text save whose supported state is translated before startup.
+    /// EU4 save whose supported state is translated before startup. Use --eu4-token-map for EU4bin.
     #[arg(
         long = "eu4-save",
         value_name = "FILE",
         conflicts_with_all = ["player", "ai_only", "seed"]
     )]
     eu4_save: Option<PathBuf>,
+    /// Player-provided token map for an EU4bin save; Augustus does not distribute this data.
+    #[arg(long, value_name = "FILE", requires = "eu4_save")]
+    eu4_token_map: Option<PathBuf>,
     /// Export the translated state from --eu4-save as a VanillaExternalState JSON file.
     #[arg(long, value_name = "FILE", requires = "eu4_save")]
     export_external_state: Option<PathBuf>,
@@ -120,7 +123,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let save_state = cli
         .eu4_save
         .as_ref()
-        .map(augustus_eu4::read_vanilla_save_state)
+        .map(|path| match cli.eu4_token_map.as_ref() {
+            Some(token_map) => {
+                augustus_eu4::read_vanilla_save_state_with_token_map(path, token_map)
+            }
+            None => augustus_eu4::read_vanilla_save_state(path),
+        })
         .transpose()?;
     let load_snapshot = cli.load.as_ref().map(std::fs::read_to_string).transpose()?;
     let loaded_monthly_system_id = load_snapshot
