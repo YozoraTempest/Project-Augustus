@@ -66,7 +66,7 @@ fn trade_income_clamps_context_before_bonus_and_truncates_signed_stages() {
         post_context_modifier_milli: 100,
     })
     .unwrap();
-    assert_eq!(upper.context_modifier_before_clamp_milli, 5_020);
+    assert_eq!(upper.context_modifier_before_clamp_milli, 2_020);
     assert_eq!(upper.context_modifier_milli, 2_000);
     assert_eq!(upper.effective_multiplier_milli, 3_100);
     assert_eq!(upper.trade_income_milli, 3);
@@ -99,6 +99,60 @@ fn trade_income_clamps_context_before_bonus_and_truncates_signed_stages() {
     assert_eq!(subunit.stage_one_product, -999);
     assert_eq!(subunit.stage_one_milli, 0);
     assert_eq!(subunit.trade_income_milli, 0);
+}
+
+#[test]
+fn trade_income_preserves_native_i32_context_wrap_and_result_storage() {
+    let wrapped_context = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
+        node_value_milli: 1,
+        country_record_value_milli: 1_000,
+        base_context_modifier_milli: i64::from(i32::MAX),
+        selected_context_modifier_milli: 1,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: 0,
+    })
+    .unwrap();
+    assert_eq!(
+        wrapped_context.context_modifier_before_clamp_milli,
+        i128::from(i32::MIN)
+    );
+    assert_eq!(wrapped_context.context_modifier_milli, 10);
+
+    let wrapped_multiplier = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
+        node_value_milli: 1,
+        country_record_value_milli: 1_000,
+        base_context_modifier_milli: 1_000,
+        selected_context_modifier_milli: 1_000,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: i64::from(i32::MAX),
+    })
+    .unwrap();
+    assert_eq!(wrapped_multiplier.context_modifier_milli, 2_000);
+    assert_eq!(
+        wrapped_multiplier.effective_multiplier_milli,
+        -2_147_480_649
+    );
+
+    let wrapped_result = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
+        node_value_milli: 2_000_000,
+        country_record_value_milli: 2_000_000,
+        base_context_modifier_milli: 0,
+        selected_context_modifier_milli: 0,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: 0,
+    })
+    .unwrap();
+    assert_eq!(wrapped_result.stage_one_product, 4_000_000_000_000);
+    assert_eq!(wrapped_result.stage_one_milli, -294_967_296);
+    assert_eq!(wrapped_result.effective_multiplier_milli, 1_010);
+    assert_eq!(wrapped_result.stage_two_product, -297_916_968_960);
+    assert_eq!(wrapped_result.trade_income_milli, -297_916_968);
 }
 
 #[test]

@@ -70,9 +70,10 @@ pub fn calculate_vanilla_trade_caravan(
 
 /// Inputs for the verified EU4 trade-income record calculation.
 ///
-/// The compatibility layer resolves the node value, country record, context
-/// modifiers, and any post-context bonus. The core preserves the fixed-point
-/// stages without assigning EU4 semantics to an unresolved context key.
+/// The compatibility layer resolves the node value, country record, base and
+/// selected context values, an optional virtual replacement for the selected
+/// value, and any post-context bonus. The core preserves native 32-bit storage
+/// and fixed-point truncation without interpreting the context key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VanillaTradeIncomeInput {
@@ -80,6 +81,7 @@ pub struct VanillaTradeIncomeInput {
     pub country_record_value_milli: i64,
     pub base_context_modifier_milli: i64,
     pub selected_context_modifier_milli: i64,
+    /// Optional transformed value that replaces `selected_context_modifier_milli`.
     pub virtual_context_modifier_milli: Option<i64>,
     pub minimum_context_modifier_milli: i64,
     pub maximum_context_modifier_milli: i64,
@@ -99,47 +101,55 @@ pub struct VanillaTradeIncomeResult {
 
 /// Reproduces the observed trade-income calculation order.
 ///
-/// Context terms are added before the lower-then-upper clamp. The node and
-/// country record are multiplied and truncated to thousandths first; the
-/// resulting amount is then multiplied by the 1000 baseline, clamped context
-/// modifier, and post-context modifier, with both divisions truncating toward
-/// zero.
+/// A virtual context result replaces the selected context value. The base and
+/// selected values are added with 32-bit wrapping before the lower-then-upper
+/// clamp. The node and country record are multiplied and truncated to
+/// thousandths, then stored as a signed 32-bit value. The result is multiplied
+/// by the 1000 baseline, clamped context modifier, and post-context modifier;
+/// these additions and the final stored result also use signed 32-bit storage.
 pub fn calculate_vanilla_trade_income(
     input: VanillaTradeIncomeInput,
 ) -> Result<VanillaTradeIncomeResult, Error> {
-    let context_modifier_before_clamp_milli = i128::from(input.base_context_modifier_milli)
-        + i128::from(input.selected_context_modifier_milli)
-        + i128::from(input.virtual_context_modifier_milli.unwrap_or(0));
-    let context_modifier_milli = if context_modifier_before_clamp_milli
-        < i128::from(input.minimum_context_modifier_milli)
-    {
-        input.minimum_context_modifier_milli
-    } else if context_modifier_before_clamp_milli > i128::from(input.maximum_context_modifier_milli)
-    {
-        input.maximum_context_modifier_milli
-    } else {
-        i64::try_from(context_modifier_before_clamp_milli).map_err(|_| Error::Overflow)?
-    };
+    let native_i32 = |value| i32::try_from(value).map_err(|_| Error::Overflow);
+    let node_value_milli = native_i32(input.node_value_milli)?;
+    let country_record_value_milli = native_i32(input.country_record_value_milli)?;
+    let base_context_modifier_milli = native_i32(input.base_context_modifier_milli)?;
+    let selected_context_modifier_milli = native_i32(
+        input
+            .virtual_context_modifier_milli
+            .unwrap_or(input.selected_context_modifier_milli),
+    )?;
+    let minimum_context_modifier_milli = native_i32(input.minimum_context_modifier_milli)?;
+    let maximum_context_modifier_milli = native_i32(input.maximum_context_modifier_milli)?;
+    let post_context_modifier_milli = native_i32(input.post_context_modifier_milli)?;
 
-    let stage_one_product =
-        i128::from(input.node_value_milli) * i128::from(input.country_record_value_milli);
-    let stage_one_milli = i64::try_from(stage_one_product / 1_000).map_err(|_| Error::Overflow)?;
-    let effective_multiplier_milli =
-        1_000 + i128::from(context_modifier_milli) + i128::from(input.post_context_modifier_milli);
-    let stage_two_product = i128::from(stage_one_milli)
-        .checked_mul(effective_multiplier_milli)
-        .ok_or(Error::Overflow)?;
-    let trade_income_milli =
-        i64::try_from(stage_two_product / 1_000).map_err(|_| Error::Overflow)?;
+    let context_modifier_before_clamp_milli =
+        base_context_modifier_milli.wrapping_add(selected_context_modifier_milli);
+    let context_modifier_milli =
+        if context_modifier_before_clamp_milli < minimum_context_modifier_milli {
+            minimum_context_modifier_milli
+        } else if context_modifier_before_clamp_milli > maximum_context_modifier_milli {
+            maximum_context_modifier_milli
+        } else {
+            context_modifier_before_clamp_milli
+        };
+
+    let stage_one_product = i64::from(node_value_milli) * i64::from(country_record_value_milli);
+    let stage_one_milli = (stage_one_product / 1_000) as i32;
+    let effective_multiplier_milli = 1_000_i32
+        .wrapping_add(context_modifier_milli)
+        .wrapping_add(post_context_modifier_milli);
+    let stage_two_product = i64::from(stage_one_milli) * i64::from(effective_multiplier_milli);
+    let trade_income_milli = (stage_two_product / 1_000) as i32;
 
     Ok(VanillaTradeIncomeResult {
-        context_modifier_before_clamp_milli,
-        context_modifier_milli,
-        stage_one_product,
-        stage_one_milli,
-        effective_multiplier_milli,
-        stage_two_product,
-        trade_income_milli,
+        context_modifier_before_clamp_milli: i128::from(context_modifier_before_clamp_milli),
+        context_modifier_milli: i64::from(context_modifier_milli),
+        stage_one_product: i128::from(stage_one_product),
+        stage_one_milli: i64::from(stage_one_milli),
+        effective_multiplier_milli: i128::from(effective_multiplier_milli),
+        stage_two_product: i128::from(stage_two_product),
+        trade_income_milli: i64::from(trade_income_milli),
     })
 }
 
