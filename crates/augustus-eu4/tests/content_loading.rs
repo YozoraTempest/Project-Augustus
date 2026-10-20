@@ -552,6 +552,68 @@ fn installation_resolver_builds_the_shared_user_mod_and_base_source_stack() {
 }
 
 #[test]
+fn installation_resolver_matches_launcher_mod_paths_to_supplied_directories() {
+    let fixture = tempfile::tempdir().unwrap();
+    let vanilla = directory(fixture.path(), "base");
+    let user = directory(fixture.path(), "user");
+    let first = directory(fixture.path(), "first-pack");
+    let selected = directory(fixture.path(), "selected-pack");
+    for root in [&first, &selected] {
+        write(root, "descriptor.mod", "name=Pack");
+    }
+    write(&vanilla, "common/defines.lua", "from_base = true");
+    write(&first, "common/defines.lua", "from_first_pack = true");
+    write(&selected, "common/defines.lua", "from_selected_pack = true");
+
+    let selected_path = selected.to_string_lossy().replace('\\', "/");
+    write(
+        &user,
+        "mod/pack.mod",
+        format!("name=Pack path=\"{selected_path}\""),
+    );
+    let config = user.join("dlc_load.json");
+    fs::write(
+        &config,
+        r#"{"enabled_mods":["mod/pack.mod"],"disabled_dlcs":[]}"#,
+    )
+    .unwrap();
+
+    let content = ContentSet::from_installation(
+        &vanilla,
+        &[first, selected.clone()],
+        Some(&user),
+        Some(&config),
+        TextEncoding::Utf8,
+    )
+    .unwrap();
+
+    assert_eq!(
+        content
+            .sources()
+            .iter()
+            .map(ContentSource::name)
+            .collect::<Vec<_>>(),
+        ["EU4 user directory", "Pack", "EU4 base"]
+    );
+    let trace = content.trace("common/defines.lua").unwrap().unwrap();
+    assert_eq!(trace.candidates.len(), 2);
+    assert_eq!(
+        trace.effective().unwrap().physical_path,
+        fs::canonicalize(selected.join("common/defines.lua")).unwrap()
+    );
+    assert_eq!(
+        content
+            .read_text("common/defines.lua", TextEncoding::Utf8)
+            .unwrap()
+            .parse()
+            .unwrap()
+            .root_fields()[0]
+            .name,
+        "from_selected_pack"
+    );
+}
+
+#[test]
 fn invalid_replace_paths_report_the_descriptor_and_queries_cannot_traverse() {
     let fixture = tempfile::tempdir().unwrap();
     let vanilla = directory(fixture.path(), "base");

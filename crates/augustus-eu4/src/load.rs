@@ -4,7 +4,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use serde::{
@@ -213,6 +213,34 @@ impl<'de> Deserialize<'de> for LauncherModSelection {
     }
 }
 
+fn launcher_mod_descriptor_path(config_path: &Path, entry: &str) -> Option<PathBuf> {
+    let relative = Path::new(entry);
+    if !relative
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("mod"))
+        || relative.components().any(|component| {
+            matches!(
+                component,
+                Component::Prefix(_) | Component::RootDir | Component::ParentDir
+            )
+        })
+    {
+        return None;
+    }
+    let descriptor = config_path.parent()?.join(relative);
+    descriptor.is_file().then_some(descriptor)
+}
+
+fn launcher_mod_content_path(config_path: &Path, declared_path: &str) -> Option<PathBuf> {
+    let declared = Path::new(declared_path);
+    let path = if declared.is_absolute() {
+        declared.to_path_buf()
+    } else {
+        config_path.parent()?.join(declared)
+    };
+    fs::canonicalize(path).ok()
+}
+
 /// One physical file, including candidates that no longer contribute content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileOrigin {
@@ -346,7 +374,9 @@ impl ContentSet {
             sources.push(ContentSource::user_directory(path)?);
         }
         match launcher_config {
-            Some(path) => Self::resolve_with_launcher_config(sources, path),
+            Some(path) => {
+                Self::resolve_with_launcher_config_and_encoding(sources, path, descriptor_encoding)
+            }
             None => Self::resolve(sources),
         }
     }
@@ -357,26 +387,95 @@ impl ContentSet {
         sources: Vec<ContentSource>,
         config_path: impl AsRef<Path>,
     ) -> Result<Self, Error> {
-        let config_path = config_path.as_ref();
+        Self::resolve_with_launcher_config_and_encoding(
+            sources,
+            config_path.as_ref(),
+            TextEncoding::Windows1252,
+        )
+    }
+
+    fn resolve_with_launcher_config_and_encoding(
+        sources: Vec<ContentSource>,
+        config_path: &Path,
+        descriptor_encoding: TextEncoding,
+    ) -> Result<Self, Error> {
         let bytes = fs::read(config_path).map_err(|cause| Error::caused_by(config_path, cause))?;
         let selection: LauncherModSelection =
             serde_json::from_slice(&bytes).map_err(|cause| Error::caused_by(config_path, cause))?;
-        let provided = sources
-            .iter()
-            .filter(|source| source.role == ContentRole::Mod)
-            .map(|source| source.name().to_owned())
-            .collect::<BTreeSet<_>>();
-        if let Some(missing) = selection.enabled_mods.difference(&provided).next() {
-            return Err(Error::message(
-                config_path,
-                format!("enabled Mod has no supplied directory source: {missing}"),
-            ));
+        let mut selected_mods = BTreeSet::new();
+        for enabled_mod in selection.enabled_mods {
+            let name_matches = sources
+                .iter()
+                .enumerate()
+                .filter(|(_, source)| {
+                    source.role == ContentRole::Mod && source.name() == enabled_mod
+                })
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            if !name_matches.is_empty() {
+                selected_mods.extend(name_matches);
+                continue;
+            }
+
+            let launcher_descriptor = launcher_mod_descriptor_path(config_path, &enabled_mod)
+                .map(|path| -> Result<_, Error> {
+                    let bytes = fs::read(&path).map_err(|cause| Error::caused_by(&path, cause))?;
+                    let document =
+                        TextDocument::from_bytes(path.clone(), bytes, descriptor_encoding);
+                    let parsed = document.parse()?;
+                    Ok((path, ModDescriptor::parse(&parsed)?))
+                })
+                .transpose()?;
+            let Some((descriptor_path, descriptor)) = launcher_descriptor else {
+                return Err(Error::message(
+                    config_path,
+                    format!("enabled Mod has no supplied directory source: {enabled_mod}"),
+                ));
+            };
+
+            let path_matches = descriptor
+                .path
+                .as_deref()
+                .and_then(|declared| launcher_mod_content_path(config_path, declared))
+                .map(|path| {
+                    sources
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, source)| {
+                            source.role == ContentRole::Mod && source.path() == path
+                        })
+                        .map(|(index, _)| index)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if !path_matches.is_empty() {
+                selected_mods.extend(path_matches);
+                continue;
+            }
+
+            let name_matches = sources
+                .iter()
+                .enumerate()
+                .filter(|(_, source)| {
+                    source.role == ContentRole::Mod && source.name() == descriptor.name
+                })
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            if name_matches.is_empty() {
+                return Err(Error::message(
+                    descriptor_path,
+                    format!("enabled Mod has no supplied directory source: {enabled_mod}"),
+                ));
+            }
+            selected_mods.extend(name_matches);
         }
         let selected = sources
             .into_iter()
-            .filter(|source| {
-                source.role != ContentRole::Mod || selection.enabled_mods.contains(source.name())
+            .enumerate()
+            .filter(|(index, source)| {
+                source.role != ContentRole::Mod || selected_mods.contains(index)
             })
+            .map(|(_, source)| source)
             .collect();
         Self::resolve(selected)
     }
