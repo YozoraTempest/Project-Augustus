@@ -249,6 +249,17 @@ pub struct VanillaExternalNavalUnit {
     pub unit_type: String,
 }
 
+/// A fleet translated from a save or another compatibility source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalFleet {
+    pub owner: String,
+    pub location: u32,
+    #[serde(default)]
+    pub name: Option<String>,
+    pub ship_types: Vec<String>,
+}
+
 /// A current advisor translated from a save or another compatibility source.
 /// The EU4 advisor type is resolved to a monarch-power category during binding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -497,6 +508,10 @@ pub struct VanillaExternalState {
     pub armies: Vec<VanillaExternalArmy>,
     #[serde(default)]
     pub naval_units: Vec<VanillaExternalNavalUnit>,
+    /// Preserves fleet grouping when the source provides it. Older external
+    /// bundles that contain only `naval_units` import each ship as a fleet.
+    #[serde(default)]
+    pub naval_fleets: Vec<VanillaExternalFleet>,
     #[serde(default)]
     pub advisors: BTreeMap<String, Vec<VanillaExternalAdvisor>>,
 }
@@ -558,6 +573,7 @@ struct LoadOverrides<'a> {
     country_monthly_power_income: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     armies: Option<&'a [VanillaExternalArmy]>,
     naval_units: Option<&'a [VanillaExternalNavalUnit]>,
+    naval_fleets: Option<&'a [VanillaExternalFleet]>,
     advisors: Option<&'a BTreeMap<String, Vec<VanillaExternalAdvisor>>>,
 }
 
@@ -650,7 +666,9 @@ impl<'a> LoadOverrides<'a> {
             country_monthly_power_income: (!state.country_monthly_power_income.is_empty())
                 .then_some(&state.country_monthly_power_income),
             armies: (!state.armies.is_empty()).then_some(state.armies.as_slice()),
-            naval_units: (!state.naval_units.is_empty()).then_some(state.naval_units.as_slice()),
+            naval_units: (state.naval_fleets.is_empty() && !state.naval_units.is_empty())
+                .then_some(state.naval_units.as_slice()),
+            naval_fleets: (!state.naval_fleets.is_empty()).then_some(state.naval_fleets.as_slice()),
             advisors: (!state.advisors.is_empty()).then_some(&state.advisors),
         }
     }
@@ -820,7 +838,11 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     if !overlay.armies.is_empty() {
         base.armies = overlay.armies.clone();
     }
-    if !overlay.naval_units.is_empty() {
+    if !overlay.naval_fleets.is_empty() {
+        base.naval_fleets = overlay.naval_fleets.clone();
+        base.naval_units = overlay.naval_units.clone();
+    } else if !overlay.naval_units.is_empty() {
+        base.naval_fleets.clear();
         base.naval_units = overlay.naval_units.clone();
     }
 }
@@ -829,6 +851,7 @@ fn bind_external_units(
     initial: &mut InitialWorld,
     armies: Option<&[VanillaExternalArmy]>,
     naval_units: Option<&[VanillaExternalNavalUnit]>,
+    naval_fleets: Option<&[VanillaExternalFleet]>,
 ) -> Result<(), Error> {
     if let Some(armies) = armies {
         for army in armies {
@@ -849,7 +872,25 @@ fn bind_external_units(
                 .map_err(|error| Error::caused_by("external armies", error))?;
         }
     }
-    if let Some(naval_units) = naval_units {
+    if let Some(naval_fleets) = naval_fleets {
+        for fleet in naval_fleets {
+            let owner = initial.country_entity(&fleet.owner).ok_or_else(|| {
+                Error::message(
+                    "external fleets",
+                    format!("unknown fleet owner {}", fleet.owner),
+                )
+            })?;
+            let location = initial.province_entity(fleet.location).ok_or_else(|| {
+                Error::message(
+                    "external fleets",
+                    format!("unknown fleet location {}", fleet.location),
+                )
+            })?;
+            initial
+                .create_fleet(owner, location, fleet.name.clone(), &fleet.ship_types)
+                .map_err(|error| Error::caused_by("external fleets", error))?;
+        }
+    } else if let Some(naval_units) = naval_units {
         for unit in naval_units {
             let owner = initial.country_entity(&unit.owner).ok_or_else(|| {
                 Error::message(
@@ -864,7 +905,7 @@ fn bind_external_units(
                 )
             })?;
             initial
-                .create_naval_unit(owner, location, &unit.unit_type)
+                .create_fleet(owner, location, None, std::slice::from_ref(&unit.unit_type))
                 .map_err(|error| Error::caused_by("external naval units", error))?;
         }
     }
@@ -3430,7 +3471,12 @@ impl VanillaWorld {
                 .set_global_markers(global_markers)
                 .map_err(|e| Error::caused_by("common/on_actions", e))?;
         }
-        bind_external_units(&mut initial, overrides.armies, overrides.naval_units)?;
+        bind_external_units(
+            &mut initial,
+            overrides.armies,
+            overrides.naval_units,
+            overrides.naval_fleets,
+        )?;
         report.missions = missions.bind(&mut initial)?;
         // Content identity is based on the bound initial world. Startup effects
         // and AI choices are runtime state and must not vary the hash by seed.

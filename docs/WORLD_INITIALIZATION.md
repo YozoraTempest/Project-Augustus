@@ -14,7 +14,7 @@
 cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --date 1444.11.11 --country HAB --province 134
 ```
 
-输出 JSON 包含载入报告，以及可选的国家、省份查询和对应文件来源。模拟摘要中的 `pending_tasks` 表示待执行的延迟任务数。国家查询分别保留科技组与历史单位组（`unit_type`）。省份基础税收、生产、人力用千分位整数表示，例如 `6000` 表示 `6`。未知国家或省份、错误日期、无效引用和不匹配的地图尺寸会报错。加载器要求安装目录版本为 1.37.5；仅修改版本声明不能使其他版本兼容。
+输出 JSON 包含载入报告，以及可选的国家、省份查询和对应文件来源。模拟摘要包含陆军、舰队、舰船数量；`pending_tasks` 表示待执行的延迟任务数。国家查询分别保留科技组与历史单位组（`unit_type`）。省份基础税收、生产、人力用千分位整数表示，例如 `6000` 表示 `6`。未知国家或省份、错误日期、无效引用和不匹配的地图尺寸会报错。加载器要求安装目录版本为 1.37.5；仅修改版本声明不能使其他版本兼容。
 
 只查询指定国家或省份时，可以加上 `--omit-load-report` 省略全量加载报告；国家、省份及其来源数据和模拟摘要仍会输出。
 
@@ -353,11 +353,13 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
       "regiments": ["western_medieval_infantry", "western_medieval_knights"]
     }
   ],
-  "naval_units": [
-    {"owner": "HAB", "location": 135, "unit_type": "light_ship"}
+  "naval_fleets": [
+    {"owner": "HAB", "location": 135, "name": "Channel Patrol", "ship_types": ["light_ship"]}
   ]
 }
 ```
+
+`naval_fleets` 保留舰队及舰船编组。若外部来源只能提供散装舰船，可以继续使用 `naval_units`；每艘船会作为单舰队导入。两种字段同时存在时，以 `naval_fleets` 为准。
 
 ```sh
 cargo run -p augustus-run --bin augustus-world --locked -- \

@@ -310,6 +310,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             "cashflow_settlements": loaded.initial.world().monthly_cashflows().map(|c| c.settlement_count),
             "last_cashflow_day": loaded.initial.world().monthly_cashflows().and_then(|c| c.last_settlement.as_ref().map(|s| s.day)),
             "armies": loaded.initial.armies().len(),
+            "fleets": loaded.initial.fleets().len(),
             "naval_units": loaded.initial.naval_units().len()}});
     if !cli.omit_load_report {
         output["report"] = serde_json::to_value(&loaded.report)?;

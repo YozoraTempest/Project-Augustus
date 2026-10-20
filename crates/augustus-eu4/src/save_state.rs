@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::administration_validation::{SaveTokenResolver, read_eu4_save_documents};
 use crate::bootstrap::{
-    VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState,
+    VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalFleet,
     VanillaExternalNavalUnit, VanillaExternalProvinceDevelopment, VanillaExternalState,
     VanillaWorld,
 };
@@ -264,20 +264,34 @@ impl VanillaSaveState {
             }
         }
 
-        for naval_unit in &self.external_state.naval_units {
-            if !countries.contains(naval_unit.owner.as_str()) {
-                continue;
+        if self.external_state.naval_fleets.is_empty() {
+            for naval_unit in &self.external_state.naval_units {
+                if countries.contains(naval_unit.owner.as_str())
+                    && world.initial.province_entity(naval_unit.location).is_some()
+                {
+                    state.naval_units.push(naval_unit.clone());
+                }
             }
-            let Some(entity) = world.initial.province_entity(naval_unit.location) else {
-                continue;
-            };
-            if world
-                .initial
-                .world()
-                .province_has_port(entity)
-                .is_ok_and(|has_port| has_port)
-            {
-                state.naval_units.push(naval_unit.clone());
+        } else {
+            for fleet in &self.external_state.naval_fleets {
+                if !countries.contains(fleet.owner.as_str())
+                    || world.initial.province_entity(fleet.location).is_none()
+                {
+                    continue;
+                }
+                state.naval_fleets.push(fleet.clone());
+                state
+                    .naval_units
+                    .extend(
+                        fleet
+                            .ship_types
+                            .iter()
+                            .map(|unit_type| VanillaExternalNavalUnit {
+                                owner: fleet.owner.clone(),
+                                location: fleet.location,
+                                unit_type: unit_type.clone(),
+                            }),
+                    );
             }
         }
 
@@ -873,7 +887,13 @@ fn read_vanilla_save_state_inner(
             if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
                 return Err(Error::message(parsed.source(), "invalid saved navy block"));
             }
-            let (location, ships) = saved_navy(&parsed, &value)?;
+            let (location, name, ships) = saved_navy(&parsed, &value)?;
+            external_state.naval_fleets.push(VanillaExternalFleet {
+                owner: tag.clone(),
+                location,
+                name,
+                ship_types: ships.clone(),
+            });
             for unit_type in ships {
                 external_state.naval_units.push(VanillaExternalNavalUnit {
                     owner: tag.clone(),
@@ -1174,9 +1194,13 @@ fn saved_army(
     Ok((location, name, regiments))
 }
 
-fn saved_navy(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<(u32, Vec<String>), Error> {
+fn saved_navy(
+    parsed: &ParsedText<'_>,
+    value: &Field<'_, '_>,
+) -> Result<(u32, Option<String>, Vec<String>), Error> {
     let navy = object(parsed, value)?;
     let mut location = None;
+    let mut name = None;
     let mut ships = Vec::new();
     for (key, op, value) in navy.fields() {
         let field = key.read_string();
@@ -1187,6 +1211,7 @@ fn saved_navy(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<(u32, Ve
             ));
         }
         match field.as_str() {
+            "name" => name = Some(scalar(parsed, &value)?),
             "location" => {
                 let text = scalar(parsed, &value)?;
                 let id = text
@@ -1222,7 +1247,7 @@ fn saved_navy(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<(u32, Ve
     if ships.is_empty() {
         return Err(Error::message(parsed.source(), "saved navy has no ships"));
     }
-    Ok((location, ships))
+    Ok((location, name, ships))
 }
 
 fn optional_field<'a, 'b>(
@@ -1537,7 +1562,9 @@ mod tests {
         NationalFocus, RulerSkill, read_vanilla_save_state, read_vanilla_save_state_with_token_map,
         read_vanilla_save_state_with_token_resolver,
     };
-    use crate::{ContentRoot, ContentSet, ContentSource, VanillaExternalProvinceDevelopment};
+    use crate::{
+        ContentRoot, ContentSet, ContentSource, VanillaExternalProvinceDevelopment, VanillaWorld,
+    };
     use jomini::{
         binary::{Token, TokenResolver},
         common::Date,
@@ -1714,6 +1741,9 @@ countries={
 			ship={
 				type="galley"
 			}
+			ship={
+				type="light_ship"
+			}
 		}
 	}
 }
@@ -1826,10 +1856,22 @@ provinces={
             state.external_state.armies[0].regiments,
             vec!["infantry".to_owned()]
         );
-        assert_eq!(state.external_state.naval_units.len(), 1);
+        assert_eq!(state.external_state.naval_units.len(), 2);
         assert_eq!(state.external_state.naval_units[0].owner, "AAA");
         assert_eq!(state.external_state.naval_units[0].location, 1);
         assert_eq!(state.external_state.naval_units[0].unit_type, "galley");
+        assert_eq!(state.external_state.naval_units[1].unit_type, "light_ship");
+        assert_eq!(state.external_state.naval_fleets.len(), 1);
+        assert_eq!(state.external_state.naval_fleets[0].owner, "AAA");
+        assert_eq!(state.external_state.naval_fleets[0].location, 1);
+        assert_eq!(
+            state.external_state.naval_fleets[0].name.as_deref(),
+            Some("Main Navy")
+        );
+        assert_eq!(
+            state.external_state.naval_fleets[0].ship_types,
+            ["galley", "light_ship"]
+        );
         assert_eq!(state.external_state.advisors["AAA"].len(), 1);
         assert_eq!(
             state.external_state.advisors["AAA"][0].type_name,
@@ -1882,6 +1924,66 @@ provinces={
                 .as_ref()
                 .unwrap(),
             &std::collections::BTreeSet::from(["estate_nobles_habsburg_disunity".into()])
+        );
+    }
+
+    #[test]
+    fn saved_fleet_groups_load_at_non_port_provinces() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let location = 3;
+        let province = baseline.initial.province_entity(location).unwrap();
+        assert!(
+            !baseline
+                .initial
+                .world()
+                .province_has_port(province)
+                .unwrap()
+        );
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("fleet.eu4");
+        std::fs::write(
+            &path,
+            format!(
+                "EU4txt\ndate=1444.11.11\nplayer=\"AAA\"\ncountries={{ AAA={{ human=yes navy={{ name=\"North Sea Patrol\" location={location} ship={{ type=galley }} ship={{ type=light_ship }} }} }} }}\nprovinces={{}}\n"
+            ),
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&path).unwrap();
+        let filtered = save.state_for_world(&baseline).unwrap();
+        assert_eq!(filtered.naval_fleets.len(), 1);
+        assert_eq!(
+            filtered.naval_fleets[0].name.as_deref(),
+            Some("North Sea Patrol")
+        );
+        assert_eq!(
+            filtered.naval_fleets[0].ship_types,
+            ["galley", "light_ship"]
+        );
+
+        let loaded = VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        assert_eq!(loaded.initial.fleets().len(), 1);
+        assert_eq!(
+            loaded.initial.fleets()[0].name.as_deref(),
+            Some("North Sea Patrol")
+        );
+        assert_eq!(loaded.initial.fleets()[0].location, province);
+        assert_eq!(loaded.initial.fleets()[0].ships.len(), 2);
+        assert_eq!(
+            loaded.initial.fleets()[0]
+                .ships
+                .iter()
+                .map(|id| loaded.initial.naval_units()[id.0 as usize]
+                    .unit_type
+                    .as_str())
+                .collect::<Vec<_>>(),
+            ["galley", "light_ship"]
         );
     }
 

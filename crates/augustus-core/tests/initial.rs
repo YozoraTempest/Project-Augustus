@@ -83,6 +83,29 @@ fn initial_world_exposes_port_checked_naval_creation() {
     assert_eq!(initial.naval_units()[0].id, id);
     assert_eq!(initial.naval_units()[0].owner, owner);
     assert_eq!(initial.naval_units()[0].location, port);
+    assert_eq!(initial.fleets().len(), 1);
+    assert_eq!(initial.fleets()[0].ships, vec![id]);
+}
+
+#[test]
+fn initial_world_binds_grouped_fleets_at_non_port_locations() {
+    let mut provinces = provinces();
+    provinces[0].has_port = Some(false);
+    let mut initial = InitialWorld::new(countries(), provinces).unwrap();
+    let owner = initial.country_entity("AAA").unwrap();
+    let location = initial.province_entity(2).unwrap();
+    let ship_types = vec!["galley".into(), "carrack".into()];
+
+    let id = initial
+        .create_fleet(owner, location, Some("Imported Fleet".into()), &ship_types)
+        .unwrap();
+
+    assert_eq!(id, augustus_core::FleetId(0));
+    assert_eq!(initial.naval_units().len(), 2);
+    assert_eq!(initial.fleets().len(), 1);
+    assert_eq!(initial.fleets()[0].location, location);
+    assert_eq!(initial.fleets()[0].name.as_deref(), Some("Imported Fleet"));
+    assert_eq!(initial.fleets()[0].ships.len(), 2);
 }
 
 #[test]

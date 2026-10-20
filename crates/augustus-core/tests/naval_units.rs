@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, EntityKind, EntityRef, NavalUnitId, Schema, ScopeContext, ScopeSelector, World,
+    Action, EntityKind, EntityRef, FleetId, NavalUnitId, Schema, ScopeContext, ScopeSelector, World,
 };
 
 fn fixture() -> (World, augustus_core::EntityId, augustus_core::EntityId) {
@@ -38,9 +38,41 @@ fn repeated_script_actions_create_individual_ships_and_round_trip() {
             .map(|id| (NavalUnitId(id), country, port, "light_ship"))
             .collect::<Vec<_>>()
     );
+    assert_eq!(world.fleets().len(), 6);
+    assert!(world.fleets().iter().all(|fleet| fleet.ships.len() == 1));
 
     let saved = world.save("naval-units:1").unwrap();
     let restored = World::restore(&saved, "naval-units:1", world.schema()).unwrap();
+    assert_eq!(restored, world);
+}
+
+#[test]
+fn fleet_keeps_its_ship_group_across_save_restore() {
+    let (mut world, country, port) = fixture();
+    let ship_types = vec!["galley".into(), "carrack".into()];
+    let id = world
+        .create_fleet(country, port, Some("Test Fleet".into()), &ship_types)
+        .unwrap();
+
+    assert_eq!(id, FleetId(0));
+    assert_eq!(world.naval_units().len(), 2);
+    assert_eq!(world.fleets().len(), 1);
+    assert_eq!(world.fleets()[0].name.as_deref(), Some("Test Fleet"));
+    assert_eq!(
+        world.fleets()[0].ships,
+        vec![NavalUnitId(0), NavalUnitId(1)]
+    );
+    assert_eq!(
+        world.fleets()[0]
+            .ships
+            .iter()
+            .map(|id| world.naval_units()[id.0 as usize].unit_type.as_str())
+            .collect::<Vec<_>>(),
+        ["galley", "carrack"]
+    );
+
+    let saved = world.save("fleet:1").unwrap();
+    let restored = World::restore(&saved, "fleet:1", world.schema()).unwrap();
     assert_eq!(restored, world);
 }
 
@@ -69,6 +101,15 @@ fn empty_navies_keep_the_previous_snapshot_shape_and_invalid_references_are_reje
     world
         .create_naval_unit(country, port, "light_ship")
         .unwrap();
+    assert_eq!(world.fleets().len(), 1);
+    let saved = world.save("naval-units:1").unwrap();
+    let mut legacy: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    legacy.as_object_mut().unwrap().remove("fleets");
+    let restored = World::restore(&legacy.to_string(), "naval-units:1", world.schema()).unwrap();
+    assert_eq!(restored.naval_units(), world.naval_units());
+    assert_eq!(restored.fleets().len(), 1);
+    assert_eq!(restored.fleets()[0].ships, vec![NavalUnitId(0)]);
+
     let saved = world.save("naval-units:1").unwrap();
     let mut corrupt: serde_json::Value = serde_json::from_str(&saved).unwrap();
     corrupt["naval_units"]["units"][0]["owner"] = serde_json::json!(u64::MAX);

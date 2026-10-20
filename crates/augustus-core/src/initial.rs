@@ -722,6 +722,18 @@ impl InitialWorld {
     ) -> Result<crate::NavalUnitId, Error> {
         self.world.create_naval_unit(owner, location, unit_type)
     }
+    pub fn fleets(&self) -> &[crate::Fleet] {
+        self.world.fleets()
+    }
+    pub fn create_fleet(
+        &mut self,
+        owner: EntityId,
+        location: EntityId,
+        name: Option<String>,
+        ship_types: &[String],
+    ) -> Result<crate::FleetId, Error> {
+        self.world.bind_fleet(owner, location, name, ship_types)
+    }
     pub fn set_modifiers(&mut self, modifiers: Modifiers) -> Result<(), Error> {
         self.world.set_modifiers(modifiers)
     }

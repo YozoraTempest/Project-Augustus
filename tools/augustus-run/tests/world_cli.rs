@@ -77,6 +77,7 @@ fn world_cli_reports_state_sources_and_query_failures() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(value["report"].is_object());
     assert_eq!(value["simulation"]["pending_tasks"], 0);
+    assert_eq!(value["simulation"]["fleets"], 0);
     assert_eq!(value["country"]["bound_capital"], 2);
     assert_eq!(value["province"]["owner"], "BBB");
     assert_eq!(value["province_sources"][0]["line"], 2);
@@ -455,7 +456,8 @@ provinces={
     assert_eq!(value["country"]["resources"]["manpower_milli"], 6_000);
     assert_eq!(value["country"]["metrics"]["prestige"], 26_942);
     assert_eq!(value["country"]["politics"]["statuses"]["at_war"], true);
-    assert_eq!(value["simulation"]["naval_units"], 1);
+    assert_eq!(value["simulation"]["naval_units"], 2);
+    assert_eq!(value["simulation"]["fleets"], 2);
     assert_eq!(value["country"]["metrics"]["adm_power"], 42);
     assert_eq!(
         value["province"]["administration"]["raw_autonomy_micros"],
@@ -491,8 +493,11 @@ provinces={
         26_942
     );
     assert_eq!(exported_state["country_statuses"]["AAA"]["at_war"], true);
-    assert_eq!(exported_state["naval_units"].as_array().unwrap().len(), 1);
+    assert_eq!(exported_state["naval_units"].as_array().unwrap().len(), 2);
     assert_eq!(exported_state["naval_units"][0]["location"], 2);
+    assert_eq!(exported_state["naval_fleets"].as_array().unwrap().len(), 2);
+    assert_eq!(exported_state["naval_fleets"][0]["location"], 2);
+    assert_eq!(exported_state["naval_fleets"][1]["location"], 1);
     assert_eq!(
         exported_state["province_development"]["1"]["base_tax_milli"],
         12_345
@@ -529,7 +534,8 @@ provinces={
     assert_eq!(reloaded["country"]["resources"]["treasury_milli"], 12_345);
     assert_eq!(reloaded["country"]["metrics"]["prestige"], 26_942);
     assert_eq!(reloaded["country"]["politics"]["statuses"]["at_war"], true);
-    assert_eq!(reloaded["simulation"]["naval_units"], 1);
+    assert_eq!(reloaded["simulation"]["naval_units"], 2);
+    assert_eq!(reloaded["simulation"]["fleets"], 2);
     assert_eq!(reloaded["province"]["tax_milli"], 12_345);
     assert_eq!(reloaded["province"]["production_milli"], 7_890);
     assert_eq!(reloaded["province"]["manpower_milli"], 4_250);
@@ -577,7 +583,8 @@ provinces={
     assert_eq!(resumed_snapshot["simulation"]["tax_settlements"], 2);
     assert_eq!(resumed_snapshot["simulation"]["last_tax_day"], 51);
     assert_eq!(resumed_snapshot["country_controllers"]["AAA"], "human");
-    assert_eq!(resumed_snapshot["simulation"]["naval_units"], 1);
+    assert_eq!(resumed_snapshot["simulation"]["naval_units"], 2);
+    assert_eq!(resumed_snapshot["simulation"]["fleets"], 2);
 
     let overlay = temp.path().join("eu4-save-overlay.json");
     fs::write(
@@ -620,7 +627,8 @@ provinces={
     assert_eq!(combined["simulation"]["last_production_day"], 20);
     assert_eq!(combined["simulation"]["cashflow_settlements"], 1);
     assert_eq!(combined["simulation"]["last_cashflow_day"], 20);
-    assert_eq!(combined["simulation"]["naval_units"], 1);
+    assert_eq!(combined["simulation"]["naval_units"], 2);
+    assert_eq!(combined["simulation"]["fleets"], 2);
 
     let combined_export = temp.path().join("eu4-save-overlay-export.json");
     let export = Command::new(env!("CARGO_BIN_EXE_augustus-world"))

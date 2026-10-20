@@ -315,6 +315,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         advisors: Default::default(),
         armies: Default::default(),
         naval_units: Default::default(),
+        naval_fleets: Default::default(),
     };
     let encoded = serde_json::to_vec(&state).unwrap();
     let decoded: VanillaExternalState = serde_json::from_slice(&encoded).unwrap();

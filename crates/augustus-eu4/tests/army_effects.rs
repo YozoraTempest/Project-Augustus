@@ -202,6 +202,7 @@ fn parameterized_unit_spawn_effect_repeats_dynamic_creation_in_previous_province
         .unwrap();
 
     assert_eq!(world.naval_units().len(), 3);
+    assert_eq!(world.fleets().len(), 3);
     assert!(world.naval_units().iter().all(|unit| {
         unit.owner == country && unit.location == province && unit.unit_type == "galley"
     }));

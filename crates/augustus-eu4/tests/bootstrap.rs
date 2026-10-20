@@ -17,8 +17,8 @@ use augustus_core::{
 };
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
-    VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalNavalUnit,
-    VanillaExternalState, VanillaWorld, read_vanilla_save_state,
+    VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalFleet,
+    VanillaExternalNavalUnit, VanillaExternalState, VanillaWorld, read_vanilla_save_state,
 };
 
 fn fixture() -> PathBuf {
@@ -2009,6 +2009,8 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
     assert_eq!(loaded.initial.armies().len(), 1);
     assert_eq!(loaded.initial.armies()[0].regiments.len(), 2);
     assert_eq!(loaded.initial.naval_units().len(), 1);
+    assert_eq!(loaded.initial.fleets().len(), 1);
+    assert_eq!(loaded.initial.fleets()[0].ships.len(), 1);
     assert_eq!(
         loaded.initial.naval_units()[0].location.0,
         loaded.initial.province_entity(port).unwrap().0
@@ -2018,6 +2020,26 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
     loaded.restore(&snapshot).unwrap();
     assert_eq!(loaded.initial.armies().len(), 1);
     assert_eq!(loaded.initial.naval_units().len(), 1);
+    assert_eq!(loaded.initial.fleets().len(), 1);
+
+    let grouped = VanillaExternalState {
+        naval_fleets: vec![VanillaExternalFleet {
+            owner: "AAA".into(),
+            location: port,
+            name: Some("Test Navy".into()),
+            ship_types: vec!["galley".into(), "light_ship".into()],
+        }],
+        ..Default::default()
+    };
+    let grouped =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &grouped).unwrap();
+    assert_eq!(grouped.initial.naval_units().len(), 2);
+    assert_eq!(grouped.initial.fleets().len(), 1);
+    assert_eq!(
+        grouped.initial.fleets()[0].name.as_deref(),
+        Some("Test Navy")
+    );
+    assert_eq!(grouped.initial.fleets()[0].ships.len(), 2);
 }
 
 #[test]

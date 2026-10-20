@@ -89,6 +89,7 @@ pub struct World {
     entities: Vec<Entity>,
     pub(crate) armies: crate::army::Armies,
     pub(crate) naval_units: crate::naval::NavalUnits,
+    pub(crate) fleets: crate::naval::Fleets,
     pub(crate) ownership: Arc<crate::ownership::OwnershipIndex>,
     pub(crate) entity_names: BTreeMap<String, Vec<EntityId>>,
     day: u64,
@@ -159,6 +160,8 @@ struct Snapshot {
     armies: crate::army::Armies,
     #[serde(default, skip_serializing_if = "crate::naval::NavalUnits::is_empty")]
     naval_units: crate::naval::NavalUnits,
+    #[serde(default, skip_serializing_if = "crate::naval::Fleets::is_empty")]
+    fleets: crate::naval::Fleets,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     owned_province_order: BTreeMap<EntityId, Vec<EntityId>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -279,6 +282,7 @@ impl World {
             entities: Vec::new(),
             armies: crate::army::Armies::default(),
             naval_units: crate::naval::NavalUnits::default(),
+            fleets: crate::naval::Fleets::default(),
             ownership: Arc::default(),
             entity_names: BTreeMap::new(),
             day: 0,
@@ -1239,6 +1243,7 @@ impl World {
             entities: self.entities.clone(),
             armies: self.armies.clone(),
             naval_units: self.naval_units.clone(),
+            fleets: self.fleets.clone(),
             owned_province_order: self.ownership.order_overrides(),
             subject_country_order: self.subject_country_order.clone(),
             day: self.day,
@@ -1356,6 +1361,7 @@ impl World {
             entities: snapshot.entities,
             armies: snapshot.armies,
             naval_units: snapshot.naval_units,
+            fleets: snapshot.fleets,
             ownership: Arc::default(),
             entity_names: BTreeMap::new(),
             day: snapshot.day,
@@ -1427,6 +1433,9 @@ impl World {
         }
         world.armies.validate(&world.entities)?;
         world.naval_units.validate(&world.entities)?;
+        world.fleets.validate(&world.entities, &world.naval_units)?;
+        world.fleets.ensure_singleton_fleets(&world.naval_units)?;
+        world.fleets.validate(&world.entities, &world.naval_units)?;
         world.unit_templates.validate()?;
         world.unit_selections.validate(&world)?;
         for rule in &world.rules {
