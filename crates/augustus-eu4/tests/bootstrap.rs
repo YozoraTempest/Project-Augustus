@@ -529,8 +529,15 @@ fn startup_actions_from_separate_files_are_all_applied() {
 }
 
 #[test]
-fn delayed_immediate_only_event_from_mod_startup_survives_save_resume() {
+fn delayed_mod_event_replaces_advisor_after_save_resume() {
     let root = copy_fixture();
+    let advisor_types = root.path().join("common/advisortypes");
+    fs::create_dir_all(&advisor_types).unwrap();
+    fs::write(
+        advisor_types.join("advisor_replace.txt"),
+        "army_reformer = { monarch_power = MIL }",
+    )
+    .unwrap();
     let on_actions = root.path().join("common/on_actions");
     fs::create_dir_all(&on_actions).unwrap();
     fs::write(
@@ -547,7 +554,7 @@ fn delayed_immediate_only_event_from_mod_startup_survives_save_resume() {
     fs::create_dir_all(&events).unwrap();
     fs::write(
         events.join("advisor_replace.txt"),
-        "namespace = probe country_event = { id = probe.1 hidden = yes is_triggered_only = yes immediate = { log = PKREP_SYR_BEGIN log = PKREP_SYR_END } }",
+        "namespace = probe country_event = { id = probe.1 hidden = yes is_triggered_only = yes immediate = { log = PKREP_SYR_BEGIN remove_advisor_by_category = MIL hire_advisor = { type = army_reformer skill = 1 cost_multiplier = 1.0 } log = PKREP_SYR_END } }",
     )
     .unwrap();
 
@@ -589,6 +596,18 @@ fn delayed_immediate_only_event_from_mod_startup_survives_save_resume() {
     );
     assert!(resumed.initial.world().pending_events().is_empty());
     assert_eq!(continuous.save().unwrap(), resumed.save().unwrap());
+
+    let country = resumed.country("AAA").unwrap();
+    assert!(!country.advisors_known);
+    assert!(country.advisors.is_none());
+    let slots = country.advisor_slots.unwrap();
+    assert_eq!(slots.len(), 1);
+    let military = slots[&augustus_core::RulerSkill::Military]
+        .as_ref()
+        .unwrap();
+    assert_eq!(military.type_name, "army_reformer");
+    assert_eq!(military.skill, 1);
+    assert_eq!(military.cost_multiplier_milli, Some(1_000));
 }
 
 #[test]
