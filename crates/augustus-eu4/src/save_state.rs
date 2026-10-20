@@ -8,10 +8,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use augustus_core::{CountryResources, IdeaState, NationalFocus, RulerSkill};
-use jomini::{TextToken, text::ValueReader};
+use jomini::{TextToken, binary::TokenResolver, text::ValueReader};
 use serde::Serialize;
 
-use crate::administration_validation::read_eu4_save_documents;
+use crate::administration_validation::{SaveTokenResolver, read_eu4_save_documents};
 use crate::bootstrap::{
     VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState,
     VanillaExternalNavalUnit, VanillaExternalProvinceDevelopment, VanillaExternalState,
@@ -409,33 +409,55 @@ impl VanillaSaveState {
 
 /// Read supported state from an EU4 text save or a ZIP-wrapped text save.
 pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveState, Error> {
-    read_vanilla_save_state_inner_thread(path.as_ref(), None)
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, None)
 }
 
 /// Read supported state from an EU4 save using a player-provided binary token map when needed.
 ///
 /// Each token map line contains a hexadecimal token and its field name, for example
-/// `0x1234 date`. Augustus does not distribute EU4 token maps.
+/// `0x1234 date`; optional string lookup lines use `lookup 7 value`. Augustus does not
+/// distribute EU4 token maps.
 pub fn read_vanilla_save_state_with_token_map(
     path: impl AsRef<Path>,
     token_map_path: impl AsRef<Path>,
 ) -> Result<VanillaSaveState, Error> {
-    read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()))
+    read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()), None)
+}
+
+/// Read supported state using an integration-provided token resolver.
+///
+/// Custom resolvers can supply both binary identifiers and string lookup values without
+/// adding EU4 token data to Augustus. The resolver trait is re-exported as
+/// [`crate::Eu4TokenResolver`].
+pub fn read_vanilla_save_state_with_token_resolver<R>(
+    path: impl AsRef<Path>,
+    resolver: R,
+) -> Result<VanillaSaveState, Error>
+where
+    R: TokenResolver + Send + 'static,
+{
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)))
 }
 
 fn read_vanilla_save_state_inner_thread(
     path: &Path,
     token_map_path: Option<&Path>,
+    token_resolver: Option<SaveTokenResolver>,
 ) -> Result<VanillaSaveState, Error> {
     let path = path.to_path_buf();
     let token_map_path = token_map_path.map(Path::to_path_buf);
     let parser_path = path.clone();
     let parser_token_map_path = token_map_path.clone();
+    let mut parser_token_resolver = token_resolver;
     let handle = std::thread::Builder::new()
         .name("augustus-eu4-save-parser".into())
         .stack_size(32 * 1024 * 1024)
         .spawn(move || {
-            read_vanilla_save_state_inner(&parser_path, parser_token_map_path.as_deref())
+            read_vanilla_save_state_inner(
+                &parser_path,
+                parser_token_map_path.as_deref(),
+                &mut parser_token_resolver,
+            )
         })
         .map_err(|error| Error::caused_by(&path, error))?;
     handle
@@ -446,8 +468,9 @@ fn read_vanilla_save_state_inner_thread(
 fn read_vanilla_save_state_inner(
     path: &Path,
     token_map_path: Option<&Path>,
+    token_resolver: &mut Option<SaveTokenResolver>,
 ) -> Result<VanillaSaveState, Error> {
-    let documents = read_eu4_save_documents(path, token_map_path)?;
+    let documents = read_eu4_save_documents(path, token_map_path, token_resolver)?;
     let parsed = documents.game_state.parse()?;
     let metadata = documents
         .meta
@@ -1512,9 +1535,13 @@ fn saved_government_mechanic_powers(
 mod tests {
     use super::{
         NationalFocus, RulerSkill, read_vanilla_save_state, read_vanilla_save_state_with_token_map,
+        read_vanilla_save_state_with_token_resolver,
     };
     use crate::{ContentRoot, ContentSet, ContentSource, VanillaExternalProvinceDevelopment};
-    use jomini::{binary::Token, common::Date};
+    use jomini::{
+        binary::{Token, TokenResolver},
+        common::Date,
+    };
     use std::{
         collections::{BTreeMap, BTreeSet},
         fs::File,
@@ -1523,6 +1550,25 @@ mod tests {
     };
     use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
+    struct TestTokenResolver;
+
+    impl TokenResolver for TestTokenResolver {
+        fn resolve(&self, token: u16) -> Option<&str> {
+            match token {
+                0x3000 => Some("date"),
+                0x3001 => Some("player"),
+                0x3002 => Some("countries"),
+                0x3003 => Some("AAA"),
+                0x3004 => Some("provinces"),
+                _ => None,
+            }
+        }
+
+        fn lookup(&self, index: u32) -> Option<&str> {
+            (index == 7).then_some("AAA")
+        }
+    }
+
     fn binary_startup_save() -> Vec<u8> {
         let binary_date = Date::parse("1444.11.11").unwrap().to_binary();
         let mut bytes = b"EU4bin".to_vec();
@@ -1530,6 +1576,9 @@ mod tests {
             Token::Id(0x3000),
             Token::Equal,
             Token::I32(binary_date),
+            Token::Id(0x3006),
+            Token::Equal,
+            Token::Lookup(7),
             Token::Id(0x3001),
             Token::Equal,
             Token::Open,
@@ -1551,11 +1600,39 @@ mod tests {
         bytes
     }
 
+    fn binary_startup_save_with_lookup() -> Vec<u8> {
+        let binary_date = Date::parse("1444.11.11").unwrap().to_binary();
+        let mut bytes = b"EU4bin".to_vec();
+        for token in [
+            Token::Id(0x3000),
+            Token::Equal,
+            Token::I32(binary_date),
+            Token::Id(0x3001),
+            Token::Equal,
+            Token::Lookup(7),
+            Token::Id(0x3002),
+            Token::Equal,
+            Token::Open,
+            Token::Id(0x3003),
+            Token::Equal,
+            Token::Open,
+            Token::Close,
+            Token::Close,
+            Token::Id(0x3004),
+            Token::Equal,
+            Token::Open,
+            Token::Close,
+        ] {
+            token.write(&mut bytes).unwrap();
+        }
+        bytes
+    }
+
     fn binary_token_map(directory: &std::path::Path) -> std::path::PathBuf {
         let path = directory.join("tokens.txt");
         std::fs::write(
             &path,
-            "0x3000 date\n0x3001 countries\n0x3002 AAA\n0x3003 provinces\n0x3005 treasury\n",
+            "0x3000 date\n0x3001 countries\n0x3002 AAA\n0x3003 provinces\n0x3005 treasury\n0x3006 player\nlookup 7 AAA\n",
         )
         .unwrap();
         path
@@ -2489,6 +2566,19 @@ provinces={
             state.external_state.country_resources["AAA"].treasury_milli,
             Some(12_345)
         );
+    }
+
+    #[test]
+    fn reads_binary_save_with_custom_token_and_lookup_resolver() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.eu4");
+        std::fs::write(&path, binary_startup_save_with_lookup()).unwrap();
+
+        let state = read_vanilla_save_state_with_token_resolver(&path, TestTokenResolver).unwrap();
+
+        assert_eq!(state.date, "1444.11.11");
+        assert_eq!(state.player.as_deref(), Some("AAA"));
+        assert!(state.external_state.country_resources.contains_key("AAA"));
     }
 
     #[test]

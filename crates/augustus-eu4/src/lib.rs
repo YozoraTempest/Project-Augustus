@@ -111,11 +111,13 @@ pub use eu4_rng::Eu4Random;
 pub use event_ai::{evaluate_ai_event_weight, select_ai_event_option};
 pub use governments::GovernmentReport;
 pub use ideas::IdeaReport;
+pub use jomini::binary::TokenResolver as Eu4TokenResolver;
 pub use load::{ContentSet, ContentSource, FileCandidate, FileOrigin, FileTrace, Suppression};
 pub use politics::{RelationSource, RelationView};
 pub use religious_schools::ReligiousSchoolReport;
 pub use save_state::{
     VanillaSaveState, read_vanilla_save_state, read_vanilla_save_state_with_token_map,
+    read_vanilla_save_state_with_token_resolver,
 };
 pub use script::{CompiledEvents, CompiledScript, ScriptCompiler, ScriptLibrary};
 pub use setup::SetupReport;

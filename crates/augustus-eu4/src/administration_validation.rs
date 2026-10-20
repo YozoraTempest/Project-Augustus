@@ -4,7 +4,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::File,
-    io::{BufReader, Read, Seek, SeekFrom},
+    io::{BufRead, BufReader, Cursor, Read, Seek, SeekFrom},
     path::Path,
 };
 
@@ -23,6 +23,27 @@ use zip::ZipArchive;
 use crate::bootstrap::equal;
 use crate::setup::micros;
 use crate::{EXPANSIONS, Error, ParsedText, TextDocument, TextEncoding, VanillaWorld};
+
+pub(crate) type SaveTokenResolver = Box<dyn TokenResolver + Send>;
+
+struct LocalSaveTokenResolver {
+    tokens: BasicTokenResolver,
+    lookups: BTreeMap<u32, String>,
+}
+
+impl TokenResolver for LocalSaveTokenResolver {
+    fn resolve(&self, token: u16) -> Option<&str> {
+        self.tokens.resolve(token)
+    }
+
+    fn lookup(&self, index: u32) -> Option<&str> {
+        self.lookups.get(&index).map(String::as_str)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.tokens.is_empty() && self.lookups.is_empty()
+    }
+}
 
 #[derive(Debug, Default, Serialize)]
 pub struct AdministrationCheckCount {
@@ -155,6 +176,7 @@ pub(crate) struct Eu4SaveDocuments {
 pub(crate) fn read_eu4_save_documents(
     path: &Path,
     token_map_path: Option<&Path>,
+    token_resolver: &mut Option<SaveTokenResolver>,
 ) -> Result<Eu4SaveDocuments, Error> {
     let mut file = File::open(path).map_err(|error| Error::caused_by(path, error))?;
     let mut prefix = [0; 6];
@@ -168,9 +190,8 @@ pub(crate) fn read_eu4_save_documents(
     if prefix_length == prefix.len() && (&prefix == b"EU4txt" || &prefix == b"EU4bin") {
         file.read_to_end(&mut bytes)
             .map_err(|error| Error::caused_by(path, error))?;
-        let mut token_map = None;
         return Ok(Eu4SaveDocuments {
-            game_state: eu4_save_document(path, bytes, "save", token_map_path, &mut token_map)?,
+            game_state: eu4_save_document(path, bytes, "save", token_map_path, token_resolver)?,
             meta: None,
             zip_container: false,
         });
@@ -178,13 +199,12 @@ pub(crate) fn read_eu4_save_documents(
 
     if prefix.starts_with(b"PK\x03\x04") {
         let mut archive = ZipArchive::new(file).map_err(|error| Error::caused_by(path, error))?;
-        let mut token_map = None;
         let game_state = eu4_save_document(
             path,
             zip_entry_bytes(&mut archive, path, "gamestate")?,
             "gamestate",
             token_map_path,
-            &mut token_map,
+            token_resolver,
         )?;
         let mut has_meta = false;
         for name in archive.file_names() {
@@ -199,7 +219,7 @@ pub(crate) fn read_eu4_save_documents(
                 zip_entry_bytes(&mut archive, path, "meta")?,
                 "meta",
                 token_map_path,
-                &mut token_map,
+                token_resolver,
             )?)
         } else {
             None
@@ -237,7 +257,7 @@ fn eu4_save_document(
     mut bytes: Vec<u8>,
     entry: &str,
     token_map_path: Option<&Path>,
-    token_map: &mut Option<BasicTokenResolver>,
+    token_resolver: &mut Option<SaveTokenResolver>,
 ) -> Result<TextDocument, Error> {
     if bytes.starts_with(b"EU4txt") {
         bytes[..6].fill(b' ');
@@ -249,7 +269,7 @@ fn eu4_save_document(
     }
 
     if bytes.starts_with(b"EU4bin") {
-        if token_map.is_none() {
+        if token_resolver.is_none() {
             let Some(token_map_path) = token_map_path else {
                 return Err(Error::message(
                     path,
@@ -258,19 +278,16 @@ fn eu4_save_document(
                     ),
                 ));
             };
-            let file = File::open(token_map_path)
-                .map_err(|error| Error::caused_by(token_map_path, error))?;
-            let loaded = BasicTokenResolver::from_text_lines(BufReader::new(file))
-                .map_err(|error| Error::caused_by(token_map_path, error))?;
+            let loaded = read_local_save_token_map(token_map_path)?;
             if loaded.is_empty() {
                 return Err(Error::message(token_map_path, "EU4 token map is empty"));
             }
-            *token_map = Some(loaded);
+            *token_resolver = Some(Box::new(loaded));
         }
         return crate::save_binary::decode_eu4_binary_save(
             path,
             &bytes,
-            token_map.as_ref().expect("loaded EU4 token map"),
+            token_resolver.as_ref().expect("loaded EU4 token map"),
         );
     }
 
@@ -280,8 +297,66 @@ fn eu4_save_document(
     ))
 }
 
+fn read_local_save_token_map(path: &Path) -> Result<LocalSaveTokenResolver, Error> {
+    let file = File::open(path).map_err(|error| Error::caused_by(path, error))?;
+    let mut token_lines = Vec::new();
+    let mut lookups = BTreeMap::new();
+    for (line_index, line) in BufReader::new(file).lines().enumerate() {
+        let line = line.map_err(|error| Error::caused_by(path, error))?;
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((kind_or_token, value)) = line.split_once(char::is_whitespace) else {
+            return Err(Error::message(
+                path,
+                format!("invalid EU4 token map line {}", line_index + 1),
+            ));
+        };
+        let value = value.trim_start();
+        if kind_or_token == "lookup" {
+            let Some((index, value)) = value.split_once(char::is_whitespace) else {
+                return Err(Error::message(
+                    path,
+                    format!("invalid EU4 token lookup line {}", line_index + 1),
+                ));
+            };
+            let index = if let Some(hex) = index.strip_prefix("0x") {
+                u32::from_str_radix(hex, 16)
+            } else {
+                index.parse()
+            }
+            .map_err(|error| Error::caused_by(path, error))?;
+            if value.trim().is_empty() || lookups.insert(index, value.trim().to_owned()).is_some() {
+                return Err(Error::message(
+                    path,
+                    format!(
+                        "empty or duplicate EU4 token lookup on line {}",
+                        line_index + 1
+                    ),
+                ));
+            }
+        } else {
+            if value.trim().is_empty() {
+                return Err(Error::message(
+                    path,
+                    format!("empty EU4 token name on line {}", line_index + 1),
+                ));
+            }
+            token_lines.extend_from_slice(kind_or_token.as_bytes());
+            token_lines.push(b' ');
+            token_lines.extend_from_slice(value.as_bytes());
+            token_lines.push(b'\n');
+        }
+    }
+    let tokens = BasicTokenResolver::from_text_lines(Cursor::new(token_lines))
+        .map_err(|error| Error::caused_by(path, error))?;
+    Ok(LocalSaveTokenResolver { tokens, lookups })
+}
+
 pub(crate) fn plaintext_save_document(path: &Path) -> Result<TextDocument, Error> {
-    let documents = read_eu4_save_documents(path, None)?;
+    let mut token_resolver = None;
+    let documents = read_eu4_save_documents(path, None, &mut token_resolver)?;
     if documents.zip_container {
         return Err(Error::message(
             path,

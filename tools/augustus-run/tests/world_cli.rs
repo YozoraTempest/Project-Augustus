@@ -13,7 +13,7 @@ fn binary_startup_save() -> Vec<u8> {
         Token::I32(date),
         Token::Id(0x3001),
         Token::Equal,
-        Token::Id(0x3002),
+        Token::Lookup(7),
         Token::Id(0x3003),
         Token::Equal,
         Token::Open,
@@ -274,7 +274,7 @@ fn world_cli_loads_tokenized_eu4_save_before_startup() {
     let token_map = temp.path().join("tokens.txt");
     fs::write(
         &token_map,
-        "0x3000 date\n0x3001 player\n0x3002 AAA\n0x3003 countries\n0x3004 provinces\n0x3005 treasury\n",
+        "0x3000 date\n0x3001 player\n0x3002 AAA\n0x3003 countries\n0x3004 provinces\n0x3005 treasury\nlookup 7 AAA\n",
     )
     .unwrap();
     fs::write(&save, binary_startup_save()).unwrap();

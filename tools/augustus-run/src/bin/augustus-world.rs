@@ -38,7 +38,7 @@ struct Cli {
         conflicts_with_all = ["player", "ai_only", "seed"]
     )]
     eu4_save: Option<PathBuf>,
-    /// Player-provided token map for an EU4bin save; Augustus does not distribute this data.
+    /// Player-provided token map for EU4bin, including optional `lookup <index> <value>` lines.
     #[arg(long, value_name = "FILE", requires = "eu4_save")]
     eu4_token_map: Option<PathBuf>,
     /// Export the translated state from --eu4-save as a VanillaExternalState JSON file.
