@@ -17,6 +17,9 @@ pub struct AdvisorState {
     pub type_name: String,
     pub category: RulerSkill,
     pub skill: u8,
+    /// Script-supplied multiplier retained for later maintenance-cost rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_multiplier_milli: Option<i64>,
 }
 
 impl AdvisorState {
@@ -45,11 +48,15 @@ impl AdvisorState {
 pub struct Advisors {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub countries: BTreeMap<EntityId, Option<Vec<AdvisorState>>>,
+    /// Category slots updated independently when the rest of a country's
+    /// advisor roster is not known.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub category_slots: BTreeMap<EntityId, BTreeMap<RulerSkill, Option<AdvisorState>>>,
 }
 
 impl Advisors {
     pub(crate) fn is_empty(&self) -> bool {
-        self.countries.is_empty()
+        self.countries.is_empty() && self.category_slots.is_empty()
     }
 
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
@@ -63,7 +70,83 @@ impl Advisors {
                 }
             }
         }
+        for (&country, slots) in &self.category_slots {
+            if world.entity(country)?.kind != EntityKind::Country {
+                return Err(Error::Invalid(
+                    "advisor slots require country entities".into(),
+                ));
+            }
+            for (&category, advisor) in slots {
+                if advisor
+                    .as_ref()
+                    .is_some_and(|advisor| advisor.category != category)
+                {
+                    return Err(Error::Invalid(
+                        "advisor slot category does not match its advisor".into(),
+                    ));
+                }
+                if let Some(Some(roster)) = self.countries.get(&country) {
+                    let roster_advisor = roster.iter().find(|advisor| advisor.category == category);
+                    if roster_advisor != advisor.as_ref() {
+                        return Err(Error::Invalid(
+                            "advisor slot conflicts with the known country roster".into(),
+                        ));
+                    }
+                }
+            }
+        }
         Ok(())
+    }
+
+    /// Returns the known advisor in a category, `Some(None)` for a known empty
+    /// slot, or `None` when that slot has not been observed or updated.
+    pub fn advisor_in_category(
+        &self,
+        country: EntityId,
+        category: RulerSkill,
+    ) -> Option<Option<&AdvisorState>> {
+        if let Some(advisor) = self
+            .category_slots
+            .get(&country)
+            .and_then(|slots| slots.get(&category))
+        {
+            return Some(advisor.as_ref());
+        }
+        self.countries.get(&country).map(|state| {
+            state
+                .as_ref()
+                .and_then(|advisors| advisors.iter().find(|advisor| advisor.category == category))
+        })
+    }
+
+    pub(crate) fn set_category_slot(
+        &mut self,
+        country: EntityId,
+        category: RulerSkill,
+        advisor: Option<AdvisorState>,
+    ) {
+        let roster_known = self.countries.get(&country).is_some_and(Option::is_some);
+        if let Some(Some(roster)) = self.countries.get_mut(&country) {
+            roster.retain(|current| current.category != category);
+            if let Some(advisor) = advisor.clone() {
+                roster.push(advisor);
+            }
+        }
+        if roster_known {
+            let mut remove_country_slots = false;
+            if let Some(slots) = self.category_slots.get_mut(&country) {
+                slots.remove(&category);
+                remove_country_slots = slots.is_empty();
+            }
+            if remove_country_slots {
+                self.category_slots.remove(&country);
+            }
+        } else {
+            self.category_slots
+                .entry(country)
+                .or_default()
+                .insert(category, advisor);
+        }
     }
 }
 
@@ -93,13 +176,20 @@ impl World {
                 "advisor removal requires country scope".into(),
             ));
         }
-        let advisors = self
-            .advisors
-            .countries
-            .get_mut(&entity)
-            .and_then(Option::as_mut)
-            .ok_or_else(|| Error::Invalid("advisor state is unknown".into()))?;
-        advisors.retain(|advisor| advisor.category != category);
+        self.advisors.set_category_slot(entity, category, None);
+        Ok(())
+    }
+
+    pub fn hire_advisor(&mut self, entity: EntityId, advisor: AdvisorState) -> Result<(), Error> {
+        self.require_running()?;
+        if self.entity(entity)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "advisor hiring requires country scope".into(),
+            ));
+        }
+        advisor.validate()?;
+        self.advisors
+            .set_category_slot(entity, advisor.category, Some(advisor));
         Ok(())
     }
 }

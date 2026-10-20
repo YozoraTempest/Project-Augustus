@@ -51,6 +51,7 @@ struct Compiler {
     government_metric_ids: BTreeSet<String>,
     government_form_ids: BTreeSet<String>,
     metric_ids: BTreeSet<String>,
+    advisor_types: BTreeMap<String, augustus_core::RulerSkill>,
     truce_months: Option<u32>,
     age_rules: crate::country_conditions::AgeRules,
     area_scopes: BTreeMap<String, Vec<u32>>,
@@ -111,6 +112,8 @@ impl Compiler {
                 | "change_dip"
                 | "change_mil"
                 | "change_national_focus"
+                | "hire_advisor"
+                | "remove_advisor_by_category"
                 | "add_core"
                 | "add_territorial_core"
                 | "remove_core" => {
@@ -667,6 +670,7 @@ impl EstateStartup {
         government_metric_ids: BTreeSet<String>,
         government_form_ids: BTreeSet<String>,
         metric_ids: BTreeSet<String>,
+        advisor_types: BTreeMap<String, augustus_core::RulerSkill>,
         truce_months: Option<u32>,
         area_scopes: BTreeMap<String, Vec<u32>>,
         religious_school_groups: BTreeMap<String, Option<String>>,
@@ -678,7 +682,9 @@ impl EstateStartup {
         let mut compiler = Compiler {
             hidden_descriptions: false,
             schema: schema.clone(),
-            library: crate::ScriptLibrary::from_root(root, files, ENCODING)?,
+            advisor_types: advisor_types.clone(),
+            library: crate::ScriptLibrary::from_root(root, files, ENCODING)?
+                .with_advisor_types(advisor_types),
             effects: Vec::new(),
             effect_index: BTreeMap::new(),
             triggers: super::library(root, files, report)?,
@@ -1374,7 +1380,8 @@ fn load_events(
     if needed.is_empty() {
         return Ok(EventCatalog::default());
     }
-    let library = crate::ScriptLibrary::from_root(root, files, ENCODING)?;
+    let library = crate::ScriptLibrary::from_root(root, files, ENCODING)?
+        .with_advisor_types(compiler.advisor_types.clone());
     for (name, path, location) in library.ignored_definitions() {
         report
             .startup_script_ignored_definitions

@@ -47,15 +47,18 @@ fn remove_advisor_by_category_compiles_and_clears_only_that_category() {
                         type_name: "treasurer".into(),
                         category: RulerSkill::Administration,
                         skill: 2,
+                        cost_multiplier_milli: None,
                     },
                     AdvisorState {
                         type_name: "army_reformer".into(),
                         category: RulerSkill::Military,
                         skill: 1,
+                        cost_multiplier_milli: None,
                     },
                 ]),
             )]
             .into(),
+            ..Default::default()
         })
         .unwrap();
     world
@@ -101,6 +104,7 @@ fn remove_advisor_by_category_compiles_and_clears_only_that_category() {
             type_name: "treasurer".into(),
             category: RulerSkill::Administration,
             skill: 2,
+            cost_multiplier_milli: None,
         }])
     );
     assert_eq!(
@@ -125,7 +129,7 @@ fn remove_advisor_by_category_compiles_and_clears_only_that_category() {
 }
 
 #[test]
-fn advisor_removal_rejects_unknown_state_and_invalid_script_operands() {
+fn advisor_removal_updates_unknown_slot_and_invalid_operands_are_rejected() {
     let schema = Schema::new([] as [&str; 0]).unwrap();
     let library = ScriptLibrary::new();
     let compiled = ScriptCompiler::new(&schema, &library, true)
@@ -136,7 +140,19 @@ fn advisor_removal_rejects_unknown_state_and_invalid_script_operands() {
         .unwrap();
     let mut unknown = World::new(schema.clone());
     let country = unknown.add_entity("AAA", EntityKind::Country);
-    assert!(unknown.execute(country, &compiled.plan).is_err());
+    unknown.execute(country, &compiled.plan).unwrap();
+    assert_eq!(
+        unknown
+            .advisors()
+            .advisor_in_category(country, RulerSkill::Diplomacy),
+        Some(None)
+    );
+    assert_eq!(
+        unknown
+            .advisors()
+            .advisor_in_category(country, RulerSkill::Administration),
+        None
+    );
 
     for (text, scope) in [
         ("remove_advisor_by_category = ART", EntityKind::Country),
@@ -151,12 +167,95 @@ fn advisor_removal_rejects_unknown_state_and_invalid_script_operands() {
 }
 
 #[test]
-fn delayed_advisor_removal_executes_after_save_restore() {
+fn hire_advisor_compiles_with_content_category_and_updates_only_that_slot() {
     let schema = Schema::new([] as [&str; 0]).unwrap();
-    let library = ScriptLibrary::new();
+    let library = ScriptLibrary::new()
+        .with_advisor_types([("army_reformer".into(), RulerSkill::Military)].into());
+    let compiled = ScriptCompiler::new(&schema, &library, true)
+        .compile(
+            &document(
+                "remove_advisor_by_category = MIL hire_advisor = { type = army_reformer skill = 1 cost_multiplier = 1.0 }",
+            ),
+            EntityKind::Country,
+        )
+        .unwrap();
+    assert!(matches!(
+        compiled.plan.as_slice(),
+        [
+            Action::RemoveAdvisorByCategory {
+                category: RulerSkill::Military,
+                ..
+            },
+            Action::HireAdvisor {
+                advisor: AdvisorState {
+                    type_name,
+                    category: RulerSkill::Military,
+                    skill: 1,
+                    cost_multiplier_milli: Some(1_000),
+                },
+                ..
+            }
+        ] if type_name == "army_reformer"
+    ));
+
+    let mut world = World::new(schema.clone());
+    let country = world.add_entity("AAA", EntityKind::Country);
+    world.execute(country, &compiled.plan).unwrap();
+    let military = world
+        .advisors()
+        .advisor_in_category(country, RulerSkill::Military)
+        .unwrap()
+        .unwrap();
+    assert_eq!(military.type_name, "army_reformer");
+    assert_eq!(military.cost_multiplier_milli, Some(1_000));
+    assert_eq!(
+        world
+            .advisors()
+            .advisor_in_category(country, RulerSkill::Administration),
+        None
+    );
+
+    let snapshot = world.save("advisor-hire").unwrap();
+    let restored = World::restore(&snapshot, "advisor-hire", world.schema()).unwrap();
+    assert_eq!(
+        restored
+            .advisors()
+            .advisor_in_category(country, RulerSkill::Military)
+            .unwrap()
+            .unwrap()
+            .cost_multiplier_milli,
+        Some(1_000)
+    );
+}
+
+#[test]
+fn hire_advisor_rejects_unknown_types_and_unresolved_selectors() {
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let library = ScriptLibrary::new()
+        .with_advisor_types([("army_reformer".into(), RulerSkill::Military)].into());
+    for text in [
+        "hire_advisor = { type = missing_advisor skill = 1 }",
+        "hire_advisor = { type = army_reformer skill = 4 }",
+        "hire_advisor = { type = army_reformer skill = 1.5 }",
+        "hire_advisor = { type = army_reformer skill = 1 religion = ROOT }",
+    ] {
+        assert!(
+            ScriptCompiler::new(&schema, &library, true)
+                .compile(&document(text), EntityKind::Country)
+                .is_err(),
+            "unexpectedly compiled {text}"
+        );
+    }
+}
+
+#[test]
+fn delayed_advisor_replacement_executes_after_save_restore() {
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let library = ScriptLibrary::new()
+        .with_advisor_types([("army_reformer".into(), RulerSkill::Military)].into());
     let events = ScriptCompiler::new(&schema, &library, true)
         .compile_events(&document(
-            "country_event={id=probe.1 is_triggered_only=yes hidden=yes immediate={remove_advisor_by_category=MIL}}",
+            "country_event={id=probe.1 is_triggered_only=yes hidden=yes immediate={remove_advisor_by_category=MIL hire_advisor={type=army_reformer skill=2 cost_multiplier=0.5}}}",
         ))
         .unwrap();
     let catalog = EventCatalog::new(events.definitions)
@@ -192,9 +291,11 @@ fn delayed_advisor_removal_executes_after_save_restore() {
                     type_name: "army_reformer".into(),
                     category: RulerSkill::Military,
                     skill: 1,
+                    cost_multiplier_milli: None,
                 }]),
             )]
             .into(),
+            ..Default::default()
         })
         .unwrap();
     world.set_event_catalog(catalog).unwrap();
@@ -214,7 +315,15 @@ fn delayed_advisor_removal_executes_after_save_restore() {
     )
     .unwrap();
     resumed.advance_to(25).unwrap();
-    assert_eq!(resumed.advisors().countries[&country], Some(Vec::new()));
+    assert_eq!(
+        resumed.advisors().countries[&country],
+        Some(vec![AdvisorState {
+            type_name: "army_reformer".into(),
+            category: RulerSkill::Military,
+            skill: 2,
+            cost_multiplier_milli: Some(500),
+        }])
+    );
 }
 
 #[test]

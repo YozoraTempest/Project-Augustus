@@ -884,6 +884,7 @@ fn bind_external_advisors(
                     type_name: advisor.type_name.clone(),
                     category: *category,
                     skill: advisor.skill,
+                    cost_multiplier_milli: None,
                 })
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -3008,6 +3009,7 @@ impl VanillaWorld {
                 .keys()
                 .cloned()
                 .collect(),
+            report.setup.advisor_types.clone(),
             report.setup.truce_months,
             area_scopes,
             initial.world().affiliations().0["religious_school"]

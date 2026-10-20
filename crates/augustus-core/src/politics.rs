@@ -5,7 +5,7 @@ use crate::{EntityId, EntityKind, Error, World, WorldDate};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum RulerSkill {
     Administration,
     Diplomacy,

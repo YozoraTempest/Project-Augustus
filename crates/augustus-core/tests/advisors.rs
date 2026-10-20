@@ -37,14 +37,17 @@ fn fixture() -> (World, EntityId) {
                         type_name: "treasurer".into(),
                         category: RulerSkill::Administration,
                         skill: 2,
+                        cost_multiplier_milli: None,
                     },
                     AdvisorState {
                         type_name: "master_of_mint".into(),
                         category: RulerSkill::Administration,
                         skill: 3,
+                        cost_multiplier_milli: None,
                     },
                 ]),
             )]),
+            ..Default::default()
         })
         .unwrap();
     world
@@ -96,6 +99,68 @@ fn unknown_advisors_keep_the_power_formula_unresolved() {
         evaluation
             .unresolved
             .contains("power_income:advisors_not_initialized")
+    );
+}
+
+#[test]
+fn category_updates_resolve_only_the_changed_slot() {
+    let mut world = World::new(Schema::new(std::iter::empty::<String>()).unwrap());
+    let country = world.add_entity("AAA", EntityKind::Country);
+    world
+        .set_attributes(Attributes {
+            formulas: BTreeMap::from([(
+                country,
+                BTreeMap::from([("monthly_adm".into(), formula())]),
+            )]),
+            ..Default::default()
+        })
+        .unwrap();
+
+    world
+        .hire_advisor(
+            country,
+            AdvisorState {
+                type_name: "treasurer".into(),
+                category: RulerSkill::Administration,
+                skill: 2,
+                cost_multiplier_milli: Some(1_000),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        world
+            .advisors()
+            .advisor_in_category(country, RulerSkill::Administration)
+            .map(|advisor| advisor.map(|advisor| advisor.skill)),
+        Some(Some(2))
+    );
+    assert_eq!(
+        world
+            .advisors()
+            .advisor_in_category(country, RulerSkill::Military),
+        None
+    );
+    let evaluation = world
+        .attributes()
+        .evaluate(&world, country, "monthly_adm")
+        .unwrap();
+    assert_eq!(evaluation.value_micros, Some(2_000_000));
+    assert!(evaluation.unresolved.is_empty());
+
+    let saved = world.save("partial-advisor-slots").unwrap();
+    let restored = World::restore(&saved, "partial-advisor-slots", world.schema()).unwrap();
+    assert_eq!(
+        restored
+            .advisors()
+            .advisor_in_category(country, RulerSkill::Administration)
+            .map(|advisor| advisor.map(|advisor| advisor.cost_multiplier_milli)),
+        Some(Some(Some(1_000)))
+    );
+    assert_eq!(
+        restored
+            .advisors()
+            .advisor_in_category(country, RulerSkill::Military),
+        None
     );
 }
 

@@ -849,21 +849,16 @@ impl Attributes {
                             "advisor attribute requires country scope".into(),
                         ));
                     }
-                    match world.advisors().countries.get(&selected) {
-                        Some(Some(advisors)) => {
-                            if let Some(advisor) =
-                                advisors.iter().find(|advisor| advisor.category == *skill)
-                            {
-                                values.push((
-                                    format!("advisor:{}", advisor.type_name),
-                                    "skill".into(),
-                                    narrow(
-                                        i128::from(advisor.skill) * i128::from(*micros_per_unit),
-                                    )?,
-                                ));
-                            }
+                    match world.advisors().advisor_in_category(selected, *skill) {
+                        Some(Some(advisor)) => {
+                            values.push((
+                                format!("advisor:{}", advisor.type_name),
+                                "skill".into(),
+                                narrow(i128::from(advisor.skill) * i128::from(*micros_per_unit))?,
+                            ));
                         }
-                        Some(None) | None => {
+                        Some(None) => {}
+                        None => {
                             unresolved.insert("power_income:advisors_not_initialized".into());
                             return Ok((values, false));
                         }

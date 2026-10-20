@@ -182,11 +182,21 @@ pub struct ScriptLibrary {
     triggers: BTreeMap<String, Field>,
     ignored: Vec<(String, PathBuf, SourceLocation)>,
     government_callbacks: BTreeMap<String, Field>,
+    advisor_types: BTreeMap<String, augustus_core::RulerSkill>,
 }
 
 impl ScriptLibrary {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Bind advisor type identifiers to the categories resolved from content.
+    pub fn with_advisor_types(
+        mut self,
+        types: BTreeMap<String, augustus_core::RulerSkill>,
+    ) -> Self {
+        self.advisor_types = types;
+        self
     }
 
     /// Load the supported script categories from selected effective files.
@@ -372,6 +382,7 @@ pub struct ScriptCompiler<'a> {
     government_metric_ids: BTreeSet<String>,
     government_form_ids: BTreeSet<String>,
     metric_ids: BTreeSet<String>,
+    advisor_types: BTreeMap<String, augustus_core::RulerSkill>,
     truce_months: Option<u32>,
     treasury_slot: Option<augustus_core::NumericSlot>,
     area_scopes: BTreeMap<String, Vec<u32>>,
@@ -399,6 +410,7 @@ impl<'a> ScriptCompiler<'a> {
             government_metric_ids: BTreeSet::new(),
             government_form_ids: BTreeSet::new(),
             metric_ids: BTreeSet::new(),
+            advisor_types: library.advisor_types.clone(),
             truce_months: None,
             treasury_slot: None,
             area_scopes: BTreeMap::new(),
@@ -1901,6 +1913,75 @@ impl<'a> ScriptCompiler<'a> {
                     plan.push(Action::ChangeNationalFocus {
                         target: Target::Current,
                         focus: augustus_core::NationalFocus { skill },
+                    });
+                }
+                "hire_advisor" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("advisor hiring requires country scope"));
+                    }
+                    let mut type_name = None;
+                    let mut type_field = None;
+                    let mut skill = None;
+                    let mut cost_multiplier_milli = None;
+                    for option in field.block()? {
+                        match option.name.as_str() {
+                            "type" => {
+                                if type_name.is_some() {
+                                    return Err(option.error("duplicate advisor type"));
+                                }
+                                let value = option.scalar()?.to_owned();
+                                if value.is_empty() {
+                                    return Err(option.error("advisor type is empty"));
+                                }
+                                type_field = Some(option.clone());
+                                type_name = Some(value);
+                            }
+                            "skill" => {
+                                if skill.is_some() {
+                                    return Err(option.error("duplicate advisor skill"));
+                                }
+                                let value = decimal(option)?;
+                                if value % 1000 != 0 {
+                                    return Err(option.error("advisor skill must be an integer"));
+                                }
+                                let value = u8::try_from(value / 1000)
+                                    .map_err(|_| option.error("advisor skill outside 1..3"))?;
+                                if !(1..=3).contains(&value) {
+                                    return Err(option.error("advisor skill outside 1..3"));
+                                }
+                                skill = Some(value);
+                            }
+                            "cost_multiplier" => {
+                                if cost_multiplier_milli.is_some() {
+                                    return Err(option.error("duplicate advisor cost multiplier"));
+                                }
+                                cost_multiplier_milli = Some(decimal(option)?);
+                            }
+                            _ => {
+                                return Err(option.error(format!(
+                                    "unsupported hire_advisor field {}",
+                                    option.name
+                                )));
+                            }
+                        }
+                    }
+                    let type_name =
+                        type_name.ok_or_else(|| field.error("hire_advisor is missing type"))?;
+                    let type_field = type_field.expect("advisor type field was recorded");
+                    let category =
+                        self.advisor_types.get(&type_name).copied().ok_or_else(|| {
+                            type_field.error(format!("unknown advisor type {type_name}"))
+                        })?;
+                    let skill =
+                        skill.ok_or_else(|| field.error("hire_advisor is missing skill"))?;
+                    plan.push(Action::HireAdvisor {
+                        target: Target::Current,
+                        advisor: augustus_core::AdvisorState {
+                            type_name,
+                            category,
+                            skill,
+                            cost_multiplier_milli,
+                        },
                     });
                 }
                 "remove_advisor_by_category" => {

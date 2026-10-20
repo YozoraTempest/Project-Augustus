@@ -346,6 +346,10 @@ pub enum Action {
         target: Target,
         focus: crate::NationalFocus,
     },
+    HireAdvisor {
+        target: Target,
+        advisor: crate::AdvisorState,
+    },
     RemoveAdvisorByCategory {
         target: Target,
         category: crate::RulerSkill,
@@ -1308,6 +1312,10 @@ impl World {
                 Action::ChangeNationalFocus { target, focus } => {
                     let entity = self.target(current, *target)?;
                     self.change_national_focus(entity, *focus)?;
+                }
+                Action::HireAdvisor { target, advisor } => {
+                    let entity = self.target(current, *target)?;
+                    self.hire_advisor(entity, advisor.clone())?;
                 }
                 Action::RemoveAdvisorByCategory { target, category } => {
                     let entity = self.target(current, *target)?;
