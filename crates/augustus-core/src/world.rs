@@ -2082,6 +2082,9 @@ pub(crate) fn validate_condition(
         crate::Condition::AffiliationMember {
             dimension, member, ..
         } => crate::affiliations::validate_condition(dimension, Some(member)),
+        crate::Condition::AffiliationAcceptsMember {
+            dimension, member, ..
+        } => crate::affiliations::validate_condition(dimension, Some(member)),
         crate::Condition::AffiliationGroup {
             dimension, group, ..
         } => crate::affiliations::validate_condition(dimension, Some(group)),

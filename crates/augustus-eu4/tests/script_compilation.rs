@@ -686,13 +686,16 @@ fn has_idea_compiles_as_a_typed_country_condition() {
 
 #[test]
 fn primary_culture_and_culture_group_use_loaded_country_affiliations() {
-    use augustus_core::{AffiliationDimension, Affiliations};
+    use augustus_core::{AffiliationAcceptance, AffiliationDimension, Affiliations};
 
     let schema = Schema::new([] as [&str; 0]).unwrap();
     let library = ScriptLibrary::new();
     for (script, expected) in [
         ("primary_culture=hausa", true),
         ("culture_group=west_african", true),
+        ("accepted_culture=hausa", true),
+        ("accepted_culture=songhai", true),
+        ("accepted_culture=mandinka", false),
         ("primary_culture=songhai", false),
         ("culture_group=east_african", false),
         ("technology_group=western", true),
@@ -714,8 +717,21 @@ fn primary_culture_and_culture_group_use_loaded_country_affiliations() {
                     (
                         "culture".into(),
                         AffiliationDimension {
-                            groups: [("hausa".into(), Some("west_african".into()))].into(),
+                            groups: [
+                                ("hausa".into(), Some("west_african".into())),
+                                ("songhai".into(), Some("east_african".into())),
+                                ("mandinka".into(), Some("east_african".into())),
+                            ]
+                            .into(),
                             members: [(hausa, Some("hausa".into()))].into(),
+                            acceptance: [(
+                                hausa,
+                                AffiliationAcceptance {
+                                    members: Some(["songhai".into()].into_iter().collect()),
+                                    groups: Some(["west_african".into()].into_iter().collect()),
+                                },
+                            )]
+                            .into(),
                             ..Default::default()
                         },
                     ),
@@ -737,6 +753,59 @@ fn primary_culture_and_culture_group_use_loaded_country_affiliations() {
             "{script}"
         );
     }
+}
+
+#[test]
+fn accepted_culture_is_distinct_from_primary_culture_and_unknown_policy() {
+    use augustus_core::{AffiliationAcceptance, AffiliationDimension, Affiliations};
+
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let library = ScriptLibrary::new();
+    let compiled = ScriptCompiler::new(&schema, &library, true)
+        .compile(
+            &document("if={limit={accepted_culture=beta} log=accepted} else={log=not_accepted}"),
+            EntityKind::Country,
+        )
+        .unwrap();
+
+    let mut world = World::new(schema);
+    let country = world.add_entity("AAA", EntityKind::Country);
+    world
+        .set_affiliations(Affiliations(
+            [(
+                "culture".into(),
+                AffiliationDimension {
+                    acceptance: [(
+                        country,
+                        AffiliationAcceptance {
+                            members: Some(Default::default()),
+                            groups: Some(Default::default()),
+                        },
+                    )]
+                    .into(),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        ))
+        .unwrap();
+    world.execute(country, &compiled.plan).unwrap();
+    assert_eq!(world.events().last().unwrap().2, "not_accepted");
+
+    let mut affiliations = world.affiliations().clone();
+    let acceptance = affiliations
+        .0
+        .get_mut("culture")
+        .unwrap()
+        .acceptance
+        .get_mut(&country)
+        .unwrap();
+    acceptance.members = None;
+    acceptance.groups = None;
+    world.set_affiliations(affiliations).unwrap();
+    let event_count = world.events().len();
+    assert!(world.execute(country, &compiled.plan).is_err());
+    assert_eq!(world.events().len(), event_count);
 }
 
 #[test]

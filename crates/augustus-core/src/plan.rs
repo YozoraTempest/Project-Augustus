@@ -108,6 +108,12 @@ pub enum Condition {
         dimension: String,
         member: String,
     },
+    /// Check whether a country's member or group acceptance policy accepts a member.
+    AffiliationAcceptsMember {
+        target: Target,
+        dimension: String,
+        member: String,
+    },
     /// Compare the live membership's group; unknown membership or grouping is an error.
     AffiliationGroup {
         target: Target,
@@ -767,6 +773,28 @@ impl Condition {
                         ))
                     })?;
                 Ok(actual == member)
+            }
+            Self::AffiliationAcceptsMember {
+                target,
+                dimension,
+                member,
+            } => {
+                crate::affiliations::validate_condition(dimension, Some(member))?;
+                let country = world.target(current, *target)?;
+                if world.entity(country)?.kind != EntityKind::Country {
+                    return Err(Error::Invalid(
+                        "affiliation acceptance requires a country".into(),
+                    ));
+                }
+                world
+                    .affiliations()
+                    .accepts_member(dimension, country, member)
+                    .ok_or_else(|| {
+                        Error::Invalid(format!(
+                            "unknown affiliation acceptance {dimension} for entity {}",
+                            country.0
+                        ))
+                    })
             }
             Self::AffiliationGroup {
                 target,

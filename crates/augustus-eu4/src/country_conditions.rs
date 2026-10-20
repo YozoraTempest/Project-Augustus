@@ -30,7 +30,6 @@ pub(super) enum Condition {
     Institution(String, String),
     Estate(String),
     EstatePrivilege(String),
-    AcceptedCulture(String),
     OwnsProvince(u32),
     If(Box<Self>, Box<Self>),
     Capital(Vec<Self>),
@@ -627,7 +626,11 @@ impl Condition {
                         if culture.is_empty() {
                             return Err(fail("empty accepted culture identifier"));
                         }
-                        Self::AcceptedCulture(culture)
+                        Self::Scoped(augustus_core::Condition::AffiliationAcceptsMember {
+                            target: augustus_core::Target::Current,
+                            dimension: "culture".into(),
+                            member: culture,
+                        })
                     }
                     "owns" if country => {
                         let province = value
@@ -1049,12 +1052,24 @@ impl Condition {
                 ) {
                     Ok(value) => Some(value),
                     Err(error) => {
-                        let kind = if matches!(self, Self::Scoped(_)) {
-                            "unknown_scoped_condition"
-                        } else {
-                            "unknown_variable_state"
+                        let diagnostic = match self {
+                            Self::Scoped(augustus_core::Condition::AffiliationAcceptsMember {
+                                dimension,
+                                member,
+                                ..
+                            }) if dimension == "culture" => {
+                                format!("unknown_culture_acceptance:{member}")
+                            }
+                            _ => {
+                                let kind = if matches!(self, Self::Scoped(_)) {
+                                    "unknown_scoped_condition"
+                                } else {
+                                    "unknown_variable_state"
+                                };
+                                format!("{kind}:{error}")
+                            }
                         };
-                        reasons.insert(format!("{kind}:{error}"));
+                        reasons.insert(diagnostic);
                         None
                     }
                 }
@@ -1329,17 +1344,6 @@ impl Condition {
                 }
                 actual.map(|a| a == expected)
             }
-            Self::AcceptedCulture(culture) => {
-                let country = initial.country_entity(tag).expect("registered country");
-                let accepted = initial
-                    .world()
-                    .affiliations()
-                    .accepts_member("culture", country, culture);
-                if accepted.is_none() {
-                    reasons.insert(format!("unknown_culture_acceptance:{culture}"));
-                }
-                accepted
-            }
         }
     }
 
@@ -1415,5 +1419,40 @@ mod tests {
                 if matches!(conditions.as_slice(), [augustus_core::Condition::ProvinceHasPort])
         ));
         assert!(!report.unsupported_fields.contains_key("trigger:has_port"));
+    }
+
+    #[test]
+    fn unknown_accepted_culture_keeps_its_estate_diagnostic() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let mut initial = crate::VanillaWorld::load(root, "1444.11.11")
+            .unwrap()
+            .initial;
+        let country = initial.country_entity("AAA").unwrap();
+        let mut affiliations = initial.world().affiliations().clone();
+        affiliations
+            .0
+            .entry("culture".into())
+            .or_default()
+            .acceptance
+            .insert(
+                country,
+                augustus_core::AffiliationAcceptance {
+                    members: None,
+                    groups: None,
+                },
+            );
+        initial.set_affiliations(affiliations).unwrap();
+
+        let condition = Condition::Scoped(augustus_core::Condition::AffiliationAcceptsMember {
+            target: augustus_core::Target::Current,
+            dimension: "culture".into(),
+            member: "beta".into(),
+        });
+        let mut reasons = BTreeSet::new();
+        assert_eq!(
+            condition.evaluate(&initial, "AAA", &mut reasons, None, None),
+            None
+        );
+        assert!(reasons.contains("unknown_culture_acceptance:beta"));
     }
 }

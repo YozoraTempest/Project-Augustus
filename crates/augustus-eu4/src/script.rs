@@ -2900,7 +2900,7 @@ impl<'a> ScriptCompiler<'a> {
                         Condition::AffiliationGroup { target: Target::Current, dimension: "religion".into(), group: value.into() }
                     }
                 }
-                "primary_culture" | "culture_group" => {
+                "accepted_culture" | "primary_culture" | "culture_group" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("culture conditions require country scope"));
                     }
@@ -2911,18 +2911,22 @@ impl<'a> ScriptCompiler<'a> {
                     {
                         return Err(field.error("culture conditions require a literal identifier"));
                     }
-                    if field.name == "primary_culture" {
-                        Condition::AffiliationMember {
+                    match field.name.as_str() {
+                        "accepted_culture" => Condition::AffiliationAcceptsMember {
                             target: Target::Current,
                             dimension: "culture".into(),
                             member: value.into(),
-                        }
-                    } else {
-                        Condition::AffiliationGroup {
+                        },
+                        "primary_culture" => Condition::AffiliationMember {
+                            target: Target::Current,
+                            dimension: "culture".into(),
+                            member: value.into(),
+                        },
+                        _ => Condition::AffiliationGroup {
                             target: Target::Current,
                             dimension: "culture".into(),
                             group: value.into(),
-                        }
+                        },
                     }
                 }
                 "technology_group" => {
