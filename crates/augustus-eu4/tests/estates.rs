@@ -1867,6 +1867,8 @@ fn influence_initialization_resolves_owned_province_and_capital_triggers() {
                 trigger = { any_owned_province = { religion = test_faith } }
                 influence = 3
             }
+            influence_modifier = { trigger = { owns = 1 } influence = 2 }
+            influence_modifier = { trigger = { owns = 2 } influence = 4 }
             influence_modifier = { trigger = { capital = 1 } influence = 5 }
             influence_modifier = { trigger = { capital = 2 } influence = 7 }
         }
@@ -1879,14 +1881,14 @@ fn influence_initialization_resolves_owned_province_and_capital_triggers() {
     );
     let state = VanillaExternalState {
         country_capitals: BTreeMap::from([("AAA".into(), Some(1))]),
-        province_owners: BTreeMap::from([(1, Some("AAA".into()))]),
+        province_owners: BTreeMap::from([(1, Some("AAA".into())), (2, Some("BBB".into()))]),
         ..Default::default()
     };
 
     let loaded = VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &state).unwrap();
     assert_eq!(
         loaded.country("AAA").unwrap().estates.unwrap()["guild"].influence_milli,
-        Some(18_000),
+        Some(20_000),
         "{:?}",
         loaded.report.estates.unresolved_initialization.get("AAA")
     );
@@ -1903,6 +1905,25 @@ fn influence_initialization_resolves_owned_province_and_capital_triggers() {
             .estates
             .unsupported_fields
             .contains_key("trigger:capital")
+    );
+    assert!(
+        !loaded
+            .report
+            .estates
+            .unsupported_fields
+            .contains_key("trigger:owns")
+    );
+
+    let unowned = VanillaExternalState {
+        country_capitals: BTreeMap::from([("AAA".into(), Some(1))]),
+        province_owners: BTreeMap::from([(1, Some("AAA".into())), (2, None)]),
+        ..Default::default()
+    };
+    let loaded =
+        VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &unowned).unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap()["guild"].influence_milli,
+        Some(20_000)
     );
 
     let unknown_capital = VanillaExternalState {

@@ -30,6 +30,7 @@ pub(super) enum Condition {
     Institution(String, String),
     Estate(String),
     EstatePrivilege(String),
+    OwnsProvince(u32),
     If(Box<Self>, Box<Self>),
     Capital(Vec<Self>),
     CapitalProvince(u32),
@@ -618,6 +619,15 @@ impl Condition {
                         }
                         Self::EstatePrivilege(id)
                     }
+                    "owns" if country => {
+                        let province = value
+                            .read_string()
+                            .ok()
+                            .and_then(|value| value.parse::<u32>().ok())
+                            .filter(|province| *province > 0)
+                            .ok_or_else(|| fail("owns requires a positive province id"))?;
+                        Self::OwnsProvince(province)
+                    }
                     "any_owned_province" if country => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
@@ -1063,6 +1073,29 @@ impl Condition {
                     },
                     Err(error) => {
                         reasons.insert(format!("invalid_capital_state:{error}"));
+                        None
+                    }
+                }
+            }
+            Self::OwnsProvince(province_id) => {
+                let Some(province) = initial.province_entity(*province_id) else {
+                    reasons.insert(format!("unknown_owned_province:{province_id}"));
+                    return None;
+                };
+                let country = initial.country_entity(tag).expect("registered country");
+                match initial.world().entity(province) {
+                    Ok(province) => match province.owner {
+                        Some(owner) => Some(owner == country),
+                        None => match initial.world().owned_provinces(country) {
+                            Ok(_) => Some(false),
+                            Err(error) => {
+                                reasons.insert(format!("unknown_province_ownership:{error}"));
+                                None
+                            }
+                        },
+                    },
+                    Err(error) => {
+                        reasons.insert(format!("invalid_owned_province_state:{error}"));
                         None
                     }
                 }
