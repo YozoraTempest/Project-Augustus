@@ -56,6 +56,9 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     days: u64,
+    /// Omit the full content-loading report from JSON output.
+    #[arg(long)]
+    omit_load_report: bool,
     /// Use the monthly ledger pipeline; loaded snapshots select their recorded version.
     #[arg(long, conflicts_with = "compare_administration_save")]
     monthly_ledger_pipeline: bool,
@@ -292,7 +295,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             .open(path)?;
         file.write_all(snapshot.as_bytes())?;
     }
-    let mut output = serde_json::json!({"report": loaded.report,
+    let mut output = serde_json::json!({
         "simulation": {"day": loaded.initial.world().day(), "date": loaded.initial.world().date()?,
             "monthly_system_id": loaded.initial.world().monthly_system_id(),
             "yearly_system_id": loaded.initial.world().yearly_system_id(),
@@ -307,6 +310,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             "last_cashflow_day": loaded.initial.world().monthly_cashflows().and_then(|c| c.last_settlement.as_ref().map(|s| s.day)),
             "armies": loaded.initial.armies().len(),
             "naval_units": loaded.initial.naval_units().len()}});
+    if !cli.omit_load_report {
+        output["report"] = serde_json::to_value(&loaded.report)?;
+    }
     if !loaded.initial.world().country_controllers().is_empty() {
         output["country_controllers"] = serde_json::json!(
             loaded

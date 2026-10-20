@@ -62,6 +62,7 @@ fn world_cli_reports_state_sources_and_query_failures() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(value["report"].is_object());
     assert_eq!(value["country"]["bound_capital"], 2);
     assert_eq!(value["province"]["owner"], "BBB");
     assert_eq!(value["province_sources"][0]["line"], 2);
@@ -128,6 +129,22 @@ fn world_cli_reports_state_sources_and_query_failures() {
         value["economy"]["trade_nodes"][1]["members"],
         serde_json::json!([1])
     );
+    let compact = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .args(["--country", "AAA", "--province", "1", "--omit-load-report"])
+        .output()
+        .unwrap();
+    assert!(
+        compact.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compact.stderr)
+    );
+    let compact: serde_json::Value = serde_json::from_slice(&compact.stdout).unwrap();
+    assert!(compact.get("report").is_none());
+    assert!(compact["simulation"].is_object());
+    assert_eq!(compact["country"]["bound_capital"], 2);
+    assert_eq!(compact["province"]["owner"], "BBB");
     let all = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
         .arg("--game-root")
         .arg(&fixture)
