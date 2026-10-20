@@ -654,7 +654,7 @@ pub(crate) fn prepare_monthly_ledger_updates(
                 &mut updates,
                 country,
                 COUNTRY_LEDGER_INCOME_TRADE_CATEGORY,
-                breakdown.trade_milli,
+                breakdown.resolved_trade_milli()?,
             )?;
             append_income(
                 world,

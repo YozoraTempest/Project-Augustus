@@ -2489,6 +2489,7 @@ fn loaded_vanilla_world_can_run_standard_economy_inside_a_monthly_pipeline() {
             "AAA".into(),
             CashflowBreakdown {
                 trade_milli: Some(200),
+                trade_income_pass: None,
                 gold_milli: Some(100),
                 expenses_milli: Some(50),
                 expense_categories_milli: BTreeMap::new(),

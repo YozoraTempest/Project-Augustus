@@ -655,6 +655,7 @@ fn external_cashflow_breakdowns_bind_category_slots_before_settlement() {
             "AAA".into(),
             CashflowBreakdown {
                 trade_milli: Some(100),
+                trade_income_pass: None,
                 gold_milli: Some(40),
                 expenses_milli: Some(30),
                 expense_categories_milli: BTreeMap::from([(11, 30)]),
@@ -670,6 +671,7 @@ fn external_cashflow_breakdowns_bind_category_slots_before_settlement() {
         cashflows.breakdowns[&country],
         CashflowBreakdown {
             trade_milli: Some(100),
+            trade_income_pass: None,
             gold_milli: Some(40),
             expenses_milli: Some(30),
             expense_categories_milli: BTreeMap::from([(11, 30)]),

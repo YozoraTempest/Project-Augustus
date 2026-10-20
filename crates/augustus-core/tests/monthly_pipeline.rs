@@ -6,7 +6,8 @@ use augustus_core::{
     CountryLedger, CountryLedgerMonthlyConsolidation, CountryLedgerPendingFlush, CountryResources,
     EntityId, EntityKind, Error, FieldId, MonthlyEconomy, MonthlyExternalCashflows,
     MonthlyPipeline, MonthlyProduction, MonthlySystem, MonthlyTax, Schema, Taxation,
-    VanillaProductionInput, VanillaProductionInputState, World, WorldDate,
+    VanillaProductionInput, VanillaProductionInputState, VanillaTradeIncomeInput,
+    VanillaTradeIncomePassInput, World, WorldDate,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -482,6 +483,7 @@ fn classified_cashflow_expenses_enter_their_native_ledger_slots() {
         .unwrap();
     let breakdown = CashflowBreakdown {
         trade_milli: Some(0),
+        trade_income_pass: None,
         gold_milli: Some(0),
         expenses_milli: Some(10_000),
         expense_categories_milli: BTreeMap::from([(11, 10_000)]),
@@ -523,6 +525,83 @@ fn classified_cashflow_expenses_enter_their_native_ledger_slots() {
     let snapshot = world.save("classified-cashflow-expense").unwrap();
     let restored =
         World::restore(&snapshot, "classified-cashflow-expense", world.schema()).unwrap();
+    assert_eq!(restored, world);
+}
+
+#[test]
+fn trade_income_records_feed_monthly_cashflow_and_native_ledger() {
+    let (mut world, country) = world();
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(100_000),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    let breakdown = CashflowBreakdown {
+        trade_milli: None,
+        trade_income_pass: Some(VanillaTradeIncomePassInput {
+            eligible_records: vec![VanillaTradeIncomeInput {
+                node_value_milli: 3_817,
+                country_record_value_milli: 349,
+                base_context_modifier_milli: 20,
+                selected_context_modifier_milli: 50,
+                virtual_context_modifier_milli: None,
+                minimum_context_modifier_milli: 10,
+                maximum_context_modifier_milli: 2_000,
+                post_context_modifier_milli: 100,
+            }],
+        }),
+        gold_milli: Some(0),
+        expenses_milli: Some(0),
+        expense_categories_milli: BTreeMap::new(),
+    };
+    let cashflows = MonthlyExternalCashflows::new(BTreeMap::from([(country, None)]))
+        .with_breakdowns(BTreeMap::from([(country, breakdown)]));
+    let production = MonthlyProduction::new(BTreeMap::new());
+    world.set_monthly_production(production.clone()).unwrap();
+    world
+        .set_monthly_cashflows(Some(cashflows.clone()))
+        .unwrap();
+    let economy = MonthlyEconomy;
+    let consolidation = CountryLedgerMonthlyConsolidation::default();
+    let pipeline = MonthlyPipeline::new(
+        "trade-income-cashflow:test:v1",
+        Some(&economy),
+        None,
+        Some(&consolidation),
+    )
+    .unwrap();
+    world.select_monthly_system(&pipeline).unwrap();
+    world.set_monthly_production(production).unwrap();
+    world.set_monthly_cashflows(Some(cashflows)).unwrap();
+    world.advance_with_monthly_system(21, &pipeline).unwrap();
+
+    let account = &world
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.amount_milli, Some(1_558));
+    assert_eq!(account.credited_milli, Some(1_558));
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(101_558)
+    );
+    assert_eq!(
+        world.country_ledgers()[&country].income_snapshot_milli[2],
+        1_558
+    );
+
+    let saved = world.save("trade-income-cashflow").unwrap();
+    let restored = World::restore(&saved, "trade-income-cashflow", world.schema()).unwrap();
     assert_eq!(restored, world);
 }
 

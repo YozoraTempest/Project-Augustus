@@ -472,8 +472,9 @@ pub struct VanillaExternalState {
     pub estate_loyalty_targets: BTreeMap<String, BTreeMap<String, Option<i64>>>,
     #[serde(default)]
     pub country_monthly_cashflows_milli: BTreeMap<String, Option<i64>>,
-    /// Monthly ledger categories already translated by a compatibility
-    /// provider. Trade and gold are receipts; expenses are a positive cost.
+    /// Monthly ledger categories translated by a compatibility provider.
+    /// Trade records may be calculated by the core; gold is a receipt and
+    /// expenses are a positive cost.
     #[serde(default)]
     pub country_monthly_cashflow_breakdowns: BTreeMap<String, CashflowBreakdown>,
     /// Verified monthly monarch-power income supplied by a compatibility

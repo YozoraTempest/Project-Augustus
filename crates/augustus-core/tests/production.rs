@@ -4,7 +4,8 @@
 use augustus_core::{
     AttributeBase, AttributeFormula, Attributes, Calendar, CashflowBreakdown, CountryResources,
     EntityId, EntityKind, MonthlyExternalCashflows, MonthlyProduction, Schema, Taxation,
-    VanillaProductionInput, VanillaProductionInputState, World, WorldDate,
+    VanillaProductionInput, VanillaProductionInputState, VanillaTradeIncomeInput,
+    VanillaTradeIncomePassInput, World, WorldDate,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -230,6 +231,7 @@ fn cashflow_breakdowns_derive_net_receipts_and_round_trip() {
     let (mut world, country) = world(known_input());
     let breakdown = CashflowBreakdown {
         trade_milli: Some(100),
+        trade_income_pass: None,
         gold_milli: Some(40),
         expenses_milli: Some(30),
         expense_categories_milli: BTreeMap::new(),
@@ -271,6 +273,7 @@ fn cashflow_breakdown_rejects_a_conflicting_explicit_net_amount() {
                 country,
                 CashflowBreakdown {
                     trade_milli: Some(100),
+                    trade_income_pass: None,
                     gold_milli: Some(40),
                     expenses_milli: Some(30),
                     expense_categories_milli: BTreeMap::new(),
@@ -282,11 +285,76 @@ fn cashflow_breakdown_rejects_a_conflicting_explicit_net_amount() {
 }
 
 #[test]
+fn cashflow_breakdown_rejects_a_trade_total_that_conflicts_with_its_records() {
+    let (mut world, country) = world(known_input());
+    let result = world.set_monthly_cashflows(Some(
+        MonthlyExternalCashflows::new(BTreeMap::from([(country, None)])).with_breakdowns(
+            BTreeMap::from([(
+                country,
+                CashflowBreakdown {
+                    trade_milli: Some(1_557),
+                    trade_income_pass: Some(VanillaTradeIncomePassInput {
+                        eligible_records: vec![VanillaTradeIncomeInput {
+                            node_value_milli: 3_817,
+                            country_record_value_milli: 349,
+                            base_context_modifier_milli: 20,
+                            selected_context_modifier_milli: 50,
+                            virtual_context_modifier_milli: None,
+                            minimum_context_modifier_milli: 10,
+                            maximum_context_modifier_milli: 2_000,
+                            post_context_modifier_milli: 100,
+                        }],
+                    }),
+                    gold_milli: Some(0),
+                    expenses_milli: Some(0),
+                    expense_categories_milli: BTreeMap::new(),
+                },
+            )]),
+        ),
+    ));
+    assert!(result.is_err());
+    assert!(world.monthly_cashflows().is_none());
+}
+
+#[test]
+fn cashflow_breakdown_rejects_trade_values_outside_the_native_integer_range() {
+    let (mut world, country) = world(known_input());
+    let result = world.set_monthly_cashflows(Some(
+        MonthlyExternalCashflows::new(BTreeMap::from([(country, None)])).with_breakdowns(
+            BTreeMap::from([(
+                country,
+                CashflowBreakdown {
+                    trade_milli: None,
+                    trade_income_pass: Some(VanillaTradeIncomePassInput {
+                        eligible_records: vec![VanillaTradeIncomeInput {
+                            node_value_milli: i64::from(i32::MAX) + 1,
+                            country_record_value_milli: 1,
+                            base_context_modifier_milli: 0,
+                            selected_context_modifier_milli: 0,
+                            virtual_context_modifier_milli: None,
+                            minimum_context_modifier_milli: 0,
+                            maximum_context_modifier_milli: 2_000,
+                            post_context_modifier_milli: 0,
+                        }],
+                    }),
+                    gold_milli: Some(0),
+                    expenses_milli: Some(0),
+                    expense_categories_milli: BTreeMap::new(),
+                },
+            )]),
+        ),
+    ));
+    assert!(matches!(result, Err(augustus_core::Error::Overflow)));
+    assert!(world.monthly_cashflows().is_none());
+}
+
+#[test]
 fn cashflow_breakdown_rejects_invalid_expense_categories() {
     let (mut world, country) = world(known_input());
     for (category, amount, total) in [(38, 1, 1), (11, 2, 1)] {
         let breakdown = CashflowBreakdown {
             trade_milli: Some(0),
+            trade_income_pass: None,
             gold_milli: Some(0),
             expenses_milli: Some(total),
             expense_categories_milli: BTreeMap::from([(category, amount)]),

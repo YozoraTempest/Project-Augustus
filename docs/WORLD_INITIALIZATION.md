@@ -368,7 +368,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
 
 战役运行中可以调用 `VanillaWorld::set_country_monthly_cashflows` 更新已经安装的现金流表。它只替换下一次月结使用的输入，不重置税收、生产或现金流的结算次数。现金流来源未知时，应传入 `null`；核心会保留未知状态，不把它当成零。
 
-如果兼容层已经分别核实了贸易、黄金和支出，可以通过 `VanillaWorld::set_country_monthly_cashflow_breakdowns` 提供分类账项；贸易和黄金是收入，支出使用正数，三项齐全时核心会校验它们与净现金流一致。分类来源缺失时仍保留未知，不会由核心推导贸易或黄金生产者。
+可以通过 `VanillaWorld::set_country_monthly_cashflow_breakdowns` 提供分类账项。已由兼容层完成资格筛选的贸易记录可放入 `trade_income_pass`，核心负责计算记录收入总额，并将结果用于净现金流和贸易账本；也可直接提供已核实的 `trade_milli`。同时提供两者时必须一致。黄金是收入，支出使用正数；三项齐全时核心会校验分类账项与净现金流一致。资格筛选和记录上下文仍由兼容层负责，缺失的分类继续保留为未知。
 
 生产执行器安装后，兼容提供者可以调用 `VanillaWorld::set_vanilla_production_inputs` 刷新下一次月结使用的省份输入。刷新不会重置已经完成的月结次数、账本或存档状态；输入仍按 EU4 省份编号绑定，不能借此创建不存在的省份。
 

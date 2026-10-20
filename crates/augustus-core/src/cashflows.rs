@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use crate::{
-    EntityId, EntityKind, Error, MonthlySystem, ProductionSettlement, TaxSettlement, World,
+    EntityId, EntityKind, Error, MonthlySystem, ProductionSettlement, TaxSettlement,
+    VanillaTradeIncomePassInput, World,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,6 +15,10 @@ use std::collections::{BTreeMap, BTreeSet};
 #[serde(deny_unknown_fields)]
 pub struct CashflowBreakdown {
     pub trade_milli: Option<i64>,
+    /// Selected trade-income records for core-side calculation. If supplied,
+    /// `trade_milli` may be omitted or must match the calculated total.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trade_income_pass: Option<VanillaTradeIncomePassInput>,
     pub gold_milli: Option<i64>,
     pub expenses_milli: Option<i64>,
     /// Known portions of aggregate expenses, keyed by native ledger category.
@@ -23,11 +28,38 @@ pub struct CashflowBreakdown {
 }
 
 impl CashflowBreakdown {
-    pub fn net_milli(&self) -> Option<i64> {
-        self.trade_milli
+    pub(crate) fn resolved_trade_milli(&self) -> Result<Option<i64>, Error> {
+        let Some(input) = &self.trade_income_pass else {
+            return Ok(self.trade_milli);
+        };
+        let calculated = i64::from(
+            crate::calculate_vanilla_trade_income_pass(input.clone())?.total_income_milli,
+        );
+        if self.trade_milli.is_some_and(|value| value != calculated) {
+            return Err(Error::Invalid(
+                "cashflow trade amount disagrees with trade-income records".into(),
+            ));
+        }
+        Ok(Some(calculated))
+    }
+
+    pub fn try_net_milli(&self) -> Result<Option<i64>, Error> {
+        let Some(((trade, gold), expenses)) = self
+            .resolved_trade_milli()?
             .zip(self.gold_milli)
             .zip(self.expenses_milli)
-            .and_then(|((trade, gold), expenses)| trade.checked_add(gold)?.checked_sub(expenses))
+        else {
+            return Ok(None);
+        };
+        let net = trade
+            .checked_add(gold)
+            .and_then(|value| value.checked_sub(expenses))
+            .ok_or(Error::Overflow)?;
+        Ok(Some(net))
+    }
+
+    pub fn net_milli(&self) -> Option<i64> {
+        self.try_net_milli().ok().flatten()
     }
 }
 
@@ -80,7 +112,8 @@ impl MonthlyExternalCashflows {
         self
     }
 
-    fn validate_breakdowns(&self, world: &World) -> Result<(), Error> {
+    fn validate_breakdowns(&self, world: &World) -> Result<BTreeMap<EntityId, Option<i64>>, Error> {
+        let mut net_amounts = BTreeMap::new();
         for (&country, breakdown) in &self.breakdowns {
             if world.entity(country)?.kind != EntityKind::Country
                 || !self.amounts_milli.contains_key(&country)
@@ -113,15 +146,17 @@ impl MonthlyExternalCashflows {
                     "categorized expenses exceed the cashflow expense total".into(),
                 ));
             }
-            if let (Some(amount), Some(net)) = (self.amounts_milli[&country], breakdown.net_milli())
+            let net = breakdown.try_net_milli()?;
+            if let (Some(amount), Some(net)) = (self.amounts_milli[&country], net)
                 && amount != net
             {
                 return Err(Error::Invalid(
                     "cashflow amount disagrees with its category breakdown".into(),
                 ));
             }
+            net_amounts.insert(country, net);
         }
-        Ok(())
+        Ok(net_amounts)
     }
 
     pub(crate) fn prepare(
@@ -133,7 +168,7 @@ impl MonthlyExternalCashflows {
         self.settlement_count
             .checked_add(1)
             .ok_or(Error::Overflow)?;
-        self.validate_breakdowns(world)?;
+        let breakdown_nets = self.validate_breakdowns(world)?;
         let mut accounts = BTreeMap::new();
         for (&country, &amount) in &self.amounts_milli {
             if world.entity(country)?.kind != EntityKind::Country {
@@ -143,10 +178,8 @@ impl MonthlyExternalCashflows {
             }
             let mut unresolved = BTreeSet::new();
             let breakdown = self.breakdowns.get(&country).cloned();
-            let amount = match (
-                amount,
-                breakdown.as_ref().and_then(CashflowBreakdown::net_milli),
-            ) {
+            let net = breakdown_nets.get(&country).copied().flatten();
+            let amount = match (amount, net) {
                 (Some(amount), Some(net)) if amount == net => Some(amount),
                 (Some(amount), _) => Some(amount),
                 (None, Some(net)) => Some(net),
@@ -267,7 +300,7 @@ impl MonthlyExternalCashflows {
                         return Err(Error::Invalid("invalid saved cashflow receipt".into()));
                     }
                     if let Some(breakdown) = &account.breakdown
-                        && let Some(net) = breakdown.net_milli()
+                        && let Some(net) = breakdown.try_net_milli()?
                         && account.amount_milli != Some(net)
                     {
                         return Err(Error::Invalid(
