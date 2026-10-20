@@ -30,6 +30,7 @@ pub(super) enum Condition {
     Institution(String, String),
     Estate(String),
     EstatePrivilege(String),
+    AcceptedCulture(String),
     OwnsProvince(u32),
     If(Box<Self>, Box<Self>),
     Capital(Vec<Self>),
@@ -618,6 +619,15 @@ impl Condition {
                             return Err(fail("empty estate privilege identifier"));
                         }
                         Self::EstatePrivilege(id)
+                    }
+                    "accepted_culture" if country => {
+                        let culture = value
+                            .read_string()
+                            .map_err(|_| fail("expected accepted culture identifier"))?;
+                        if culture.is_empty() {
+                            return Err(fail("empty accepted culture identifier"));
+                        }
+                        Self::AcceptedCulture(culture)
                     }
                     "owns" if country => {
                         let province = value
@@ -1318,6 +1328,17 @@ impl Condition {
                     reasons.insert(format!("unknown_input:{name}"));
                 }
                 actual.map(|a| a == expected)
+            }
+            Self::AcceptedCulture(culture) => {
+                let country = initial.country_entity(tag).expect("registered country");
+                let accepted = initial
+                    .world()
+                    .affiliations()
+                    .accepts_member("culture", country, culture);
+                if accepted.is_none() {
+                    reasons.insert(format!("unknown_culture_acceptance:{culture}"));
+                }
+                accepted
             }
         }
     }

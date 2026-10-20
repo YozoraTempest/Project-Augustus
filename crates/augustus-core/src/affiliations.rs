@@ -72,6 +72,37 @@ impl Affiliations {
         }
     }
 
+    /// Whether a country's explicit member or group policy accepts a member.
+    /// A negative answer requires both parts of the policy to be known.
+    pub fn accepts_member(&self, dimension: &str, country: EntityId, member: &str) -> Option<bool> {
+        let data = self.0.get(dimension)?;
+        let policy = data.acceptance.get(&country)?;
+        let explicit = policy
+            .members
+            .as_ref()
+            .map(|members| members.contains(member));
+        if explicit == Some(true) {
+            return Some(true);
+        }
+        let group = policy.groups.as_ref().and_then(|groups| {
+            if groups.is_empty() {
+                Some(false)
+            } else {
+                data.groups
+                    .get(member)?
+                    .as_ref()
+                    .map(|group| groups.contains(group))
+            }
+        });
+        if group == Some(true) {
+            return Some(true);
+        }
+        match (explicit, group) {
+            (Some(false), Some(false)) => Some(false),
+            _ => None,
+        }
+    }
+
     pub fn group(&self, dimension: &str, entity: EntityId) -> Option<&str> {
         let data = self.0.get(dimension)?;
         data.groups.get(self.member(dimension, entity)?)?.as_deref()

@@ -94,10 +94,24 @@ fn ownership_membership_and_acceptance_changes_recalculate_without_cached_totals
 #[test]
 fn accepted_groups_and_unknown_inputs_keep_distinct_meanings() {
     let mut world = world();
+    assert_eq!(
+        world
+            .affiliations()
+            .accepts_member("culture", EntityId(0), "beta"),
+        Some(false)
+    );
     let mut affiliations = world.affiliations().clone();
     let culture = affiliations.0.get_mut("culture").unwrap();
     culture.acceptance.get_mut(&EntityId(0)).unwrap().groups =
         Some(["near".into()].into_iter().collect());
+    assert_eq!(
+        affiliations.accepts_member("culture", EntityId(0), "alpha"),
+        Some(true)
+    );
+    assert_eq!(
+        affiliations.accepts_member("culture", EntityId(0), "gamma"),
+        Some(false)
+    );
     assert_eq!(
         affiliations.relation("culture", EntityId(2), EntityId(0)),
         Some(AffiliationRelation::Accepted)
@@ -113,6 +127,14 @@ fn accepted_groups_and_unknown_inputs_keep_distinct_meanings() {
         .unwrap()
         .members = None;
     assert_eq!(
+        affiliations.accepts_member("culture", EntityId(0), "alpha"),
+        Some(true)
+    );
+    assert_eq!(
+        affiliations.accepts_member("culture", EntityId(0), "gamma"),
+        None
+    );
+    assert_eq!(
         affiliations.relation("culture", EntityId(2), EntityId(0)),
         Some(AffiliationRelation::Accepted)
     );
@@ -124,6 +146,10 @@ fn accepted_groups_and_unknown_inputs_keep_distinct_meanings() {
         .get_mut(&EntityId(0))
         .unwrap()
         .groups = Some(Default::default());
+    assert_eq!(
+        affiliations.accepts_member("culture", EntityId(0), "gamma"),
+        None
+    );
     world.set_affiliations(affiliations.clone()).unwrap();
     assert_eq!(value(&world).known_subtotal_micros, Some(1_100_000));
     assert_eq!(value(&world).value_micros, None);

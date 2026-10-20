@@ -1995,6 +1995,51 @@ fn influence_initialization_uses_the_current_year_for_year_triggers() {
 }
 
 #[test]
+fn influence_initialization_uses_accepted_cultures_from_country_history() {
+    let temp = copy_fixture();
+    write(
+        temp.path(),
+        "common/estates/test.txt",
+        r#"
+        guild = {
+            trigger = { tag = AAA }
+            base_influence = 10
+            privileges = { charter }
+            influence_modifier = {
+                trigger = { accepted_culture = beta }
+                influence = 5
+            }
+        }
+        "#,
+    );
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        "charter = { influence = 0 is_valid = { always = yes } on_granted = {} }",
+    );
+    append(
+        temp.path(),
+        "history/countries/AAA - Alpha.txt",
+        "\n1444.11.11 = { add_accepted_culture = beta }",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap()["guild"].influence_milli,
+        Some(15_000),
+        "{:?}",
+        loaded.report.estates.unresolved_initialization.get("AAA")
+    );
+    assert!(
+        !loaded
+            .report
+            .estates
+            .unsupported_fields
+            .contains_key("trigger:accepted_culture")
+    );
+}
+
+#[test]
 fn saved_active_influences_select_declaration_indices_without_rechecking_triggers() {
     let temp = copy_fixture();
     write(
