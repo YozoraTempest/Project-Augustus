@@ -254,6 +254,26 @@ fn native_monthly_income_filter_excludes_the_verified_five_categories() {
 }
 
 #[test]
+fn native_monthly_expense_filter_excludes_the_verified_categories() {
+    assert_eq!(
+        COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES,
+        [11, 12, 13, 14, 16, 17, 18, 19, 20, 28, 32, 35, 36]
+    );
+
+    let mut ledger = CountryLedger {
+        expense_sources_milli: (1..=38).collect(),
+        ..Default::default()
+    };
+    let excluded = COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES
+        .into_iter()
+        .collect();
+    ledger.consolidate_monthly(&excluded).unwrap();
+
+    assert_eq!(ledger.expense_total_milli, 741);
+    assert_eq!(ledger.expense_filtered_total_milli, 457);
+}
+
+#[test]
 fn monthly_consolidation_runs_after_relation_expense_and_annual_rollover_is_explicit() {
     let (mut world, country) = world();
     world.record_delayed_country_income(country, 1, 40).unwrap();
