@@ -110,7 +110,8 @@ pub use estate_initialization::EstateLandRules;
 pub use estates::{
     EstateConditionalModifier, EstateConditionalScale, EstateContribution, EstateDefinition,
     EstateEffect, EstateEvaluation, EstateInfluenceBand, EstateLoyaltyDecay, EstatePrivilege,
-    EstateRules, EstateState, Estates,
+    EstateRules, EstateState, Estates, VanillaEstateInfluenceScaleInput,
+    VanillaEstateInfluenceScaleResult, calculate_vanilla_estate_influence_scale,
 };
 pub use event_choices::{
     EventCatalog, EventChoice, EventDefinition, EventOption, PendingEvent, PendingEventId,

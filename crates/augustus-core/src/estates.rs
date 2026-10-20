@@ -59,6 +59,56 @@ pub struct EstateInfluenceBand {
     pub scale_micros: i64,
 }
 
+/// Inputs for the verified influence-to-modifier scale stage.
+///
+/// The compatibility layer supplies the queried influence, its additional
+/// context value, and the three runtime thresholds. The queried influence is
+/// clamped before the additional value is added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaEstateInfluenceScaleInput {
+    pub raw_influence_milli: i32,
+    pub additional_value_milli: i32,
+    pub first_threshold_milli: i32,
+    pub second_threshold_milli: i32,
+    pub third_threshold_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaEstateInfluenceScaleResult {
+    pub clamped_influence_milli: i32,
+    pub tier_input_milli: i32,
+    pub scale_milli: i32,
+}
+
+/// Calculates the scale selected for an estate source's modifier values.
+///
+/// A zero tier input contributes no scale. Other values use strict
+/// less-than comparisons and map to 250, 500, 750, or 1000 thousandths.
+pub fn calculate_vanilla_estate_influence_scale(
+    input: VanillaEstateInfluenceScaleInput,
+) -> VanillaEstateInfluenceScaleResult {
+    let clamped_influence_milli = input.raw_influence_milli.clamp(0, 100_000);
+    let tier_input_milli = clamped_influence_milli.wrapping_add(input.additional_value_milli);
+    let scale_milli = if tier_input_milli == 0 {
+        0
+    } else if tier_input_milli < input.first_threshold_milli {
+        250
+    } else if tier_input_milli < input.second_threshold_milli {
+        500
+    } else if tier_input_milli < input.third_threshold_milli {
+        750
+    } else {
+        1_000
+    };
+
+    VanillaEstateInfluenceScaleResult {
+        clamped_influence_milli,
+        tier_input_milli,
+        scale_milli,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EstateLoyaltyDecay {

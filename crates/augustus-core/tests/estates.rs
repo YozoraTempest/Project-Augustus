@@ -5,8 +5,63 @@ use augustus_core::{
     AttributeBase, AttributeChannel, AttributeFormula, AttributeTerm, Attributes, Calendar,
     CountryResources, EntityId, EntityKind, EstateDefinition, EstateEffect, EstateInfluenceBand,
     EstateLoyaltyDecay, EstatePrivilege, EstateRules, EstateState, Estates, Schema, Target,
-    Taxation, World, WorldDate,
+    Taxation, VanillaEstateInfluenceScaleInput, World, WorldDate,
+    calculate_vanilla_estate_influence_scale,
 };
+
+#[test]
+fn vanilla_estate_influence_scale_uses_strict_thresholds_and_zero_special_case() {
+    let input = |raw_influence_milli| VanillaEstateInfluenceScaleInput {
+        raw_influence_milli,
+        additional_value_milli: 0,
+        first_threshold_milli: 20_000,
+        second_threshold_milli: 40_000,
+        third_threshold_milli: 60_000,
+    };
+
+    for (value, expected_scale) in [
+        (-1, 0),
+        (0, 0),
+        (1, 250),
+        (19_999, 250),
+        (20_000, 500),
+        (39_999, 500),
+        (40_000, 750),
+        (59_999, 750),
+        (60_000, 1_000),
+        (100_001, 1_000),
+    ] {
+        let result = calculate_vanilla_estate_influence_scale(input(value));
+        assert_eq!(result.scale_milli, expected_scale, "input {value}");
+    }
+}
+
+#[test]
+fn vanilla_estate_influence_scale_clamps_before_adding_context() {
+    let from_negative =
+        calculate_vanilla_estate_influence_scale(VanillaEstateInfluenceScaleInput {
+            raw_influence_milli: -10,
+            additional_value_milli: 10,
+            first_threshold_milli: 20_000,
+            second_threshold_milli: 40_000,
+            third_threshold_milli: 60_000,
+        });
+    assert_eq!(from_negative.clamped_influence_milli, 0);
+    assert_eq!(from_negative.tier_input_milli, 10);
+    assert_eq!(from_negative.scale_milli, 250);
+
+    let from_above_max =
+        calculate_vanilla_estate_influence_scale(VanillaEstateInfluenceScaleInput {
+            raw_influence_milli: 150_000,
+            additional_value_milli: -50_000,
+            first_threshold_milli: 20_000,
+            second_threshold_milli: 40_000,
+            third_threshold_milli: 60_000,
+        });
+    assert_eq!(from_above_max.clamped_influence_milli, 100_000);
+    assert_eq!(from_above_max.tier_input_milli, 50_000);
+    assert_eq!(from_above_max.scale_milli, 750);
+}
 
 fn effect(value: i64) -> EstateEffect {
     EstateEffect {
