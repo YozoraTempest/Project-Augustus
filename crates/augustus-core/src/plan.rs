@@ -1105,7 +1105,7 @@ impl World {
                 }
                 Action::CreateNavalUnit { owner, unit_type } => {
                     let owner = owner
-                        .resolve_in_context(self, context)?
+                        .resolve_in_context_with_previous(self, context, previous)?
                         .ok_or_else(|| Error::Invalid("naval unit owner is absent".into()))?;
                     self.create_naval_unit(owner, current, unit_type)?;
                 }
@@ -1116,10 +1116,10 @@ impl World {
                     regiments,
                 } => {
                     let owner = owner
-                        .resolve_in_context(self, context)?
+                        .resolve_in_context_with_previous(self, context, previous)?
                         .ok_or_else(|| Error::Invalid("army owner is absent".into()))?;
                     let location = location
-                        .resolve_in_context(self, context)?
+                        .resolve_in_context_with_previous(self, context, previous)?
                         .ok_or_else(|| Error::Invalid("army location is absent".into()))?;
                     self.create_army(owner, location, name, regiments)?;
                 }
@@ -1130,10 +1130,10 @@ impl World {
                     categories,
                 } => {
                     let owner = owner
-                        .resolve_in_context(self, context)?
+                        .resolve_in_context_with_previous(self, context, previous)?
                         .ok_or_else(|| Error::Invalid("army owner is absent".into()))?;
                     let location = location
-                        .resolve_in_context(self, context)?
+                        .resolve_in_context_with_previous(self, context, previous)?
                         .ok_or_else(|| Error::Invalid("army location is absent".into()))?;
                     self.create_army_from_categories(owner, location, name, categories)?;
                 }

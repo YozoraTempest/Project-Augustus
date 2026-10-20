@@ -208,6 +208,76 @@ fn parameterized_unit_spawn_effect_repeats_dynamic_creation_in_previous_province
 }
 
 #[test]
+fn country_unit_spawn_effect_uses_previous_country_for_parameterized_province() {
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let mut library = ScriptLibrary::new();
+    library
+        .add_effects(&document(
+            r#"
+            create_units_of_type = {
+                [[custom_tooltip]
+                    custom_tooltip = $custom_tooltip$
+                ]
+                hidden_effect = {
+                    for = {
+                        amount = $amount$
+                        effect = "$province$ = { $unit_type$ = PREV }"
+                    }
+                }
+            }
+            "#,
+        ))
+        .unwrap();
+    let event_for_unit = |unit_type: &str| {
+        let source = r#"
+            country_event = {
+                id = units.country_spawn
+                is_triggered_only = yes
+                immediate = {
+                    create_units_of_type = {
+                        province = 112
+                        amount = 2
+                        unit_type = $UNIT_TYPE$
+                    }
+                }
+                option = { name = continue }
+            }
+        "#
+        .replace("$UNIT_TYPE$", unit_type);
+        ScriptCompiler::new(&schema, &library, true)
+            .compile_events(&document(&source))
+            .unwrap()
+    };
+    let naval = event_for_unit("galley");
+    let land = event_for_unit("infantry");
+    let mut world = World::new(schema);
+    let country = world.add_entity("VEN", EntityKind::Country);
+    let province = world.add_entity("112", EntityKind::Province);
+    configure_units(&mut world, country);
+    world.set_province_has_port(province, true).unwrap();
+
+    for compiled in [&naval, &land] {
+        world
+            .execute_in_context(
+                ScopeContext::new(country),
+                &compiled.definitions[0].immediate,
+            )
+            .unwrap();
+    }
+
+    assert_eq!(world.naval_units().len(), 2);
+    assert!(world.naval_units().iter().all(|unit| {
+        unit.owner == country && unit.location == province && unit.unit_type == "galley"
+    }));
+    assert_eq!(world.armies().len(), 2);
+    assert!(world.armies().iter().all(|army| {
+        army.owner == country
+            && army.location == province
+            && army.regiments[0].unit_type == "western_medieval_infantry"
+    }));
+}
+
+#[test]
 fn loader_binds_the_country_unit_group_used_by_unit_selection() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let loaded = VanillaWorld::load(root, "1444.11.11").unwrap();

@@ -905,6 +905,17 @@ impl<'a> ScriptCompiler<'a> {
         }
     }
 
+    fn unit_owner_reference(&self, field: &Field) -> Result<augustus_core::EntityRef, Error> {
+        if field.scalar()?.eq_ignore_ascii_case("PREV") {
+            if self.previous_scope_kind != Some(EntityKind::Country) {
+                return Err(field.error("unit owner PREV requires a previous country scope"));
+            }
+            Ok(augustus_core::EntityRef::Previous)
+        } else {
+            self.typed_country_reference(field)
+        }
+    }
+
     fn casus_belli_operands(
         &mut self,
         field: &Field,
@@ -1863,7 +1874,7 @@ impl<'a> ScriptCompiler<'a> {
                         return Err(field.error("naval unit creation requires province scope"));
                     }
                     plan.push(Action::CreateNavalUnit {
-                        owner: self.typed_country_reference(field)?,
+                        owner: self.unit_owner_reference(field)?,
                         unit_type: name.into(),
                     });
                 }
@@ -1872,7 +1883,7 @@ impl<'a> ScriptCompiler<'a> {
                         return Err(field.error("land unit creation requires province scope"));
                     }
                     plan.push(Action::CreateArmyFromCategories {
-                        owner: self.typed_country_reference(field)?,
+                        owner: self.unit_owner_reference(field)?,
                         location: augustus_core::EntityRef::Relative(Target::Current),
                         name: String::new(),
                         categories: vec![name.into()],

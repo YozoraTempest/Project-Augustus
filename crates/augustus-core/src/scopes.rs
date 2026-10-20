@@ -35,13 +35,15 @@ impl ScopeContext {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntityRef {
     Relative(crate::Target),
+    /// Resolve to the entity scope active immediately before the current scope.
+    Previous,
     Selected(ScopeSelector),
 }
 
 impl EntityRef {
     pub(crate) fn validate(&self) -> Result<(), Error> {
         match self {
-            Self::Relative(_) => Ok(()),
+            Self::Relative(_) | Self::Previous => Ok(()),
             Self::Selected(selector) => selector.validate(),
         }
     }
@@ -57,7 +59,20 @@ impl EntityRef {
     ) -> Result<Option<EntityId>, Error> {
         match self {
             Self::Relative(target) => world.condition_target(context.current, *target),
+            Self::Previous => Ok(None),
             Self::Selected(selector) => world.resolve_scope_in_context(selector, context),
+        }
+    }
+
+    pub(crate) fn resolve_in_context_with_previous(
+        &self,
+        world: &World,
+        context: ScopeContext,
+        previous: Option<EntityId>,
+    ) -> Result<Option<EntityId>, Error> {
+        match self {
+            Self::Previous => Ok(previous),
+            _ => self.resolve_in_context(world, context),
         }
     }
 }
