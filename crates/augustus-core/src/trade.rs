@@ -659,6 +659,7 @@ mod tests {
 
     #[test]
     fn trade_income_keeps_the_observed_two_stage_truncation() {
+        // The capture gives the effective multiplier, not its source split.
         let input = VanillaTradeIncomeInput {
             node_value_milli: 4_748,
             country_record_value_milli: 306,
