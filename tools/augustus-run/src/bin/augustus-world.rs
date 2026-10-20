@@ -302,6 +302,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             "eu4_random": loaded.initial.world().eu4_random_state().map(|(seed, count, index)| {
                 serde_json::json!({"seed": seed, "count": count, "index": index})
             }),
+            "pending_tasks": loaded.initial.world().pending_tasks(),
             "tax_settlements": loaded.initial.world().taxation().map(|t| t.settlement_count),
             "last_tax_day": loaded.initial.world().taxation().and_then(|t| t.last_settlement.as_ref().map(|s| s.day)),
             "production_settlements": loaded.initial.world().monthly_production().map(|p| p.settlement_count),

@@ -35,6 +35,19 @@ fn binary_startup_save() -> Vec<u8> {
     bytes
 }
 
+fn copy_directory(source: &Path, destination: &Path) {
+    fs::create_dir_all(destination).unwrap();
+    for entry in fs::read_dir(source).unwrap() {
+        let entry = entry.unwrap();
+        let target = destination.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_directory(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
 #[test]
 fn world_cli_reports_state_sources_and_query_failures() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
@@ -63,6 +76,7 @@ fn world_cli_reports_state_sources_and_query_failures() {
     );
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(value["report"].is_object());
+    assert_eq!(value["simulation"]["pending_tasks"], 0);
     assert_eq!(value["country"]["bound_capital"], 2);
     assert_eq!(value["province"]["owner"], "BBB");
     assert_eq!(value["province_sources"][0]["line"], 2);
@@ -164,6 +178,47 @@ fn world_cli_reports_state_sources_and_query_failures() {
     assert!(!error.status.success());
     assert!(error.stdout.is_empty());
     assert!(String::from_utf8_lossy(&error.stderr).contains("unknown province"));
+}
+
+#[test]
+fn world_cli_reports_delayed_startup_tasks_until_they_run() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    copy_directory(&source, &fixture);
+
+    let on_actions = fixture.join("common/on_actions");
+    fs::create_dir_all(&on_actions).unwrap();
+    fs::write(
+        on_actions.join("startup.txt"),
+        "on_startup = { if = { limit = { tag = AAA } country_event = { id = probe.1 days = 5 } } }",
+    )
+    .unwrap();
+    let events = fixture.join("events");
+    fs::create_dir_all(&events).unwrap();
+    fs::write(
+        events.join("startup.txt"),
+        "namespace = probe country_event = { id = probe.1 hidden = yes is_triggered_only = yes immediate = { log = delayed_startup_event } }",
+    )
+    .unwrap();
+
+    let run = |days: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+            .arg("--game-root")
+            .arg(&fixture)
+            .args(["--days", days, "--omit-load-report"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+
+    assert_eq!(run("0")["simulation"]["pending_tasks"], 1);
+    assert_eq!(run("5")["simulation"]["pending_tasks"], 0);
 }
 
 #[test]
