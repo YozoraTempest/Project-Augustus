@@ -54,6 +54,7 @@ fn owned_conditions_follow_transfer_removal_and_nested_owner_scope() {
             capital_scope={owner={if={limit={any_owned_province={province_id=3}} log=nested}}}
             3={remove_province_modifier=local}
             if={limit={NOT={any_owned_province={has_province_modifier=local}}} log=removed}
+            2={set_owner=BBB owner={if={limit={any_owned_province={province_id=2}} log=transferred}}}
         "#,
                 ),
                 EntityKind::Country,
@@ -63,7 +64,7 @@ fn owned_conditions_follow_transfer_removal_and_nested_owner_scope() {
         let query = compiler()
             .compile(
                 &document(
-                    "if={limit={any_owned_province={province_id=3}} log=here} else={log=away}",
+                    "if={limit={any_owned_province={province_id=2}} log=here} else={log=away}",
                 ),
                 EntityKind::Country,
             )
@@ -74,8 +75,6 @@ fn owned_conditions_follow_transfer_removal_and_nested_owner_scope() {
             .attach_modifier(EntityId(2), "local", None, None, ModifierRenewal::Replace)
             .unwrap();
         state.execute(EntityId(0), &plan).unwrap();
-        state.set_capital(EntityId(0), EntityId(4)).unwrap();
-        state.set_owner(EntityId(2), EntityId(1)).unwrap();
         let mut restored = World::restore(
             &state.save("owned-compat").unwrap(),
             "owned-compat",
@@ -91,13 +90,38 @@ fn owned_conditions_follow_transfer_removal_and_nested_owner_scope() {
                     .iter()
                     .map(|row| row.2.as_str())
                     .collect::<Vec<_>>(),
-                ["present", "foreign", "nested", "removed", "away", "here"]
+                [
+                    "present",
+                    "foreign",
+                    "nested",
+                    "removed",
+                    "transferred",
+                    "away",
+                    "here"
+                ]
             );
         }
         assert_eq!(state, restored);
         results.push(state);
     }
     assert_eq!(results[0], results[1]);
+}
+
+#[test]
+fn set_owner_requires_a_province_scope() {
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let library = ScriptLibrary::new();
+    let compiler = |scope| {
+        ScriptCompiler::new(&schema, &library, true).compile(&document("set_owner=BBB"), scope)
+    };
+
+    assert!(compiler(EntityKind::Province).is_ok());
+    assert!(
+        compiler(EntityKind::Country)
+            .unwrap_err()
+            .to_string()
+            .contains("set_owner requires province scope")
+    );
 }
 
 #[test]

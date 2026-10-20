@@ -170,6 +170,68 @@
             }
           },
           {
+            "InScope": {
+              "selector": {
+                "Named": {
+                  "kind": "Province",
+                  "name": "2"
+                }
+              },
+              "kind": "Province",
+              "plan": [
+                {
+                  "SetOwner": {
+                    "target": "Current",
+                    "owner": {
+                      "Selected": {
+                        "Named": {
+                          "kind": "Country",
+                          "name": "BBB"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "With": {
+                    "target": "Owner",
+                    "plan": [
+                      {
+                        "If": {
+                          "condition": {
+                            "All": [
+                              {
+                                "AnyOwnedProvince": {
+                                  "target": "Current",
+                                  "condition": {
+                                    "All": [
+                                      {
+                                        "EntityNamed": {
+                                          "target": "Current",
+                                          "name": "2"
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "then": [
+                            {
+                              "Emit": "transferred"
+                            }
+                          ],
+                          "otherwise": []
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
             "Schedule": {
               "delay": 1,
               "plan": [

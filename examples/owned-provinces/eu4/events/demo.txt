@@ -32,6 +32,15 @@ country_event = {
             limit = { NOT = { any_owned_province = { has_province_modifier = local } } }
             log = removed
         }
+        2 = {
+            set_owner = BBB
+            owner = {
+                if = {
+                    limit = { any_owned_province = { province_id = 2 } }
+                    log = transferred
+                }
+            }
+        }
         country_event = { id = owned.later days = 1 }
     }
     after = {

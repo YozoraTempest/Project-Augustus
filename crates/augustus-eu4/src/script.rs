@@ -1869,6 +1869,15 @@ impl<'a> ScriptCompiler<'a> {
                         },
                     });
                 }
+                "set_owner" => {
+                    if scope != EntityKind::Province {
+                        return Err(field.error("set_owner requires province scope"));
+                    }
+                    plan.push(Action::SetOwner {
+                        target: Target::Current,
+                        owner: self.typed_country_reference(field)?,
+                    });
+                }
                 name if matches!(name, "heavy_ship" | "light_ship" | "galley" | "transport") => {
                     if scope != EntityKind::Province {
                         return Err(field.error("naval unit creation requires province scope"));
