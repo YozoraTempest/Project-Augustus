@@ -1853,6 +1853,77 @@ fn influence_initialization_uses_defines_and_selected_privileges() {
 }
 
 #[test]
+fn influence_initialization_resolves_owned_province_and_capital_triggers() {
+    let temp = copy_fixture();
+    write(
+        temp.path(),
+        "common/estates/test.txt",
+        r#"
+        guild = {
+            trigger = { tag = AAA }
+            base_influence = 10
+            privileges = { charter }
+            influence_modifier = {
+                trigger = { any_owned_province = { religion = test_faith } }
+                influence = 3
+            }
+            influence_modifier = { trigger = { capital = 1 } influence = 5 }
+            influence_modifier = { trigger = { capital = 2 } influence = 7 }
+        }
+        "#,
+    );
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        "charter = { influence = 0 is_valid = { always = yes } on_granted = {} }",
+    );
+    let state = VanillaExternalState {
+        country_capitals: BTreeMap::from([("AAA".into(), Some(1))]),
+        province_owners: BTreeMap::from([(1, Some("AAA".into()))]),
+        ..Default::default()
+    };
+
+    let loaded = VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &state).unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap()["guild"].influence_milli,
+        Some(18_000),
+        "{:?}",
+        loaded.report.estates.unresolved_initialization.get("AAA")
+    );
+    assert!(
+        !loaded
+            .report
+            .estates
+            .unsupported_fields
+            .contains_key("trigger:any_owned_province")
+    );
+    assert!(
+        !loaded
+            .report
+            .estates
+            .unsupported_fields
+            .contains_key("trigger:capital")
+    );
+
+    let unknown_capital = VanillaExternalState {
+        country_capitals: BTreeMap::from([("AAA".into(), None)]),
+        ..state
+    };
+    let loaded =
+        VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &unknown_capital)
+            .unwrap();
+    assert_eq!(
+        loaded.country("AAA").unwrap().estates.unwrap()["guild"].influence_milli,
+        None
+    );
+    assert!(
+        loaded.report.estates.unresolved_initialization["AAA"]
+            .iter()
+            .any(|reason| reason.contains("guild:influence:unknown_capital"))
+    );
+}
+
+#[test]
 fn saved_active_influences_select_declaration_indices_without_rechecking_triggers() {
     let temp = copy_fixture();
     write(

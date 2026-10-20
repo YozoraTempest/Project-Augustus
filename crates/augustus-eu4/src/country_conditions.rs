@@ -32,6 +32,7 @@ pub(super) enum Condition {
     EstatePrivilege(String),
     If(Box<Self>, Box<Self>),
     Capital(Vec<Self>),
+    CapitalProvince(u32),
     Region(String, bool),
     CurrentAge(CurrentAgePredicate),
     MapSetup(String),
@@ -617,6 +618,53 @@ impl Condition {
                         }
                         Self::EstatePrivilege(id)
                     }
+                    "any_owned_province" if country => {
+                        let schema =
+                            augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
+                        let library = crate::ScriptLibrary::new();
+                        let compiler = crate::ScriptCompiler::new(&schema, &library, true)
+                            .with_root_scope(augustus_core::EntityKind::Country)
+                            .with_metric_ids(
+                                [
+                                    "stability",
+                                    "prestige",
+                                    "adm_power",
+                                    "dip_power",
+                                    "mil_power",
+                                    "devastation",
+                                ]
+                                .map(String::from)
+                                .into(),
+                            )
+                            .with_government_metric_ids(
+                                ["legitimacy", "republican_tradition", "devotion"]
+                                    .map(String::from)
+                                    .into(),
+                            )
+                            .with_unbound_subject_types();
+                        match compiler.compile_block_condition_reader(
+                            parsed,
+                            &name,
+                            block(&value, &fail)?,
+                            at,
+                            augustus_core::EntityKind::Country,
+                        ) {
+                            Ok(condition) => Self::Scoped(condition),
+                            Err(error) => {
+                                report.unsupported(parsed, "trigger", &name, at);
+                                Self::Unknown(error.to_string())
+                            }
+                        }
+                    }
+                    "capital" if country => {
+                        let province = value
+                            .read_string()
+                            .ok()
+                            .and_then(|value| value.parse::<u32>().ok())
+                            .filter(|province| *province > 0)
+                            .ok_or_else(|| fail("capital requires a positive province id"))?;
+                        Self::CapitalProvince(province)
+                    }
                     "is_emperor" | "is_emperor_of_china" if country => {
                         let expected = flag(
                             &value
@@ -998,6 +1046,26 @@ impl Condition {
                     reasons.insert(format!("unknown_mission_state:{id}"));
                 }
                 result
+            }
+            Self::CapitalProvince(province_id) => {
+                let Some(expected) = initial.province_entity(*province_id) else {
+                    reasons.insert(format!("unknown_capital_province:{province_id}"));
+                    return None;
+                };
+                let country = initial.country_entity(tag).expect("registered country");
+                match initial.world().entity(country) {
+                    Ok(country) => match country.capital {
+                        Some(capital) => Some(capital == expected),
+                        None => {
+                            reasons.insert("unknown_capital".into());
+                            None
+                        }
+                    },
+                    Err(error) => {
+                        reasons.insert(format!("invalid_capital_state:{error}"));
+                        None
+                    }
+                }
             }
             Self::Office(name, expected) => {
                 let entity = initial.country_entity(tag).expect("registered country");
