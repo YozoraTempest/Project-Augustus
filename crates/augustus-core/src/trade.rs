@@ -649,3 +649,38 @@ pub fn calculate_vanilla_trade_distribution(
         routes,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        VanillaTradeIncomeInput, VanillaTradeIncomePassInput, calculate_vanilla_trade_income,
+        calculate_vanilla_trade_income_pass,
+    };
+
+    #[test]
+    fn trade_income_keeps_the_observed_two_stage_truncation() {
+        let input = VanillaTradeIncomeInput {
+            node_value_milli: 4_748,
+            country_record_value_milli: 306,
+            base_context_modifier_milli: 70,
+            selected_context_modifier_milli: 0,
+            virtual_context_modifier_milli: None,
+            minimum_context_modifier_milli: 0,
+            maximum_context_modifier_milli: 2_000,
+            post_context_modifier_milli: 0,
+        };
+
+        let result = calculate_vanilla_trade_income(input).unwrap();
+        assert_eq!(result.stage_one_product, 1_452_888);
+        assert_eq!(result.stage_one_milli, 1_452);
+        assert_eq!(result.effective_multiplier_milli, 1_070);
+        assert_eq!(result.stage_two_product, 1_553_640);
+        assert_eq!(result.trade_income_milli, 1_553);
+
+        let pass = calculate_vanilla_trade_income_pass(VanillaTradeIncomePassInput {
+            eligible_records: vec![input],
+        })
+        .unwrap();
+        assert_eq!(pass.total_income_milli, 1_553);
+    }
+}
