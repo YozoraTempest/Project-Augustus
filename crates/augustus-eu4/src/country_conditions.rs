@@ -364,7 +364,7 @@ impl Condition {
                             }
                         }
                     }
-                    "exists" | "has_global_flag" | "is_part_of_hre" => {
+                    "exists" | "has_global_flag" | "is_part_of_hre" | "is_year" => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();

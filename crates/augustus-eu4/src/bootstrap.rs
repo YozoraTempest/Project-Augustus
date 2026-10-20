@@ -2599,6 +2599,12 @@ impl VanillaWorld {
         )
         .map_err(|e| Error::caused_by(root.path(), e))?;
         initial.set_eu4_event_seed(fixed_seed);
+        initial
+            .set_calendar(Calendar {
+                start: report.start_date,
+                month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+            })
+            .map_err(|e| Error::caused_by(root.path(), e))?;
         let unowned = initial
             .provinces()
             .iter()
@@ -3121,12 +3127,6 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by(root.path(), e))?;
         initial
             .set_attributes(attributes)
-            .map_err(|e| Error::caused_by(root.path(), e))?;
-        initial
-            .set_calendar(Calendar {
-                start: report.start_date,
-                month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
-            })
             .map_err(|e| Error::caused_by(root.path(), e))?;
         if overrides.production_inputs.is_some() || overrides.production_value_inputs.is_some() {
             let mut bound = BTreeMap::new();

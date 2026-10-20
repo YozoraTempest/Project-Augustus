@@ -1924,6 +1924,56 @@ fn influence_initialization_resolves_owned_province_and_capital_triggers() {
 }
 
 #[test]
+fn influence_initialization_uses_the_current_year_for_year_triggers() {
+    let temp = copy_fixture();
+    write(
+        temp.path(),
+        "common/estates/test.txt",
+        r#"
+        guild = {
+            trigger = { tag = AAA }
+            base_influence = 10
+            privileges = { charter }
+            influence_modifier = {
+                trigger = { is_year = 1445 }
+                influence = 5
+            }
+        }
+        "#,
+    );
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        "charter = { influence = 0 is_valid = { always = yes } on_granted = {} }",
+    );
+
+    let before_boundary = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        before_boundary.country("AAA").unwrap().estates.unwrap()["guild"].influence_milli,
+        Some(10_000),
+        "{:?}",
+        before_boundary
+            .report
+            .estates
+            .unresolved_initialization
+            .get("AAA")
+    );
+    assert!(
+        !before_boundary
+            .report
+            .estates
+            .unsupported_fields
+            .contains_key("trigger:is_year")
+    );
+
+    let after_boundary = VanillaWorld::load(temp.path(), "1445.1.1").unwrap();
+    assert_eq!(
+        after_boundary.country("AAA").unwrap().estates.unwrap()["guild"].influence_milli,
+        Some(15_000)
+    );
+}
+
+#[test]
 fn saved_active_influences_select_declaration_indices_without_rechecking_triggers() {
     let temp = copy_fixture();
     write(
