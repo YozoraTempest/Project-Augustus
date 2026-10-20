@@ -598,6 +598,11 @@ fn definitions_track_all_duplicates_but_only_from_effective_files() {
     write(&vanilla, "common/buildings/same.txt", "discarded={}");
     write(
         &pack,
+        "common/buildings/nested/ignored.txt",
+        "nested_only={}",
+    );
+    write(
+        &pack,
         "common/buildings/same.txt",
         "@cap=2\nwarehouse={}\nwarehouse={ nested={} }\nWarehouse={}",
     );
@@ -616,6 +621,7 @@ fn definitions_track_all_duplicates_but_only_from_effective_files() {
     let index =
         DefinitionIndex::build(&content, DefinitionKind::Buildings, TextEncoding::Utf8).unwrap();
     assert!(index.get("discarded").is_none());
+    assert!(index.get("nested_only").is_none());
     assert!(index.get("nested").is_none());
     assert!(index.get("@cap").is_none());
     assert!(index.get("not_a_building").is_none());

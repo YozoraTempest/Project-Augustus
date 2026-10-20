@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use jomini::{TextToken, text::Operator};
 
-use crate::{ContentSet, Error, SourceLocation, TextEncoding};
+use crate::{ContentSet, Error, SourceLocation, TextEncoding, bootstrap::direct_txt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DefinitionKind {
@@ -48,9 +48,8 @@ impl DefinitionIndex {
         encoding: TextEncoding,
     ) -> Result<Self, Error> {
         let mut definitions = BTreeMap::<String, Vec<DefinitionOrigin>>::new();
-        let prefix = format!("{}/", kind.directory());
         for (path, origin) in content.effective_files() {
-            if !path.starts_with(&prefix) || !path.ends_with(".txt") {
+            if !direct_txt(Path::new(path), kind.directory()) {
                 continue;
             }
             let document = content.read_text(path, encoding)?;
