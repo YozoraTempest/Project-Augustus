@@ -7,7 +7,7 @@ use augustus_core::{
 };
 use augustus_eu4::{ContentSet, TextEncoding, VanillaExternalState, VanillaWorld};
 use clap::Parser;
-use std::{fs::OpenOptions, io::Write, path::PathBuf, process::ExitCode};
+use std::{collections::BTreeMap, fs::OpenOptions, io::Write, path::PathBuf, process::ExitCode};
 
 #[derive(Parser)]
 #[command(
@@ -401,6 +401,50 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if cli.diplomacy {
         output["diplomacy"] = serde_json::to_value(loaded.diplomacy())?;
+        let country_tags = loaded
+            .initial
+            .countries()
+            .iter()
+            .map(|country| {
+                (
+                    loaded
+                        .initial
+                        .country_entity(&country.id)
+                        .expect("registered country"),
+                    country.id.clone(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let calendar = loaded
+            .initial
+            .world()
+            .calendar()
+            .expect("loaded world calendar");
+        let mut truces = Vec::new();
+        for (&first, records) in &loaded.initial.world().truces().records {
+            for (&second, truce) in records {
+                let Some(truce) = truce else {
+                    continue;
+                };
+                let expires_on = truce
+                    .expires_on
+                    .map(|day| {
+                        let date = calendar.date(day)?;
+                        Ok::<_, augustus_core::Error>(format!(
+                            "{:04}.{:02}.{:02}",
+                            date.year, date.month, date.day
+                        ))
+                    })
+                    .transpose()?;
+                truces.push(serde_json::json!({
+                    "first": country_tags.get(&first).expect("registered truce country"),
+                    "second": country_tags.get(&second).expect("registered truce country"),
+                    "expires_on": expires_on,
+                    "monthly": truce.monthly,
+                }));
+            }
+        }
+        output["truces"] = serde_json::to_value(truces)?;
         output["political_offices"] = serde_json::json!(
             loaded
                 .initial

@@ -182,6 +182,49 @@ fn world_cli_reports_state_sources_and_query_failures() {
 }
 
 #[test]
+fn diplomacy_query_reports_active_historical_truces() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    copy_directory(&fixture, temp.path());
+
+    let defines = temp.path().join("common/defines.lua");
+    let contents = fs::read_to_string(&defines).unwrap();
+    let defines_with_truce = contents.replace(
+        "NMilitary = {",
+        "NDiplomacy = { TRUCE_YEARS = 1 },\nNMilitary = {",
+    );
+    assert_ne!(defines_with_truce, contents);
+    fs::write(defines, defines_with_truce).unwrap();
+
+    let history = temp.path().join("history/countries/AAA - Alpha.txt");
+    let contents = fs::read_to_string(&history).unwrap();
+    fs::write(&history, format!("{contents}\nadd_truce_with = BBB\n")).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(temp.path())
+        .arg("--diplomacy")
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        value["truces"],
+        serde_json::json!([{
+            "first": "AAA",
+            "second": "BBB",
+            "expires_on": "1445.11.11",
+            "monthly": true,
+        }])
+    );
+}
+
+#[test]
 fn world_cli_reports_delayed_startup_tasks_until_they_run() {
     let temp = tempfile::tempdir().unwrap();
     let fixture = temp.path().join("world");

@@ -131,7 +131,7 @@ Rust 原生系统可以实现 `MonthlySystem`，在开局前整体替换月度�
 
 当前日期选择采用包含开始日、不包含结束日的区间；各文件中的皇帝变更统一按日期排序。这些输入规则通过自制用例和本地原版文件载入检查，尚未完成与原版运行状态的逐项对照。
 
-使用 `--country` 查询该国人物和外交，使用 `--diplomacy` 查询全局关系及皇帝职位：
+使用 `--country` 查询该国人物和外交，使用 `--diplomacy` 查询全局关系、停战到期日及皇帝职位：
 
 ```sh
 cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --country FRA --diplomacy
