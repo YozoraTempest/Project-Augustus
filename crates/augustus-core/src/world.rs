@@ -1985,7 +1985,10 @@ pub(crate) fn validate_plan(
                     subjects,
                 )?;
             }
-            Action::With { plan, .. } | Action::Preview { plan } => validate_plan(
+            Action::With { plan, .. }
+            | Action::Preview { plan }
+            | Action::InPreviousScope { plan, .. }
+            | Action::Repeat { plan, .. } => validate_plan(
                 plan,
                 schema,
                 rule_count,

@@ -276,6 +276,11 @@ pub enum Action {
         name: String,
         categories: Vec<String>,
     },
+    /// Execute a fixed effect body repeatedly while sharing the caller's budget and scopes.
+    Repeat {
+        count: u32,
+        plan: Plan,
+    },
     /// Capture an ordered selection, then check each member's live condition
     /// immediately before its body. Every iteration shares the caller's budget.
     ForEach {
@@ -375,6 +380,10 @@ pub enum Action {
     /// Execute in a live named scope; an absent scope skips the body.
     InScope {
         selector: crate::ScopeSelector,
+        kind: crate::EntityKind,
+        plan: Plan,
+    },
+    InPreviousScope {
         kind: crate::EntityKind,
         plan: Plan,
     },
@@ -496,8 +505,10 @@ impl Action {
                 names.extend(condition.global_marker_references());
                 collect_plan(plan, names);
             }
+            Self::Repeat { plan, .. } => collect_plan(plan, names),
             Self::Preview { plan }
             | Self::InScope { plan, .. }
+            | Self::InPreviousScope { plan, .. }
             | Self::With { plan, .. }
             | Self::Schedule { plan, .. } => collect_plan(plan, names),
             Self::RandomBranch { then, otherwise } => {
@@ -1126,6 +1137,15 @@ impl World {
                         .ok_or_else(|| Error::Invalid("army location is absent".into()))?;
                     self.create_army_from_categories(owner, location, name, categories)?;
                 }
+                Action::Repeat { count, plan } => {
+                    for _ in 0..*count {
+                        if *budget == 0 {
+                            return Err(Error::Invalid("plan instruction limit exceeded".into()));
+                        }
+                        *budget -= 1;
+                        self.execute_inner(context, plan, budget, depth + 1, previous)?;
+                    }
+                }
                 Action::ForEachSubjectCountry {
                     country,
                     condition,
@@ -1377,6 +1397,22 @@ impl World {
                             Some(context.current),
                         )?;
                     }
+                }
+                Action::InPreviousScope { kind, plan } => {
+                    let selected = previous
+                        .ok_or_else(|| Error::Invalid("previous scope is unbound".into()))?;
+                    if self.entity(selected)?.kind != *kind {
+                        return Err(Error::Invalid(
+                            "previous scope does not match the required entity type".into(),
+                        ));
+                    }
+                    self.execute_inner(
+                        context.with_current(selected),
+                        plan,
+                        budget,
+                        depth + 1,
+                        Some(current),
+                    )?;
                 }
                 Action::BindGlobalScope { name } => self.bind_global_scope(name, current)?,
                 Action::ClearGlobalScope { name } => self.clear_global_scope(name)?,

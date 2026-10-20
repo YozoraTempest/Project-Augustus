@@ -145,6 +145,62 @@ fn land_unit_effect_rejects_non_province_scope() {
 }
 
 #[test]
+fn parameterized_unit_spawn_effect_repeats_dynamic_creation_in_previous_province() {
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let mut library = ScriptLibrary::new();
+    library
+        .add_effects(&document(
+            r#"
+            create_units_of_type_in_province = {
+                $who$ = {
+                    for = {
+                        amount = $amount$
+                        effect = "PREV = { $unit_type$ = $who$ }"
+                    }
+                }
+            }
+            "#,
+        ))
+        .unwrap();
+    let compiled = ScriptCompiler::new(&schema, &library, true)
+        .compile_events(&document(
+            r#"
+            country_event = {
+                id = units.1
+                is_triggered_only = yes
+                immediate = {
+                    112 = {
+                        create_units_of_type_in_province = {
+                            who = ROOT
+                            amount = 3
+                            unit_type = galley
+                        }
+                    }
+                }
+                option = { name = continue }
+            }
+            "#,
+        ))
+        .unwrap();
+    let mut world = World::new(schema);
+    let country = world.add_entity("VEN", EntityKind::Country);
+    let province = world.add_entity("112", EntityKind::Province);
+    world.set_province_has_port(province, true).unwrap();
+
+    world
+        .execute_in_context(
+            ScopeContext::new(country),
+            &compiled.definitions[0].immediate,
+        )
+        .unwrap();
+
+    assert_eq!(world.naval_units().len(), 3);
+    assert!(world.naval_units().iter().all(|unit| {
+        unit.owner == country && unit.location == province && unit.unit_type == "galley"
+    }));
+}
+
+#[test]
 fn loader_binds_the_country_unit_group_used_by_unit_selection() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let loaded = VanillaWorld::load(root, "1444.11.11").unwrap();

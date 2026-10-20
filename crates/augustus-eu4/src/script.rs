@@ -174,6 +174,31 @@ fn read_fields(
         .collect()
 }
 
+fn inline_effect_fields(source: &Field, text: &str) -> Result<Vec<Field>, Error> {
+    let document = TextDocument::from_bytes(
+        source.path.clone(),
+        text.as_bytes().to_vec(),
+        TextEncoding::Utf8,
+    );
+    let parsed = document
+        .parse()
+        .map_err(|error| source.error(format!("invalid inline effect: {}", error.detail())))?;
+    let mut fields = read_fields(&parsed, parsed.reader(), 0, false)
+        .map_err(|error| source.error(format!("invalid inline effect: {}", error.detail())))?;
+    rebase_inline_effect_fields(&mut fields, source);
+    Ok(fields)
+}
+
+fn rebase_inline_effect_fields(fields: &mut [Field], source: &Field) {
+    for field in fields {
+        field.path.clone_from(&source.path);
+        field.location = source.location;
+        if let Value::Block(children) = &mut field.value {
+            rebase_inline_effect_fields(children, source);
+        }
+    }
+}
+
 /// Ordered, explicitly supplied declarations. The first same-name script is retained.
 /// File enumeration is the caller's responsibility; this is not a full-game loader.
 #[derive(Debug, Default)]
@@ -372,6 +397,7 @@ pub struct ScriptCompiler<'a> {
     library: &'a ScriptLibrary,
     optimise: bool,
     stack: Vec<String>,
+    previous_scope_kind: Option<EntityKind>,
     sources: Vec<(PathBuf, SourceLocation)>,
     folded: usize,
     global_scope_types: BTreeMap<String, EntityKind>,
@@ -400,6 +426,7 @@ impl<'a> ScriptCompiler<'a> {
             library,
             optimise,
             stack: Vec::new(),
+            previous_scope_kind: None,
             sources: Vec::new(),
             folded: 0,
             global_scope_types: BTreeMap::new(),
@@ -1688,6 +1715,19 @@ impl<'a> ScriptCompiler<'a> {
         Ok(())
     }
 
+    fn effects_in_scope(
+        &mut self,
+        fields: &[Field],
+        current_scope: EntityKind,
+        nested_scope: EntityKind,
+    ) -> Result<Plan, Error> {
+        let previous_scope = self.previous_scope_kind;
+        self.previous_scope_kind = Some(current_scope);
+        let result = self.effects(fields, nested_scope);
+        self.previous_scope_kind = previous_scope;
+        result
+    }
+
     fn effects(&mut self, fields: &[Field], scope: EntityKind) -> Result<Plan, Error> {
         let mut plan = Vec::new();
         let mut index = 0;
@@ -1700,7 +1740,16 @@ impl<'a> ScriptCompiler<'a> {
                     plan.push(Action::InScope {
                         selector: ScopeSelector::Root,
                         kind,
-                        plan: self.effects(field.block()?, kind)?,
+                        plan: self.effects_in_scope(field.block()?, scope, kind)?,
+                    });
+                }
+                "PREV" | "prev" => {
+                    let kind = self
+                        .previous_scope_kind
+                        .ok_or_else(|| field.error("PREV scope type is unknown in this effect"))?;
+                    plan.push(Action::InPreviousScope {
+                        kind,
+                        plan: self.effects_in_scope(field.block()?, scope, kind)?,
                     });
                 }
                 "every_subject_country" => {
@@ -1722,7 +1771,7 @@ impl<'a> ScriptCompiler<'a> {
                     plan.push(Action::ForEachSubjectCountry {
                         country: Target::Current,
                         condition: limit.unwrap_or(Condition::Always(true)),
-                        plan: self.effects(&body, EntityKind::Country)?,
+                        plan: self.effects_in_scope(&body, scope, EntityKind::Country)?,
                     });
                 }
                 "every_owned_province" | "random_owned_province" | "random_country" => {
@@ -1747,7 +1796,7 @@ impl<'a> ScriptCompiler<'a> {
                         }
                     }
                     let condition = limit.unwrap_or(Condition::Always(true));
-                    let body = self.effects(&body, nested_scope)?;
+                    let body = self.effects_in_scope(&body, scope, nested_scope)?;
                     plan.push(match field.name.as_str() {
                         "every_owned_province" => Action::ForEachOwnedProvince {
                             country: Target::Current,
@@ -2028,7 +2077,7 @@ impl<'a> ScriptCompiler<'a> {
                             .collect(),
                         kind: EntityKind::Province,
                         condition: limit.unwrap_or(Condition::Always(true)),
-                        plan: self.effects(&body, EntityKind::Province)?,
+                        plan: self.effects_in_scope(&body, scope, EntityKind::Province)?,
                     });
                 }
                 name if province_identifier(name).is_some() => {
@@ -2040,7 +2089,7 @@ impl<'a> ScriptCompiler<'a> {
                                 .to_string(),
                         },
                         kind: EntityKind::Province,
-                        plan: self.effects(field.block()?, EntityKind::Province)?,
+                        plan: self.effects_in_scope(field.block()?, scope, EntityKind::Province)?,
                     });
                 }
                 name if country_identifier(name) && matches!(&field.value, Value::Block(_)) => {
@@ -2050,7 +2099,7 @@ impl<'a> ScriptCompiler<'a> {
                             name: name.into(),
                         },
                         kind: EntityKind::Country,
-                        plan: self.effects(field.block()?, EntityKind::Country)?,
+                        plan: self.effects_in_scope(field.block()?, scope, EntityKind::Country)?,
                     });
                 }
                 "change_government" => {
@@ -2341,6 +2390,50 @@ impl<'a> ScriptCompiler<'a> {
                     self.hidden_descriptions = previous;
                     plan.extend(compiled?);
                 }
+                "for" => {
+                    let mut amount = None;
+                    let mut effect = None;
+                    for parameter in field.block()? {
+                        match parameter.name.as_str() {
+                            "amount" if amount.is_none() => {
+                                amount =
+                                    Some(parameter.scalar()?.parse::<i64>().map_err(|_| {
+                                        parameter.error("for amount must be a literal integer")
+                                    })?);
+                            }
+                            "effect" if effect.is_none() => effect = Some(parameter.scalar()?),
+                            "amount" | "effect" => {
+                                return Err(parameter.error("duplicate for parameter"));
+                            }
+                            _ => {
+                                return Err(parameter.error(format!(
+                                    "unsupported for parameter {}",
+                                    parameter.name
+                                )));
+                            }
+                        }
+                    }
+                    let amount = amount.ok_or_else(|| field.error("for requires amount"))?;
+                    let effect = effect.ok_or_else(|| field.error("for requires effect"))?;
+                    let count = if amount <= 0 {
+                        0
+                    } else {
+                        u32::try_from(amount)
+                            .map_err(|_| field.error("for amount exceeds the supported range"))?
+                    };
+                    let fields = inline_effect_fields(field, effect)?;
+                    if self.stack.len() >= 64 {
+                        return Err(field.error("script nesting exceeds 64"));
+                    }
+                    let marker = format!("\0inline-effect:{}", self.stack.len());
+                    self.stack.push(marker);
+                    let compiled = self.effects(&fields, scope);
+                    self.stack.pop();
+                    plan.push(Action::Repeat {
+                        count,
+                        plan: compiled?,
+                    });
+                }
                 "tooltip" => plan.push(Action::Preview {
                     plan: self.effects(field.block()?, scope)?,
                 }),
@@ -2369,7 +2462,7 @@ impl<'a> ScriptCompiler<'a> {
                     plan.push(Action::InScope {
                         selector: ScopeSelector::Office(name.into()),
                         kind: EntityKind::Country,
-                        plan: self.effects(field.block()?, EntityKind::Country)?,
+                        plan: self.effects_in_scope(field.block()?, scope, EntityKind::Country)?,
                     });
                 }
                 name if name.starts_with("event_target:") => {
@@ -2380,7 +2473,7 @@ impl<'a> ScriptCompiler<'a> {
                     plan.push(Action::InScope {
                         selector: ScopeSelector::Global(name.into()),
                         kind,
-                        plan: self.effects(field.block()?, kind)?,
+                        plan: self.effects_in_scope(field.block()?, scope, kind)?,
                     });
                 }
                 "log" => plan.push(Action::Emit(field.scalar()?.into())),
@@ -2510,7 +2603,7 @@ impl<'a> ScriptCompiler<'a> {
                     }
                     plan.push(Action::With {
                         target,
-                        plan: self.effects(field.block()?, nested)?,
+                        plan: self.effects_in_scope(field.block()?, scope, nested)?,
                     });
                 }
                 "if" => {
