@@ -4,10 +4,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use augustus_core::{
-    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES,
-    COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY, COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY,
-    CountryLedger, CountryResources, EntityKind, Schema, World, country_ledger_expense_key,
-    country_ledger_income_key,
+    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_INCOME_KEYS,
+    COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES,
+    COUNTRY_LEDGER_NATIVE_FILTERED_INCOME_CATEGORIES, COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
+    COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY, CountryLedger, CountryResources, EntityKind, Schema,
+    World, country_ledger_expense_key, country_ledger_income_key,
 };
 
 fn world() -> (World, augustus_core::EntityId) {
@@ -154,7 +155,78 @@ fn expense_categories_extend_to_relation_slots_23_and_24() {
 
 #[test]
 fn native_ledger_keys_expose_relation_slots_without_numeric_magic() {
+    assert_eq!(
+        COUNTRY_LEDGER_INCOME_KEYS,
+        [
+            "INCOMETAX",
+            "INCOMEPROD",
+            "INCOMETRADE",
+            "INCOMEGOLD",
+            "INCOMETARRIFFS",
+            "INCOMEVASSAL",
+            "INCOMEHARBORFEES",
+            "INCOMESUBS",
+            "INCOME_WAR_REPARATION",
+            "INCOMELOAN",
+            "INCOMEGIFT",
+            "INCOMEEVENT",
+            "SPOILS_OF_WAR_ECOVIEW",
+            "INCOME_TREASURE_FLEET",
+            "SIPHON_INCOME",
+            "CONDOTTIERI",
+            "KNOWLEDGE_SHARING",
+            "INC_BLOCKADES",
+            "INC_LOOTING",
+        ]
+    );
+    assert_eq!(
+        COUNTRY_LEDGER_EXPENSE_KEYS,
+        [
+            "EXPENSECOURTMAINTENANCE",
+            "EXPENSEINTEREST",
+            "EXPENSE_STATE_MAINTENANCE",
+            "EXPENSEHARBORFEES",
+            "EXPENSESUBS",
+            "EXPENSE_WAR_REPARATIONS",
+            "EXPENSEAM",
+            "EXPENSEFM",
+            "EXPENSEFORTM",
+            "COLONIAL_MAINTENANCE",
+            "EXPENSEMISSIONARY",
+            "EXPENSEARMY",
+            "EXPENSEFLEET",
+            "EXPENSEFORT",
+            "EXPENSEMAN",
+            "EXPENSESUPPORTREBELS",
+            "EXPENSELOAN",
+            "EXPENSEGIFT",
+            "EXPENSECOURT",
+            "EXPENSEEVENTS",
+            "EXPENSEPEACE",
+            "EXPENSEVASSAL",
+            "EXPENSETARIFFS",
+            "SUPPORT_LOYALISTS",
+            "SEND_OFFICERS",
+            "EXPENSE_SIPHON_INCOME",
+            "CONDOTTIERI",
+            "EXPENSE_CORRUPTION",
+            "EXPENSE_TECHNOLOGY",
+            "EXPENSE_GREAT_POWER",
+            "KNOWLEDGE_SHARING",
+            "TRADE_COMPANY_INVESTMENTS",
+            "NONE",
+            "EXP_BLOCKADES",
+            "EXP_LOOTING",
+            "EXPENSEGREATPROJECTS",
+            "CENTRE_OF_TRADE_UPGRADE",
+            "COLONY_CHANGES",
+        ]
+    );
     assert_eq!(COUNTRY_LEDGER_EXPENSE_KEYS.len(), 38);
+    assert_eq!(
+        COUNTRY_LEDGER_NATIVE_FILTERED_INCOME_CATEGORIES,
+        [9, 10, 11, 13, 14]
+    );
     assert_eq!(country_ledger_income_key(0), Some("INCOMETAX"));
     assert_eq!(
         country_ledger_expense_key(COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY),
@@ -166,6 +238,19 @@ fn native_ledger_keys_expose_relation_slots_without_numeric_magic() {
     );
     assert_eq!(country_ledger_income_key(19), None);
     assert_eq!(country_ledger_expense_key(38), None);
+}
+
+#[test]
+fn native_monthly_income_filter_excludes_the_verified_five_categories() {
+    let mut ledger = CountryLedger {
+        income_sources_milli: (1..=19).collect(),
+        ..Default::default()
+    };
+
+    ledger.consolidate_monthly(&BTreeSet::new()).unwrap();
+
+    assert_eq!(ledger.income_total_milli, 190);
+    assert_eq!(ledger.income_filtered_total_milli, 128);
 }
 
 #[test]

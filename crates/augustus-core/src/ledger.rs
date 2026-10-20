@@ -22,6 +22,8 @@ pub const COUNTRY_LEDGER_INCOME_PRODUCTION_CATEGORY: u32 = 1;
 pub const COUNTRY_LEDGER_INCOME_TRADE_CATEGORY: u32 = 2;
 /// Gold receipt slot in the native income vector.
 pub const COUNTRY_LEDGER_INCOME_GOLD_CATEGORY: u32 = 3;
+/// Income vector indices excluded from the native filtered monthly total.
+pub const COUNTRY_LEDGER_NATIVE_FILTERED_INCOME_CATEGORIES: [u32; 5] = [9, 10, 11, 13, 14];
 /// Native internal keys for the 19 income slots. These are content/runtime
 /// identifiers, not player-facing localization strings.
 pub const COUNTRY_LEDGER_INCOME_KEYS: [&str; COUNTRY_LEDGER_CATEGORY_COUNT as usize] = [
@@ -378,9 +380,8 @@ impl CountryLedger {
     }
 
     /// Consolidates source vectors into the current monthly snapshots and
-    /// clears the consumed sources. The expense filter is supplied by the
-    /// compatibility layer because the native switch labels are not part of
-    /// the core contract yet.
+    /// clears the consumed sources. The native income filter is fixed; the
+    /// compatibility layer may supply an expense filter for its source.
     pub fn consolidate_monthly(
         &mut self,
         expense_filtered_categories: &std::collections::BTreeSet<u32>,
@@ -406,7 +407,9 @@ impl CountryLedger {
             .income_snapshot_milli
             .iter()
             .enumerate()
-            .filter(|(index, _)| !matches!(*index as u32, 9 | 10 | 11 | 13 | 14))
+            .filter(|(index, _)| {
+                !COUNTRY_LEDGER_NATIVE_FILTERED_INCOME_CATEGORIES.contains(&(*index as u32))
+            })
             .try_fold(0_i64, |total, (_, value)| {
                 total.checked_add(*value).ok_or(Error::Overflow)
             })?;
