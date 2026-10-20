@@ -99,6 +99,23 @@ pub struct VanillaTradeIncomeResult {
     pub trade_income_milli: i64,
 }
 
+/// A country-level trade-income pass over records already selected by the
+/// compatibility layer.
+///
+/// Record selection remains outside the core. The pass preserves each row's
+/// calculation result and the native signed 32-bit accumulation order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeIncomePassInput {
+    pub eligible_records: Vec<VanillaTradeIncomeInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VanillaTradeIncomePassResult {
+    pub records: Vec<VanillaTradeIncomeResult>,
+    pub total_income_milli: i32,
+}
+
 /// Reproduces the observed trade-income calculation order.
 ///
 /// A virtual context result replaces the selected context value. The base and
@@ -150,6 +167,30 @@ pub fn calculate_vanilla_trade_income(
         effective_multiplier_milli: i128::from(effective_multiplier_milli),
         stage_two_product: i128::from(stage_two_product),
         trade_income_milli: i64::from(trade_income_milli),
+    })
+}
+
+/// Calculates selected node records and accumulates their income writes.
+///
+/// Each row is evaluated in input order. The total matches repeated writes to
+/// EU4's signed 32-bit delayed-cash field; node eligibility and source values
+/// must already be resolved by the compatibility layer.
+pub fn calculate_vanilla_trade_income_pass(
+    input: VanillaTradeIncomePassInput,
+) -> Result<VanillaTradeIncomePassResult, Error> {
+    let records = input
+        .eligible_records
+        .into_iter()
+        .map(calculate_vanilla_trade_income)
+        .collect::<Result<Vec<_>, _>>()?;
+    let total_income_milli = records.iter().try_fold(0_i32, |total, record| {
+        let amount = i32::try_from(record.trade_income_milli).map_err(|_| Error::Overflow)?;
+        Ok::<_, Error>(total.wrapping_add(amount))
+    })?;
+
+    Ok(VanillaTradeIncomePassResult {
+        records,
+        total_income_milli,
     })
 }
 

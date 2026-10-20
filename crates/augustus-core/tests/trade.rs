@@ -4,9 +4,10 @@
 use augustus_core::{
     VanillaTradeCandidate, VanillaTradeCaravanInput, VanillaTradeDistributionCandidate,
     VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput,
-    VanillaTradePowerAmountInput, VanillaTradePowerModifierInput, VanillaTradePropagationInput,
-    VanillaTradeRetentionInput, VanillaTradeRouteWeightInput, calculate_vanilla_trade_caravan,
-    calculate_vanilla_trade_distribution, calculate_vanilla_trade_income,
+    VanillaTradeIncomePassInput, VanillaTradePowerAmountInput, VanillaTradePowerModifierInput,
+    VanillaTradePropagationInput, VanillaTradeRetentionInput, VanillaTradeRouteWeightInput,
+    calculate_vanilla_trade_caravan, calculate_vanilla_trade_distribution,
+    calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
     calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
     calculate_vanilla_trade_route_weights, sort_vanilla_trade_candidates,
@@ -153,6 +154,49 @@ fn trade_income_preserves_native_i32_context_wrap_and_result_storage() {
     assert_eq!(wrapped_result.effective_multiplier_milli, 1_010);
     assert_eq!(wrapped_result.stage_two_product, -297_916_968_960);
     assert_eq!(wrapped_result.trade_income_milli, -297_916_968);
+}
+
+#[test]
+fn trade_income_pass_preserves_record_results_and_wraps_country_accumulation() {
+    let observed_row = VanillaTradeIncomeInput {
+        node_value_milli: 3_817,
+        country_record_value_milli: 349,
+        base_context_modifier_milli: 20,
+        selected_context_modifier_milli: 50,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: 100,
+    };
+    let zero_row = VanillaTradeIncomeInput {
+        node_value_milli: 0,
+        ..observed_row
+    };
+    let pass = calculate_vanilla_trade_income_pass(VanillaTradeIncomePassInput {
+        eligible_records: vec![observed_row, zero_row],
+    })
+    .unwrap();
+    assert_eq!(pass.records.len(), 2);
+    assert_eq!(pass.records[0].trade_income_milli, 1_558);
+    assert_eq!(pass.records[1].trade_income_milli, 0);
+    assert_eq!(pass.total_income_milli, 1_558);
+
+    let wrapping_row = VanillaTradeIncomeInput {
+        node_value_milli: 1_500_000,
+        country_record_value_milli: 1_000_000,
+        base_context_modifier_milli: 10,
+        selected_context_modifier_milli: 0,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: -10,
+    };
+    let wrapped = calculate_vanilla_trade_income_pass(VanillaTradeIncomePassInput {
+        eligible_records: vec![wrapping_row; 3],
+    })
+    .unwrap();
+    assert_eq!(wrapped.records[0].trade_income_milli, 1_500_000_000);
+    assert_eq!(wrapped.total_income_milli, 205_032_704);
 }
 
 #[test]
