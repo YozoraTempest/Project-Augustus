@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY, COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY,
-    CountryLedger, CountryLedgerCategory, CountryResources, VanillaProductionInput, World,
+    COUNTRY_LEDGER_INCOME_GOLD_CATEGORY, COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
+    COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY, CountryLedger, CountryLedgerCategory,
+    CountryResources, VanillaProductionInput, World,
 };
 use augustus_eu4::{
     CashflowBreakdown, VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
@@ -758,6 +759,99 @@ fn gold_production_uses_the_gold_path_without_a_trade_good_price() {
             )
             .unwrap()
             .is_none()
+    );
+
+    let state = VanillaExternalState {
+        country_resources: BTreeMap::from([(
+            "AAA".into(),
+            CountryResources {
+                treasury_milli: Some(10_000),
+                ..Default::default()
+            },
+        )]),
+        country_annual_tax_milli: BTreeMap::from([("AAA".into(), Some(0))]),
+        province_annual_tax_milli: BTreeMap::from([
+            (1, Some(0)),
+            (2, Some(0)),
+            (3, Some(0)),
+            (4, Some(0)),
+        ]),
+        country_monthly_cashflow_breakdowns: BTreeMap::from([(
+            "AAA".into(),
+            CashflowBreakdown {
+                trade_milli: Some(0),
+                trade_income_pass: None,
+                gold_milli: None,
+                expenses_milli: Some(0),
+                expense_categories_milli: BTreeMap::new(),
+            },
+        )]),
+        gold_production_inputs: BTreeMap::from([(2, gold_production_input(800, 39_640, 0))]),
+        ..Default::default()
+    };
+    let mut conflicting_state = state.clone();
+    conflicting_state
+        .country_monthly_cashflow_breakdowns
+        .get_mut("AAA")
+        .unwrap()
+        .gold_milli = Some(2_641);
+    assert!(
+        VanillaWorld::load_with_external_state(root.path(), "1444.11.11", &conflicting_state)
+            .is_err()
+    );
+
+    let mut integrated =
+        VanillaWorld::load_with_external_state(root.path(), "1444.11.11", &state).unwrap();
+    let country = integrated.initial.country_entity("AAA").unwrap();
+    let cashflows = integrated.initial.world().monthly_cashflows().unwrap();
+    assert_eq!(cashflows.amounts_milli[&country], Some(2_642));
+    assert_eq!(cashflows.breakdowns[&country].gold_milli, Some(2_642));
+    integrated.advance(21).unwrap();
+
+    let account = &integrated
+        .initial
+        .world()
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.amount_milli, Some(2_642));
+    assert_eq!(account.credited_milli, Some(2_642));
+    assert_eq!(account.treasury_after_milli, Some(12_642));
+    assert_eq!(
+        integrated.initial.world().country_ledgers()[&country].income_sources_milli
+            [COUNTRY_LEDGER_INCOME_GOLD_CATEGORY as usize],
+        2_642
+    );
+
+    let previous_settlement = integrated
+        .initial
+        .world()
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .clone();
+    let updated_input = gold_production_input(900, 39_640, 0);
+    integrated
+        .set_vanilla_gold_production_inputs(BTreeMap::from([(2, updated_input)]))
+        .unwrap();
+    let cashflows = integrated.initial.world().monthly_cashflows().unwrap();
+    assert_eq!(cashflows.settlement_count, 1);
+    assert_eq!(cashflows.last_settlement, previous_settlement);
+
+    integrated.advance(30).unwrap();
+    let cashflows = integrated.initial.world().monthly_cashflows().unwrap();
+    let account = &cashflows.last_settlement.as_ref().unwrap().accounts[&country];
+    assert_eq!(account.amount_milli, Some(2_973));
+    assert_eq!(account.breakdown.as_ref().unwrap().gold_milli, Some(2_973));
+    assert_eq!(account.treasury_after_milli, Some(15_615));
+    assert_eq!(cashflows.settlement_count, 2);
+    assert_eq!(
+        integrated.initial.world().country_ledgers()[&country].income_sources_milli
+            [COUNTRY_LEDGER_INCOME_GOLD_CATEGORY as usize],
+        5_615
     );
 }
 

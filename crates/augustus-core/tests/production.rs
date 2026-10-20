@@ -4,8 +4,9 @@
 use augustus_core::{
     AttributeBase, AttributeFormula, Attributes, Calendar, CashflowBreakdown, CountryResources,
     EntityId, EntityKind, MonthlyExternalCashflows, MonthlyProduction, Schema, Taxation,
-    VanillaProductionInput, VanillaProductionInputState, VanillaTradeIncomeInput,
-    VanillaTradeIncomePassInput, World, WorldDate,
+    VanillaGoldProductionInput, VanillaGoldProductionInputState, VanillaProductionInput,
+    VanillaProductionInputState, VanillaTradeIncomeInput, VanillaTradeIncomePassInput, World,
+    WorldDate,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -224,6 +225,146 @@ fn external_cashflows_settle_after_production_and_round_trip() {
     let saved = world.save("external-cashflows").unwrap();
     let restored = World::restore(&saved, "external-cashflows", world.schema()).unwrap();
     assert_eq!(restored, world);
+}
+
+#[test]
+fn vanilla_gold_cashflows_follow_current_owners_and_round_trip() {
+    let mut world = World::new(Schema::new([] as [&str; 0]).unwrap());
+    let original_owner = world.add_entity("AAA", EntityKind::Country);
+    let next_owner = world.add_entity("BBB", EntityKind::Country);
+    let gold_province = world.add_entity("2", EntityKind::Province);
+    world.set_owner(gold_province, original_owner).unwrap();
+    world
+        .set_country_resources(BTreeMap::from([
+            (
+                original_owner,
+                CountryResources {
+                    treasury_milli: Some(1_000),
+                    ..Default::default()
+                },
+            ),
+            (
+                next_owner,
+                CountryResources {
+                    treasury_milli: Some(2_000),
+                    ..Default::default()
+                },
+            ),
+        ]))
+        .unwrap();
+    world.set_calendar(calendar()).unwrap();
+
+    let breakdown = |gold_milli| CashflowBreakdown {
+        trade_milli: Some(0),
+        trade_income_pass: None,
+        gold_milli: Some(gold_milli),
+        expenses_milli: Some(0),
+        expense_categories_milli: BTreeMap::new(),
+    };
+    let gold_inputs = BTreeMap::from([(
+        gold_province,
+        VanillaGoldProductionInputState {
+            input: Some(VanillaGoldProductionInput {
+                gold_size_milli: 1_000,
+                mine_base_milli: 480,
+                external_gold_size_milli: 0,
+            }),
+            unresolved: BTreeSet::new(),
+        },
+    )]);
+    world
+        .set_monthly_cashflows(Some(
+            MonthlyExternalCashflows::new(BTreeMap::from([
+                (original_owner, Some(40)),
+                (next_owner, Some(0)),
+            ]))
+            .with_breakdowns(BTreeMap::from([
+                (original_owner, breakdown(40)),
+                (next_owner, breakdown(0)),
+            ]))
+            .with_vanilla_gold_production_inputs(gold_inputs.clone()),
+        ))
+        .unwrap();
+
+    world.advance_to(20).unwrap();
+    let first = world
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap();
+    assert_eq!(first.accounts[&original_owner].amount_milli, Some(40));
+    assert_eq!(first.accounts[&next_owner].amount_milli, Some(0));
+
+    world.set_owner(gold_province, next_owner).unwrap();
+    let saved = world.save("gold-ownership").unwrap();
+    let mut restored = World::restore(&saved, "gold-ownership", world.schema()).unwrap();
+    assert_eq!(
+        restored
+            .monthly_cashflows()
+            .unwrap()
+            .vanilla_gold_production_inputs,
+        Some(gold_inputs)
+    );
+    restored.advance_to(51).unwrap();
+
+    let cashflows = restored.monthly_cashflows().unwrap();
+    let second = cashflows.last_settlement.as_ref().unwrap();
+    assert_eq!(second.accounts[&original_owner].amount_milli, Some(0));
+    assert_eq!(second.accounts[&next_owner].amount_milli, Some(40));
+    assert_eq!(second.accounts[&next_owner].credited_milli, Some(40));
+    assert_eq!(cashflows.amounts_milli[&original_owner], Some(0));
+    assert_eq!(cashflows.amounts_milli[&next_owner], Some(40));
+    assert_eq!(cashflows.breakdowns[&original_owner].gold_milli, Some(0));
+    assert_eq!(cashflows.breakdowns[&next_owner].gold_milli, Some(40));
+    assert_eq!(
+        restored.country_resources()[&original_owner].treasury_milli,
+        Some(1_040)
+    );
+    assert_eq!(
+        restored.country_resources()[&next_owner].treasury_milli,
+        Some(2_040)
+    );
+}
+
+#[test]
+fn missing_vanilla_gold_inputs_keep_income_unknown() {
+    let (mut world, country) = world(known_input());
+    world
+        .set_monthly_cashflows(Some(
+            MonthlyExternalCashflows::new(BTreeMap::from([(country, Some(0))]))
+                .with_breakdowns(BTreeMap::from([(
+                    country,
+                    CashflowBreakdown {
+                        trade_milli: Some(0),
+                        trade_income_pass: None,
+                        gold_milli: None,
+                        expenses_milli: Some(0),
+                        expense_categories_milli: BTreeMap::new(),
+                    },
+                )]))
+                .with_vanilla_gold_production_inputs(BTreeMap::from([(
+                    EntityId(1),
+                    VanillaGoldProductionInputState {
+                        input: None,
+                        unresolved: BTreeSet::new(),
+                    },
+                )])),
+        ))
+        .unwrap();
+    world.advance_to(20).unwrap();
+
+    let account = &world
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.amount_milli, None);
+    assert_eq!(account.breakdown.as_ref().unwrap().gold_milli, None);
+    assert!(account.unresolved.contains("unknown_cashflow"));
+    assert_eq!(world.country_resources()[&country].treasury_milli, None);
 }
 
 #[test]

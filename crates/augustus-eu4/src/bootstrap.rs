@@ -390,6 +390,10 @@ pub struct VanillaExternalState {
     pub country_resources: BTreeMap<String, CountryResources>,
     #[serde(default)]
     pub production_inputs: BTreeMap<u32, augustus_core::VanillaProductionInputState>,
+    /// Per-province gold production inputs already resolved by a compatibility
+    /// provider. The core gold calculator filters these by current ownership.
+    #[serde(default)]
+    pub gold_production_inputs: BTreeMap<u32, augustus_core::VanillaGoldProductionInputState>,
     #[serde(default)]
     pub production_value_inputs: BTreeMap<u32, VanillaExternalProductionInput>,
     /// Runtime price-impact totals keyed by the native trade-good table index.
@@ -522,6 +526,8 @@ struct LoadOverrides<'a> {
     country_resources: Option<&'a BTreeMap<String, CountryResources>>,
     country_ledgers: Option<&'a BTreeMap<String, CountryLedger>>,
     production_inputs: Option<&'a BTreeMap<u32, augustus_core::VanillaProductionInputState>>,
+    gold_production_inputs:
+        Option<&'a BTreeMap<u32, augustus_core::VanillaGoldProductionInputState>>,
     production_value_inputs: Option<&'a BTreeMap<u32, VanillaExternalProductionInput>>,
     trade_good_price_impacts_milli: Option<&'a BTreeMap<u32, i32>>,
     trade_good_price_impact_entries_milli: Option<&'a BTreeMap<u32, Vec<i32>>>,
@@ -589,6 +595,8 @@ impl<'a> LoadOverrides<'a> {
             country_ledgers: None,
             production_inputs: (!state.production_inputs.is_empty())
                 .then_some(&state.production_inputs),
+            gold_production_inputs: (!state.gold_production_inputs.is_empty())
+                .then_some(&state.gold_production_inputs),
             production_value_inputs: (!state.production_value_inputs.is_empty())
                 .then_some(&state.production_value_inputs),
             trade_good_price_impacts_milli: (!state.trade_good_price_impacts_milli.is_empty())
@@ -754,6 +762,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.country_resources.clone());
     base.production_inputs
         .extend(overlay.production_inputs.clone());
+    base.gold_production_inputs
+        .extend(overlay.gold_production_inputs.clone());
     base.production_value_inputs
         .extend(overlay.production_value_inputs.clone());
     base.trade_good_price_impacts_milli
@@ -1276,6 +1286,64 @@ fn bind_external_production_value_inputs(
             Ok((entity, state))
         })
         .collect()
+}
+
+fn bind_vanilla_gold_production_inputs(
+    initial: &InitialWorld,
+    inputs: &BTreeMap<u32, VanillaGoldProductionInputState>,
+) -> Result<BTreeMap<augustus_core::EntityId, VanillaGoldProductionInputState>, Error> {
+    for &province in inputs.keys() {
+        let entity = initial.province_entity(province).ok_or_else(|| {
+            Error::message(
+                "external gold production inputs",
+                format!("unknown EU4 gold province {province}"),
+            )
+        })?;
+        let good = initial
+            .world()
+            .economy()
+            .provinces
+            .get(&entity)
+            .and_then(|state| state.trade_good.as_ref());
+        let is_gold = good
+            .and_then(|name| initial.world().economy().trade_goods.get(name))
+            .is_some_and(|definition| definition.gold_type == Some(true));
+        if !is_gold {
+            return Err(Error::message(
+                "external gold production inputs",
+                format!("EU4 province {province} is not a gold province"),
+            ));
+        }
+    }
+
+    let mut bound = BTreeMap::new();
+    for province in initial.provinces() {
+        let Some(entity) = initial.province_entity(province.id) else {
+            continue;
+        };
+        let good = initial
+            .world()
+            .economy()
+            .provinces
+            .get(&entity)
+            .and_then(|state| state.trade_good.as_ref());
+        let is_gold = good
+            .and_then(|name| initial.world().economy().trade_goods.get(name))
+            .is_some_and(|definition| definition.gold_type == Some(true));
+        if is_gold {
+            bound.insert(
+                entity,
+                inputs
+                    .get(&province.id)
+                    .cloned()
+                    .unwrap_or(VanillaGoldProductionInputState {
+                        input: None,
+                        unresolved: BTreeSet::new(),
+                    }),
+            );
+        }
+    }
+    Ok(bound)
 }
 
 impl VanillaWorld {
@@ -3179,8 +3247,63 @@ impl VanillaWorld {
         initial
             .set_taxation(taxation)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        let mut cashflow_breakdowns = overrides
+            .country_monthly_cashflow_breakdowns
+            .cloned()
+            .unwrap_or_default();
+        let bound_gold_inputs = overrides
+            .gold_production_inputs
+            .map(|inputs| bind_vanilla_gold_production_inputs(&initial, inputs))
+            .transpose()?;
+        if let Some(gold_inputs) = overrides.gold_production_inputs {
+            let countries: Vec<_> = initial
+                .countries()
+                .iter()
+                .map(|country| country.id.clone())
+                .collect();
+            for country in countries {
+                let entity = initial.country_entity(&country).ok_or_else(|| {
+                    Error::message(
+                        "external gold production inputs",
+                        format!("unknown EU4 gold-production country {country}"),
+                    )
+                })?;
+                let result =
+                    calculate_vanilla_gold_production_for_country(&initial, entity, gold_inputs)
+                        .map_err(|error| {
+                            Error::caused_by("external gold production inputs", error)
+                        })?;
+                if result.provinces.is_empty() {
+                    continue;
+                }
+                let breakdown = cashflow_breakdowns
+                    .entry(country.clone())
+                    .or_insert_with(|| CashflowBreakdown {
+                        trade_milli: None,
+                        trade_income_pass: None,
+                        gold_milli: None,
+                        expenses_milli: None,
+                        expense_categories_milli: BTreeMap::new(),
+                    });
+                if let (Some(explicit), Some(calculated)) =
+                    (breakdown.gold_milli, result.monthly_value_milli)
+                    && explicit != calculated
+                {
+                    return Err(Error::message(
+                        "external gold production inputs",
+                        format!(
+                            "gold total for EU4 country {country} disagrees with its provinces"
+                        ),
+                    ));
+                }
+                if result.monthly_value_milli.is_some() || breakdown.gold_milli.is_none() {
+                    breakdown.gold_milli = result.monthly_value_milli;
+                }
+            }
+        }
         if overrides.country_monthly_cashflows_milli.is_some()
             || overrides.country_monthly_cashflow_breakdowns.is_some()
+            || !cashflow_breakdowns.is_empty()
         {
             let mut bound = overrides
                 .country_monthly_cashflows_milli
@@ -3200,10 +3323,8 @@ impl VanillaWorld {
                 })
                 .transpose()?
                 .unwrap_or_default();
-            if bound.is_empty()
-                && let Some(breakdowns) = overrides.country_monthly_cashflow_breakdowns
-            {
-                bound = breakdowns
+            if bound.is_empty() && !cashflow_breakdowns.is_empty() {
+                bound = cashflow_breakdowns
                     .iter()
                     .map(|(country, breakdown)| {
                         let entity = initial.country_entity(country).ok_or_else(|| {
@@ -3217,8 +3338,8 @@ impl VanillaWorld {
                     .collect::<Result<BTreeMap<_, _>, Error>>()?;
             }
             let mut external = MonthlyExternalCashflows::new(bound);
-            if let Some(breakdowns) = overrides.country_monthly_cashflow_breakdowns {
-                let bound_breakdowns = breakdowns
+            if !cashflow_breakdowns.is_empty() {
+                let bound_breakdowns = cashflow_breakdowns
                     .iter()
                     .map(|(country, breakdown)| {
                         let entity = initial.country_entity(country).ok_or_else(|| {
@@ -3231,6 +3352,9 @@ impl VanillaWorld {
                     })
                     .collect::<Result<BTreeMap<_, _>, Error>>()?;
                 external = external.with_breakdowns(bound_breakdowns);
+            }
+            if let Some(gold_inputs) = bound_gold_inputs {
+                external = external.with_vanilla_gold_production_inputs(gold_inputs);
             }
             initial
                 .set_monthly_cashflows(Some(external))
@@ -3785,6 +3909,18 @@ impl VanillaWorld {
             .country_entity(id)
             .ok_or_else(|| augustus_core::Error::Invalid("unknown country".into()))?;
         calculate_vanilla_gold_production_for_country(&self.initial, country, inputs)
+    }
+
+    /// Refreshes the next monthly gold-income calculation from explicit
+    /// province inputs. Loaded gold provinces without inputs remain unresolved.
+    pub fn set_vanilla_gold_production_inputs(
+        &mut self,
+        inputs: BTreeMap<u32, VanillaGoldProductionInputState>,
+    ) -> Result<(), augustus_core::Error> {
+        let bound = bind_vanilla_gold_production_inputs(&self.initial, &inputs)
+            .map_err(|error| augustus_core::Error::Invalid(error.to_string()))?;
+        self.initial
+            .set_monthly_vanilla_gold_production_inputs(Some(bound))
     }
 
     /// Binds production inputs supplied by a compatibility provider.

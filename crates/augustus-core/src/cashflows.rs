@@ -93,8 +93,16 @@ pub struct MonthlyExternalCashflows {
     pub amounts_milli: BTreeMap<EntityId, Option<i64>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub breakdowns: BTreeMap<EntityId, CashflowBreakdown>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vanilla_gold_production_inputs:
+        Option<BTreeMap<EntityId, crate::VanillaGoldProductionInputState>>,
     pub settlement_count: u64,
     pub last_settlement: Option<CashflowSettlement>,
+}
+
+struct ResolvedCashflowInputs {
+    amounts_milli: BTreeMap<EntityId, Option<i64>>,
+    breakdowns: BTreeMap<EntityId, CashflowBreakdown>,
 }
 
 impl MonthlyExternalCashflows {
@@ -102,6 +110,7 @@ impl MonthlyExternalCashflows {
         Self {
             amounts_milli,
             breakdowns: BTreeMap::new(),
+            vanilla_gold_production_inputs: None,
             settlement_count: 0,
             last_settlement: None,
         }
@@ -112,11 +121,27 @@ impl MonthlyExternalCashflows {
         self
     }
 
+    pub fn with_vanilla_gold_production_inputs(
+        mut self,
+        inputs: BTreeMap<EntityId, crate::VanillaGoldProductionInputState>,
+    ) -> Self {
+        self.vanilla_gold_production_inputs = Some(inputs);
+        self
+    }
+
     fn validate_breakdowns(&self, world: &World) -> Result<BTreeMap<EntityId, Option<i64>>, Error> {
+        Self::validate_breakdown_inputs(world, &self.amounts_milli, &self.breakdowns)
+    }
+
+    fn validate_breakdown_inputs(
+        world: &World,
+        amounts_milli: &BTreeMap<EntityId, Option<i64>>,
+        breakdowns: &BTreeMap<EntityId, CashflowBreakdown>,
+    ) -> Result<BTreeMap<EntityId, Option<i64>>, Error> {
         let mut net_amounts = BTreeMap::new();
-        for (&country, breakdown) in &self.breakdowns {
+        for (&country, breakdown) in breakdowns {
             if world.entity(country)?.kind != EntityKind::Country
-                || !self.amounts_milli.contains_key(&country)
+                || !amounts_milli.contains_key(&country)
             {
                 return Err(Error::Invalid(
                     "cashflow breakdown requires a matching country amount".into(),
@@ -147,7 +172,7 @@ impl MonthlyExternalCashflows {
                 ));
             }
             let net = breakdown.try_net_milli()?;
-            if let (Some(amount), Some(net)) = (self.amounts_milli[&country], net)
+            if let (Some(amount), Some(net)) = (amounts_milli[&country], net)
                 && amount != net
             {
                 return Err(Error::Invalid(
@@ -159,6 +184,93 @@ impl MonthlyExternalCashflows {
         Ok(net_amounts)
     }
 
+    fn validate_vanilla_gold_production_inputs(&self, world: &World) -> Result<(), Error> {
+        let Some(inputs) = &self.vanilla_gold_production_inputs else {
+            return Ok(());
+        };
+        for (&province, state) in inputs {
+            if world.entity(province)?.kind != EntityKind::Province
+                || state.unresolved.iter().any(String::is_empty)
+            {
+                return Err(Error::Invalid(
+                    "invalid vanilla gold-production input state".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn resolve_vanilla_gold_production_inputs(
+        &self,
+        world: &World,
+    ) -> Result<ResolvedCashflowInputs, Error> {
+        let mut amounts_milli = self.amounts_milli.clone();
+        let mut breakdowns = self.breakdowns.clone();
+        let Some(inputs) = &self.vanilla_gold_production_inputs else {
+            return Ok(ResolvedCashflowInputs {
+                amounts_milli,
+                breakdowns,
+            });
+        };
+
+        self.validate_vanilla_gold_production_inputs(world)?;
+        for &province in inputs.keys() {
+            if let Some(owner) = world.entity(province)?.owner {
+                if world.entity(owner)?.kind != EntityKind::Country {
+                    return Err(Error::Invalid(
+                        "gold-production province owner must be a country".into(),
+                    ));
+                }
+                amounts_milli.entry(owner).or_insert(None);
+            }
+        }
+
+        let countries: Vec<_> = amounts_milli.keys().copied().collect();
+        for country in countries {
+            let mut known_monthly_value = 0_i64;
+            let mut has_gold = false;
+            let mut unresolved = false;
+            for &province in world.owned_provinces(country)? {
+                let Some(state) = inputs.get(&province) else {
+                    continue;
+                };
+                has_gold = true;
+                let Some(input) = state.input.filter(|_| state.unresolved.is_empty()) else {
+                    unresolved = true;
+                    continue;
+                };
+                let monthly =
+                    i64::from(crate::calculate_vanilla_gold_production(input).monthly_value_milli);
+                known_monthly_value = known_monthly_value
+                    .checked_add(monthly)
+                    .ok_or(Error::Overflow)?;
+            }
+
+            if !has_gold && !breakdowns.contains_key(&country) {
+                continue;
+            }
+            let breakdown = breakdowns
+                .entry(country)
+                .or_insert_with(|| CashflowBreakdown {
+                    trade_milli: None,
+                    trade_income_pass: None,
+                    gold_milli: None,
+                    expenses_milli: None,
+                    expense_categories_milli: BTreeMap::new(),
+                });
+            breakdown.gold_milli = (!unresolved).then_some(known_monthly_value);
+
+            let trade_is_known = breakdown.resolved_trade_milli()?.is_some();
+            if trade_is_known && breakdown.expenses_milli.is_some() {
+                amounts_milli.insert(country, breakdown.try_net_milli()?);
+            }
+        }
+        Ok(ResolvedCashflowInputs {
+            amounts_milli,
+            breakdowns,
+        })
+    }
+
     pub(crate) fn prepare(
         &self,
         world: &World,
@@ -168,16 +280,18 @@ impl MonthlyExternalCashflows {
         self.settlement_count
             .checked_add(1)
             .ok_or(Error::Overflow)?;
-        let breakdown_nets = self.validate_breakdowns(world)?;
+        let resolved = self.resolve_vanilla_gold_production_inputs(world)?;
+        let breakdown_nets =
+            Self::validate_breakdown_inputs(world, &resolved.amounts_milli, &resolved.breakdowns)?;
         let mut accounts = BTreeMap::new();
-        for (&country, &amount) in &self.amounts_milli {
+        for (&country, &amount) in &resolved.amounts_milli {
             if world.entity(country)?.kind != EntityKind::Country {
                 return Err(Error::Invalid(
                     "monthly cashflows require country entities".into(),
                 ));
             }
             let mut unresolved = BTreeSet::new();
-            let breakdown = self.breakdowns.get(&country).cloned();
+            let breakdown = resolved.breakdowns.get(&country).cloned();
             let net = breakdown_nets.get(&country).copied().flatten();
             let amount = match (amount, net) {
                 (Some(amount), Some(net)) if amount == net => Some(amount),
@@ -235,6 +349,14 @@ impl MonthlyExternalCashflows {
     }
 
     pub(crate) fn commit(&mut self, world: &mut World, settlement: CashflowSettlement) {
+        if self.vanilla_gold_production_inputs.is_some() {
+            for (&country, account) in &settlement.accounts {
+                self.amounts_milli.insert(country, account.amount_milli);
+                if let Some(breakdown) = &account.breakdown {
+                    self.breakdowns.insert(country, breakdown.clone());
+                }
+            }
+        }
         for (&country, account) in &settlement.accounts {
             world
                 .country_resources
@@ -258,6 +380,7 @@ impl MonthlyExternalCashflows {
             ));
         }
         self.validate_breakdowns(world)?;
+        self.validate_vanilla_gold_production_inputs(world)?;
         for &country in self.amounts_milli.keys() {
             if world.entity(country)?.kind != EntityKind::Country {
                 return Err(Error::Invalid(
@@ -386,6 +509,21 @@ impl World {
         let mut replacement = current.clone();
         replacement.breakdowns = breakdowns;
         replacement.validate(self)?;
+        self.monthly_cashflows = Some(replacement);
+        Ok(())
+    }
+
+    pub fn set_monthly_vanilla_gold_production_inputs(
+        &mut self,
+        inputs: Option<BTreeMap<EntityId, crate::VanillaGoldProductionInputState>>,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        let Some(current) = self.monthly_cashflows.as_ref() else {
+            return Err(Error::Invalid("monthly cashflows are not selected".into()));
+        };
+        let mut replacement = current.clone();
+        replacement.vanilla_gold_production_inputs = inputs;
+        replacement.validate_vanilla_gold_production_inputs(self)?;
         self.monthly_cashflows = Some(replacement);
         Ok(())
     }

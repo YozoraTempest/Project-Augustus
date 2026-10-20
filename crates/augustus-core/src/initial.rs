@@ -487,6 +487,14 @@ impl InitialWorld {
         self.world.set_monthly_cashflow_breakdowns(breakdowns)
     }
 
+    pub fn set_monthly_vanilla_gold_production_inputs(
+        &mut self,
+        inputs: Option<BTreeMap<EntityId, crate::VanillaGoldProductionInputState>>,
+    ) -> Result<(), Error> {
+        self.world
+            .set_monthly_vanilla_gold_production_inputs(inputs)
+    }
+
     pub fn monthly_cashflows(&self) -> Option<&crate::MonthlyExternalCashflows> {
         self.world.monthly_cashflows()
     }

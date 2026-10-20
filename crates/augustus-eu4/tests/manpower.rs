@@ -282,6 +282,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
                 unresolved: Default::default(),
             },
         )]),
+        gold_production_inputs: Default::default(),
         production_value_inputs: Default::default(),
         trade_good_price_impacts_milli: Default::default(),
         trade_good_price_impact_entries_milli: Default::default(),
