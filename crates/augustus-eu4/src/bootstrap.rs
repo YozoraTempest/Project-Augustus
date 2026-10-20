@@ -3359,8 +3359,8 @@ impl VanillaWorld {
                 "augustus-vanilla-calendar-tax:1",
                 report.ruleset,
                 &report.game_version,
-                initial.countries(),
-                initial.provinces(),
+                content_identity_initial.countries(),
+                content_identity_initial.provinces(),
             ))
             .map_err(|e| Error::caused_by(root.path(), e))?,
         );

@@ -954,6 +954,77 @@ fn loader_distinguishes_an_explicit_zero_seed_from_runtime_clock_mode() {
 }
 
 #[test]
+fn startup_random_choices_do_not_change_content_identity_or_block_cross_seed_restore() {
+    let fixture = copy_fixture();
+    fs::create_dir_all(fixture.path().join("common/on_actions")).unwrap();
+    fs::create_dir_all(fixture.path().join("events")).unwrap();
+    fs::write(
+        fixture.path().join("common/on_actions/seeded_startup.txt"),
+        "on_startup={if={limit={tag=AAA} country_event={id=seeded.1}}}",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("events/seeded_startup.txt"),
+        "country_event={id=seeded.1 is_triggered_only=yes option={name=left ai_chance={factor=1} set_country_flag=seed_left log=seed_left} option={name=right ai_chance={factor=1} set_country_flag=seed_right log=seed_right}}",
+    )
+    .unwrap();
+
+    let worlds = [0, 1, 2, 3, 4, 5, 6, 7, 42]
+        .into_iter()
+        .map(|seed| {
+            let mut world = VanillaWorld::load_with_players_and_seed(
+                fixture.path(),
+                "1444.11.11",
+                &BTreeSet::new(),
+                seed,
+            )
+            .unwrap();
+            world.advance(1).unwrap();
+            world
+        })
+        .collect::<Vec<_>>();
+    let outcomes = worlds
+        .iter()
+        .filter_map(|world| {
+            world
+                .initial
+                .world()
+                .events()
+                .iter()
+                .find(|event| event.2 == "seed_left" || event.2 == "seed_right")
+                .map(|event| event.2.as_str())
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        outcomes.len(),
+        2,
+        "unresolved={:?}, events={:?}, pending={}",
+        worlds[0].report.estates.startup_unresolved,
+        worlds[0].initial.world().events(),
+        worlds[0].initial.world().pending_events().len()
+    );
+
+    let saved = worlds[0].save().unwrap();
+    let content = serde_json::from_str::<serde_json::Value>(&saved).unwrap()["content"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for world in &worlds[1..] {
+        let snapshot = serde_json::from_str::<serde_json::Value>(&world.save().unwrap()).unwrap();
+        assert_eq!(snapshot["content"], content);
+    }
+
+    let mut resumed = VanillaWorld::load_with_players_and_seed(
+        fixture.path(),
+        "1444.11.11",
+        &BTreeSet::new(),
+        42,
+    )
+    .unwrap();
+    resumed.restore(&saved).unwrap();
+}
+
+#[test]
 fn revolutionary_reforms_and_revolution_target_history_are_distinct_conditions() {
     let fixture = copy_fixture();
     append_fixture(
