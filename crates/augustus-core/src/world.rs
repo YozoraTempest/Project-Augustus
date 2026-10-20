@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 use crate::rng::{Eu4Rng, RandomSource};
 use crate::{
     Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryLedger,
-    CountryResources, DailySystem, Economy, Error, Governments, Ideas, Modifiers, MonthlySystem,
-    MonthlyTax, Plan, Politics, Target, Taxation, Technology, WorldDate, YearlySystem,
+    CountryResource, CountryResources, DailySystem, Economy, Error, Governments, Ideas, Modifiers,
+    MonthlySystem, MonthlyTax, Plan, Politics, Target, Taxation, Technology, WorldDate,
+    YearlySystem,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -114,6 +115,8 @@ pub struct World {
     pub(crate) modifier_expirations: BTreeMap<u64, BTreeSet<(EntityId, String)>>,
     pub(crate) justifications: crate::Justifications,
     pub(crate) country_resources: BTreeMap<EntityId, CountryResources>,
+    pub(crate) unbased_resource_deltas: BTreeMap<EntityId, BTreeMap<CountryResource, i64>>,
+    pub(crate) unbased_metric_deltas: BTreeMap<EntityId, BTreeMap<String, i64>>,
     pub(crate) country_ledgers: BTreeMap<EntityId, CountryLedger>,
     calendar: Option<Calendar>,
     pub(crate) taxation: Option<Taxation>,
@@ -201,6 +204,10 @@ struct Snapshot {
     justifications: crate::Justifications,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     country_resources: BTreeMap<EntityId, CountryResources>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    unbased_resource_deltas: BTreeMap<EntityId, BTreeMap<CountryResource, i64>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    unbased_metric_deltas: BTreeMap<EntityId, BTreeMap<String, i64>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     country_ledgers: BTreeMap<EntityId, CountryLedger>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -298,6 +305,8 @@ impl World {
             modifier_expirations: BTreeMap::new(),
             justifications: crate::Justifications::default(),
             country_resources: BTreeMap::new(),
+            unbased_resource_deltas: BTreeMap::new(),
+            unbased_metric_deltas: BTreeMap::new(),
             country_ledgers: BTreeMap::new(),
             calendar: None,
             taxation: None,
@@ -635,6 +644,7 @@ impl World {
         self.require_running()?;
         self.validate_resources(&resources)?;
         self.country_resources = resources;
+        self.unbased_resource_deltas.clear();
         Ok(())
     }
 
@@ -1252,6 +1262,8 @@ impl World {
             modifiers: self.modifiers.clone(),
             justifications: self.justifications.clone(),
             country_resources: self.country_resources.clone(),
+            unbased_resource_deltas: self.unbased_resource_deltas.clone(),
+            unbased_metric_deltas: self.unbased_metric_deltas.clone(),
             country_ledgers: self.country_ledgers.clone(),
             calendar: self.calendar.clone(),
             taxation: self.taxation.clone(),
@@ -1375,6 +1387,8 @@ impl World {
             modifiers: snapshot.modifiers,
             justifications: snapshot.justifications,
             country_resources: snapshot.country_resources,
+            unbased_resource_deltas: snapshot.unbased_resource_deltas,
+            unbased_metric_deltas: snapshot.unbased_metric_deltas,
             country_ledgers: snapshot.country_ledgers,
             calendar: snapshot.calendar,
             taxation: snapshot.taxation,
@@ -1477,6 +1491,7 @@ impl World {
         world.school_opinions.validate(&world)?;
         world.governments.validate(&world)?;
         world.metrics.validate(&world)?;
+        world.validate_unbased_numeric_deltas()?;
         world.ideas.validate(&world)?;
         world.estates.validate(&world)?;
         world.completions.validate(&world)?;

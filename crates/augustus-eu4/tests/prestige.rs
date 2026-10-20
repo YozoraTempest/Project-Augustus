@@ -114,7 +114,10 @@ fn unknown_initial_prestige_does_not_become_zero() {
     let plan = compiler(&schema, &library, true)
         .compile(&document("add_prestige=1"), EntityKind::Country)
         .unwrap();
-    assert!(world.execute(aaa, &plan.plan).is_err());
+    world.execute(aaa, &plan.plan).unwrap();
+    let prestige = NumericSlot::Metric("prestige".into());
+    assert!(world.numeric_value(aaa, &prestige).is_err());
+    assert_eq!(world.unbased_numeric_delta(aaa, &prestige), Some(1_000));
 }
 
 #[test]
@@ -141,7 +144,7 @@ fn unsupported_operands_scopes_and_unregistered_storage_keep_source_diagnostics(
 }
 
 #[test]
-fn original_entry_keeps_unknown_initial_prestige_and_rolls_back_startup_changes() {
+fn original_entry_keeps_unknown_initial_prestige_and_tracks_startup_changes() {
     use augustus_eu4::VanillaWorld;
     use std::{fs, path::Path};
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
@@ -174,13 +177,19 @@ fn original_entry_keeps_unknown_initial_prestige_and_rolls_back_startup_changes(
             )
             .all(|(_, values)| values.get("prestige") == Some(&None))
     );
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    let aaa = loaded.initial.country_entity("AAA").unwrap();
+    let prestige = NumericSlot::Metric("prestige".into());
     assert!(
         loaded
-            .report
-            .estates
-            .startup_unresolved
-            .iter()
-            .any(|reason| reason.contains("prestige") && reason.contains("unknown"))
+            .initial
+            .world()
+            .numeric_value(aaa, &prestige)
+            .is_err()
+    );
+    assert_eq!(
+        loaded.initial.world().unbased_numeric_delta(aaa, &prestige),
+        Some(1_000)
     );
     let saved = loaded.save().unwrap();
     fs::write(path, "on_startup={if={limit={tag=AAA} add_prestige=2}}").unwrap();

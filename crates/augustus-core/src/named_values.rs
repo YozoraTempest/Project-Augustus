@@ -234,8 +234,182 @@ impl World {
         operation: NumericOperation,
         value: i64,
     ) -> Result<(), Error> {
+        if matches!(
+            operation,
+            NumericOperation::Add | NumericOperation::Subtract
+        ) {
+            self.require_running()?;
+            self.entity(entity)?;
+            slot.validate(self.schema(), self.governments(), self.metrics())?;
+            slot.validate_write()?;
+            operation.validate()?;
+
+            let slot_is_unknown = match slot {
+                NumericSlot::Resource(resource) => {
+                    self.resource_country(entity)?;
+                    self.country_resources
+                        .get(&entity)
+                        .and_then(|state| resource.get(state))
+                        .is_none()
+                }
+                NumericSlot::Metric(name) => {
+                    let definition = self.metrics().definition(name)?;
+                    if self.entity(entity)?.kind != definition.kind {
+                        return Err(Error::Invalid("metric scope does not match entity".into()));
+                    }
+                    self.metrics()
+                        .entities
+                        .get(&entity)
+                        .and_then(|values| values.get(name))
+                        .copied()
+                        .flatten()
+                        .is_none()
+                }
+                _ => false,
+            };
+            if slot_is_unknown {
+                let delta = if operation == NumericOperation::Add {
+                    value
+                } else {
+                    value.checked_neg().ok_or(Error::Overflow)?
+                };
+                self.record_unbased_numeric_delta(entity, slot, delta)?;
+                return Ok(());
+            }
+        }
         let value = self.preview_numeric_update(entity, slot, operation, value)?;
         self.write_numeric_value(entity, slot, value)
+    }
+
+    fn record_unbased_numeric_delta(
+        &mut self,
+        entity: EntityId,
+        slot: &NumericSlot,
+        delta: i64,
+    ) -> Result<(), Error> {
+        match slot {
+            NumericSlot::Resource(resource) => {
+                let current = self
+                    .unbased_resource_deltas
+                    .get(&entity)
+                    .and_then(|values| values.get(resource))
+                    .copied()
+                    .unwrap_or(0);
+                let value = current.checked_add(delta).ok_or(Error::Overflow)?;
+                let values = self.unbased_resource_deltas.entry(entity).or_default();
+                if value == 0 {
+                    values.remove(resource);
+                } else {
+                    values.insert(*resource, value);
+                }
+                if values.is_empty() {
+                    self.unbased_resource_deltas.remove(&entity);
+                }
+            }
+            NumericSlot::Metric(name) => {
+                let current = self
+                    .unbased_metric_deltas
+                    .get(&entity)
+                    .and_then(|values| values.get(name))
+                    .copied()
+                    .unwrap_or(0);
+                let value = current.checked_add(delta).ok_or(Error::Overflow)?;
+                let values = self.unbased_metric_deltas.entry(entity).or_default();
+                if value == 0 {
+                    values.remove(name);
+                } else {
+                    values.insert(name.clone(), value);
+                }
+                if values.is_empty() {
+                    self.unbased_metric_deltas.remove(&entity);
+                }
+            }
+            _ => return Err(Error::Invalid("unsupported unbased numeric slot".into())),
+        }
+        Ok(())
+    }
+
+    /// Returns the cumulative signed adjustments recorded while this slot's base is unknown.
+    /// The slot's numeric value remains unknown until an authoritative value is supplied.
+    pub fn unbased_numeric_delta(&self, entity: EntityId, slot: &NumericSlot) -> Option<i64> {
+        match slot {
+            NumericSlot::Resource(resource) => self
+                .unbased_resource_deltas
+                .get(&entity)
+                .and_then(|values| values.get(resource))
+                .copied(),
+            NumericSlot::Metric(name) => self
+                .unbased_metric_deltas
+                .get(&entity)
+                .and_then(|values| values.get(name))
+                .copied(),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn clear_unbased_numeric_delta(&mut self, entity: EntityId, slot: &NumericSlot) {
+        match slot {
+            NumericSlot::Resource(resource) => {
+                if let Some(entries) = self.unbased_resource_deltas.get_mut(&entity) {
+                    entries.remove(resource);
+                    if entries.is_empty() {
+                        self.unbased_resource_deltas.remove(&entity);
+                    }
+                }
+            }
+            NumericSlot::Metric(name) => {
+                if let Some(entries) = self.unbased_metric_deltas.get_mut(&entity) {
+                    entries.remove(name);
+                    if entries.is_empty() {
+                        self.unbased_metric_deltas.remove(&entity);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn validate_unbased_numeric_deltas(&self) -> Result<(), Error> {
+        for (&entity, deltas) in &self.unbased_resource_deltas {
+            self.resource_country(entity)?;
+            if deltas.is_empty() {
+                return Err(Error::Invalid("empty unbased resource deltas".into()));
+            }
+            for (&resource, &delta) in deltas {
+                if delta == 0
+                    || self
+                        .country_resources
+                        .get(&entity)
+                        .and_then(|state| resource.get(state))
+                        .is_some()
+                {
+                    return Err(Error::Invalid("invalid unbased resource delta".into()));
+                }
+            }
+        }
+        for (&entity, deltas) in &self.unbased_metric_deltas {
+            let kind = self.entity(entity)?.kind;
+            if deltas.is_empty() {
+                return Err(Error::Invalid("empty unbased metric deltas".into()));
+            }
+            for (name, &delta) in deltas {
+                let definition = self.metrics().definition(name)?;
+                if delta == 0
+                    || definition.kind != kind
+                    || self
+                        .metrics()
+                        .entities
+                        .get(&entity)
+                        .and_then(|values| values.get(name))
+                        .copied()
+                        .flatten()
+                        .is_some()
+                {
+                    return Err(Error::Invalid("invalid unbased metric delta".into()));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn preview_numeric_update(
@@ -303,6 +477,7 @@ impl World {
         slot: &NumericSlot,
         value: i64,
     ) -> Result<(), Error> {
+        self.clear_unbased_numeric_delta(entity, slot);
         match slot {
             NumericSlot::StoredGovernment(_)
             | NumericSlot::SubjectCount

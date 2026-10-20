@@ -28,7 +28,7 @@ fn slot() -> NumericSlot {
 }
 
 #[test]
-fn selected_stock_writes_preserve_other_values_and_do_not_guess_unknowns() {
+fn selected_stock_writes_preserve_other_values_and_track_unknown_deltas() {
     let mut world = world();
     world
         .update_numeric(EntityId(0), &slot(), NumericOperation::Add, 100000000)
@@ -47,16 +47,42 @@ fn selected_stock_writes_preserve_other_values_and_do_not_guess_unknowns() {
         world.country_resources()[&EntityId(0)].mercantilism_milli,
         None
     );
-    let before = world.clone();
+    world
+        .update_numeric(EntityId(1), &slot(), NumericOperation::Add, 1000)
+        .unwrap();
+    world
+        .update_numeric(EntityId(1), &slot(), NumericOperation::Subtract, 250)
+        .unwrap();
     assert!(
         world
-            .update_numeric(EntityId(1), &slot(), NumericOperation::Add, 1000)
+            .resource_value(EntityId(1), CountryResource::Manpower)
             .is_err()
     );
-    assert_eq!(world, before);
+    assert_eq!(world.unbased_numeric_delta(EntityId(1), &slot()), Some(750));
+    let saved = world.save("resources:unknown-delta").unwrap();
+    let mut resumed = World::restore(&saved, "resources:unknown-delta", world.schema()).unwrap();
+    assert_eq!(resumed, world);
+    let mut resources = resumed.country_resources().clone();
+    resources.insert(
+        EntityId(1),
+        CountryResources {
+            manpower_milli: Some(1000),
+            ..Default::default()
+        },
+    );
+    resumed.set_country_resources(resources).unwrap();
+    assert_eq!(resumed.unbased_numeric_delta(EntityId(1), &slot()), None);
+    assert_eq!(
+        resumed
+            .resource_value(EntityId(1), CountryResource::Manpower)
+            .unwrap(),
+        1000
+    );
+
     world
         .update_numeric(EntityId(1), &slot(), NumericOperation::Set, 1000)
         .unwrap();
+    assert_eq!(world.unbased_numeric_delta(EntityId(1), &slot()), None);
     assert_eq!(
         world.country_resources()[&EntityId(1)].manpower_milli,
         Some(1000)
@@ -245,5 +271,10 @@ fn corrupt_resource_states_cannot_be_restored() {
     let mut saved: serde_json::Value =
         serde_json::from_str(&world.save("resources:1").unwrap()).unwrap();
     saved["country_resources"]["0"]["manpower_milli"] = serde_json::json!(-1);
+    assert!(World::restore(&saved.to_string(), "resources:1", world.schema()).is_err());
+
+    let mut saved: serde_json::Value =
+        serde_json::from_str(&world.save("resources:1").unwrap()).unwrap();
+    saved["unbased_resource_deltas"]["0"]["Manpower"] = serde_json::json!(1000);
     assert!(World::restore(&saved.to_string(), "resources:1", world.schema()).is_err());
 }

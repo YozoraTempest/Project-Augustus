@@ -174,13 +174,15 @@ fn missing_bindings_and_unsupported_operands_report_source_without_guessing_bala
         .with_treasury_slot(Some(slot()))
         .compile(&document("add_treasury=1"), EntityKind::Country)
         .unwrap();
-    assert!(world.execute(aaa, &plan.plan).is_err());
+    world.execute(aaa, &plan.plan).unwrap();
     assert!(world.country_resources().is_empty());
-    assert!(world.save("treasury:1").is_err());
+    assert!(world.numeric_value(aaa, &slot()).is_err());
+    assert_eq!(world.unbased_numeric_delta(aaa, &slot()), Some(1_000));
+    assert!(world.save("treasury:1").is_ok());
 }
 
 #[test]
-fn unknown_initial_cash_rolls_back_a_supported_startup_effect() {
+fn unknown_initial_cash_keeps_the_delta_from_a_supported_startup_effect() {
     use augustus_eu4::VanillaWorld;
     use std::{fs, path::Path};
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
@@ -200,21 +202,12 @@ fn unknown_initial_cash_rolls_back_a_supported_startup_effect() {
     let path = root.path().join("common/on_actions/control.txt");
     fs::write(&path, "on_startup={if={limit={tag=AAA} add_treasury=1}}").unwrap();
     let loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
-    assert!(
-        loaded
-            .report
-            .estates
-            .startup_unresolved
-            .iter()
-            .any(|reason| reason.contains("Treasury") && reason.contains("unknown"))
-    );
-    assert!(
-        loaded
-            .initial
-            .world()
-            .country_resources()
-            .values()
-            .all(|value| value.treasury_milli.is_none())
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    let aaa = loaded.initial.country_entity("AAA").unwrap();
+    assert!(loaded.initial.world().numeric_value(aaa, &slot()).is_err());
+    assert_eq!(
+        loaded.initial.world().unbased_numeric_delta(aaa, &slot()),
+        Some(1_000)
     );
     let saved = loaded.save().unwrap();
     fs::write(path, "on_startup={if={limit={tag=AAA} add_treasury=2}}").unwrap();

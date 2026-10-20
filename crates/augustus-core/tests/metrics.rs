@@ -84,16 +84,26 @@ fn unknown_is_not_zero_and_only_set_can_recover_authoritative_state() {
         .unwrap();
     assert_eq!(result.value_micros, None);
     assert!(result.unresolved.contains("metric:wear:unknown_value"));
-    let before = world.clone();
-    assert!(
-        world
-            .update_numeric(EntityId(1), &slot(), NumericOperation::Add, 1)
-            .is_err()
-    );
-    assert_eq!(world, before);
+    world
+        .update_numeric(EntityId(1), &slot(), NumericOperation::Add, 1000)
+        .unwrap();
+    world
+        .update_numeric(EntityId(1), &slot(), NumericOperation::Subtract, 250)
+        .unwrap();
+    assert!(world.numeric_value(EntityId(1), &slot()).is_err());
+    assert_eq!(world.unbased_numeric_delta(EntityId(1), &slot()), Some(750));
+    let saved = world.save("metrics:unknown-delta").unwrap();
+    let mut resumed = World::restore(&saved, "metrics:unknown-delta", world.schema()).unwrap();
+    assert_eq!(resumed, world);
+    resumed
+        .set_metric_value(EntityId(1), "wear", Some(40_000))
+        .unwrap();
+    assert_eq!(resumed.unbased_numeric_delta(EntityId(1), &slot()), None);
+
     world
         .update_numeric(EntityId(1), &slot(), NumericOperation::Set, 0)
         .unwrap();
+    assert_eq!(world.unbased_numeric_delta(EntityId(1), &slot()), None);
     assert_eq!(
         world
             .attributes()
@@ -409,4 +419,13 @@ fn invalid_lower_profiles_and_overflowing_updates_leave_state_unchanged() {
             .is_err()
     );
     assert_eq!(world, before);
+}
+
+#[test]
+fn corrupt_unbased_metric_deltas_cannot_be_restored() {
+    let world = world();
+    let mut saved: serde_json::Value =
+        serde_json::from_str(&world.save("metrics:unbased-delta").unwrap()).unwrap();
+    saved["unbased_metric_deltas"]["1"]["wear"] = serde_json::json!(1);
+    assert!(World::restore(&saved.to_string(), "metrics:unbased-delta", world.schema()).is_err());
 }

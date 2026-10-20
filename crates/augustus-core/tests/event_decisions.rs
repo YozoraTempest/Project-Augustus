@@ -80,7 +80,7 @@ fn decision_is_captured_after_immediate_and_command_does_not_recheck_it() {
 }
 
 #[test]
-fn failed_queued_commands_report_the_event_option_and_country() {
+fn queued_unknown_resource_adjustments_keep_the_base_unknown() {
     let mut world = World::new(Schema::new(["unused"]).unwrap());
     let country = world.add_entity("AAA", EntityKind::Country);
     world
@@ -112,10 +112,13 @@ fn failed_queued_commands_report_the_event_option_and_country() {
         .unwrap();
 
     world.trigger_event("startup_recruitment", country).unwrap();
-    let error = world.process_event_commands().unwrap_err().to_string();
+    world.process_event_commands().unwrap();
 
-    assert!(error.contains("event startup_recruitment option raise_troops for AAA"));
-    assert!(error.contains("country resource Manpower is unknown for entity 0"));
+    let manpower = NumericSlot::Resource(CountryResource::Manpower);
+    assert!(world.numeric_value(country, &manpower).is_err());
+    assert_eq!(world.unbased_numeric_delta(country, &manpower), Some(1_000));
+    assert!(world.pending_events().is_empty());
+    assert!(world.queued_event_choices().is_empty());
 }
 
 #[test]

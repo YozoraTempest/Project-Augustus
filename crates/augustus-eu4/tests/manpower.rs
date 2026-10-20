@@ -67,7 +67,7 @@ fn unverified_operands_and_wrong_scopes_report_their_source() {
 }
 
 #[test]
-fn a_supported_effect_does_not_initialize_unknown_original_resources() {
+fn a_supported_effect_preserves_unknown_original_resources_and_records_its_delta() {
     let schema = Schema::new(["unused"]).unwrap();
     let library = ScriptLibrary::new();
     let mut world = World::new(schema.clone());
@@ -82,13 +82,16 @@ fn a_supported_effect_does_not_initialize_unknown_original_resources() {
             EntityKind::Country,
         )
         .unwrap();
-    assert!(world.execute(aaa, &compiled.plan).is_err());
+    world.execute(aaa, &compiled.plan).unwrap();
     assert!(world.country_resources().is_empty());
-    assert!(world.save("unknown:1").is_err());
+    let manpower = NumericSlot::Resource(CountryResource::Manpower);
+    assert!(world.numeric_value(aaa, &manpower).is_err());
+    assert_eq!(world.unbased_numeric_delta(aaa, &manpower), Some(1_000_000));
+    assert!(world.save("unknown:1").is_ok());
 }
 
 #[test]
-fn failed_startup_content_identity_tracks_parameters_and_excludes_source_paths() {
+fn startup_content_identity_tracks_parameters_and_excludes_source_paths() {
     use augustus_eu4::VanillaWorld;
     use std::{fs, path::Path};
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
@@ -113,7 +116,20 @@ fn failed_startup_content_identity_tracks_parameters_and_excludes_source_paths()
         .unwrap();
     }
     let loaded = VanillaWorld::load(roots[0].path(), "1444.11.11").unwrap();
-    assert!(!loaded.report.estates.startup_unresolved.is_empty());
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    let aaa = loaded.initial.country_entity("AAA").unwrap();
+    let manpower = NumericSlot::Resource(CountryResource::Manpower);
+    assert!(
+        loaded
+            .initial
+            .world()
+            .numeric_value(aaa, &manpower)
+            .is_err()
+    );
+    assert_eq!(
+        loaded.initial.world().unbased_numeric_delta(aaa, &manpower),
+        Some(1_000_000)
+    );
     let saved = loaded.save().unwrap();
     let mut moved = VanillaWorld::load(roots[1].path(), "1444.11.11").unwrap();
     moved.restore(&saved).unwrap();
@@ -125,13 +141,20 @@ fn failed_startup_content_identity_tracks_parameters_and_excludes_source_paths()
     .unwrap();
     let mut changed = VanillaWorld::load(roots[1].path(), "1444.11.11").unwrap();
     assert!(changed.restore(&saved).is_err());
+    let aaa = changed.initial.country_entity("AAA").unwrap();
     assert!(
         changed
             .initial
             .world()
-            .country_resources()
-            .values()
-            .all(|resources| resources.manpower_milli.is_none())
+            .numeric_value(aaa, &manpower)
+            .is_err()
+    );
+    assert_eq!(
+        changed
+            .initial
+            .world()
+            .unbased_numeric_delta(aaa, &manpower),
+        Some(2_000_000)
     );
 }
 

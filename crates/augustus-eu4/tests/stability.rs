@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_core::{EntityId, EntityKind, EventChoice, PendingEventId, Schema, World};
+use augustus_core::{
+    EntityId, EntityKind, EventChoice, NumericSlot, PendingEventId, Schema, World,
+};
 use augustus_eu4::{ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding, VanillaWorld};
 use std::{fs, path::Path};
 
@@ -127,18 +129,32 @@ fn unsupported_operands_and_scope_fail_with_source_and_unknown_state_is_preserve
         .set_metric_value(EntityId(0), "stability", None)
         .unwrap();
     let before = world.clone();
-    for text in ["add_stability=1", "if={limit={stability=0} log=bad}"] {
-        let mut world = before.clone();
-        let plan = ScriptCompiler::new(&schema, &library, true)
-            .with_metric_ids(["stability".into()].into())
-            .compile(&document(text), EntityKind::Country)
-            .unwrap()
-            .plan;
-        assert!(world.execute(EntityId(0), &plan).is_err());
-        assert_eq!(world.metrics(), before.metrics());
-        assert!(world.events().is_empty());
-        assert!(world.save("failed-stability").is_err());
-    }
+    let plan = ScriptCompiler::new(&schema, &library, true)
+        .with_metric_ids(["stability".into()].into())
+        .compile(&document("add_stability=1"), EntityKind::Country)
+        .unwrap()
+        .plan;
+    world.execute(EntityId(0), &plan).unwrap();
+    let stability = NumericSlot::Metric("stability".into());
+    assert_eq!(world.metrics(), before.metrics());
+    assert_eq!(
+        world.unbased_numeric_delta(EntityId(0), &stability),
+        Some(1)
+    );
+    assert!(world.save("unknown-stability-delta").is_ok());
+
+    let mut world = before;
+    let plan = ScriptCompiler::new(&schema, &library, true)
+        .with_metric_ids(["stability".into()].into())
+        .compile(
+            &document("if={limit={stability=0} log=bad}"),
+            EntityKind::Country,
+        )
+        .unwrap()
+        .plan;
+    assert!(world.execute(EntityId(0), &plan).is_err());
+    assert!(world.events().is_empty());
+    assert!(world.save("failed-stability-query").is_err());
 }
 
 #[test]

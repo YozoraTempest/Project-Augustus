@@ -301,6 +301,7 @@ impl World {
             self.metrics = previous;
             return Err(error);
         }
+        self.unbased_metric_deltas.clear();
         Ok(())
     }
 
@@ -321,6 +322,14 @@ impl World {
             .entry(entity)
             .or_default()
             .insert(name.into(), value);
+        if value.is_some()
+            && let Some(values) = self.unbased_metric_deltas.get_mut(&entity)
+        {
+            values.remove(name);
+            if values.is_empty() {
+                self.unbased_metric_deltas.remove(&entity);
+            }
+        }
         Ok(())
     }
 
