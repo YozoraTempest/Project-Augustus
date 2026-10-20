@@ -140,6 +140,16 @@ impl ParsedText<'_> {
         ObjectReader::new(&self.tape, self.encoding)
     }
 
+    /// Normalizes EU4 path separators before decoding scalar escape syntax.
+    pub(crate) fn decode_path_scalar(&self, scalar: jomini::Scalar<'_>) -> String {
+        let bytes = scalar
+            .as_bytes()
+            .iter()
+            .map(|byte| if *byte == b'\\' { b'/' } else { *byte })
+            .collect::<Vec<_>>();
+        self.encoding.decode(&bytes).into_owned()
+    }
+
     pub(crate) fn field_location(
         &self,
         key: &jomini::text::ScalarReader<'_, TextEncoding>,

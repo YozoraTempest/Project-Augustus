@@ -71,21 +71,6 @@ impl ContentSource {
         let root = ContentRoot::open(path)?;
         let document = root.read_text("descriptor.mod", descriptor_encoding)?;
         let parsed = document.parse()?;
-        // The current string decoder removes raw backslashes. Do not let that
-        // silently change the directory excluded by a descriptor declaration.
-        for (key, _, value) in parsed.reader().fields() {
-            if key.read_string() == "replace_path"
-                && value
-                    .read_scalar()
-                    .is_ok_and(|scalar| scalar.as_bytes().contains(&b'\\'))
-            {
-                return Err(Error::message(
-                    document.source(),
-                    "replace_path must use forward slashes; raw backslashes are not supported",
-                )
-                .with_location(parsed.field_location(&key)));
-            }
-        }
         let descriptor = ModDescriptor::parse(&parsed)?;
         let mut replace_paths = BTreeSet::new();
         for path in &descriptor.replace_paths {

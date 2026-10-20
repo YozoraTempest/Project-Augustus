@@ -60,11 +60,12 @@ impl ModDescriptor {
                     })?);
                 }
                 "replace_path" => {
+                    let scalar = value.read_scalar().map_err(|cause| {
+                        Error::message(document.source(), format!("replace_path: {cause}"))
+                    })?;
                     descriptor
                         .replace_paths
-                        .push(value.read_string().map_err(|cause| {
-                            Error::message(document.source(), format!("replace_path: {cause}"))
-                        })?);
+                        .push(document.decode_path_scalar(scalar));
                 }
                 "dependencies" | "tags" => {
                     if value

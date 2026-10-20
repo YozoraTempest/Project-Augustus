@@ -207,6 +207,46 @@ fn replacement_keeps_higher_priority_files_and_cuts_lower_priority_sources() {
 }
 
 #[test]
+fn replacement_normalizes_windows_separators_before_cutting_lower_sources() {
+    let fixture = tempfile::tempdir().unwrap();
+    let vanilla = directory(fixture.path(), "base");
+    let pack = directory(fixture.path(), "pack");
+    write(
+        &pack,
+        "descriptor.mod",
+        r#"name=Pack replace_path="common\buildings""#,
+    );
+    write(&vanilla, "common/buildings/vanilla.txt", "base={}");
+    write(&pack, "common/buildings/pack.txt", "pack={}");
+
+    let source = mod_source(&pack);
+    assert_eq!(
+        source.descriptor().unwrap().replace_paths,
+        ["common/buildings"]
+    );
+    let content = ContentSet::resolve(vec![base(&vanilla), source]).unwrap();
+
+    assert!(
+        content
+            .trace("common/buildings/vanilla.txt")
+            .unwrap()
+            .unwrap()
+            .effective()
+            .is_none()
+    );
+    assert_eq!(
+        content
+            .trace("common/buildings/pack.txt")
+            .unwrap()
+            .unwrap()
+            .effective()
+            .unwrap()
+            .source_index,
+        0
+    );
+}
+
+#[test]
 fn directory_replacement_removes_lower_priority_mods_and_base() {
     let fixture = tempfile::tempdir().unwrap();
     let vanilla = directory(fixture.path(), "base");
@@ -524,7 +564,6 @@ fn invalid_replace_paths_report_the_descriptor_and_queries_cannot_traverse() {
         "events/../common",
         ".",
         "events//nested",
-        r"common\buildings",
     ] {
         write(
             &pack,
