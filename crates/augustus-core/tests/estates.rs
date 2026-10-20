@@ -63,6 +63,21 @@ fn vanilla_estate_influence_scale_clamps_before_adding_context() {
     assert_eq!(from_above_max.scale_milli, 750);
 }
 
+#[test]
+fn vanilla_estate_influence_scale_clamps_before_comparing_high_thresholds() {
+    let result = calculate_vanilla_estate_influence_scale(VanillaEstateInfluenceScaleInput {
+        raw_influence_milli: 150_000,
+        additional_value_milli: 0,
+        first_threshold_milli: 120_000,
+        second_threshold_milli: 130_000,
+        third_threshold_milli: 140_000,
+    });
+
+    assert_eq!(result.clamped_influence_milli, 100_000);
+    assert_eq!(result.tier_input_milli, 100_000);
+    assert_eq!(result.scale_milli, 250);
+}
+
 fn effect(value: i64) -> EstateEffect {
     EstateEffect {
         modifier: augustus_core::ModifierDefinition {
