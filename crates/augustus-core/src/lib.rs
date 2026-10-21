@@ -168,20 +168,24 @@ pub use taxation::{
 pub use technology::{Technology, TechnologyLevel, TechnologyProperty};
 pub use trade::{
     VanillaTradeAttachedModifierGroup, VanillaTradeCandidate, VanillaTradeCaravanInput,
-    VanillaTradeCaravanResult, VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
-    VanillaTradeDistributionResult, VanillaTradeDistributionRouteInput,
-    VanillaTradeDistributionRouteResult, VanillaTradeIncomeInput, VanillaTradeIncomePassInput,
-    VanillaTradeIncomePassResult, VanillaTradeIncomeResult, VanillaTradePowerAmountInput,
-    VanillaTradePowerAmountResult, VanillaTradePowerModifierInput, VanillaTradePowerModifierResult,
-    VanillaTradePropagationInput, VanillaTradePropagationResult, VanillaTradeRetentionInput,
-    VanillaTradeRetentionResult, VanillaTradeRouteWeightInput, VanillaTradeRouteWeightResult,
+    VanillaTradeCaravanResult, VanillaTradeCountryFlags, VanillaTradeDistributionCandidate,
+    VanillaTradeDistributionInput, VanillaTradeDistributionResult,
+    VanillaTradeDistributionRouteInput, VanillaTradeDistributionRouteResult,
+    VanillaTradeIncomeInput, VanillaTradeIncomePassInput, VanillaTradeIncomePassResult,
+    VanillaTradeIncomeResult, VanillaTradePowerAmountInput, VanillaTradePowerAmountResult,
+    VanillaTradePowerModifierInput, VanillaTradePowerModifierResult, VanillaTradePropagationInput,
+    VanillaTradePropagationResult, VanillaTradeRetentionInput,
+    VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
+    VanillaTradeRetentionPassResult, VanillaTradeRetentionResult, VanillaTradeRouteWeightInput,
+    VanillaTradeRouteWeightResult, VanillaTradeSteeringEligibilityInput,
     VanillaTradeSteeringModifierInput, VanillaTradeSteeringModifierResult,
     calculate_vanilla_trade_caravan, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
     calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
-    calculate_vanilla_trade_route_weights, calculate_vanilla_trade_steering_modifier,
-    sort_vanilla_trade_candidates,
+    calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weights,
+    calculate_vanilla_trade_steering_modifier, is_vanilla_trade_collector,
+    is_vanilla_trade_steering_eligible, sort_vanilla_trade_candidates,
 };
 pub use truces::{Truce, Truces};
 pub use unit_templates::{UnitTemplate, UnitTemplateProperty, UnitTemplates};

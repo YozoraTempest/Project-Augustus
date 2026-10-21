@@ -3,16 +3,19 @@
 
 use augustus_core::{
     VanillaTradeAttachedModifierGroup, VanillaTradeCandidate, VanillaTradeCaravanInput,
-    VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
+    VanillaTradeCountryFlags, VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
     VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput, VanillaTradeIncomePassInput,
     VanillaTradePowerAmountInput, VanillaTradePowerModifierInput, VanillaTradePropagationInput,
-    VanillaTradeRetentionInput, VanillaTradeRouteWeightInput, VanillaTradeSteeringModifierInput,
+    VanillaTradeRetentionInput, VanillaTradeRetentionParticipantInput,
+    VanillaTradeRetentionPassInput, VanillaTradeRouteWeightInput,
+    VanillaTradeSteeringEligibilityInput, VanillaTradeSteeringModifierInput,
     calculate_vanilla_trade_caravan, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
     calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
-    calculate_vanilla_trade_route_weights, calculate_vanilla_trade_steering_modifier,
-    sort_vanilla_trade_candidates,
+    calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weights,
+    calculate_vanilla_trade_steering_modifier, is_vanilla_trade_collector,
+    is_vanilla_trade_steering_eligible, sort_vanilla_trade_candidates,
 };
 
 #[test]
@@ -424,6 +427,212 @@ fn trade_retention_keeps_zero_transfer_and_preserves_zero_denominator_sentinel()
             retention_milli: 1_001,
         }
     );
+}
+
+#[test]
+fn trade_collection_predicate_matches_all_country_flag_combinations() {
+    for special_country in [false, true] {
+        for ae in [false, true] {
+            for ac in [false, true] {
+                for ad in [false, true] {
+                    let flags = VanillaTradeCountryFlags {
+                        special_country,
+                        ae,
+                        ac,
+                        ad,
+                    };
+                    let expected = special_country || (ae && !ac) || (ad && !(ae && ac));
+                    assert_eq!(is_vanilla_trade_collector(flags), expected, "{flags:?}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn trade_steering_eligibility_excludes_collectors_and_uses_the_route_cache() {
+    let collector = VanillaTradeCountryFlags {
+        special_country: false,
+        ae: true,
+        ac: false,
+        ad: false,
+    };
+    assert!(!is_vanilla_trade_steering_eligible(
+        VanillaTradeSteeringEligibilityInput {
+            country_flags: collector,
+            effective_amount_milli: 100,
+            cached_route_eligible: true,
+        }
+    ));
+
+    let ordinary = VanillaTradeCountryFlags {
+        special_country: false,
+        ae: false,
+        ac: false,
+        ad: false,
+    };
+    assert!(!is_vanilla_trade_steering_eligible(
+        VanillaTradeSteeringEligibilityInput {
+            country_flags: ordinary,
+            effective_amount_milli: 0,
+            cached_route_eligible: true,
+        }
+    ));
+    assert!(!is_vanilla_trade_steering_eligible(
+        VanillaTradeSteeringEligibilityInput {
+            country_flags: ordinary,
+            effective_amount_milli: 100,
+            cached_route_eligible: false,
+        }
+    ));
+    assert!(is_vanilla_trade_steering_eligible(
+        VanillaTradeSteeringEligibilityInput {
+            country_flags: ordinary,
+            effective_amount_milli: 100,
+            cached_route_eligible: true,
+        }
+    ));
+
+    let ae_and_ac = VanillaTradeCountryFlags {
+        special_country: false,
+        ae: true,
+        ac: true,
+        ad: false,
+    };
+    assert!(is_vanilla_trade_steering_eligible(
+        VanillaTradeSteeringEligibilityInput {
+            country_flags: ae_and_ac,
+            effective_amount_milli: 0,
+            cached_route_eligible: true,
+        }
+    ));
+}
+
+#[test]
+fn trade_retention_pass_aggregates_only_valid_participating_records() {
+    let collected = VanillaTradeCountryFlags {
+        special_country: false,
+        ae: true,
+        ac: false,
+        ad: false,
+    };
+    let ordinary = VanillaTradeCountryFlags {
+        special_country: false,
+        ae: false,
+        ac: false,
+        ad: false,
+    };
+    let result = calculate_vanilla_trade_retention_pass(VanillaTradeRetentionPassInput {
+        participants: vec![
+            VanillaTradeRetentionParticipantInput {
+                reference_valid: false,
+                participation_balance_milli: 1,
+                effective_amount_milli: 999,
+                country_flags: collected,
+                cached_route_eligible: false,
+            },
+            VanillaTradeRetentionParticipantInput {
+                reference_valid: true,
+                participation_balance_milli: 0,
+                effective_amount_milli: 888,
+                country_flags: collected,
+                cached_route_eligible: false,
+            },
+            VanillaTradeRetentionParticipantInput {
+                reference_valid: true,
+                participation_balance_milli: 1,
+                effective_amount_milli: 1_200,
+                country_flags: collected,
+                cached_route_eligible: false,
+            },
+            VanillaTradeRetentionParticipantInput {
+                reference_valid: true,
+                participation_balance_milli: -1,
+                effective_amount_milli: 800,
+                country_flags: ordinary,
+                cached_route_eligible: true,
+            },
+            VanillaTradeRetentionParticipantInput {
+                reference_valid: true,
+                participation_balance_milli: 1,
+                effective_amount_milli: 500,
+                country_flags: ordinary,
+                cached_route_eligible: false,
+            },
+        ],
+    });
+
+    assert_eq!(result.total_amount_milli, 2_000);
+    assert_eq!(result.collected_amount_milli, 1_200);
+    assert_eq!(result.transferred_amount_milli, 800);
+    assert_eq!(result.retention.transfer_ratio_milli, 400);
+    assert_eq!(result.retention.retention_milli, 600);
+}
+
+#[test]
+fn trade_retention_pass_preserves_the_native_zero_total_sentinel() {
+    let result = calculate_vanilla_trade_retention_pass(VanillaTradeRetentionPassInput {
+        participants: vec![
+            VanillaTradeRetentionParticipantInput {
+                reference_valid: true,
+                participation_balance_milli: 1,
+                effective_amount_milli: 5,
+                country_flags: VanillaTradeCountryFlags {
+                    special_country: false,
+                    ae: true,
+                    ac: false,
+                    ad: false,
+                },
+                cached_route_eligible: false,
+            },
+            VanillaTradeRetentionParticipantInput {
+                reference_valid: true,
+                participation_balance_milli: 1,
+                effective_amount_milli: -5,
+                country_flags: VanillaTradeCountryFlags {
+                    special_country: false,
+                    ae: true,
+                    ac: true,
+                    ad: false,
+                },
+                cached_route_eligible: true,
+            },
+        ],
+    });
+
+    assert_eq!(result.total_amount_milli, 0);
+    assert_eq!(result.collected_amount_milli, 5);
+    assert_eq!(result.transferred_amount_milli, -5);
+    assert_eq!(result.retention.transfer_ratio_milli, -1);
+    assert_eq!(result.retention.retention_milli, 1_001);
+}
+
+#[test]
+fn trade_retention_pass_wraps_country_amount_aggregates() {
+    let result = calculate_vanilla_trade_retention_pass(VanillaTradeRetentionPassInput {
+        participants: [i32::MAX, 1]
+            .into_iter()
+            .map(
+                |effective_amount_milli| VanillaTradeRetentionParticipantInput {
+                    reference_valid: true,
+                    participation_balance_milli: 1,
+                    effective_amount_milli,
+                    country_flags: VanillaTradeCountryFlags {
+                        special_country: false,
+                        ae: true,
+                        ac: false,
+                        ad: false,
+                    },
+                    cached_route_eligible: false,
+                },
+            )
+            .collect(),
+    });
+
+    assert_eq!(result.total_amount_milli, i32::MIN);
+    assert_eq!(result.collected_amount_milli, i32::MIN);
+    assert_eq!(result.transferred_amount_milli, 0);
+    assert_eq!(result.retention.retention_milli, 1_000);
 }
 
 #[test]

@@ -427,6 +427,123 @@ pub fn calculate_vanilla_trade_retention(
     }
 }
 
+/// Normalized country-state flags used by EU4's trade collection rules.
+///
+/// The compatibility layer resolves these flags from the current country
+/// state; they are predicate inputs rather than a copy of the source record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeCountryFlags {
+    pub special_country: bool,
+    pub ae: bool,
+    pub ac: bool,
+    pub ad: bool,
+}
+
+/// Applies the verified trade-collection predicate.
+pub fn is_vanilla_trade_collector(flags: VanillaTradeCountryFlags) -> bool {
+    flags.special_country || (flags.ae && !flags.ac) || (flags.ad && !(flags.ae && flags.ac))
+}
+
+/// Inputs for the verified country-to-route eligibility predicate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeSteeringEligibilityInput {
+    pub country_flags: VanillaTradeCountryFlags,
+    pub effective_amount_milli: i32,
+    /// The compatibility layer resolves the country/node cache entry.
+    pub cached_route_eligible: bool,
+}
+
+/// Determines whether a country can transfer trade power along a route.
+///
+/// Collectors are excluded first. Ordinary countries require positive
+/// effective power; special countries and countries with `ae` bypass that
+/// threshold. All remaining cases use the compatibility-resolved cache bit.
+pub fn is_vanilla_trade_steering_eligible(input: VanillaTradeSteeringEligibilityInput) -> bool {
+    if is_vanilla_trade_collector(input.country_flags) {
+        return false;
+    }
+    if !input.country_flags.special_country
+        && !input.country_flags.ae
+        && input.effective_amount_milli <= 0
+    {
+        return false;
+    }
+
+    input.cached_route_eligible
+}
+
+/// One country record normalized for the native trade-retention pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeRetentionParticipantInput {
+    pub reference_valid: bool,
+    /// Native participation balance after compatibility-layer field lookup.
+    pub participation_balance_milli: i32,
+    /// Effective country amount produced by the trade-power amount stage.
+    pub effective_amount_milli: i32,
+    pub country_flags: VanillaTradeCountryFlags,
+    /// The compatibility layer resolves the country/node cache entry.
+    pub cached_route_eligible: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeRetentionPassInput {
+    pub participants: Vec<VanillaTradeRetentionParticipantInput>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaTradeRetentionPassResult {
+    pub total_amount_milli: i32,
+    pub collected_amount_milli: i32,
+    pub transferred_amount_milli: i32,
+    pub retention: VanillaTradeRetentionResult,
+}
+
+/// Aggregates collecting and transferring amounts before calculating retention.
+///
+/// Invalid references and records with a zero participation balance are
+/// ignored. Eligible amounts accumulate with 32-bit wrapping; records that are
+/// neither collecting nor eligible to transfer do not enter the ratio.
+pub fn calculate_vanilla_trade_retention_pass(
+    input: VanillaTradeRetentionPassInput,
+) -> VanillaTradeRetentionPassResult {
+    let mut total_amount = 0_i32;
+    let mut collected_amount = 0_i32;
+    let mut transferred_amount = 0_i32;
+
+    for participant in input.participants {
+        if !participant.reference_valid || participant.participation_balance_milli == 0 {
+            continue;
+        }
+
+        if is_vanilla_trade_collector(participant.country_flags) {
+            collected_amount = collected_amount.wrapping_add(participant.effective_amount_milli);
+            total_amount = total_amount.wrapping_add(participant.effective_amount_milli);
+        } else if is_vanilla_trade_steering_eligible(VanillaTradeSteeringEligibilityInput {
+            country_flags: participant.country_flags,
+            effective_amount_milli: participant.effective_amount_milli,
+            cached_route_eligible: participant.cached_route_eligible,
+        }) {
+            transferred_amount =
+                transferred_amount.wrapping_add(participant.effective_amount_milli);
+            total_amount = total_amount.wrapping_add(participant.effective_amount_milli);
+        }
+    }
+
+    VanillaTradeRetentionPassResult {
+        total_amount_milli: total_amount,
+        collected_amount_milli: collected_amount,
+        transferred_amount_milli: transferred_amount,
+        retention: calculate_vanilla_trade_retention(VanillaTradeRetentionInput {
+            total_amount_milli: total_amount,
+            transferred_amount_milli: transferred_amount,
+        }),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VanillaTradeRouteWeightInput {
