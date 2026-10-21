@@ -453,6 +453,10 @@ pub struct VanillaExternalState {
     /// province keeps its content-derived good; `None` explicitly clears it.
     #[serde(default)]
     pub province_trade_goods: BTreeMap<u32, Option<String>>,
+    /// Current center-of-trade levels supplied by a save reader. An omitted
+    /// province keeps its history-derived level; `None` leaves it unresolved.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub province_center_of_trade_levels: BTreeMap<u32, Option<u8>>,
     /// Current province culture and religion supplied by a save reader. An
     /// omitted province keeps its content-derived values; `None` clears one.
     #[serde(default)]
@@ -567,6 +571,7 @@ struct LoadOverrides<'a> {
     province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
     province_owners: Option<&'a BTreeMap<u32, Option<String>>>,
     province_trade_goods: Option<&'a BTreeMap<u32, Option<String>>>,
+    province_center_of_trade_levels: Option<&'a BTreeMap<u32, Option<u8>>>,
     province_cultures: Option<&'a BTreeMap<u32, Option<String>>>,
     province_religions: Option<&'a BTreeMap<u32, Option<String>>>,
     province_controllers: Option<&'a BTreeMap<u32, Option<String>>>,
@@ -650,6 +655,8 @@ impl<'a> LoadOverrides<'a> {
             province_owners: (!state.province_owners.is_empty()).then_some(&state.province_owners),
             province_trade_goods: (!state.province_trade_goods.is_empty())
                 .then_some(&state.province_trade_goods),
+            province_center_of_trade_levels: (!state.province_center_of_trade_levels.is_empty())
+                .then_some(&state.province_center_of_trade_levels),
             province_cultures: (!state.province_cultures.is_empty())
                 .then_some(&state.province_cultures),
             province_religions: (!state.province_religions.is_empty())
@@ -821,6 +828,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     base.province_owners.extend(overlay.province_owners.clone());
     base.province_trade_goods
         .extend(overlay.province_trade_goods.clone());
+    base.province_center_of_trade_levels
+        .extend(overlay.province_center_of_trade_levels.clone());
     base.province_cultures
         .extend(overlay.province_cultures.clone());
     base.province_religions
@@ -2249,6 +2258,7 @@ impl VanillaWorld {
         let mut liberty_history_unknown = BTreeSet::new();
         let mut liberty_scoped_history_unknown = false;
         let mut province_histories = BTreeSet::new();
+        let mut province_center_of_trade_levels = BTreeMap::new();
         let mut unresolved_ownership = BTreeSet::new();
         let mut history_groups: BTreeMap<String, Vec<&Path>> = BTreeMap::new();
         for file in files
@@ -2505,6 +2515,7 @@ impl VanillaWorld {
             }
             let doc = root.read_text(&file.relative_path, ENCODING)?;
             let parsed = doc.parse()?;
+            province_center_of_trade_levels.insert(id, Some(0));
             province_sources
                 .get_mut(&id)
                 .expect("registered province")
@@ -2513,7 +2524,9 @@ impl VanillaWorld {
                     line: 1,
                     column: 1,
                 });
+            let mut unresolved_center_of_trade = false;
             visit_history(&parsed, date, |reader| {
+                unresolved_center_of_trade |= nested_center_of_trade(reader.clone(), 0);
                 match crate::country_markers::global_flag_mutations(&parsed, reader.clone(), 0)? {
                     Some(names) if !names.is_empty() => {
                         global_markers.mark_unknown();
@@ -2578,8 +2591,12 @@ impl VanillaWorld {
                     &mut economy,
                     &mut setup,
                     &mut report,
+                    &mut province_center_of_trade_levels,
                 )
             })?;
+            if unresolved_center_of_trade {
+                province_center_of_trade_levels.insert(id, None);
+            }
         }
         report.country_history_files = country_histories.len();
         report.province_history_files = province_histories.len();
@@ -2669,6 +2686,17 @@ impl VanillaWorld {
                     ));
                 };
                 province.trade_good.clone_from(trade_good);
+            }
+        }
+        if let Some(levels) = overrides.province_center_of_trade_levels {
+            for (&id, &level) in levels {
+                if !provinces.contains_key(&id) {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("external center of trade references unknown province {id}"),
+                    ));
+                }
+                province_center_of_trade_levels.insert(id, level);
             }
         }
         if let Some(cultures) = overrides.country_primary_cultures {
@@ -2768,6 +2796,11 @@ impl VanillaWorld {
                     .set_province_terrain(province, terrain)
                     .map_err(|e| Error::caused_by(root.path(), e))?;
             }
+        }
+        for (&province, &level) in &province_center_of_trade_levels {
+            initial
+                .set_province_center_of_trade_level(province, level)
+                .map_err(|e| Error::caused_by(root.path(), e))?;
         }
         initial.set_eu4_event_seed(fixed_seed);
         initial
@@ -5294,6 +5327,22 @@ fn nested_owner(reader: ObjectReader<'_, '_, TextEncoding>, depth: usize) -> boo
     })
 }
 
+fn nested_center_of_trade(reader: ObjectReader<'_, '_, TextEncoding>, depth: usize) -> bool {
+    if depth > 64 {
+        return true;
+    }
+    reader.fields().any(|(key, _, value)| {
+        let name = key.read_string();
+        !dated_name(&name)
+            && value.read_object().is_ok_and(|block| {
+                block
+                    .fields()
+                    .any(|(key, _, _)| key.read_string() == "center_of_trade")
+                    || nested_center_of_trade(block, depth + 1)
+            })
+    })
+}
+
 fn apply_province(
     parsed: &ParsedText<'_>,
     reader: ObjectReader<'_, '_, TextEncoding>,
@@ -5301,6 +5350,7 @@ fn apply_province(
     economy: &mut EconomyDraft,
     setup: &mut SetupDraft,
     report: &mut BootstrapReport,
+    center_of_trade_levels: &mut BTreeMap<u32, Option<u8>>,
 ) -> Result<(), Error> {
     let handled = setup.province_history(parsed, reader.clone(), province.id, &mut report.setup)?;
     for (key, op, value) in reader.fields() {
@@ -5323,6 +5373,18 @@ fn apply_province(
             continue;
         }
         match name.as_str() {
+            "center_of_trade" => {
+                equal(op, &fail)?;
+                let text = value
+                    .read_string()
+                    .map_err(|_| fail("expected province center-of-trade level"))?;
+                let level = text
+                    .parse::<u8>()
+                    .ok()
+                    .filter(|_| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
+                    .ok_or_else(|| fail("expected nonnegative center-of-trade level"))?;
+                center_of_trade_levels.insert(province.id, Some(level));
+            }
             "owner" | "controller" | "culture" | "religion" | "trade_goods" => {
                 equal(op, &fail)?;
                 let text = value
@@ -5415,4 +5477,29 @@ pub(super) fn nonnegative_milli(text: &str) -> Option<i64> {
         } else {
             fraction.parse::<i64>().ok()? * 10_i64.pow(3 - fraction.len() as u32)
         })
+}
+
+#[cfg(test)]
+mod center_of_trade_history_tests {
+    use super::*;
+    use crate::TextDocument;
+
+    #[test]
+    fn only_nested_center_of_trade_assignments_leave_history_unresolved() {
+        let direct = TextDocument::from_bytes(
+            "self-authored-center-of-trade-history.txt",
+            b"center_of_trade = 1\n1440.1.1 = { center_of_trade = 2 }".to_vec(),
+            TextEncoding::Utf8,
+        );
+        let parsed = direct.parse().unwrap();
+        assert!(!nested_center_of_trade(parsed.reader(), 0));
+
+        let conditional = TextDocument::from_bytes(
+            "self-authored-conditional-center-of-trade-history.txt",
+            b"if = { limit = { always = yes } center_of_trade = 2 }".to_vec(),
+            TextEncoding::Utf8,
+        );
+        let parsed = conditional.parse().unwrap();
+        assert!(nested_center_of_trade(parsed.reader(), 0));
+    }
 }

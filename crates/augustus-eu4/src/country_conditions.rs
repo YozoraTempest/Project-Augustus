@@ -305,7 +305,8 @@ impl Condition {
                     | "is_core"
                     | "is_territorial_core"
                     | "has_port"
-                    | "has_terrain" => {
+                    | "has_terrain"
+                    | "province_has_center_of_trade_of_level" => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
@@ -354,7 +355,12 @@ impl Condition {
                             Ok(condition) => {
                                 if matches!(name.as_str(), "is_core" | "is_territorial_core") {
                                     Self::ProvinceCore(condition)
-                                } else if matches!(name.as_str(), "has_port" | "has_terrain") {
+                                } else if matches!(
+                                    name.as_str(),
+                                    "has_port"
+                                        | "has_terrain"
+                                        | "province_has_center_of_trade_of_level"
+                                ) {
                                     Self::Scoped(condition)
                                 } else {
                                     Self::Subject(condition)
@@ -1456,6 +1462,34 @@ mod tests {
             !report
                 .unsupported_fields
                 .contains_key("trigger:has_terrain")
+        );
+    }
+
+    #[test]
+    fn province_center_of_trade_conditions_are_supported_in_estate_triggers() {
+        let document = TextDocument::from_bytes(
+            "self-authored-center-of-trade-condition.txt",
+            b"province_has_center_of_trade_of_level = 2".to_vec(),
+            TextEncoding::Utf8,
+        );
+        let parsed = document.parse().unwrap();
+        let mut report = crate::estates::EstateReport::default();
+        let conditions =
+            Condition::compile(&parsed, parsed.reader(), &mut report, 0, false, None, false)
+                .unwrap();
+
+        assert!(matches!(
+            conditions.as_slice(),
+            [Condition::Scoped(augustus_core::Condition::All(conditions))]
+                if matches!(conditions.as_slice(), [augustus_core::Condition::ProvinceCenterOfTradeAtLeast {
+                    target: augustus_core::Target::Current,
+                    level: 2,
+                }])
+        ));
+        assert!(
+            !report
+                .unsupported_fields
+                .contains_key("trigger:province_has_center_of_trade_of_level")
         );
     }
 

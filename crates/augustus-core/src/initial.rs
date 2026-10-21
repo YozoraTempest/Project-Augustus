@@ -889,6 +889,24 @@ impl InitialWorld {
         self.world.set_province_terrain(entity, terrain)
     }
 
+    pub fn province_center_of_trade_level(&self, id: u32) -> Result<Option<u8>, Error> {
+        let entity = self
+            .province_entity(id)
+            .ok_or_else(|| Error::Invalid(format!("unknown province {id}")))?;
+        self.world.province_center_of_trade_level(entity)
+    }
+
+    pub fn set_province_center_of_trade_level(
+        &mut self,
+        id: u32,
+        level: Option<u8>,
+    ) -> Result<(), Error> {
+        let entity = self
+            .province_entity(id)
+            .ok_or_else(|| Error::Invalid(format!("unknown province {id}")))?;
+        self.world.set_province_center_of_trade_level(entity, level)
+    }
+
     pub fn country(&self, id: &str) -> Option<&CountryState> {
         self.country_index.get(id).map(|&i| &self.countries[i])
     }

@@ -449,6 +449,14 @@ impl VanillaSaveState {
                 .insert(*province, trade_good.clone());
         }
 
+        for (province, level) in &self.external_state.province_center_of_trade_levels {
+            if world.initial.province_entity(*province).is_some() {
+                state
+                    .province_center_of_trade_levels
+                    .insert(*province, *level);
+            }
+        }
+
         for province in self.external_state.province_owners.keys() {
             if world.initial.province_entity(*province).is_none() {
                 continue;
@@ -1232,6 +1240,23 @@ fn read_vanilla_save_state_inner(
                 .province_trade_goods
                 .insert(id, Some(trade_good));
         }
+        let center_of_trade_level = optional_scalar(&parsed, &province, "center_of_trade")?
+            .map(|text| {
+                text.parse::<u8>()
+                    .ok()
+                    .filter(|_| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
+                    .ok_or_else(|| {
+                        Error::message(
+                            parsed.source(),
+                            format!("province {id} has an invalid saved center-of-trade level"),
+                        )
+                    })
+            })
+            .transpose()?
+            .unwrap_or(0);
+        external_state
+            .province_center_of_trade_levels
+            .insert(id, Some(center_of_trade_level));
         if let Some(controller) = optional_scalar(&parsed, &province, "controller")? {
             if !is_country_tag(&controller) {
                 return Err(Error::message(
@@ -2355,7 +2380,7 @@ provinces={
     }
 
     #[test]
-    fn imports_saved_province_development_and_controller_state() {
+    fn imports_saved_province_development_controller_and_center_of_trade_state() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("development.eu4");
         std::fs::write(
@@ -2370,6 +2395,7 @@ provinces={
     -1={
         owner="AAA"
         controller="AAA"
+        center_of_trade=3
         base_tax=12.345
         base_production=7.890
         base_manpower=4.250
@@ -2378,6 +2404,7 @@ provinces={
         owner="AAA"
     }
     -999={
+        center_of_trade=1
         base_tax=99.000
         base_production=88.000
         base_manpower=77.000
@@ -2406,6 +2433,18 @@ provinces={
             Some("AAA")
         );
         assert!(!save.external_state.province_controllers.contains_key(&2));
+        assert_eq!(
+            save.external_state.province_center_of_trade_levels[&1],
+            Some(3)
+        );
+        assert_eq!(
+            save.external_state.province_center_of_trade_levels[&2],
+            Some(0)
+        );
+        assert_eq!(
+            save.external_state.province_center_of_trade_levels[&999],
+            Some(1)
+        );
 
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
         let content = ContentSet::resolve(vec![ContentSource::base(
@@ -2427,6 +2466,9 @@ provinces={
         assert_eq!(filtered.province_controllers[&1].as_deref(), Some("AAA"));
         assert!(filtered.province_controllers.contains_key(&2));
         assert_eq!(filtered.province_controllers[&2], None);
+        assert_eq!(filtered.province_center_of_trade_levels[&1], Some(3));
+        assert_eq!(filtered.province_center_of_trade_levels[&2], Some(0));
+        assert!(!filtered.province_center_of_trade_levels.contains_key(&999));
 
         let loaded =
             crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
@@ -2435,6 +2477,14 @@ provinces={
         assert_eq!(province.production_milli, Some(7_890));
         assert_eq!(province.manpower_milli, Some(4_250));
         assert_eq!(province.controller.as_deref(), Some("AAA"));
+        assert_eq!(
+            loaded.initial.province_center_of_trade_level(1).unwrap(),
+            Some(3)
+        );
+        assert_eq!(
+            loaded.initial.province_center_of_trade_level(2).unwrap(),
+            Some(0)
+        );
         assert_eq!(loaded.initial.province(2).unwrap().controller, None);
         assert!(loaded.initial.province(999).is_none());
 
@@ -2470,6 +2520,36 @@ provinces={
         )
         .unwrap();
         assert_eq!(loaded.initial.province(2).unwrap().controller, None);
+    }
+
+    #[test]
+    #[ignore = "requires EU4_INSTALL_DIR and EU4_TEST_SAVE for a local EU4 1.37.5 install"]
+    fn local_eu4_install_and_save_load_center_of_trade_levels() {
+        let install = std::env::var_os("EU4_INSTALL_DIR")
+            .expect("set EU4_INSTALL_DIR to the local Europa Universalis IV install");
+        let save_path =
+            std::env::var_os("EU4_TEST_SAVE").expect("set EU4_TEST_SAVE to a local EU4 text save");
+        let save = read_vanilla_save_state(save_path).unwrap();
+        assert_eq!(
+            save.external_state
+                .province_center_of_trade_levels
+                .get(&101),
+            Some(&Some(3))
+        );
+
+        let content = ContentSet::from_installation(
+            Path::new(&install),
+            &[],
+            None,
+            None,
+            crate::TextEncoding::Utf8,
+        )
+        .unwrap();
+        let loaded = VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        assert_eq!(
+            loaded.initial.province_center_of_trade_level(101).unwrap(),
+            Some(3)
+        );
     }
 
     #[test]

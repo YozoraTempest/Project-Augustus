@@ -1574,9 +1574,20 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
     let east = native.add_entity("2", EntityKind::Province);
     native.set_province_has_port(north, false).unwrap();
     native.set_province_has_port(east, true).unwrap();
+    native
+        .set_province_center_of_trade_level(north, Some(0))
+        .unwrap();
+    native
+        .set_province_center_of_trade_level(east, Some(2))
+        .unwrap();
     for id in 3..=6 {
         let province = native.add_entity(id.to_string(), EntityKind::Province);
         native.set_province_has_port(province, false).unwrap();
+        if id == 4 {
+            native
+                .set_province_center_of_trade_level(province, Some(0))
+                .unwrap();
+        }
     }
     native.set_owner(north, beta).unwrap();
     native.set_owner(east, alpha).unwrap();

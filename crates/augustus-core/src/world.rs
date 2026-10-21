@@ -72,6 +72,8 @@ pub struct Entity {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub province_has_port: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub province_center_of_trade_level: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub province_terrain: Option<String>,
     values: Vec<i64>,
 }
@@ -1133,6 +1135,7 @@ impl World {
             owner: None,
             capital: None,
             province_has_port: None,
+            province_center_of_trade_level: None,
             province_terrain: None,
             values: vec![0; self.schema.fields.len()],
         });
@@ -1201,6 +1204,30 @@ impl World {
             return Err(Error::Invalid("port property requires a province".into()));
         }
         self.entities[province.0].province_has_port = Some(has_port);
+        Ok(())
+    }
+
+    pub fn province_center_of_trade_level(&self, province: EntityId) -> Result<Option<u8>, Error> {
+        let entity = self.entity(province)?;
+        if entity.kind != EntityKind::Province {
+            return Err(Error::Invalid(
+                "center of trade query requires a province".into(),
+            ));
+        }
+        Ok(entity.province_center_of_trade_level)
+    }
+
+    pub fn set_province_center_of_trade_level(
+        &mut self,
+        province: EntityId,
+        level: Option<u8>,
+    ) -> Result<(), Error> {
+        if self.entity(province)?.kind != EntityKind::Province {
+            return Err(Error::Invalid(
+                "center of trade property requires a province".into(),
+            ));
+        }
+        self.entities[province.0].province_center_of_trade_level = level;
         Ok(())
     }
 

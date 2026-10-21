@@ -10,3 +10,5 @@ trade_goods = cloth
 test_market = yes
 add_permanent_province_modifier = { name = test_river duration = -1 }
 1435.1.1 = { remove_province_modifier = test_river }
+1440.1.1 = { center_of_trade = 2 }
+1445.1.1 = { center_of_trade = 0 }

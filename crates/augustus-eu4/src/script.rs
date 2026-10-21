@@ -2994,6 +2994,29 @@ impl<'a> ScriptCompiler<'a> {
                         terrain: terrain.into(),
                     }
                 }
+                "province_has_center_of_trade_of_level" => {
+                    if scope != EntityKind::Province {
+                        return Err(field.error(
+                            "province_has_center_of_trade_of_level requires province scope",
+                        ));
+                    }
+                    let text = field.scalar()?;
+                    let level = text
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit())
+                        .then(|| text.parse::<u8>().ok())
+                        .flatten()
+                        .filter(|level| *level > 0)
+                        .ok_or_else(|| {
+                            field.error(
+                                "province_has_center_of_trade_of_level requires a positive integer",
+                            )
+                        })?;
+                    Condition::ProvinceCenterOfTradeAtLeast {
+                        target: Target::Current,
+                        level,
+                    }
+                }
                 name if province_identifier(name).is_some() => Condition::InScope {
                     selector: ScopeSelector::Named {kind: EntityKind::Province,
                         name: province_identifier(name).expect("matched identifier").to_string()},

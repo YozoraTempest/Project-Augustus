@@ -43,6 +43,10 @@ pub enum Condition {
         core: Option<crate::CoreType>,
     },
     ProvinceHasPort,
+    ProvinceCenterOfTradeAtLeast {
+        target: Target,
+        level: u8,
+    },
     ProvinceTerrain {
         target: Target,
         terrain: String,
@@ -631,6 +635,23 @@ impl Condition {
                 }
             }
             Self::ProvinceHasPort => world.province_has_port(current),
+            Self::ProvinceCenterOfTradeAtLeast { target, level } => {
+                if *level == 0 {
+                    return Err(Error::Invalid(
+                        "center of trade threshold must be positive".into(),
+                    ));
+                }
+                let province = world.target(current, *target)?;
+                let actual = world
+                    .province_center_of_trade_level(province)?
+                    .ok_or_else(|| {
+                        Error::Invalid(format!(
+                            "center of trade level is unknown for province {}",
+                            province.0
+                        ))
+                    })?;
+                Ok(actual >= *level)
+            }
             Self::ProvinceTerrain { target, terrain } => {
                 let province = world.target(current, *target)?;
                 world
