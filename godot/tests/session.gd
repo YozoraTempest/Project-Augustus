@@ -11,6 +11,15 @@ func check(condition: bool, message: String) -> void:
 		failures += 1
 
 func _initialize() -> void:
+	var clock_session := AugustusWorldSession.new()
+	var initial_timing: Dictionary = JSON.parse_string(clock_session.update_frame_timing(1.0))
+	check(initial_timing.ok and initial_timing.value.raw_delta == 0.0 and initial_timing.value.smoothed_delta == 0.0, "frame clock initializes without inventing a delta")
+	var next_timing: Dictionary = JSON.parse_string(clock_session.update_frame_timing(1.016))
+	check(next_timing.ok and is_equal_approx(next_timing.value.raw_delta, 0.016), "frame clock returns the raw delta")
+	check(next_timing.ok and is_equal_approx(next_timing.value.smoothed_delta, 0.008), "frame clock blends the raw and smoothed deltas")
+	var clamped_timing: Dictionary = JSON.parse_string(clock_session.update_frame_timing(4.016))
+	check(clamped_timing.ok and clamped_timing.value.smoothed_delta == 0.5, "frame clock clamps long frames")
+
 	var uninterrupted = AugustusSession.new()
 	var resumed = AugustusSession.new()
 	var native = AugustusSession.new()
