@@ -3,7 +3,8 @@
 
 use augustus_core::{
     VanillaTradeAttachedModifierGroup, VanillaTradeCandidate, VanillaTradeCaravanInput,
-    VanillaTradeCountryFlags, VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
+    VanillaTradeCountryFlags, VanillaTradeDistributionCandidate,
+    VanillaTradeDistributionCandidateInput, VanillaTradeDistributionInput,
     VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput, VanillaTradeIncomePassInput,
     VanillaTradePowerAmountInput, VanillaTradePowerModifierInput, VanillaTradePropagationInput,
     VanillaTradeRetentionInput, VanillaTradeRetentionParticipantInput,
@@ -15,7 +16,8 @@ use augustus_core::{
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
     calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weights,
     calculate_vanilla_trade_steering_modifier, is_vanilla_trade_collector,
-    is_vanilla_trade_steering_eligible, sort_vanilla_trade_candidates,
+    is_vanilla_trade_steering_eligible, select_vanilla_trade_distribution_candidates,
+    sort_vanilla_trade_candidates,
 };
 
 #[test]
@@ -700,6 +702,50 @@ fn trade_candidates_use_descending_keys_and_stable_ties() {
             .collect::<Vec<_>>(),
         vec![7, 6, 4, 3, 5]
     );
+}
+
+#[test]
+fn trade_distribution_candidate_filter_checks_route_flags_and_multiplier() {
+    let candidate = |country_id, reference_valid, ae, ac, route_id, global_multiplier_milli| {
+        VanillaTradeDistributionCandidateInput {
+            country_id,
+            reference_valid,
+            country_flags: VanillaTradeCountryFlags {
+                special_country: false,
+                ae,
+                ac,
+                ad: false,
+            },
+            route_id,
+            adjusted_amount_milli: i32::from(country_id) * 10,
+            unadjusted_amount_milli: 100,
+            transfer_modifier_milli: 1_000,
+            global_multiplier_milli,
+        }
+    };
+
+    let selected = select_vanilla_trade_distribution_candidates(
+        7,
+        vec![
+            candidate(829, true, true, true, 7, 50),
+            candidate(1, false, true, true, 7, 50),
+            candidate(2, true, false, true, 7, 50),
+            candidate(3, true, true, false, 7, 50),
+            candidate(4, true, true, true, 8, 50),
+            candidate(5, true, true, true, 7, 0),
+            candidate(6, true, true, true, 7, -1),
+            candidate(145, true, true, true, 7, 50),
+        ],
+    );
+
+    assert_eq!(
+        selected
+            .iter()
+            .map(|candidate| candidate.country_id)
+            .collect::<Vec<_>>(),
+        [829, 145]
+    );
+    assert_eq!(selected[0].global_multiplier_milli, 50);
 }
 
 #[test]

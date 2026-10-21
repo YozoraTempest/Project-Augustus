@@ -711,6 +711,49 @@ pub struct VanillaTradeDistributionCandidate {
     pub global_multiplier_milli: i32,
 }
 
+/// Candidate state resolved for one outgoing trade route before eligibility filtering.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeDistributionCandidateInput {
+    pub country_id: i16,
+    pub reference_valid: bool,
+    pub country_flags: VanillaTradeCountryFlags,
+    pub route_id: i16,
+    pub adjusted_amount_milli: i32,
+    pub unadjusted_amount_milli: i32,
+    pub transfer_modifier_milli: i32,
+    pub global_multiplier_milli: i32,
+}
+
+/// Selects the candidates eligible for one outgoing route.
+///
+/// The compatibility layer resolves record validity and country state. This
+/// stage keeps valid `ae && ac` records for the requested route with a positive
+/// global multiplier. Input order is retained so later stable sorting keeps
+/// native tie order.
+pub fn select_vanilla_trade_distribution_candidates(
+    route_id: i16,
+    candidates: Vec<VanillaTradeDistributionCandidateInput>,
+) -> Vec<VanillaTradeDistributionCandidate> {
+    candidates
+        .into_iter()
+        .filter(|candidate| {
+            candidate.reference_valid
+                && candidate.country_flags.ae
+                && candidate.country_flags.ac
+                && candidate.route_id == route_id
+                && candidate.global_multiplier_milli > 0
+        })
+        .map(|candidate| VanillaTradeDistributionCandidate {
+            country_id: candidate.country_id,
+            adjusted_amount_milli: candidate.adjusted_amount_milli,
+            unadjusted_amount_milli: candidate.unadjusted_amount_milli,
+            transfer_modifier_milli: candidate.transfer_modifier_milli,
+            global_multiplier_milli: candidate.global_multiplier_milli,
+        })
+        .collect()
+}
+
 /// Inputs for one outgoing route in the verified value-distribution stage.
 ///
 /// Route eligibility, route identity, and candidate construction stay in the

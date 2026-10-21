@@ -169,12 +169,12 @@ pub use technology::{Technology, TechnologyLevel, TechnologyProperty};
 pub use trade::{
     VanillaTradeAttachedModifierGroup, VanillaTradeCandidate, VanillaTradeCaravanInput,
     VanillaTradeCaravanResult, VanillaTradeCountryFlags, VanillaTradeDistributionCandidate,
-    VanillaTradeDistributionInput, VanillaTradeDistributionResult,
-    VanillaTradeDistributionRouteInput, VanillaTradeDistributionRouteResult,
-    VanillaTradeIncomeInput, VanillaTradeIncomePassInput, VanillaTradeIncomePassResult,
-    VanillaTradeIncomeResult, VanillaTradePowerAmountInput, VanillaTradePowerAmountResult,
-    VanillaTradePowerModifierInput, VanillaTradePowerModifierResult, VanillaTradePropagationInput,
-    VanillaTradePropagationResult, VanillaTradeRetentionInput,
+    VanillaTradeDistributionCandidateInput, VanillaTradeDistributionInput,
+    VanillaTradeDistributionResult, VanillaTradeDistributionRouteInput,
+    VanillaTradeDistributionRouteResult, VanillaTradeIncomeInput, VanillaTradeIncomePassInput,
+    VanillaTradeIncomePassResult, VanillaTradeIncomeResult, VanillaTradePowerAmountInput,
+    VanillaTradePowerAmountResult, VanillaTradePowerModifierInput, VanillaTradePowerModifierResult,
+    VanillaTradePropagationInput, VanillaTradePropagationResult, VanillaTradeRetentionInput,
     VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
     VanillaTradeRetentionPassResult, VanillaTradeRetentionResult, VanillaTradeRouteWeightInput,
     VanillaTradeRouteWeightResult, VanillaTradeSteeringEligibilityInput,
@@ -185,7 +185,8 @@ pub use trade::{
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
     calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weights,
     calculate_vanilla_trade_steering_modifier, is_vanilla_trade_collector,
-    is_vanilla_trade_steering_eligible, sort_vanilla_trade_candidates,
+    is_vanilla_trade_steering_eligible, select_vanilla_trade_distribution_candidates,
+    sort_vanilla_trade_candidates,
 };
 pub use truces::{Truce, Truces};
 pub use unit_templates::{UnitTemplate, UnitTemplateProperty, UnitTemplates};
