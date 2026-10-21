@@ -445,8 +445,15 @@ fn scheduled_groups_do_not_consume_random_values_before_their_due_day() {
 
     world.advance_with_daily_system(1, &rules).unwrap();
     assert_eq!(world.eu4_random_state().unwrap().1, 0);
-    world.advance_with_daily_system(2, &rules).unwrap();
-    assert!(world.eu4_random_state().unwrap().1 > 0);
+
+    let save = world.save("scheduled-daily-test").unwrap();
+    let mut resumed = World::restore(&save, "scheduled-daily-test", world.schema()).unwrap();
+    assert_eq!(
+        resumed.daily_system_id(),
+        Some("scheduled-daily-events:test:v1")
+    );
+    resumed.advance_with_daily_system(2, &rules).unwrap();
+    assert!(resumed.eu4_random_state().unwrap().1 > 0);
 }
 
 #[test]
