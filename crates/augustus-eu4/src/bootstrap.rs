@@ -2797,9 +2797,13 @@ impl VanillaWorld {
         initial
             .set_subject_country_order(subject_country_order)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        let trade_node_route_orders = economy.trade_node_route_orders();
         let economy = economy.bind(&initial, &province_histories, &mut report.economy)?;
         initial
             .set_economy(economy)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        initial
+            .set_trade_node_route_orders(&trade_node_route_orders)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         bind_external_trade_good_prices(&mut initial, overrides.trade_good_prices_milli)?;
         setup.bind(&mut initial, date, &mut report.setup)?;
@@ -3825,12 +3829,12 @@ impl VanillaWorld {
                 }),
             buildings: economic_state.map(|s| s.buildings.iter().map(String::as_str).collect()),
             trade_node,
-            trade_node_outgoing: trade_node.map(|name| {
-                economy.trade_nodes[name]
-                    .outgoing
-                    .iter()
-                    .map(String::as_str)
-                    .collect()
+            trade_node_outgoing: trade_node.and_then(|name| {
+                self.initial
+                    .world()
+                    .trade_node_route_order(name)
+                    .flatten()
+                    .map(|routes| routes.iter().map(String::as_str).collect())
             }),
             trade_good_definition: economic_state
                 .and_then(|s| s.trade_good.as_ref())

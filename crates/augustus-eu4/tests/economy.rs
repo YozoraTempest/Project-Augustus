@@ -334,6 +334,52 @@ fn buildings_goods_and_routes_reach_the_core_with_history_and_sources() {
 }
 
 #[test]
+fn trade_route_declaration_order_survives_content_loading_and_world_restore() {
+    let root = copy_fixture();
+    fs::write(
+        root.path().join("common/tradenodes/test_nodes.txt"),
+        "river = {\n    location = 1\n    inland = yes\n    outgoing = { name = harbor }\n    outgoing = { name = canal }\n    members = { 1 }\n}\nharbor = {\n    location = 2\n    end = yes\n    members = { 2 3 }\n}\ncanal = {\n    location = 4\n    end = yes\n    members = { 4 }\n}\n",
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.province(1).unwrap().trade_node_outgoing.unwrap(),
+        ["harbor", "canal"]
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .trade_node_route_order("river")
+            .flatten()
+            .unwrap()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["harbor", "canal"]
+    );
+
+    let world = loaded.initial.world();
+    let restored = World::restore(
+        &world.save("ordered-trade-routes").unwrap(),
+        "ordered-trade-routes",
+        world.schema(),
+    )
+    .unwrap();
+    assert_eq!(
+        restored
+            .trade_node_route_order("river")
+            .flatten()
+            .unwrap()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["harbor", "canal"]
+    );
+}
+
+#[test]
 fn province_production_value_uses_content_price_without_inventing_missing_goods() {
     let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
     let result = loaded

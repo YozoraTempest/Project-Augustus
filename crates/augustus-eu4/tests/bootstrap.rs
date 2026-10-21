@@ -1662,6 +1662,12 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             .unwrap(),
         )
         .unwrap();
+    native
+        .set_trade_node_route_orders(&BTreeMap::from([
+            ("river".into(), vec!["harbor".into()]),
+            ("harbor".into(), Vec::new()),
+        ]))
+        .unwrap();
     let mut technology = augustus_core::Technology::default();
     for branch in ["administrative", "diplomatic", "military"] {
         let mut levels: Vec<_> = [1300, 1340, 1390, 1430]

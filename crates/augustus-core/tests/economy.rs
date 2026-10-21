@@ -28,6 +28,13 @@ fn economy() -> Economy {
     serde_json::from_value(data()).unwrap()
 }
 
+fn trade_node_route_orders() -> std::collections::BTreeMap<String, Vec<String>> {
+    std::collections::BTreeMap::from([
+        ("river".into(), vec!["harbor".into()]),
+        ("harbor".into(), Vec::new()),
+    ])
+}
+
 fn data() -> serde_json::Value {
     serde_json::json!({
         "buildings":{"depot":{"cost_milli":87125,"construction_months":9}},
@@ -217,6 +224,28 @@ fn vanilla_trade_distribution_updates_source_and_destination_node_values() {
     let mut runtime_world = world();
     runtime_world.set_economy(economy()).unwrap();
     runtime_world
+        .set_trade_node_route_orders(&trade_node_route_orders())
+        .unwrap();
+    let invalid_route_orders = std::collections::BTreeMap::from([
+        ("river".into(), Vec::new()),
+        ("harbor".into(), Vec::new()),
+    ]);
+    assert!(
+        runtime_world
+            .set_trade_node_route_orders(&invalid_route_orders)
+            .is_err()
+    );
+    assert_eq!(
+        runtime_world
+            .trade_node_route_order("river")
+            .flatten()
+            .unwrap()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["harbor"]
+    );
+    runtime_world
         .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
             ("river".into(), Some(10_000)),
             ("harbor".into(), Some(5_000)),
@@ -252,6 +281,16 @@ fn vanilla_trade_distribution_updates_source_and_destination_node_values() {
     )
     .unwrap();
     assert_eq!(restored, runtime_world);
+    assert_eq!(
+        restored
+            .trade_node_route_order("river")
+            .flatten()
+            .unwrap()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["harbor"]
+    );
 }
 
 #[test]
@@ -293,6 +332,9 @@ fn vanilla_trade_distribution_with_unknown_destination_is_atomic() {
 fn vanilla_trade_nodes_run_in_caller_order_and_observe_prior_inflows() {
     let mut runtime_world = world();
     runtime_world.set_economy(economy()).unwrap();
+    runtime_world
+        .set_trade_node_route_orders(&trade_node_route_orders())
+        .unwrap();
     runtime_world
         .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
             ("river".into(), Some(10_000)),
@@ -350,6 +392,9 @@ fn vanilla_trade_nodes_run_in_caller_order_and_observe_prior_inflows() {
 fn vanilla_trade_node_sequence_rolls_back_when_a_later_node_fails() {
     let mut runtime_world = world();
     runtime_world.set_economy(economy()).unwrap();
+    runtime_world
+        .set_trade_node_route_orders(&trade_node_route_orders())
+        .unwrap();
     runtime_world
         .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
             ("river".into(), Some(10_000)),

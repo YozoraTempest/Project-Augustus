@@ -315,6 +315,13 @@ impl InitialWorld {
         self.world.set_economy(economy)
     }
 
+    pub fn set_trade_node_route_orders(
+        &mut self,
+        values: &BTreeMap<String, Vec<String>>,
+    ) -> Result<(), Error> {
+        self.world.set_trade_node_route_orders(values)
+    }
+
     pub fn set_trade_node_current_values_milli(
         &mut self,
         values: &BTreeMap<String, Option<i64>>,

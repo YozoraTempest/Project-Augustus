@@ -111,6 +111,7 @@ pub struct World {
     pub(crate) global_scopes: BTreeMap<String, EntityId>,
     pub(crate) known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
     economy: Economy,
+    trade_node_route_orders: BTreeMap<String, Vec<String>>,
     trade_node_runtime_states: BTreeMap<String, TradeNodeRuntimeState>,
     technology: Technology,
     pub(crate) unit_selections: crate::unit_selections::UnitSelections,
@@ -195,6 +196,8 @@ struct Snapshot {
     known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
     #[serde(default, skip_serializing_if = "Economy::is_empty")]
     economy: Economy,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    trade_node_route_orders: BTreeMap<String, Vec<String>>,
     // Kept for snapshots written before full trade-node runtime state landed.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     trade_node_current_values_milli: BTreeMap<String, Option<i64>>,
@@ -310,6 +313,7 @@ impl World {
             global_scopes: BTreeMap::new(),
             known_absent_targets: BTreeMap::new(),
             economy: Economy::default(),
+            trade_node_route_orders: BTreeMap::new(),
             trade_node_runtime_states: BTreeMap::new(),
             technology: Technology::default(),
             unit_selections: crate::unit_selections::UnitSelections::default(),
@@ -432,6 +436,62 @@ impl World {
     pub fn trade_node_runtime_state(&self, name: &str) -> Option<Option<&TradeNodeRuntimeState>> {
         self.economy.trade_nodes.get(name)?;
         Some(self.trade_node_runtime_states.get(name))
+    }
+
+    /// Returns the content route order for a known node. The outer `None`
+    /// means the node is unknown; the inner `None` means route order was not
+    /// supplied, as with older snapshots.
+    pub fn trade_node_route_order(&self, name: &str) -> Option<Option<&[String]>> {
+        self.economy.trade_nodes.get(name)?;
+        Some(self.trade_node_route_orders.get(name).map(Vec::as_slice))
+    }
+
+    /// Replaces declaration-order route metadata after validating it against
+    /// every trade node in the current economy.
+    pub fn set_trade_node_route_orders(
+        &mut self,
+        values: &BTreeMap<String, Vec<String>>,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        self.validate_trade_node_route_orders(values)?;
+        self.trade_node_route_orders = values.clone();
+        Ok(())
+    }
+
+    fn validate_trade_node_route_orders(
+        &self,
+        values: &BTreeMap<String, Vec<String>>,
+    ) -> Result<(), Error> {
+        Self::validate_trade_node_route_orders_for_economy(&self.economy, values)
+    }
+
+    fn validate_trade_node_route_orders_for_economy(
+        economy: &Economy,
+        values: &BTreeMap<String, Vec<String>>,
+    ) -> Result<(), Error> {
+        if values.len() != economy.trade_nodes.len() {
+            return Err(Error::Invalid(
+                "trade route order must cover every trade node".into(),
+            ));
+        }
+        for (name, node) in &economy.trade_nodes {
+            let Some(routes) = values.get(name) else {
+                return Err(Error::Invalid(
+                    "trade route order references an unknown node".into(),
+                ));
+            };
+            let mut seen_routes = BTreeSet::new();
+            if routes.len() != node.outgoing.len()
+                || routes
+                    .iter()
+                    .any(|route| !node.outgoing.contains(route) || !seen_routes.insert(route))
+            {
+                return Err(Error::Invalid(
+                    "trade route order does not match the economy graph".into(),
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Replaces saved runtime operands after validating every node name.
@@ -572,6 +632,15 @@ impl World {
         let previous_runtime_states = self.trade_node_runtime_states.clone();
         let result: Result<(), Error> = ordered_nodes.iter().try_for_each(|source_node| {
             let (destinations, distribution) = calculate(self, source_node)?;
+            if self
+                .trade_node_route_order(source_node)
+                .flatten()
+                .is_some_and(|route_order| route_order != destinations)
+            {
+                return Err(Error::Invalid(
+                    "trade distribution destinations do not match content route order".into(),
+                ));
+            }
             self.apply_vanilla_trade_node_distribution(source_node, &destinations, &distribution)
         });
 
@@ -848,6 +917,15 @@ impl World {
             return Err(Error::Invalid(
                 "economy replacement removes a node with current state".into(),
             ));
+        }
+        if !self.trade_node_route_orders.is_empty()
+            && Self::validate_trade_node_route_orders_for_economy(
+                &economy,
+                &self.trade_node_route_orders,
+            )
+            .is_err()
+        {
+            self.trade_node_route_orders.clear();
         }
         self.economy = economy;
         Ok(())
@@ -1468,6 +1546,7 @@ impl World {
             global_scopes: self.global_scopes.clone(),
             known_absent_targets: self.known_absent_targets.clone(),
             economy: self.economy.clone(),
+            trade_node_route_orders: self.trade_node_route_orders.clone(),
             trade_node_current_values_milli: self
                 .trade_node_runtime_states
                 .iter()
@@ -1612,6 +1691,7 @@ impl World {
             global_scopes: snapshot.global_scopes,
             known_absent_targets: snapshot.known_absent_targets,
             economy: snapshot.economy,
+            trade_node_route_orders: snapshot.trade_node_route_orders,
             trade_node_runtime_states,
             technology: snapshot.technology,
             unit_selections: snapshot.unit_selections,
@@ -1712,6 +1792,9 @@ impl World {
         world.subjects.validate(&world.politics)?;
         world.subjects.validate_counts(&world)?;
         world.economy.validate(&world)?;
+        if !world.trade_node_route_orders.is_empty() {
+            world.validate_trade_node_route_orders(&world.trade_node_route_orders)?;
+        }
         if world
             .trade_node_runtime_states
             .keys()

@@ -37,6 +37,7 @@ struct NodeDraft {
     location: u32,
     members: BTreeSet<u32>,
     outgoing: BTreeSet<String>,
+    outgoing_order: Vec<String>,
     inland: Option<bool>,
     end: Option<bool>,
 }
@@ -174,6 +175,13 @@ impl EconomyDraft {
 
     pub(super) fn has_trade_good(&self, name: &str) -> bool {
         self.goods.contains_key(name)
+    }
+
+    pub(super) fn trade_node_route_orders(&self) -> BTreeMap<String, Vec<String>> {
+        self.nodes
+            .iter()
+            .map(|(name, node)| (name.clone(), node.outgoing_order.clone()))
+            .collect()
     }
 
     pub(super) fn load(
@@ -316,6 +324,7 @@ impl EconomyDraft {
                 let mut location = None;
                 let mut members = None;
                 let mut outgoing = BTreeSet::new();
+                let mut outgoing_order = Vec::new();
                 let mut inland = None;
                 let mut end = None;
                 let mut seen = BTreeSet::new();
@@ -369,12 +378,12 @@ impl EconomyDraft {
                                         );
                                     }
                                 }
-                                if !outgoing.insert(
-                                    target
-                                        .ok_or_else(|| fail("missing trade route destination"))?,
-                                ) {
+                                let target = target
+                                    .ok_or_else(|| fail("missing trade route destination"))?;
+                                if !outgoing.insert(target.clone()) {
                                     return Err(fail("duplicate trade route"));
                                 }
+                                outgoing_order.push(target);
                             }
                         }
                     } else {
@@ -397,6 +406,7 @@ impl EconomyDraft {
                             )
                         })?,
                         outgoing,
+                        outgoing_order,
                         inland,
                         end,
                     },
