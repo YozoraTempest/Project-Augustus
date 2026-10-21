@@ -7,7 +7,30 @@ use augustus_core::{
     EntityKind, InitialWorld, MetricDefinition, Metrics, MonthlyAccruals, NumericSlot, Target,
 };
 
-pub(super) fn metrics(initial: &InitialWorld, attributes: &AttributeDraft) -> Metrics {
+pub(super) fn metrics(
+    initial: &InitialWorld,
+    attributes: &AttributeDraft,
+    topology: &crate::province_map::ProvinceTopology,
+) -> Metrics {
+    let provinces: std::collections::BTreeMap<_, _> = initial
+        .provinces()
+        .iter()
+        .map(|province| (province.id, province))
+        .collect();
+    let known_unowned: std::collections::BTreeSet<_> = initial
+        .provinces()
+        .iter()
+        .filter_map(|province| {
+            let entity = initial.province_entity(province.id)?;
+            let known_absent = initial
+                .world()
+                .known_absent_targets()
+                .get(&entity)
+                .is_some_and(|targets| targets.contains(&augustus_core::Target::Owner));
+            (province.owner.is_none() && known_absent).then_some(province.id)
+        })
+        .collect();
+
     Metrics {
         definitions: [(
             "navy_tradition".into(),
@@ -28,16 +51,55 @@ pub(super) fn metrics(initial: &InitialWorld, attributes: &AttributeDraft) -> Me
             .countries()
             .iter()
             .map(|country| {
+                let owned_count = initial
+                    .country_entity(&country.id)
+                    .and_then(|entity| initial.world().owned_provinces(entity).ok())
+                    .map(|provinces| provinces.len());
+                let capital_area_ports = initial.bound_capital(&country.id).and_then(|capital| {
+                    topology.capital_area_port_count(
+                        &provinces,
+                        &known_unowned,
+                        &country.id,
+                        capital,
+                    )
+                });
+                // These two inputs remain unknown until their original sources are confirmed.
+                let value = initial_value(owned_count, capital_area_ports, None, None);
                 (
                     initial
                         .country_entity(&country.id)
                         .expect("registered country"),
-                    [("navy_tradition".into(), None)].into(),
+                    [("navy_tradition".into(), value)].into(),
                 )
             })
             .collect(),
         ceilings: Default::default(),
     }
+}
+
+fn initial_value(
+    owned_count: Option<usize>,
+    capital_area_ports: Option<usize>,
+    auxiliary: Option<u32>,
+    multiplier_branch: Option<bool>,
+) -> Option<i64> {
+    let owned_count = owned_count?;
+    if owned_count == 0 {
+        return None;
+    }
+    let capital_area_ports = i64::try_from(capital_area_ports?).ok()?;
+    let owned_count = i64::try_from(owned_count).ok()?;
+    let auxiliary = i64::from(auxiliary?);
+    let multiplier_branch = multiplier_branch?;
+
+    let port_ratio = capital_area_ports.checked_mul(1_000)? / owned_count;
+    let ratio = port_ratio.checked_mul(3)?.min(1_000);
+    let base = 50_i64.checked_add(auxiliary.checked_mul(20)?)?;
+    let mut value = ratio.checked_mul(base)? / 1_000;
+    if multiplier_branch {
+        value = value.checked_mul(1_250)? / 1_000;
+    }
+    Some(value.checked_mul(100)?.clamp(0, 100_000))
 }
 
 fn current(property: &str) -> Vec<AttributeTerm> {
@@ -150,6 +212,51 @@ pub(super) fn bind(
                 attribute: "yearly_navy_tradition_change".into(),
                 divisor: 12_000,
             },
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::initial_value;
+
+    #[test]
+    fn initial_formula_matches_the_eight_observed_countries() {
+        let observations = [
+            (37, 18, 2, 9_000),
+            (12, 11, 2, 9_000),
+            (26, 12, 3, 11_000),
+            (40, 21, 0, 5_000),
+            (25, 8, 4, 12_400),
+            (16, 4, 4, 9_700),
+            (20, 2, 2, 2_700),
+            (41, 17, 4, 13_000),
+        ];
+
+        for (owned, capital_area_ports, auxiliary, expected) in observations {
+            assert_eq!(
+                initial_value(
+                    Some(owned),
+                    Some(capital_area_ports),
+                    Some(auxiliary),
+                    Some(false),
+                ),
+                Some(expected),
+                "owned={owned}, ports={capital_area_ports}, auxiliary={auxiliary}"
+            );
+        }
+    }
+
+    #[test]
+    fn initial_formula_preserves_unknown_inputs_and_applies_known_multiplier() {
+        assert_eq!(initial_value(Some(20), Some(2), None, Some(false)), None);
+        assert_eq!(initial_value(Some(20), Some(2), Some(2), None), None);
+        assert_eq!(initial_value(Some(20), None, Some(2), Some(false)), None);
+        assert_eq!(initial_value(None, Some(2), Some(2), Some(false)), None);
+        assert_eq!(initial_value(Some(0), Some(0), Some(2), Some(false)), None);
+        assert_eq!(
+            initial_value(Some(100), Some(100), Some(0), Some(true)),
+            Some(6_200)
         );
     }
 }

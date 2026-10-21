@@ -2075,17 +2075,19 @@ impl VanillaWorld {
                 ));
             }
         }
-        for (id, has_port) in crate::province_map::port_presence(
+        let derived_province_map = crate::province_map::derive(
             &pixels,
             &province_ids_by_color,
             &provinces,
             &force_coastal,
-        ) {
+        );
+        for (id, has_port) in derived_province_map.port_presence {
             provinces
                 .get_mut(&id)
                 .expect("port derivation preserves province identifiers")
                 .has_port = has_port;
         }
+        let mut province_topology = derived_province_map.topology;
         let province_terrains = match (terrain_bitmap_file, terrain_definition_file) {
             (Some(bitmap_file), Some(definition_file)) => {
                 let terrain_document = root.read_text(&bitmap_file, ENCODING)?;
@@ -2131,6 +2133,15 @@ impl VanillaWorld {
             _ => None,
         };
         let files = root.files()?;
+        if let Some(adjacencies) = files.iter().find(|file| {
+            file.relative_path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .eq_ignore_ascii_case("map/adjacencies.csv")
+        }) {
+            let document = root.read_text(&adjacencies.relative_path, ENCODING)?;
+            province_topology.add_special_adjacencies(&document, &provinces)?;
+        }
         let defines = crate::Defines::load(root, &files, crate::DefineDifficulty::Normal)?;
         let mut countries = BTreeMap::new();
         let mut country_order = Vec::new();
@@ -3026,7 +3037,8 @@ impl VanillaWorld {
         for (entity, values) in prestige.entities {
             metrics.entities.entry(entity).or_default().extend(values);
         }
-        let navy_tradition = crate::navy_tradition::metrics(&initial, &attribute_draft);
+        let navy_tradition =
+            crate::navy_tradition::metrics(&initial, &attribute_draft, &province_topology);
         metrics.definitions.extend(navy_tradition.definitions);
         for (entity, values) in navy_tradition.entities {
             metrics.entities.entry(entity).or_default().extend(values);
