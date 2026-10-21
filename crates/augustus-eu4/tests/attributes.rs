@@ -105,18 +105,35 @@ fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
 }
 
 #[test]
-fn country_trade_steering_reports_known_idea_sources_without_claiming_a_complete_modifier() {
+fn country_trade_steering_combines_idea_and_metric_sources_but_stays_incomplete() {
     let temp = copy_fixture();
-    let path = temp.path().join("common/ideas/test_ideas.txt");
-    let text = fs::read_to_string(&path).unwrap();
-    let updated = text.replace(
+    let ideas_path = temp.path().join("common/ideas/test_ideas.txt");
+    let ideas = fs::read_to_string(&ideas_path).unwrap();
+    let updated_ideas = ideas.replace(
         "start = { test_tradition = 0.125 }",
         "start = { test_tradition = 0.125 trade_steering = 0.25 }",
     );
-    assert_ne!(updated, text);
-    fs::write(path, updated).unwrap();
+    assert_ne!(updated_ideas, ideas);
+    fs::write(ideas_path, updated_ideas).unwrap();
 
-    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let static_modifiers_path = temp.path().join("common/static_modifiers/test_static.txt");
+    let static_modifiers = fs::read_to_string(&static_modifiers_path).unwrap();
+    fs::write(
+        static_modifiers_path,
+        format!("{static_modifiers}\nnavy_tradition = {{ trade_steering = 1.0 }}\n"),
+    )
+    .unwrap();
+
+    let external = VanillaExternalState {
+        country_metric_values: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([("navy_tradition".into(), Some(8_852))]),
+        )]),
+        ..Default::default()
+    };
+
+    let loaded =
+        VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &external).unwrap();
     let world = loaded.initial.world();
     let country = loaded.initial.country_entity("AAA").unwrap();
     let steering = world
@@ -124,6 +141,7 @@ fn country_trade_steering_reports_known_idea_sources_without_claiming_a_complete
         .evaluate(world, country, "country_trade_steering")
         .unwrap();
 
+    assert_eq!(steering.known_subtotal_micros, Some(338_520));
     assert_eq!(steering.value_micros, None);
     assert!(
         steering
@@ -135,6 +153,13 @@ fn country_trade_steering_reports_known_idea_sources_without_claiming_a_complete
             contribution.source == "ideas:traditions:test_alpha"
                 && contribution.property == "trade_steering"
                 && contribution.micros == 250_000
+        })
+    }));
+    assert!(steering.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source == "metric:navy_tradition"
+                && contribution.property == "trade_steering"
+                && contribution.micros == 88_520
         })
     }));
 }
