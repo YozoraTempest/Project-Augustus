@@ -463,6 +463,11 @@ countries={
 		}
 	}
 }
+trade={
+	node={ definitions=river current=1.234 }
+	node={ definitions=harbor current=0.000 }
+	node={ definitions=missing_node current=9.999 }
+}
 provinces={
 	-1={
 		owner="AAA"
@@ -485,7 +490,7 @@ provinces={
         .arg(&fixture)
         .arg("--eu4-save")
         .arg(&save)
-        .args(["--country", "AAA", "--province", "1"])
+        .args(["--country", "AAA", "--province", "1", "--economy"])
         .output()
         .unwrap();
     assert!(
@@ -510,6 +515,23 @@ provinces={
     assert_eq!(value["province"]["production_milli"], 7_890);
     assert_eq!(value["province"]["manpower_milli"], 4_250);
     assert_eq!(value["province"]["controller"], "AAA");
+    assert_eq!(value["province"]["trade_node_current_milli"], 1_234);
+    let trade_nodes = value["economy"]["trade_nodes"].as_array().unwrap();
+    assert_eq!(
+        trade_nodes
+            .iter()
+            .find(|node| node["id"] == "river")
+            .unwrap()["current_milli"],
+        1_234
+    );
+    assert_eq!(
+        trade_nodes
+            .iter()
+            .find(|node| node["id"] == "harbor")
+            .unwrap()["current_milli"],
+        0
+    );
+    assert!(trade_nodes.iter().all(|node| node["id"] != "missing_node"));
 
     let export = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
         .arg("--game-root")

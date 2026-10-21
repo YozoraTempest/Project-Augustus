@@ -111,6 +111,7 @@ pub struct World {
     pub(crate) global_scopes: BTreeMap<String, EntityId>,
     pub(crate) known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
     economy: Economy,
+    trade_node_current_values_milli: BTreeMap<String, Option<i64>>,
     technology: Technology,
     pub(crate) unit_selections: crate::unit_selections::UnitSelections,
     unit_templates: crate::UnitTemplates,
@@ -194,6 +195,8 @@ struct Snapshot {
     known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
     #[serde(default, skip_serializing_if = "Economy::is_empty")]
     economy: Economy,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    trade_node_current_values_milli: BTreeMap<String, Option<i64>>,
     #[serde(default, skip_serializing_if = "Technology::is_empty")]
     technology: Technology,
     #[serde(
@@ -304,6 +307,7 @@ impl World {
             global_scopes: BTreeMap::new(),
             known_absent_targets: BTreeMap::new(),
             economy: Economy::default(),
+            trade_node_current_values_milli: BTreeMap::new(),
             technology: Technology::default(),
             unit_selections: crate::unit_selections::UnitSelections::default(),
             unit_templates: crate::UnitTemplates::default(),
@@ -411,6 +415,37 @@ impl World {
 
     pub fn economy(&self) -> &Economy {
         &self.economy
+    }
+
+    /// Returns the runtime value for a known trade node. The outer None means
+    /// the node is unknown; the inner None means no value is available.
+    pub fn trade_node_current_value_milli(&self, name: &str) -> Option<Option<i64>> {
+        self.economy.trade_nodes.get(name)?;
+        Some(
+            self.trade_node_current_values_milli
+                .get(name)
+                .copied()
+                .flatten(),
+        )
+    }
+
+    /// Applies current trade-node values after validating every node name.
+    pub fn set_trade_node_current_values_milli(
+        &mut self,
+        values: &BTreeMap<String, Option<i64>>,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        if values
+            .keys()
+            .any(|name| !self.economy.trade_nodes.contains_key(name))
+        {
+            return Err(Error::Invalid(
+                "current trade-node values reference an unknown node".into(),
+            ));
+        }
+        self.trade_node_current_values_milli
+            .extend(values.iter().map(|(name, value)| (name.clone(), *value)));
+        Ok(())
     }
 
     pub fn attributes(&self) -> &Attributes {
@@ -672,6 +707,15 @@ impl World {
     pub fn set_economy(&mut self, economy: Economy) -> Result<(), Error> {
         self.require_running()?;
         economy.validate(self)?;
+        if self
+            .trade_node_current_values_milli
+            .keys()
+            .any(|name| !economy.trade_nodes.contains_key(name))
+        {
+            return Err(Error::Invalid(
+                "economy replacement removes a node with current state".into(),
+            ));
+        }
         self.economy = economy;
         Ok(())
     }
@@ -1291,6 +1335,7 @@ impl World {
             global_scopes: self.global_scopes.clone(),
             known_absent_targets: self.known_absent_targets.clone(),
             economy: self.economy.clone(),
+            trade_node_current_values_milli: self.trade_node_current_values_milli.clone(),
             technology: self.technology.clone(),
             unit_selections: self.unit_selections.clone(),
             unit_templates: self.unit_templates.clone(),
@@ -1416,6 +1461,7 @@ impl World {
             global_scopes: snapshot.global_scopes,
             known_absent_targets: snapshot.known_absent_targets,
             economy: snapshot.economy,
+            trade_node_current_values_milli: snapshot.trade_node_current_values_milli,
             technology: snapshot.technology,
             unit_selections: snapshot.unit_selections,
             unit_templates: snapshot.unit_templates,
@@ -1515,6 +1561,15 @@ impl World {
         world.subjects.validate(&world.politics)?;
         world.subjects.validate_counts(&world)?;
         world.economy.validate(&world)?;
+        if world
+            .trade_node_current_values_milli
+            .keys()
+            .any(|name| !world.economy.trade_nodes.contains_key(name))
+        {
+            return Err(Error::Invalid(
+                "save trade-node current state references an unknown node".into(),
+            ));
+        }
         world.technology.validate(&world)?;
         world.modifiers.validate(&world)?;
         world.justifications.validate(&world)?;

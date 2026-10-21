@@ -117,8 +117,11 @@ pub use load::{ContentSet, ContentSource, FileCandidate, FileOrigin, FileTrace, 
 pub use politics::{RelationSource, RelationView};
 pub use religious_schools::ReligiousSchoolReport;
 pub use save_state::{
-    VanillaSaveState, read_vanilla_save_state, read_vanilla_save_state_with_token_map,
-    read_vanilla_save_state_with_token_resolver,
+    VanillaSaveState, VanillaSaveStateWithTradeNodes, read_vanilla_save_state,
+    read_vanilla_save_state_and_trade_nodes,
+    read_vanilla_save_state_and_trade_nodes_with_token_map,
+    read_vanilla_save_state_and_trade_nodes_with_token_resolver,
+    read_vanilla_save_state_with_token_map, read_vanilla_save_state_with_token_resolver,
 };
 pub use script::{CompiledEvents, CompiledScript, ScriptCompiler, ScriptLibrary};
 pub use setup::SetupReport;

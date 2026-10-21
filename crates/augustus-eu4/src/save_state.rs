@@ -35,6 +35,31 @@ pub struct VanillaSaveState {
     pub external_state: VanillaExternalState,
 }
 
+/// Supported save state plus runtime trade-node current values.
+///
+/// Kept separate from VanillaSaveState so existing save-state struct
+/// construction remains source-compatible.
+#[derive(Debug, Clone, Serialize)]
+pub struct VanillaSaveStateWithTradeNodes {
+    pub state: VanillaSaveState,
+    pub current_trade_node_values_milli: BTreeMap<String, Option<i64>>,
+}
+
+impl VanillaSaveStateWithTradeNodes {
+    /// Keep trade-node values whose definitions exist in the loaded content.
+    pub fn trade_node_current_values_for_world(
+        &self,
+        world: &VanillaWorld,
+    ) -> BTreeMap<String, Option<i64>> {
+        let nodes = &world.initial.world().economy().trade_nodes;
+        self.current_trade_node_values_milli
+            .iter()
+            .filter(|(name, _)| nodes.contains_key(name.as_str()))
+            .map(|(name, value)| (name.clone(), *value))
+            .collect()
+    }
+}
+
 impl VanillaSaveState {
     /// Translate the save into a state bundle accepted by a loaded content set.
     ///
@@ -423,7 +448,14 @@ impl VanillaSaveState {
 
 /// Read supported state from an EU4 text save or a ZIP-wrapped text save.
 pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveState, Error> {
-    read_vanilla_save_state_inner_thread(path.as_ref(), None, None)
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, false).map(|save| save.state)
+}
+
+/// Read supported state and current trade-node values from an EU4 save.
+pub fn read_vanilla_save_state_and_trade_nodes(
+    path: impl AsRef<Path>,
+) -> Result<VanillaSaveStateWithTradeNodes, Error> {
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, true)
 }
 
 /// Read supported state from an EU4 save using a player-provided binary token map when needed.
@@ -435,7 +467,16 @@ pub fn read_vanilla_save_state_with_token_map(
     path: impl AsRef<Path>,
     token_map_path: impl AsRef<Path>,
 ) -> Result<VanillaSaveState, Error> {
-    read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()), None)
+    read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()), None, false)
+        .map(|save| save.state)
+}
+
+/// Read supported state and current trade-node values using a player-provided binary token map.
+pub fn read_vanilla_save_state_and_trade_nodes_with_token_map(
+    path: impl AsRef<Path>,
+    token_map_path: impl AsRef<Path>,
+) -> Result<VanillaSaveStateWithTradeNodes, Error> {
+    read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()), None, true)
 }
 
 /// Read supported state using an integration-provided token resolver.
@@ -450,14 +491,27 @@ pub fn read_vanilla_save_state_with_token_resolver<R>(
 where
     R: TokenResolver + Send + 'static,
 {
-    read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)))
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), false)
+        .map(|save| save.state)
+}
+
+/// Read supported state and current trade-node values using an integration-provided token resolver.
+pub fn read_vanilla_save_state_and_trade_nodes_with_token_resolver<R>(
+    path: impl AsRef<Path>,
+    resolver: R,
+) -> Result<VanillaSaveStateWithTradeNodes, Error>
+where
+    R: TokenResolver + Send + 'static,
+{
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), true)
 }
 
 fn read_vanilla_save_state_inner_thread(
     path: &Path,
     token_map_path: Option<&Path>,
     token_resolver: Option<SaveTokenResolver>,
-) -> Result<VanillaSaveState, Error> {
+    capture_trade_nodes: bool,
+) -> Result<VanillaSaveStateWithTradeNodes, Error> {
     let path = path.to_path_buf();
     let token_map_path = token_map_path.map(Path::to_path_buf);
     let parser_path = path.clone();
@@ -471,6 +525,7 @@ fn read_vanilla_save_state_inner_thread(
                 &parser_path,
                 parser_token_map_path.as_deref(),
                 &mut parser_token_resolver,
+                capture_trade_nodes,
             )
         })
         .map_err(|error| Error::caused_by(&path, error))?;
@@ -483,7 +538,8 @@ fn read_vanilla_save_state_inner(
     path: &Path,
     token_map_path: Option<&Path>,
     token_resolver: &mut Option<SaveTokenResolver>,
-) -> Result<VanillaSaveState, Error> {
+    capture_trade_nodes: bool,
+) -> Result<VanillaSaveStateWithTradeNodes, Error> {
     let documents = read_eu4_save_documents(path, token_map_path, token_resolver)?;
     let parsed = documents.game_state.parse()?;
     let metadata = documents
@@ -520,6 +576,34 @@ fn read_vanilla_save_state_inner(
     }
 
     let mut external_state = VanillaExternalState::default();
+    let mut current_trade_node_values_milli = BTreeMap::new();
+    if capture_trade_nodes && let Some(trade) = optional_object(&parsed, &root, "trade")? {
+        for (key, op, value) in trade.fields() {
+            if key.read_string() != "node" {
+                continue;
+            }
+            if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                return Err(Error::message(
+                    parsed.source(),
+                    "invalid saved trade-node block",
+                ));
+            }
+            let node = object(&parsed, &value)?;
+            let name = optional_scalar(&parsed, &node, "definitions")?
+                .filter(|name| !name.is_empty())
+                .ok_or_else(|| Error::message(parsed.source(), "missing saved trade-node name"))?;
+            let current = optional_milli(&parsed, &node, "current")?;
+            if current_trade_node_values_milli
+                .insert(name.clone(), current)
+                .is_some()
+            {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("duplicate saved trade node {name}"),
+                ));
+            }
+        }
+    }
     if let Some(change_price) = optional_object(&parsed, &root, "change_price")? {
         for (key, op, value) in change_price.fields() {
             if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
@@ -1040,11 +1124,14 @@ fn read_vanilla_save_state_inner(
         }
     }
 
-    Ok(VanillaSaveState {
-        date,
-        player,
-        players,
-        external_state,
+    Ok(VanillaSaveStateWithTradeNodes {
+        state: VanillaSaveState {
+            date,
+            player,
+            players,
+            external_state,
+        },
+        current_trade_node_values_milli,
     })
 }
 
@@ -1559,8 +1646,10 @@ fn saved_government_mechanic_powers(
 #[cfg(test)]
 mod tests {
     use super::{
-        NationalFocus, RulerSkill, read_vanilla_save_state, read_vanilla_save_state_with_token_map,
-        read_vanilla_save_state_with_token_resolver,
+        NationalFocus, RulerSkill, read_vanilla_save_state,
+        read_vanilla_save_state_and_trade_nodes,
+        read_vanilla_save_state_and_trade_nodes_with_token_resolver,
+        read_vanilla_save_state_with_token_map,
     };
     use crate::{
         ContentRoot, ContentSet, ContentSource, VanillaExternalProvinceDevelopment, VanillaWorld,
@@ -2542,6 +2631,69 @@ provinces={
     }
 
     #[test]
+    fn saved_trade_node_currents_bind_to_known_nodes_and_survive_restore() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("trade-node-values.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+player=AAA
+countries={
+    AAA={ human=yes }
+}
+provinces={
+    -1={ owner="AAA" }
+}
+trade={
+    node={ definitions=river current=1.234 }
+    node={ definitions=harbor current=0.000 }
+    node={ definitions=missing_node current=9.999 }
+}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state_and_trade_nodes(&save_path).unwrap();
+        assert_eq!(save.current_trade_node_values_milli["river"], Some(1_234));
+        assert_eq!(save.current_trade_node_values_milli["harbor"], Some(0));
+        assert_eq!(
+            save.current_trade_node_values_milli["missing_node"],
+            Some(9_999)
+        );
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let trade_nodes = save.trade_node_current_values_for_world(&baseline);
+        assert_eq!(trade_nodes.len(), 2);
+        assert_eq!(trade_nodes["river"], Some(1_234));
+        assert_eq!(trade_nodes["harbor"], Some(0));
+        assert!(!trade_nodes.contains_key("missing_node"));
+
+        let mut loaded =
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &save.state).unwrap();
+        loaded
+            .set_vanilla_trade_node_current_values_milli(&trade_nodes)
+            .unwrap();
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .trade_node_current_value_milli("river"),
+            Some(Some(1_234))
+        );
+        assert_eq!(loaded.province_trade_node_current_milli(1), Some(1_234));
+
+        let snapshot = loaded.save().unwrap();
+        loaded.restore(&snapshot).unwrap();
+        assert_eq!(loaded.province_trade_node_current_milli(1), Some(1_234));
+    }
+
+    #[test]
     fn external_province_development_overlay_merges_by_component() {
         let mut base = crate::VanillaExternalState {
             province_development: BTreeMap::from([(
@@ -2676,11 +2828,19 @@ provinces={
         let path = directory.path().join("state.eu4");
         std::fs::write(&path, binary_startup_save_with_lookup()).unwrap();
 
-        let state = read_vanilla_save_state_with_token_resolver(&path, TestTokenResolver).unwrap();
+        let save =
+            read_vanilla_save_state_and_trade_nodes_with_token_resolver(&path, TestTokenResolver)
+                .unwrap();
 
-        assert_eq!(state.date, "1444.11.11");
-        assert_eq!(state.player.as_deref(), Some("AAA"));
-        assert!(state.external_state.country_resources.contains_key("AAA"));
+        assert_eq!(save.state.date, "1444.11.11");
+        assert_eq!(save.state.player.as_deref(), Some("AAA"));
+        assert!(
+            save.state
+                .external_state
+                .country_resources
+                .contains_key("AAA")
+        );
+        assert!(save.current_trade_node_values_milli.is_empty());
     }
 
     #[test]

@@ -3769,11 +3769,30 @@ impl VanillaWorld {
         self.initial.restore(snapshot, &self.content)
     }
 
+    pub fn set_vanilla_trade_node_current_values_milli(
+        &mut self,
+        values: &BTreeMap<String, Option<i64>>,
+    ) -> Result<(), Error> {
+        self.initial
+            .set_trade_node_current_values_milli(values)
+            .map_err(|error| Error::caused_by("saved trade-node values", error))
+    }
+
+    pub fn province_trade_node_current_milli(&self, id: u32) -> Option<i64> {
+        let entity = self.initial.province_entity(id)?;
+        let node = self.initial.world().economy().province_node(entity)?;
+        self.initial
+            .world()
+            .trade_node_current_value_milli(node)
+            .flatten()
+    }
+
     pub fn province(&self, id: u32) -> Option<ProvinceView<'_>> {
         let state = self.initial.province(id)?;
         let economy = self.initial.world().economy();
         let entity = self.initial.province_entity(id)?;
         let economic_state = economy.provinces.get(&entity);
+        let trade_node = economy.province_node(entity);
         Some(ProvinceView {
             state,
             terrain: self
@@ -3796,8 +3815,8 @@ impl VanillaWorld {
                         .expect("validated administration")
                 }),
             buildings: economic_state.map(|s| s.buildings.iter().map(String::as_str).collect()),
-            trade_node: economy.province_node(entity),
-            trade_node_outgoing: economy.province_node(entity).map(|name| {
+            trade_node,
+            trade_node_outgoing: trade_node.map(|name| {
                 economy.trade_nodes[name]
                     .outgoing
                     .iter()

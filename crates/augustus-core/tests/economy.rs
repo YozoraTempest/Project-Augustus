@@ -135,6 +135,40 @@ fn current_trade_good_prices_are_runtime_state_and_restore() {
 }
 
 #[test]
+fn current_trade_node_values_are_runtime_state_and_restore() {
+    let mut runtime_world = world();
+    let economy = economy();
+    runtime_world.set_economy(economy).unwrap();
+    runtime_world
+        .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
+            ("river".into(), Some(4_748)),
+            ("harbor".into(), None),
+        ]))
+        .unwrap();
+
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("river"),
+        Some(Some(4_748))
+    );
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("harbor"),
+        Some(None)
+    );
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("missing"),
+        None
+    );
+
+    let restored = World::restore(
+        &runtime_world.save("runtime-trade-node").unwrap(),
+        "runtime-trade-node",
+        runtime_world.schema(),
+    )
+    .unwrap();
+    assert_eq!(restored.economy(), runtime_world.economy());
+}
+
+#[test]
 fn invalid_economic_references_and_graphs_fail_atomically() {
     let mut world = world();
     world.set_economy(economy()).unwrap();
@@ -168,6 +202,15 @@ fn invalid_economic_references_and_graphs_fail_atomically() {
         assert!(world.set_economy(economy).is_err());
         assert_eq!(world, original);
     }
+    assert!(
+        world
+            .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([(
+                "missing".into(),
+                Some(1_000),
+            )]))
+            .is_err()
+    );
+    assert_eq!(world, original);
     let mut save: serde_json::Value = serde_json::from_str(&world.save("test").unwrap()).unwrap();
     save["economy"]["provinces"]["1"]["trade_good"] = "missing".into();
     assert!(World::restore(&save.to_string(), "test", world.schema()).is_err());

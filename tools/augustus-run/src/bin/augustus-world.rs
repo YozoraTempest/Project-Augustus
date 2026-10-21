@@ -128,9 +128,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         .as_ref()
         .map(|path| match cli.eu4_token_map.as_ref() {
             Some(token_map) => {
-                augustus_eu4::read_vanilla_save_state_with_token_map(path, token_map)
+                augustus_eu4::read_vanilla_save_state_and_trade_nodes_with_token_map(
+                    path, token_map,
+                )
             }
-            None => augustus_eu4::read_vanilla_save_state(path),
+            None => augustus_eu4::read_vanilla_save_state_and_trade_nodes(path),
         })
         .transpose()?;
     let load_snapshot = cli.load.as_ref().map(std::fs::read_to_string).transpose()?;
@@ -150,7 +152,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             .expect("save state loaded from the selected EU4 save");
         VanillaWorld::load_from_content_with_save_state_and_external_state(
             &content,
-            save,
+            &save.state,
             external_state.as_ref(),
         )?
     } else {
@@ -187,10 +189,14 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             (None, None, None) => VanillaWorld::load_from_content(&content, &cli.date)?,
         }
     };
+    if let Some(save) = save_state.as_ref() {
+        let trade_node_values = save.trade_node_current_values_for_world(&loaded);
+        loaded.set_vanilla_trade_node_current_values_milli(&trade_node_values)?;
+    }
     if let (Some(output_path), Some(save)) =
         (cli.export_external_state.as_ref(), save_state.as_ref())
     {
-        let mut exported = save.state_for_world(&loaded)?;
+        let mut exported = save.state.state_for_world(&loaded)?;
         if let Some(overlay) = external_state.as_ref() {
             exported.apply_overlay(overlay);
         }
@@ -393,6 +399,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 "id": id, "location": province_id(node.location)?,
                 "members": node.members.iter().copied().map(&province_id).collect::<Result<Vec<_>, _>>()?,
                 "outgoing": node.outgoing, "inland": node.inland, "end": node.end,
+                "current_milli": loaded.initial.world().trade_node_current_value_milli(id).flatten(),
             }))
         }).collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
         output["economy"] = serde_json::json!({
@@ -488,7 +495,10 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         output["country_sources"] = serde_json::to_value(&loaded.country_sources[&id])?;
     }
     if let Some(id) = cli.province {
-        output["province"] = serde_json::to_value(loaded.province(id).ok_or("unknown province")?)?;
+        let mut province = serde_json::to_value(loaded.province(id).ok_or("unknown province")?)?;
+        province["trade_node_current_milli"] =
+            serde_json::json!(loaded.province_trade_node_current_milli(id));
+        output["province"] = province;
         output["province_trade_good_base_price_milli"] =
             serde_json::to_value(loaded.province_trade_good_base_price_milli(id)?)?;
         output["province_trade_good_price_milli"] =

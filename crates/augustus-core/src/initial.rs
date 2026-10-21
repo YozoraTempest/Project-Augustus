@@ -315,6 +315,13 @@ impl InitialWorld {
         self.world.set_economy(economy)
     }
 
+    pub fn set_trade_node_current_values_milli(
+        &mut self,
+        values: &BTreeMap<String, Option<i64>>,
+    ) -> Result<(), Error> {
+        self.world.set_trade_node_current_values_milli(values)
+    }
+
     pub fn set_attributes(&mut self, attributes: Attributes) -> Result<(), Error> {
         self.world.set_attributes(attributes)
     }
