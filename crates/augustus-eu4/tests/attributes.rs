@@ -105,6 +105,41 @@ fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
 }
 
 #[test]
+fn country_trade_steering_reports_known_idea_sources_without_claiming_a_complete_modifier() {
+    let temp = copy_fixture();
+    let path = temp.path().join("common/ideas/test_ideas.txt");
+    let text = fs::read_to_string(&path).unwrap();
+    let updated = text.replace(
+        "start = { test_tradition = 0.125 }",
+        "start = { test_tradition = 0.125 trade_steering = 0.25 }",
+    );
+    assert_ne!(updated, text);
+    fs::write(path, updated).unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let world = loaded.initial.world();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let steering = world
+        .attributes()
+        .evaluate(world, country, "country_trade_steering")
+        .unwrap();
+
+    assert_eq!(steering.value_micros, None);
+    assert!(
+        steering
+            .unresolved
+            .contains("country_trade_steering:remaining_sources_not_bound")
+    );
+    assert!(steering.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source == "ideas:traditions:test_alpha"
+                && contribution.property == "trade_steering"
+                && contribution.micros == 250_000
+        })
+    }));
+}
+
+#[test]
 fn development_attribute_stays_unknown_when_a_base_component_is_missing() {
     let root = copy_fixture();
     let path = root.path().join("history/provinces/1 - North.txt");

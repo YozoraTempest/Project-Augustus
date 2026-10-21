@@ -30,6 +30,7 @@ pub(super) const ATTRIBUTE_NAMES: [&str; 5] = [
     "manpower_after_autonomy",
 ];
 pub(super) const COUNTRY_ANNUAL_TAX: &str = "country_annual_tax";
+pub(super) const COUNTRY_TRADE_STEERING: &str = "country_trade_steering";
 
 const GLOBAL_TAX_INCOME: &str = "global_tax_income";
 
@@ -118,6 +119,7 @@ fn used_property(name: &str) -> bool {
             | "global_manpower_modifier"
             | "local_autonomy"
             | "global_autonomy"
+            | "trade_steering"
     )
 }
 
@@ -785,6 +787,56 @@ impl AttributeDraft {
                 );
                 self.attributes.formulas.insert(entity, formulas);
             }
+        }
+        for country in initial.countries() {
+            let entity = initial
+                .country_entity(&country.id)
+                .expect("registered country");
+            let mut formulas = self.attributes.formulas.remove(&entity).unwrap_or_default();
+            formulas.insert(
+                COUNTRY_TRADE_STEERING.into(),
+                AttributeFormula {
+                    base: AttributeBase::Constant { micros: 0 },
+                    channels: vec![AttributeChannel {
+                        flat: vec![
+                            AttributeTerm::Modifiers {
+                                target: Target::Current,
+                                property: "trade_steering".into(),
+                            },
+                            AttributeTerm::Government {
+                                target: Target::Current,
+                                property: "trade_steering".into(),
+                            },
+                            AttributeTerm::AffiliationModifiers {
+                                dimension: "religion".into(),
+                                target: Target::Current,
+                                scope: "country".into(),
+                                property: "trade_steering".into(),
+                            },
+                            AttributeTerm::Ideas {
+                                target: Target::Current,
+                                property: "trade_steering".into(),
+                            },
+                            AttributeTerm::Estates {
+                                target: Target::Current,
+                                property: "trade_steering".into(),
+                            },
+                            AttributeTerm::Metrics {
+                                target: Target::Current,
+                                property: "trade_steering".into(),
+                            },
+                        ],
+                        rates: Vec::new(),
+                    }],
+                    minimum_micros: None,
+                    maximum_micros: None,
+                    result_quantum_micros: None,
+                    unresolved: BTreeSet::from([
+                        "country_trade_steering:remaining_sources_not_bound".into(),
+                    ]),
+                },
+            );
+            self.attributes.formulas.insert(entity, formulas);
         }
         Ok(self.attributes)
     }

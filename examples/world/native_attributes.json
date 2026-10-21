@@ -439,6 +439,56 @@
           "power_income:missing_define:NAT_FOCUS_DECREASE"
         ]
       },
+      "country_trade_steering": {
+        "base": {
+          "kind": "constant",
+          "micros": 0
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "modifiers",
+                "target": "Current",
+                "property": "trade_steering"
+              },
+              {
+                "kind": "government",
+                "target": "Current",
+                "property": "trade_steering"
+              },
+              {
+                "kind": "affiliation_modifiers",
+                "dimension": "religion",
+                "target": "Current",
+                "scope": "country",
+                "property": "trade_steering"
+              },
+              {
+                "kind": "ideas",
+                "target": "Current",
+                "property": "trade_steering"
+              },
+              {
+                "kind": "estates",
+                "target": "Current",
+                "property": "trade_steering"
+              },
+              {
+                "kind": "metrics",
+                "target": "Current",
+                "property": "trade_steering"
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "country_trade_steering:remaining_sources_not_bound"
+        ]
+      },
       "yearly_prestige_change": {
         "base": {
           "kind": "constant",
@@ -1044,6 +1094,56 @@
           "power_income:remaining_sources_not_bound",
           "power_income:missing_define:NAT_FOCUS_INCREASE",
           "power_income:missing_define:NAT_FOCUS_DECREASE"
+        ]
+      },
+      "country_trade_steering": {
+        "base": {
+          "kind": "constant",
+          "micros": 0
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "modifiers",
+                "target": "Current",
+                "property": "trade_steering"
+              },
+              {
+                "kind": "government",
+                "target": "Current",
+                "property": "trade_steering"
+              },
+              {
+                "kind": "affiliation_modifiers",
+                "dimension": "religion",
+                "target": "Current",
+                "scope": "country",
+                "property": "trade_steering"
+              },
+              {
+                "kind": "ideas",
+                "target": "Current",
+                "property": "trade_steering"
+              },
+              {
+                "kind": "estates",
+                "target": "Current",
+                "property": "trade_steering"
+              },
+              {
+                "kind": "metrics",
+                "target": "Current",
+                "property": "trade_steering"
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "unresolved": [
+          "country_trade_steering:remaining_sources_not_bound"
         ]
       },
       "yearly_prestige_change": {
