@@ -539,6 +539,48 @@ impl World {
         self.set_trade_node_current_values_milli(&current_values)
     }
 
+    /// Calculates and applies trade-node distributions in the supplied order.
+    ///
+    /// Each calculation sees runtime state updates from earlier nodes. If a
+    /// calculation or application fails, all trade-node runtime changes from
+    /// this call are rolled back. The caller owns the native processing order.
+    pub fn run_vanilla_trade_node_distributions_in_order(
+        &mut self,
+        ordered_nodes: &[String],
+        mut calculate: impl FnMut(
+            &Self,
+            &str,
+        )
+            -> Result<(Vec<String>, VanillaTradeDistributionResult), Error>,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+
+        let mut seen_nodes = BTreeSet::new();
+        for node in ordered_nodes {
+            if !self.economy.trade_nodes.contains_key(node) {
+                return Err(Error::Invalid(
+                    "trade processing order references an unknown node".into(),
+                ));
+            }
+            if !seen_nodes.insert(node) {
+                return Err(Error::Invalid(
+                    "trade processing order repeats a node".into(),
+                ));
+            }
+        }
+
+        let previous_runtime_states = self.trade_node_runtime_states.clone();
+        let result: Result<(), Error> = ordered_nodes.iter().try_for_each(|source_node| {
+            let (destinations, distribution) = calculate(self, source_node)?;
+            self.apply_vanilla_trade_node_distribution(source_node, &destinations, &distribution)
+        });
+
+        if result.is_err() {
+            self.trade_node_runtime_states = previous_runtime_states;
+        }
+        result
+    }
+
     pub fn attributes(&self) -> &Attributes {
         &self.attributes
     }
