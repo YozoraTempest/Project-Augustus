@@ -122,6 +122,38 @@ fn nested_conditions_read_live_relationships_and_geography_without_writes() {
 }
 
 #[test]
+fn province_terrain_conditions_compare_known_values_and_preserve_unknowns() {
+    let mut world = world();
+    let steppe = EntityId(2);
+    let grasslands = EntityId(3);
+    let unknown = EntityId(4);
+    world
+        .set_province_terrain(steppe, Some("steppe".into()))
+        .unwrap();
+    world
+        .set_province_terrain(grasslands, Some("grasslands".into()))
+        .unwrap();
+
+    let condition = scoped(
+        Target::Current,
+        EntityKind::Province,
+        Condition::ProvinceTerrain {
+            target: Target::Current,
+            terrain: "steppe".into(),
+        },
+    );
+    assert!(condition.evaluate(&world, steppe).unwrap());
+    assert!(!condition.evaluate(&world, grasslands).unwrap());
+    assert!(condition.evaluate(&world, unknown).is_err());
+    assert!(condition.evaluate(&world, EntityId(0)).is_err());
+
+    let saved = world.save("terrain-content").unwrap();
+    let restored = World::restore(&saved, "terrain-content", world.schema()).unwrap();
+    assert!(condition.evaluate(&restored, steppe).unwrap());
+    assert!(!condition.evaluate(&restored, grasslands).unwrap());
+}
+
+#[test]
 fn known_absence_is_false_unknown_is_an_error_and_binding_clears_absence() {
     let mut world = world();
     let owner = scoped(Target::Owner, EntityKind::Country, Condition::Always(true));

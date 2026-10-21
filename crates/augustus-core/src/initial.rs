@@ -848,6 +848,13 @@ impl InitialWorld {
         Ok(())
     }
 
+    pub fn set_province_terrain(&mut self, id: u32, terrain: Option<String>) -> Result<(), Error> {
+        let entity = self
+            .province_entity(id)
+            .ok_or_else(|| Error::Invalid(format!("unknown province {id}")))?;
+        self.world.set_province_terrain(entity, terrain)
+    }
+
     pub fn country(&self, id: &str) -> Option<&CountryState> {
         self.country_index.get(id).map(|&i| &self.countries[i])
     }

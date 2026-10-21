@@ -304,7 +304,8 @@ impl Condition {
                     | "any_subject_country"
                     | "is_core"
                     | "is_territorial_core"
-                    | "has_port" => {
+                    | "has_port"
+                    | "has_terrain" => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
                         let library = crate::ScriptLibrary::new();
@@ -353,7 +354,7 @@ impl Condition {
                             Ok(condition) => {
                                 if matches!(name.as_str(), "is_core" | "is_territorial_core") {
                                     Self::ProvinceCore(condition)
-                                } else if name == "has_port" {
+                                } else if matches!(name.as_str(), "has_port" | "has_terrain") {
                                     Self::Scoped(condition)
                                 } else {
                                     Self::Subject(condition)
@@ -1419,6 +1420,34 @@ mod tests {
                 if matches!(conditions.as_slice(), [augustus_core::Condition::ProvinceHasPort])
         ));
         assert!(!report.unsupported_fields.contains_key("trigger:has_port"));
+    }
+
+    #[test]
+    fn province_terrain_conditions_share_the_core_terrain_query() {
+        let document = TextDocument::from_bytes(
+            "self-authored-terrain-condition.txt",
+            b"has_terrain = steppe".to_vec(),
+            TextEncoding::Utf8,
+        );
+        let parsed = document.parse().unwrap();
+        let mut report = crate::estates::EstateReport::default();
+        let conditions =
+            Condition::compile(&parsed, parsed.reader(), &mut report, 0, false, None, false)
+                .unwrap();
+
+        assert!(matches!(
+            conditions.as_slice(),
+            [Condition::Scoped(augustus_core::Condition::All(conditions))]
+                if matches!(conditions.as_slice(), [augustus_core::Condition::ProvinceTerrain {
+                    target: augustus_core::Target::Current,
+                    terrain,
+                }] if terrain == "steppe")
+        ));
+        assert!(
+            !report
+                .unsupported_fields
+                .contains_key("trigger:has_terrain")
+        );
     }
 
     #[test]

@@ -70,6 +70,8 @@ pub struct Entity {
     pub capital: Option<EntityId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub province_has_port: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub province_terrain: Option<String>,
     values: Vec<i64>,
 }
 
@@ -831,6 +833,7 @@ impl World {
             owner: None,
             capital: None,
             province_has_port: None,
+            province_terrain: None,
             values: vec![0; self.schema.fields.len()],
         });
         id
@@ -898,6 +901,33 @@ impl World {
             return Err(Error::Invalid("port property requires a province".into()));
         }
         self.entities[province.0].province_has_port = Some(has_port);
+        Ok(())
+    }
+
+    pub fn province_terrain(&self, province: EntityId) -> Result<Option<&str>, Error> {
+        let entity = self.entity(province)?;
+        if entity.kind != EntityKind::Province {
+            return Err(Error::Invalid("terrain query requires a province".into()));
+        }
+        Ok(entity.province_terrain.as_deref())
+    }
+
+    pub fn set_province_terrain(
+        &mut self,
+        province: EntityId,
+        terrain: Option<String>,
+    ) -> Result<(), Error> {
+        if self.entity(province)?.kind != EntityKind::Province {
+            return Err(Error::Invalid(
+                "terrain property requires a province".into(),
+            ));
+        }
+        if terrain.as_ref().is_some_and(|name| {
+            name.is_empty() || name.bytes().any(|byte| byte.is_ascii_whitespace())
+        }) {
+            return Err(Error::Invalid("invalid province terrain name".into()));
+        }
+        self.entities[province.0].province_terrain = terrain;
         Ok(())
     }
 

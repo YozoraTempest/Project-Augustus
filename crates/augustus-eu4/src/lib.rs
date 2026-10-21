@@ -46,6 +46,7 @@ mod save_binary;
 mod save_state;
 mod script;
 mod setup;
+mod terrain_map;
 mod text;
 
 pub use administration::AdministrationReport;

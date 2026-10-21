@@ -43,6 +43,10 @@ pub enum Condition {
         core: Option<crate::CoreType>,
     },
     ProvinceHasPort,
+    ProvinceTerrain {
+        target: Target,
+        terrain: String,
+    },
     NationalFocus {
         target: Target,
         skill: crate::RulerSkill,
@@ -627,6 +631,15 @@ impl Condition {
                 }
             }
             Self::ProvinceHasPort => world.province_has_port(current),
+            Self::ProvinceTerrain { target, terrain } => {
+                let province = world.target(current, *target)?;
+                world
+                    .province_terrain(province)?
+                    .map(|actual| actual == terrain)
+                    .ok_or_else(|| {
+                        Error::Invalid(format!("terrain is unknown for province {}", province.0))
+                    })
+            }
             Self::SubjectOf { subject, overlord } => {
                 let (Some(subject), Some(overlord)) = (
                     subject.resolve_in_context(world, context)?,

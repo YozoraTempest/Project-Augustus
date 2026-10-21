@@ -51,6 +51,39 @@ fn province_port_trigger_checks_explicit_map_topology() {
 }
 
 #[test]
+fn province_terrain_trigger_reads_the_core_value_and_rejects_other_scopes() {
+    let schema = Schema::new(Vec::<String>::new()).unwrap();
+    let library = ScriptLibrary::new();
+    let script = ScriptCompiler::new(&schema, &library, false)
+        .compile(
+            &document("if = { limit = { has_terrain = steppe } log = steppe }"),
+            EntityKind::Province,
+        )
+        .unwrap();
+
+    let mut world = World::new(schema);
+    let steppe = world.add_entity("steppe", EntityKind::Province);
+    let hills = world.add_entity("hills", EntityKind::Province);
+    let unknown = world.add_entity("unknown", EntityKind::Province);
+    world
+        .set_province_terrain(steppe, Some("steppe".into()))
+        .unwrap();
+    world
+        .set_province_terrain(hills, Some("hills".into()))
+        .unwrap();
+    world.execute(steppe, &script.plan).unwrap();
+    world.execute(hills, &script.plan).unwrap();
+    assert!(world.execute(unknown, &script.plan).is_err());
+    assert_eq!(world.events().len(), 1);
+
+    assert!(
+        ScriptCompiler::new(world.schema(), &library, false)
+            .compile(&document("has_terrain = steppe"), EntityKind::Country)
+            .is_err()
+    );
+}
+
+#[test]
 fn vanilla_adapter_derives_and_retains_port_presence_from_the_province_bitmap() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let loaded = VanillaWorld::load(root, "1444.11.11").unwrap();

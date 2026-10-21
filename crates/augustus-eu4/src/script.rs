@@ -2916,6 +2916,19 @@ impl<'a> ScriptCompiler<'a> {
                     let condition = Condition::ProvinceHasPort;
                     if boolean(field)? { condition } else { Condition::Not(Box::new(condition)) }
                 }
+                "has_terrain" => {
+                    if scope != EntityKind::Province {
+                        return Err(field.error("has_terrain requires province scope"));
+                    }
+                    let terrain = field.scalar()?;
+                    if !crate::country_markers::literal_name(terrain) {
+                        return Err(field.error("has_terrain requires a literal identifier"));
+                    }
+                    Condition::ProvinceTerrain {
+                        target: Target::Current,
+                        terrain: terrain.into(),
+                    }
+                }
                 name if province_identifier(name).is_some() => Condition::InScope {
                     selector: ScopeSelector::Named {kind: EntityKind::Province,
                         name: province_identifier(name).expect("matched identifier").to_string()},

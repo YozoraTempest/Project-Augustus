@@ -95,6 +95,7 @@ pub struct BootstrapReport {
 pub struct ProvinceView<'a> {
     #[serde(flatten)]
     pub state: &'a ProvinceState,
+    pub terrain: Option<&'a str>,
     pub metrics: Option<&'a BTreeMap<String, Option<i64>>>,
     pub buildings: Option<Vec<&'a str>>,
     pub trade_node: Option<&'a str>,
@@ -1831,6 +1832,22 @@ impl VanillaWorld {
         }
         let definition_file = map_file(&map_parsed, map.clone(), "definitions")?;
         let bitmap_file = map_file(&map_parsed, map.clone(), "provinces")?;
+        let terrain_bitmap_file = optional_map_file(&map_parsed, map.clone(), "terrain")?;
+        let rivers_bitmap_file = optional_map_file(&map_parsed, map.clone(), "rivers")?;
+        let terrain_definition_file =
+            optional_map_file(&map_parsed, map.clone(), "terrain_definition")?;
+        let tree_bitmap_file = optional_map_file(&map_parsed, map.clone(), "tree_definition")?;
+        let automatic_tree_indices = optional_ids(&map_parsed, map.clone(), "tree")?
+            .into_iter()
+            .map(|id| {
+                u8::try_from(id).map_err(|_| {
+                    Error::message(
+                        map_document.source(),
+                        "tree palette index is outside 0..255",
+                    )
+                })
+            })
+            .collect::<Result<BTreeSet<_>, _>>()?;
         // Resolve through the same traversal checks used for text inputs.
         let bitmap = root.read_text(&bitmap_file, ENCODING)?;
         let pixels = image::ImageReader::new(std::io::Cursor::new(bitmap.bytes()))
@@ -2028,6 +2045,50 @@ impl VanillaWorld {
                 .expect("port derivation preserves province identifiers")
                 .has_port = has_port;
         }
+        let province_terrains = match (terrain_bitmap_file, terrain_definition_file) {
+            (Some(bitmap_file), Some(definition_file)) => {
+                let terrain_document = root.read_text(&bitmap_file, ENCODING)?;
+                let terrain_bitmap = crate::terrain_map::IndexedBitmap::decode(&terrain_document)?;
+                let definition_document = root.read_text(&definition_file, ENCODING)?;
+                let definitions =
+                    crate::terrain_map::TerrainDefinitions::parse(&definition_document.parse()?)?;
+                let river_bitmap = rivers_bitmap_file
+                    .as_deref()
+                    .map(|path| {
+                        root.read_text(path, ENCODING).and_then(|document| {
+                            crate::terrain_map::IndexedBitmap::decode(&document)
+                        })
+                    })
+                    .transpose()?;
+                let tree_bitmap = tree_bitmap_file
+                    .as_deref()
+                    .map(|path| {
+                        root.read_text(path, ENCODING).and_then(|document| {
+                            crate::terrain_map::IndexedBitmap::decode(&document)
+                        })
+                    })
+                    .transpose()?;
+                definitions.validate_palette_indexes(
+                    &terrain_bitmap,
+                    tree_bitmap.as_ref(),
+                    &automatic_tree_indices,
+                    terrain_document.source(),
+                )?;
+                Some(crate::terrain_map::derive_province_terrains(
+                    &pixels,
+                    &province_ids_by_color,
+                    &provinces,
+                    crate::terrain_map::TerrainMap {
+                        terrain: &terrain_bitmap,
+                        rivers: river_bitmap.as_ref(),
+                        trees: tree_bitmap.as_ref(),
+                        automatic_tree_indexes: &automatic_tree_indices,
+                        definitions: &definitions,
+                    },
+                )?)
+            }
+            _ => None,
+        };
         let files = root.files()?;
         let defines = crate::Defines::load(root, &files, crate::DefineDifficulty::Normal)?;
         let mut countries = BTreeMap::new();
@@ -2649,6 +2710,13 @@ impl VanillaWorld {
             seed,
         )
         .map_err(|e| Error::caused_by(root.path(), e))?;
+        if let Some(province_terrains) = province_terrains {
+            for (province, terrain) in province_terrains {
+                initial
+                    .set_province_terrain(province, terrain)
+                    .map_err(|e| Error::caused_by(root.path(), e))?;
+            }
+        }
         initial.set_eu4_event_seed(fixed_seed);
         initial
             .set_calendar(Calendar {
@@ -3708,6 +3776,11 @@ impl VanillaWorld {
         let economic_state = economy.provinces.get(&entity);
         Some(ProvinceView {
             state,
+            terrain: self
+                .initial
+                .world()
+                .province_terrain(entity)
+                .expect("registered province"),
             metrics: self.initial.world().metrics().entities.get(&entity),
             administration: self
                 .initial
@@ -4829,6 +4902,26 @@ fn map_file(
     ))
 }
 
+fn optional_map_file(
+    parsed: &ParsedText<'_>,
+    reader: ObjectReader<'_, '_, TextEncoding>,
+    name: &str,
+) -> Result<Option<String>, Error> {
+    for (key, op, value) in reader.fields() {
+        if key.read_string() == name {
+            let fail = |message: &str| {
+                Error::message(parsed.source(), message).with_location(parsed.field_location(&key))
+            };
+            equal(op, &fail)?;
+            return value
+                .read_string()
+                .map(|path| Some(format!("map/{path}")))
+                .map_err(|_| fail("expected map filename"));
+        }
+    }
+    Ok(None)
+}
+
 fn array_strings(
     parsed: &ParsedText<'_>,
     reader: ObjectReader<'_, '_, TextEncoding>,
@@ -4870,6 +4963,22 @@ fn ids(
             })
         })
         .collect()
+}
+
+fn optional_ids(
+    parsed: &ParsedText<'_>,
+    reader: ObjectReader<'_, '_, TextEncoding>,
+    name: &str,
+) -> Result<BTreeSet<u32>, Error> {
+    if reader
+        .clone()
+        .fields()
+        .any(|(key, _, _)| key.read_string() == name)
+    {
+        ids(parsed, reader, name)
+    } else {
+        Ok(BTreeSet::new())
+    }
 }
 
 fn visit_history<'a>(
