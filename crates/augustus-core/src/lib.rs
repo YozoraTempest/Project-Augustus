@@ -84,7 +84,8 @@ pub use convergence::{
 };
 pub use daily::{
     DailyEventCandidate, DailyEventCountry, DailyEventGroup, DailyEventGroupMode, DailyEventRules,
-    DailySystem,
+    DailyEventSchedule, DailySystem, ScheduledDailyEventCountry, ScheduledDailyEventGroup,
+    ScheduledDailyEventRules,
 };
 pub use economy::{
     BuildingDefinition, BuildingRole, Economy, ProvinceEconomy, TradeGoodDefinition, TradeNode,

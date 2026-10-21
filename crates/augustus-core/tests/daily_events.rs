@@ -3,8 +3,9 @@
 
 use augustus_core::{
     Action, Calendar, Condition, DailyEventCandidate, DailyEventCountry, DailyEventGroup,
-    DailyEventRules, EntityId, EntityKind, EventCatalog, EventDefinition, EventOption, FieldId,
-    Schema, Target, World, WorldDate,
+    DailyEventRules, DailyEventSchedule, EntityId, EntityKind, EventCatalog, EventDefinition,
+    EventOption, FieldId, ScheduledDailyEventCountry, ScheduledDailyEventGroup,
+    ScheduledDailyEventRules, Schema, Target, World, WorldDate,
 };
 
 fn event(id: &str, immediate: Vec<Action>) -> EventDefinition {
@@ -303,4 +304,183 @@ fn all_group_rejects_empty_candidates() {
 
     assert!(world.select_daily_system(&rules).is_err());
     assert_eq!(world.daily_system_id(), None);
+}
+
+#[test]
+fn daily_schedule_uses_year_day_and_signed_country_index() {
+    let calendar = Calendar {
+        start: WorldDate {
+            year: 1444,
+            month: 1,
+            day: 1,
+        },
+        month_lengths: [31; 12],
+    };
+    let schedule = DailyEventSchedule {
+        country_index: 2,
+        interval: 5,
+    };
+
+    assert!(
+        schedule
+            .is_due_on(
+                WorldDate {
+                    year: 1444,
+                    month: 1,
+                    day: 5,
+                },
+                &calendar,
+            )
+            .unwrap()
+    );
+    assert!(
+        !schedule
+            .is_due_on(
+                WorldDate {
+                    year: 1444,
+                    month: 1,
+                    day: 4,
+                },
+                &calendar,
+            )
+            .unwrap()
+    );
+    assert!(
+        !schedule
+            .is_due_on(
+                WorldDate {
+                    year: 1444,
+                    month: 2,
+                    day: 1,
+                },
+                &calendar,
+            )
+            .unwrap()
+    );
+
+    let negative_index = DailyEventSchedule {
+        country_index: -4,
+        interval: 5,
+    };
+    assert!(
+        negative_index
+            .is_due_on(
+                WorldDate {
+                    year: 1444,
+                    month: 1,
+                    day: 1,
+                },
+                &calendar,
+            )
+            .unwrap()
+    );
+
+    let year_boundary = DailyEventSchedule {
+        country_index: 0,
+        interval: 5,
+    };
+    assert!(
+        year_boundary
+            .is_due_on(
+                WorldDate {
+                    year: 1445,
+                    month: 1,
+                    day: 1,
+                },
+                &calendar,
+            )
+            .unwrap()
+    );
+    assert!(
+        !year_boundary
+            .is_due_on(
+                WorldDate {
+                    year: 1446,
+                    month: 1,
+                    day: 1,
+                },
+                &calendar,
+            )
+            .unwrap()
+    );
+}
+
+#[test]
+fn scheduled_groups_do_not_consume_random_values_before_their_due_day() {
+    let country = EntityId(0);
+    let mut world = World::eu4_seeded_from_saved_count(
+        Schema::new([] as [&str; 0]).unwrap(),
+        Vec::new(),
+        8351375,
+        0,
+    );
+    world.add_entity("AAA", EntityKind::Country);
+    world
+        .set_calendar(Calendar {
+            start: WorldDate {
+                year: 1444,
+                month: 1,
+                day: 1,
+            },
+            month_lengths: [31; 12],
+        })
+        .unwrap();
+
+    let rules = ScheduledDailyEventRules::new(
+        "scheduled-daily-events:test:v1",
+        vec![ScheduledDailyEventCountry {
+            country,
+            country_index: 0,
+            groups: vec![ScheduledDailyEventGroup {
+                interval: 2,
+                group: DailyEventGroup::weighted(vec![DailyEventCandidate {
+                    event: None,
+                    weight: 5,
+                }]),
+            }],
+        }],
+    )
+    .unwrap();
+    world.select_daily_system(&rules).unwrap();
+
+    world.advance_with_daily_system(1, &rules).unwrap();
+    assert_eq!(world.eu4_random_state().unwrap().1, 0);
+    world.advance_with_daily_system(2, &rules).unwrap();
+    assert!(world.eu4_random_state().unwrap().1 > 0);
+}
+
+#[test]
+fn scheduled_daily_rules_reject_zero_intervals_and_invalid_dates() {
+    let (mut world, country) = world();
+    let zero_interval = ScheduledDailyEventRules::new(
+        "scheduled-daily-events:zero:v1",
+        vec![ScheduledDailyEventCountry {
+            country,
+            country_index: 0,
+            groups: vec![ScheduledDailyEventGroup {
+                interval: 0,
+                group: DailyEventGroup::all([] as [&str; 0]),
+            }],
+        }],
+    )
+    .unwrap();
+    assert!(world.select_daily_system(&zero_interval).is_err());
+    assert_eq!(world.daily_system_id(), None);
+
+    let schedule = DailyEventSchedule {
+        country_index: 0,
+        interval: 1,
+    };
+    assert!(
+        schedule
+            .is_due_on(
+                WorldDate {
+                    year: 1444,
+                    month: 1,
+                    day: 0,
+                },
+                world.calendar().unwrap(),
+            )
+            .is_err()
+    );
 }

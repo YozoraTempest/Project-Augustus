@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntityKind, Error, World};
+use crate::{Calendar, EntityId, EntityKind, Error, World, WorldDate};
 
 /// A replaceable daily simulation phase.
 ///
@@ -91,6 +91,68 @@ pub struct DailyEventRules {
     pub countries: Vec<DailyEventCountry>,
 }
 
+/// A country event cadence using the translated country-table index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DailyEventSchedule {
+    pub country_index: i16,
+    pub interval: u8,
+}
+
+impl DailyEventSchedule {
+    /// Returns whether this cadence fires on `date` using a zero-based day of year.
+    pub fn is_due_on(&self, date: WorldDate, calendar: &Calendar) -> Result<bool, Error> {
+        if self.interval == 0
+            || date.year < 1
+            || !(1..=12).contains(&date.month)
+            || date.day == 0
+            || calendar.month_lengths.contains(&0)
+            || date.day > calendar.month_lengths[usize::from(date.month - 1)]
+        {
+            return Err(Error::Invalid(
+                "invalid daily event schedule date or interval".into(),
+            ));
+        }
+
+        let month_index = usize::from(date.month - 1);
+        let day_of_year = calendar.month_lengths[..month_index]
+            .iter()
+            .map(|length| i32::from(*length))
+            .sum::<i32>()
+            + i32::from(date.day - 1);
+        let phase = i32::from(date.year) + day_of_year + i32::from(self.country_index);
+        Ok(phase % i32::from(self.interval) == 0)
+    }
+}
+
+/// One ordered event group gated by an EU4-style country cadence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScheduledDailyEventGroup {
+    pub interval: u8,
+    pub group: DailyEventGroup,
+}
+
+/// Scheduled country event groups for one country-table entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScheduledDailyEventCountry {
+    pub country: EntityId,
+    /// Explicitly translated index; this is not inferred from `EntityId`.
+    pub country_index: i16,
+    pub groups: Vec<ScheduledDailyEventGroup>,
+}
+
+/// Daily event rules whose groups run only on their translated cadence.
+///
+/// Change `id` whenever the country indices, intervals or candidate rules change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScheduledDailyEventRules {
+    pub id: String,
+    pub countries: Vec<ScheduledDailyEventCountry>,
+}
+
 impl DailyEventRules {
     pub fn new(id: impl Into<String>, countries: Vec<DailyEventCountry>) -> Result<Self, Error> {
         let rules = Self {
@@ -114,32 +176,7 @@ impl DailyEventRules {
                     "daily event rules require country entities".into(),
                 ));
             }
-            for group in &entry.groups {
-                for candidate in &group.candidates {
-                    if group.mode == DailyEventGroupMode::WeightedOne && candidate.weight < 0 {
-                        return Err(Error::Invalid(
-                            "daily event weights cannot be negative".into(),
-                        ));
-                    }
-                    let Some(event) = candidate.event.as_deref() else {
-                        if group.mode == DailyEventGroupMode::All {
-                            return Err(Error::Invalid(
-                                "empty daily event candidates require weighted groups".into(),
-                            ));
-                        }
-                        continue;
-                    };
-                    if event.trim().is_empty() {
-                        return Err(Error::Invalid("empty daily event candidate".into()));
-                    }
-                    let definition = world.event_catalog().get(event)?;
-                    if definition.scope != EntityKind::Country {
-                        return Err(Error::Invalid(
-                            "daily event candidates require country events".into(),
-                        ));
-                    }
-                }
-            }
+            validate_daily_event_groups(world, &entry.groups)?;
         }
         Ok(())
     }
@@ -151,58 +188,143 @@ impl DailyEventRules {
         group: &DailyEventGroup,
         budget: &mut usize,
     ) -> Result<(), Error> {
-        match group.mode {
-            DailyEventGroupMode::All => {
-                // Eligibility is frozen before any immediate effect runs.
-                let mut eligible = Vec::new();
-                for candidate in &group.candidates {
-                    let Some(event) = candidate.event.as_deref() else {
-                        return Err(Error::Invalid(
-                            "empty daily event candidates require weighted groups".into(),
-                        ));
-                    };
-                    if world.event_is_eligible(event, country)? {
-                        eligible.push(event.to_owned());
-                    }
-                }
-                for event in eligible {
-                    world.trigger_event_for_daily_dispatch(&event, country, budget)?;
-                }
+        dispatch_daily_event_group(world, country, group, budget)
+    }
+}
+
+impl ScheduledDailyEventRules {
+    pub fn new(
+        id: impl Into<String>,
+        countries: Vec<ScheduledDailyEventCountry>,
+    ) -> Result<Self, Error> {
+        let rules = Self {
+            id: id.into(),
+            countries,
+        };
+        if rules.id.trim().is_empty() {
+            return Err(Error::Invalid(
+                "scheduled daily event rules require an id".into(),
+            ));
+        }
+        Ok(rules)
+    }
+
+    fn validate_for_schedule(&self, world: &World) -> Result<(), Error> {
+        if world.calendar().is_none() {
+            return Err(Error::Invalid(
+                "scheduled daily event rules require a calendar".into(),
+            ));
+        }
+        let mut countries = BTreeSet::new();
+        for entry in &self.countries {
+            if !countries.insert(entry.country) {
+                return Err(Error::Invalid("duplicate daily event country".into()));
             }
-            DailyEventGroupMode::WeightedOne => {
-                let mut eligible = Vec::new();
-                let mut total = 0_i64;
-                for candidate in &group.candidates {
-                    if candidate.weight == 0 {
-                        continue;
-                    }
-                    let Some(event) = candidate.event.as_deref() else {
-                        total = total.checked_add(candidate.weight).ok_or(Error::Overflow)?;
-                        eligible.push((None, candidate.weight));
-                        continue;
-                    };
-                    if world.event_is_eligible(event, country)? {
-                        total = total.checked_add(candidate.weight).ok_or(Error::Overflow)?;
-                        eligible.push((Some(event), candidate.weight));
-                    }
+            if world.entity(entry.country)?.kind != EntityKind::Country {
+                return Err(Error::Invalid(
+                    "daily event rules require country entities".into(),
+                ));
+            }
+            for group in &entry.groups {
+                if group.interval == 0 {
+                    return Err(Error::Invalid(
+                        "daily event intervals must be nonzero".into(),
+                    ));
                 }
-                if total == 0 {
-                    return Ok(());
-                }
-                let mut draw = world.random_source().random_range(0..total);
-                for (event, weight) in eligible {
-                    if draw < weight {
-                        if let Some(event) = event {
-                            world.trigger_event_for_daily_dispatch(event, country, budget)?;
-                        }
-                        break;
-                    }
-                    draw -= weight;
-                }
+                validate_daily_event_groups(world, std::slice::from_ref(&group.group))?;
             }
         }
         Ok(())
     }
+}
+
+fn validate_daily_event_groups(world: &World, groups: &[DailyEventGroup]) -> Result<(), Error> {
+    for group in groups {
+        for candidate in &group.candidates {
+            if group.mode == DailyEventGroupMode::WeightedOne && candidate.weight < 0 {
+                return Err(Error::Invalid(
+                    "daily event weights cannot be negative".into(),
+                ));
+            }
+            let Some(event) = candidate.event.as_deref() else {
+                if group.mode == DailyEventGroupMode::All {
+                    return Err(Error::Invalid(
+                        "empty daily event candidates require weighted groups".into(),
+                    ));
+                }
+                continue;
+            };
+            if event.trim().is_empty() {
+                return Err(Error::Invalid("empty daily event candidate".into()));
+            }
+            let definition = world.event_catalog().get(event)?;
+            if definition.scope != EntityKind::Country {
+                return Err(Error::Invalid(
+                    "daily event candidates require country events".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn dispatch_daily_event_group(
+    world: &mut World,
+    country: EntityId,
+    group: &DailyEventGroup,
+    budget: &mut usize,
+) -> Result<(), Error> {
+    match group.mode {
+        DailyEventGroupMode::All => {
+            // Eligibility is frozen before any immediate effect runs.
+            let mut eligible = Vec::new();
+            for candidate in &group.candidates {
+                let Some(event) = candidate.event.as_deref() else {
+                    return Err(Error::Invalid(
+                        "empty daily event candidates require weighted groups".into(),
+                    ));
+                };
+                if world.event_is_eligible(event, country)? {
+                    eligible.push(event.to_owned());
+                }
+            }
+            for event in eligible {
+                world.trigger_event_for_daily_dispatch(&event, country, budget)?;
+            }
+        }
+        DailyEventGroupMode::WeightedOne => {
+            let mut eligible = Vec::new();
+            let mut total = 0_i64;
+            for candidate in &group.candidates {
+                if candidate.weight == 0 {
+                    continue;
+                }
+                let Some(event) = candidate.event.as_deref() else {
+                    total = total.checked_add(candidate.weight).ok_or(Error::Overflow)?;
+                    eligible.push((None, candidate.weight));
+                    continue;
+                };
+                if world.event_is_eligible(event, country)? {
+                    total = total.checked_add(candidate.weight).ok_or(Error::Overflow)?;
+                    eligible.push((Some(event), candidate.weight));
+                }
+            }
+            if total == 0 {
+                return Ok(());
+            }
+            let mut draw = world.random_source().random_range(0..total);
+            for (event, weight) in eligible {
+                if draw < weight {
+                    if let Some(event) = event {
+                        world.trigger_event_for_daily_dispatch(event, country, budget)?;
+                    }
+                    break;
+                }
+                draw -= weight;
+            }
+        }
+    }
+    Ok(())
 }
 
 impl DailySystem for DailyEventRules {
@@ -219,6 +341,38 @@ impl DailySystem for DailyEventRules {
         for entry in &self.countries {
             for group in &entry.groups {
                 self.dispatch_group_for_schedule(world, entry.country, group, &mut budget)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl DailySystem for ScheduledDailyEventRules {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        self.validate_for_schedule(world)
+    }
+
+    fn tick(&self, world: &mut World) -> Result<(), Error> {
+        let calendar = world.calendar().cloned().ok_or_else(|| {
+            Error::Invalid("scheduled daily event rules require a calendar".into())
+        })?;
+        let date = world
+            .date()?
+            .ok_or_else(|| Error::Invalid("scheduled daily event rules require a date".into()))?;
+        let mut budget = 100_000;
+        for entry in &self.countries {
+            for group in &entry.groups {
+                let schedule = DailyEventSchedule {
+                    country_index: entry.country_index,
+                    interval: group.interval,
+                };
+                if schedule.is_due_on(date, &calendar)? {
+                    dispatch_daily_event_group(world, entry.country, &group.group, &mut budget)?;
+                }
             }
         }
         Ok(())
