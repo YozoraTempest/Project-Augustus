@@ -14,7 +14,7 @@ use crate::{
     Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryLedger,
     CountryResource, CountryResources, DailySystem, Economy, Error, Governments, Ideas, Modifiers,
     MonthlySystem, MonthlyTax, Plan, Politics, Target, Taxation, Technology, TradeNodeRuntimeState,
-    WorldDate, YearlySystem,
+    VanillaTradeDistributionResult, WorldDate, YearlySystem,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -477,6 +477,66 @@ impl World {
                 .current_milli = *value;
         }
         Ok(())
+    }
+
+    /// Applies one computed node distribution to its source and outgoing nodes.
+    ///
+    /// Destination names must match the distribution route order and the
+    /// economy graph. Unknown destination values are rejected without changing
+    /// any node; native 32-bit accumulation is preserved for known values.
+    pub fn apply_vanilla_trade_node_distribution(
+        &mut self,
+        source_node: &str,
+        route_destinations: &[String],
+        distribution: &VanillaTradeDistributionResult,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        let Some(source_definition) = self.economy.trade_nodes.get(source_node) else {
+            return Err(Error::Invalid(
+                "trade distribution references an unknown source node".into(),
+            ));
+        };
+        if route_destinations.len() != distribution.routes.len() {
+            return Err(Error::Invalid(
+                "trade route destinations and distribution results must have equal lengths".into(),
+            ));
+        }
+
+        let mut current_values = BTreeMap::from([(
+            source_node.to_owned(),
+            Some(i64::from(distribution.source_value_milli)),
+        )]);
+        let mut seen_destinations = BTreeSet::new();
+        for (destination, route) in route_destinations.iter().zip(&distribution.routes) {
+            if !source_definition.outgoing.contains(destination) {
+                return Err(Error::Invalid(
+                    "trade distribution target is not an outgoing route".into(),
+                ));
+            }
+            if !seen_destinations.insert(destination) {
+                return Err(Error::Invalid(
+                    "trade distribution repeats an outgoing destination".into(),
+                ));
+            }
+
+            let current = current_values
+                .get(destination)
+                .copied()
+                .flatten()
+                .or_else(|| self.trade_node_current_value_milli(destination).flatten())
+                .ok_or_else(|| {
+                    Error::Invalid("trade distribution requires known destination values".into())
+                })?;
+            let current = i32::try_from(current).map_err(|_| {
+                Error::Invalid(
+                    "trade node current value is outside the native integer range".into(),
+                )
+            })?;
+            let updated = current.wrapping_add(route.value_milli);
+            current_values.insert(destination.clone(), Some(i64::from(updated)));
+        }
+
+        self.set_trade_node_current_values_milli(&current_values)
     }
 
     pub fn attributes(&self) -> &Attributes {

@@ -5,12 +5,14 @@ use augustus_core::{
     Economy, EntityKind, Schema, TradeGoodDefinition, TradeProductionInput, TradeProductionResult,
     VanillaDerivedModifierInput, VanillaGoldBaseInput, VanillaGoldProductionInput,
     VanillaModifierAggregationInput, VanillaProductionBaseValueInput, VanillaProductionInput,
-    VanillaProductionResult, VanillaTradeGoodPriceInput, VanillaTradeGoodPriceTableInput,
-    VanillaTradeGoodsSizeInput, World, aggregate_vanilla_modifier_contributions,
-    calculate_trade_production, calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
+    VanillaProductionResult, VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput,
+    VanillaTradeGoodPriceInput, VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, World,
+    aggregate_vanilla_modifier_contributions, calculate_trade_production,
+    calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
     calculate_vanilla_gold_production, calculate_vanilla_production,
-    calculate_vanilla_production_base_value, calculate_vanilla_trade_good_price,
-    calculate_vanilla_trade_good_price_table, calculate_vanilla_trade_goods_size,
+    calculate_vanilla_production_base_value, calculate_vanilla_trade_distribution,
+    calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
+    calculate_vanilla_trade_goods_size,
 };
 
 fn world() -> World {
@@ -206,6 +208,83 @@ fn current_trade_node_values_are_runtime_state_and_restore() {
     assert_eq!(
         restored_legacy.trade_node_current_value_milli("river"),
         Some(Some(4_748))
+    );
+}
+
+#[test]
+fn vanilla_trade_distribution_updates_source_and_destination_node_values() {
+    let mut runtime_world = world();
+    runtime_world.set_economy(economy()).unwrap();
+    runtime_world
+        .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
+            ("river".into(), Some(10_000)),
+            ("harbor".into(), Some(5_000)),
+        ]))
+        .unwrap();
+
+    let distribution = calculate_vanilla_trade_distribution(VanillaTradeDistributionInput {
+        source_value_milli: 10_000,
+        source_debit_milli: 2_000,
+        routes: vec![VanillaTradeDistributionRouteInput {
+            weight_milli: 1_000,
+            node_value_milli: 1_000,
+            candidates: Vec::new(),
+        }],
+    });
+    runtime_world
+        .apply_vanilla_trade_node_distribution("river", &["harbor".to_owned()], &distribution)
+        .unwrap();
+
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("river"),
+        Some(Some(8_000))
+    );
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("harbor"),
+        Some(Some(6_000))
+    );
+
+    let restored = World::restore(
+        &runtime_world.save("trade-node-distribution").unwrap(),
+        "trade-node-distribution",
+        runtime_world.schema(),
+    )
+    .unwrap();
+    assert_eq!(restored, runtime_world);
+}
+
+#[test]
+fn vanilla_trade_distribution_with_unknown_destination_is_atomic() {
+    let mut runtime_world = world();
+    runtime_world.set_economy(economy()).unwrap();
+    runtime_world
+        .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
+            ("river".into(), Some(10_000)),
+            ("harbor".into(), None),
+        ]))
+        .unwrap();
+    let distribution = calculate_vanilla_trade_distribution(VanillaTradeDistributionInput {
+        source_value_milli: 8_000,
+        source_debit_milli: 2_000,
+        routes: vec![VanillaTradeDistributionRouteInput {
+            weight_milli: 1_000,
+            node_value_milli: 1_000,
+            candidates: Vec::new(),
+        }],
+    });
+
+    assert!(
+        runtime_world
+            .apply_vanilla_trade_node_distribution("river", &["harbor".to_owned()], &distribution,)
+            .is_err()
+    );
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("river"),
+        Some(Some(10_000))
+    );
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("harbor"),
+        Some(None)
     );
 }
 

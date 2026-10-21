@@ -322,6 +322,19 @@ impl InitialWorld {
         self.world.set_trade_node_current_values_milli(values)
     }
 
+    pub fn apply_vanilla_trade_node_distribution(
+        &mut self,
+        source_node: &str,
+        route_destinations: &[String],
+        distribution: &crate::VanillaTradeDistributionResult,
+    ) -> Result<(), Error> {
+        self.world.apply_vanilla_trade_node_distribution(
+            source_node,
+            route_destinations,
+            distribution,
+        )
+    }
+
     pub fn set_trade_node_runtime_states(
         &mut self,
         values: &BTreeMap<String, crate::TradeNodeRuntimeState>,
