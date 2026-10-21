@@ -622,6 +622,127 @@
         "minimum_micros": null,
         "maximum_micros": null,
         "unresolved": []
+      },
+      "yearly_navy_tradition_change": {
+        "base": {
+          "kind": "constant",
+          "micros": 0
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "scale",
+                "factor_micros": -1000000,
+                "term": {
+                  "kind": "numeric",
+                  "source": "current_navy_tradition",
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "navy_tradition"
+                  },
+                  "micros_per_unit": 1000
+                }
+              }
+            ],
+            "rates": [
+              {
+                "kind": "constant",
+                "source": "navy_tradition_decay_response",
+                "micros": -1000000
+              },
+              {
+                "kind": "clamp_minimum",
+                "source": "navy_tradition_decay_floor",
+                "minimum_micros": 0,
+                "term": {
+                  "kind": "truncated_sum",
+                  "source": "navy_tradition_decay_rate",
+                  "quantum_micros": 1000,
+                  "terms": [
+                    {
+                      "kind": "unknown",
+                      "reason": "navy_tradition:missing_base_decay"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "navy_tradition_decay"
+                    },
+                    {
+                      "kind": "government",
+                      "target": "Current",
+                      "property": "navy_tradition_decay"
+                    },
+                    {
+                      "kind": "ideas",
+                      "target": "Current",
+                      "property": "navy_tradition_decay"
+                    },
+                    {
+                      "kind": "estates",
+                      "target": "Current",
+                      "property": "navy_tradition_decay"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Current",
+                      "property": "navy_tradition_decay"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Current",
+                      "scope": "country",
+                      "property": "navy_tradition_decay"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "flat": [
+              {
+                "kind": "modifiers",
+                "target": "Current",
+                "property": "navy_tradition"
+              },
+              {
+                "kind": "government",
+                "target": "Current",
+                "property": "navy_tradition"
+              },
+              {
+                "kind": "ideas",
+                "target": "Current",
+                "property": "navy_tradition"
+              },
+              {
+                "kind": "estates",
+                "target": "Current",
+                "property": "navy_tradition"
+              },
+              {
+                "kind": "metrics",
+                "target": "Current",
+                "property": "navy_tradition"
+              },
+              {
+                "kind": "affiliation_modifiers",
+                "dimension": "religion",
+                "target": "Current",
+                "scope": "country",
+                "property": "navy_tradition"
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "result_quantum_micros": 1000,
+        "unresolved": []
       }
     },
     "1": {
@@ -1086,6 +1207,127 @@
         ],
         "minimum_micros": null,
         "maximum_micros": null,
+        "unresolved": []
+      },
+      "yearly_navy_tradition_change": {
+        "base": {
+          "kind": "constant",
+          "micros": 0
+        },
+        "channels": [
+          {
+            "flat": [
+              {
+                "kind": "scale",
+                "factor_micros": -1000000,
+                "term": {
+                  "kind": "numeric",
+                  "source": "current_navy_tradition",
+                  "target": "Current",
+                  "slot": {
+                    "Metric": "navy_tradition"
+                  },
+                  "micros_per_unit": 1000
+                }
+              }
+            ],
+            "rates": [
+              {
+                "kind": "constant",
+                "source": "navy_tradition_decay_response",
+                "micros": -1000000
+              },
+              {
+                "kind": "clamp_minimum",
+                "source": "navy_tradition_decay_floor",
+                "minimum_micros": 0,
+                "term": {
+                  "kind": "truncated_sum",
+                  "source": "navy_tradition_decay_rate",
+                  "quantum_micros": 1000,
+                  "terms": [
+                    {
+                      "kind": "unknown",
+                      "reason": "navy_tradition:missing_base_decay"
+                    },
+                    {
+                      "kind": "modifiers",
+                      "target": "Current",
+                      "property": "navy_tradition_decay"
+                    },
+                    {
+                      "kind": "government",
+                      "target": "Current",
+                      "property": "navy_tradition_decay"
+                    },
+                    {
+                      "kind": "ideas",
+                      "target": "Current",
+                      "property": "navy_tradition_decay"
+                    },
+                    {
+                      "kind": "estates",
+                      "target": "Current",
+                      "property": "navy_tradition_decay"
+                    },
+                    {
+                      "kind": "metrics",
+                      "target": "Current",
+                      "property": "navy_tradition_decay"
+                    },
+                    {
+                      "kind": "affiliation_modifiers",
+                      "dimension": "religion",
+                      "target": "Current",
+                      "scope": "country",
+                      "property": "navy_tradition_decay"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "flat": [
+              {
+                "kind": "modifiers",
+                "target": "Current",
+                "property": "navy_tradition"
+              },
+              {
+                "kind": "government",
+                "target": "Current",
+                "property": "navy_tradition"
+              },
+              {
+                "kind": "ideas",
+                "target": "Current",
+                "property": "navy_tradition"
+              },
+              {
+                "kind": "estates",
+                "target": "Current",
+                "property": "navy_tradition"
+              },
+              {
+                "kind": "metrics",
+                "target": "Current",
+                "property": "navy_tradition"
+              },
+              {
+                "kind": "affiliation_modifiers",
+                "dimension": "religion",
+                "target": "Current",
+                "scope": "country",
+                "property": "navy_tradition"
+              }
+            ],
+            "rates": []
+          }
+        ],
+        "minimum_micros": null,
+        "maximum_micros": null,
+        "result_quantum_micros": 1000,
         "unresolved": []
       }
     },

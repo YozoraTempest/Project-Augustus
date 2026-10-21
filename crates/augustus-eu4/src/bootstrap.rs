@@ -2985,6 +2985,11 @@ impl VanillaWorld {
         for (entity, values) in prestige.entities {
             metrics.entities.entry(entity).or_default().extend(values);
         }
+        let navy_tradition = crate::navy_tradition::metrics(&initial, &attribute_draft);
+        metrics.definitions.extend(navy_tradition.definitions);
+        for (entity, values) in navy_tradition.entities {
+            metrics.entities.entry(entity).or_default().extend(values);
+        }
         let liberty_metrics = crate::liberty_desire::metrics(
             &initial,
             report.start_date,
@@ -3070,6 +3075,7 @@ impl VanillaWorld {
             crate::power_income::apply_external(&initial, &mut attributes, values)?;
         }
         crate::prestige::bind(&initial, &mut attributes, &mut accruals);
+        crate::navy_tradition::bind(&initial, &mut attributes, &mut accruals);
         let convergence = crate::liberty_desire::bind(
             &files,
             &defines,

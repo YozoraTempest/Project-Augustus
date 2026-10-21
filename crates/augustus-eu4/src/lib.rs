@@ -33,6 +33,7 @@ mod liberty_desire;
 mod load;
 mod missions;
 mod monarch_power;
+mod navy_tradition;
 mod power_income;
 mod prestige;
 mod truces;

@@ -94,6 +94,16 @@
       "modifier": null,
       "unresolved_properties": [],
       "growth_ceiling": false
+    },
+    "navy_tradition": {
+      "kind": "Country",
+      "minimum": 0,
+      "maximum": 100000,
+      "baseline": 0,
+      "divisor": 100000,
+      "modifier": null,
+      "unresolved_properties": [],
+      "growth_ceiling": false
     }
   },
   "entities": {
@@ -120,14 +130,16 @@
       "adm_power": null,
       "mil_power": null,
       "temporary_liberty_desire": 0,
-      "prestige": null
+      "prestige": null,
+      "navy_tradition": null
     },
     "1": {
       "stability": 0,
       "adm_power": null,
       "mil_power": null,
       "temporary_liberty_desire": 0,
-      "prestige": null
+      "prestige": null,
+      "navy_tradition": null
     }
   },
   "ceilings": {

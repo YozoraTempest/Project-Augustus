@@ -85,6 +85,12 @@ pub enum AttributeTerm {
         factor_micros: i64,
         term: Box<AttributeTerm>,
     },
+    /// Keep a subexpression at or above a floor while retaining its inputs.
+    ClampMinimum {
+        source: String,
+        minimum_micros: i64,
+        term: Box<AttributeTerm>,
+    },
     Conditional {
         condition: Box<Condition>,
         then: Vec<AttributeTerm>,
@@ -644,6 +650,31 @@ impl Attributes {
                 let adjustment = narrow(expected - scaled_total)?;
                 if adjustment != 0 {
                     values.push(("scale".into(), "truncation".into(), adjustment));
+                }
+                return Ok((values, known));
+            }
+            AttributeTerm::ClampMinimum {
+                source,
+                minimum_micros,
+                term,
+            } => {
+                if source.is_empty() {
+                    return Err(Error::Invalid("invalid attribute minimum clamp".into()));
+                }
+                let (contributions, known) =
+                    self.resolve(world, entity, term, unresolved, depth + 1)?;
+                let mut total = 0_i128;
+                for (source, property, micros) in contributions {
+                    total = total
+                        .checked_add(i128::from(micros))
+                        .ok_or(Error::Overflow)?;
+                    values.push((source, property, micros));
+                }
+                let adjustment = i128::from(*minimum_micros)
+                    .checked_sub(total)
+                    .ok_or(Error::Overflow)?;
+                if adjustment > 0 {
+                    values.push((source.clone(), "minimum_clamp".into(), narrow(adjustment)?));
                 }
                 return Ok((values, known));
             }
@@ -1310,6 +1341,10 @@ impl Attributes {
                         AttributeTerm::Scale { term, .. } => {
                             terms.push((term, is_rate));
                             true
+                        }
+                        AttributeTerm::ClampMinimum { source, term, .. } => {
+                            terms.push((term, is_rate));
+                            !source.is_empty()
                         }
                         AttributeTerm::Conditional {
                             condition,

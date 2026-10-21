@@ -2906,11 +2906,9 @@ trade={
         .unwrap();
         let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
         let bound_state = save.state.state_for_world(&baseline).unwrap();
-        assert!(
-            !bound_state
-                .country_metric_values
-                .get("AAA")
-                .is_some_and(|metrics| metrics.contains_key("navy_tradition"))
+        assert_eq!(
+            bound_state.country_metric_values["AAA"]["navy_tradition"],
+            Some(9_000)
         );
         assert_eq!(
             ordered.trade_node_order_for_world(&baseline),
