@@ -231,6 +231,13 @@
                     "property": "country_admin_power"
                   },
                   {
+                    "kind": "affiliation_modifiers",
+                    "dimension": "religion",
+                    "target": "Current",
+                    "scope": "country",
+                    "property": "country_admin_power"
+                  },
+                  {
                     "kind": "ideas",
                     "target": "Current",
                     "property": "country_admin_power"
@@ -310,6 +317,13 @@
                     "property": "country_diplomatic_power"
                   },
                   {
+                    "kind": "affiliation_modifiers",
+                    "dimension": "religion",
+                    "target": "Current",
+                    "scope": "country",
+                    "property": "country_diplomatic_power"
+                  },
+                  {
                     "kind": "ideas",
                     "target": "Current",
                     "property": "country_diplomatic_power"
@@ -386,6 +400,13 @@
                   {
                     "kind": "government",
                     "target": "Current",
+                    "property": "country_military_power"
+                  },
+                  {
+                    "kind": "affiliation_modifiers",
+                    "dimension": "religion",
+                    "target": "Current",
+                    "scope": "country",
                     "property": "country_military_power"
                   },
                   {
@@ -817,6 +838,13 @@
                     "property": "country_admin_power"
                   },
                   {
+                    "kind": "affiliation_modifiers",
+                    "dimension": "religion",
+                    "target": "Current",
+                    "scope": "country",
+                    "property": "country_admin_power"
+                  },
+                  {
                     "kind": "ideas",
                     "target": "Current",
                     "property": "country_admin_power"
@@ -896,6 +924,13 @@
                     "property": "country_diplomatic_power"
                   },
                   {
+                    "kind": "affiliation_modifiers",
+                    "dimension": "religion",
+                    "target": "Current",
+                    "scope": "country",
+                    "property": "country_diplomatic_power"
+                  },
+                  {
                     "kind": "ideas",
                     "target": "Current",
                     "property": "country_diplomatic_power"
@@ -972,6 +1007,13 @@
                   {
                     "kind": "government",
                     "target": "Current",
+                    "property": "country_military_power"
+                  },
+                  {
+                    "kind": "affiliation_modifiers",
+                    "dimension": "religion",
+                    "target": "Current",
+                    "scope": "country",
                     "property": "country_military_power"
                   },
                   {

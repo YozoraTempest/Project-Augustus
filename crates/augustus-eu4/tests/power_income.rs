@@ -335,6 +335,37 @@ fn history_focus_defines_and_unknown_producers_are_reported_without_guessed_stoc
 }
 
 #[test]
+fn religion_country_power_modifiers_join_the_truncated_country_sources() {
+    let temp = copy_fixture();
+    let religions = temp.path().join("common/religions/test.txt");
+    fs::write(
+        &religions,
+        "test_religions = { test_faith = { country = { country_admin_power = 1 } } }",
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let world = loaded.initial.world();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let income = world
+        .attributes()
+        .evaluate(world, country, "monthly_adm")
+        .unwrap();
+    assert!(income.steps.iter().any(|step| {
+        step.contributions.iter().any(|source| {
+            source.source == "affiliation:religion:country:test_faith"
+                && source.property == "country_admin_power"
+                && source.micros == 1_000_000
+        })
+    }));
+    assert!(
+        income
+            .unresolved
+            .contains("power_income:remaining_sources_not_bound")
+    );
+}
+
+#[test]
 fn plaintext_save_advisors_feed_the_supported_monthly_power_sources() {
     let temp = copy_fixture();
     fs::create_dir_all(temp.path().join("common/advisortypes")).unwrap();

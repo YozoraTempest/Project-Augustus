@@ -108,6 +108,12 @@ pub(super) fn bind(
                                     target: Target::Current,
                                     property: property.into(),
                                 },
+                                AttributeTerm::AffiliationModifiers {
+                                    dimension: "religion".into(),
+                                    target: Target::Current,
+                                    scope: "country".into(),
+                                    property: property.into(),
+                                },
                                 AttributeTerm::Ideas {
                                     target: Target::Current,
                                     property: property.into(),
