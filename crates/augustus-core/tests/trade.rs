@@ -2,15 +2,17 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    VanillaTradeCandidate, VanillaTradeCaravanInput, VanillaTradeDistributionCandidate,
-    VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput,
-    VanillaTradeIncomePassInput, VanillaTradePowerAmountInput, VanillaTradePowerModifierInput,
-    VanillaTradePropagationInput, VanillaTradeRetentionInput, VanillaTradeRouteWeightInput,
+    VanillaTradeAttachedModifierGroup, VanillaTradeCandidate, VanillaTradeCaravanInput,
+    VanillaTradeDistributionCandidate, VanillaTradeDistributionInput,
+    VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput, VanillaTradeIncomePassInput,
+    VanillaTradePowerAmountInput, VanillaTradePowerModifierInput, VanillaTradePropagationInput,
+    VanillaTradeRetentionInput, VanillaTradeRouteWeightInput, VanillaTradeSteeringModifierInput,
     calculate_vanilla_trade_caravan, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
     calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
-    calculate_vanilla_trade_route_weights, sort_vanilla_trade_candidates,
+    calculate_vanilla_trade_route_weights, calculate_vanilla_trade_steering_modifier,
+    sort_vanilla_trade_candidates,
 };
 
 #[test]
@@ -540,45 +542,127 @@ fn trade_distribution_does_not_debit_source_when_all_routes_are_zero() {
 }
 
 #[test]
+fn trade_steering_modifier_uses_the_first_matching_country_group() {
+    let result = calculate_vanilla_trade_steering_modifier(VanillaTradeSteeringModifierInput {
+        country_id: 145,
+        country_context_modifier_milli: 10,
+        attached_modifiers_active: true,
+        attached_modifier_groups: vec![
+            VanillaTradeAttachedModifierGroup {
+                country_id: 829,
+                modifiers_milli: vec![100],
+            },
+            VanillaTradeAttachedModifierGroup {
+                country_id: 145,
+                modifiers_milli: vec![2, 3],
+            },
+            VanillaTradeAttachedModifierGroup {
+                country_id: 145,
+                modifiers_milli: vec![900],
+            },
+        ],
+    });
+
+    assert_eq!(result.country_context_modifier_milli, 10);
+    assert_eq!(result.attached_modifier_milli, 5);
+    assert_eq!(result.modifier_milli, 15);
+}
+
+#[test]
+fn trade_steering_modifier_skips_disabled_and_unmatched_groups() {
+    let disabled = calculate_vanilla_trade_steering_modifier(VanillaTradeSteeringModifierInput {
+        country_id: 145,
+        country_context_modifier_milli: 25,
+        attached_modifiers_active: false,
+        attached_modifier_groups: vec![VanillaTradeAttachedModifierGroup {
+            country_id: 145,
+            modifiers_milli: vec![400],
+        }],
+    });
+    assert_eq!(disabled.attached_modifier_milli, 0);
+    assert_eq!(disabled.modifier_milli, 25);
+
+    let unmatched = calculate_vanilla_trade_steering_modifier(VanillaTradeSteeringModifierInput {
+        country_id: 145,
+        country_context_modifier_milli: 25,
+        attached_modifiers_active: true,
+        attached_modifier_groups: vec![VanillaTradeAttachedModifierGroup {
+            country_id: 829,
+            modifiers_milli: vec![400],
+        }],
+    });
+    assert_eq!(unmatched.attached_modifier_milli, 0);
+    assert_eq!(unmatched.modifier_milli, 25);
+}
+
+#[test]
+fn trade_steering_modifier_wraps_attached_value_accumulation() {
+    let attached_wrap =
+        calculate_vanilla_trade_steering_modifier(VanillaTradeSteeringModifierInput {
+            country_id: 145,
+            country_context_modifier_milli: 0,
+            attached_modifiers_active: true,
+            attached_modifier_groups: vec![VanillaTradeAttachedModifierGroup {
+                country_id: 145,
+                modifiers_milli: vec![i32::MAX, 1],
+            }],
+        });
+
+    assert_eq!(attached_wrap.attached_modifier_milli, i32::MIN);
+    assert_eq!(attached_wrap.modifier_milli, i32::MIN);
+
+    let context_wrap =
+        calculate_vanilla_trade_steering_modifier(VanillaTradeSteeringModifierInput {
+            country_id: 145,
+            country_context_modifier_milli: i32::MAX,
+            attached_modifiers_active: true,
+            attached_modifier_groups: vec![VanillaTradeAttachedModifierGroup {
+                country_id: 145,
+                modifiers_milli: vec![1],
+            }],
+        });
+    assert_eq!(context_wrap.modifier_milli, i32::MIN);
+}
+
+#[test]
 fn trade_distribution_replays_observed_pest_and_krakow_inflows_to_wien() {
     let candidates = || {
-        vec![
-            VanillaTradeDistributionCandidate {
-                country_id: 145,
-                adjusted_amount_milli: 67_299,
-                unadjusted_amount_milli: 65_658,
-                transfer_modifier_milli: 1_025,
-                global_multiplier_milli: 50,
-            },
-            VanillaTradeDistributionCandidate {
-                country_id: 829,
-                adjusted_amount_milli: 12_732,
-                unadjusted_amount_milli: 12_732,
-                transfer_modifier_milli: 1_000,
-                global_multiplier_milli: 50,
-            },
-            VanillaTradeDistributionCandidate {
-                country_id: 830,
-                adjusted_amount_milli: 10_963,
-                unadjusted_amount_milli: 10_963,
-                transfer_modifier_milli: 1_000,
-                global_multiplier_milli: 50,
-            },
-            VanillaTradeDistributionCandidate {
-                country_id: 836,
-                adjusted_amount_milli: 10_729,
-                unadjusted_amount_milli: 10_729,
-                transfer_modifier_milli: 1_000,
-                global_multiplier_milli: 50,
-            },
-            VanillaTradeDistributionCandidate {
-                country_id: 828,
-                adjusted_amount_milli: 10_610,
-                unadjusted_amount_milli: 10_610,
-                transfer_modifier_milli: 1_000,
-                global_multiplier_milli: 50,
-            },
+        let transfer_factor = |country_id| {
+            let country_context_modifier_milli = if country_id == 145 { 25 } else { 0 };
+            let modifier =
+                calculate_vanilla_trade_steering_modifier(VanillaTradeSteeringModifierInput {
+                    country_id,
+                    country_context_modifier_milli,
+                    attached_modifiers_active: true,
+                    attached_modifier_groups: vec![VanillaTradeAttachedModifierGroup {
+                        country_id: 145,
+                        modifiers_milli: vec![0],
+                    }],
+                });
+            1_000_i32.wrapping_add(modifier.modifier_milli)
+        };
+        assert_eq!(transfer_factor(145), 1_025);
+
+        [
+            (145, 67_299, 65_658),
+            (829, 12_732, 12_732),
+            (830, 10_963, 10_963),
+            (836, 10_729, 10_729),
+            (828, 10_610, 10_610),
         ]
+        .into_iter()
+        .map(
+            |(country_id, adjusted_amount_milli, unadjusted_amount_milli)| {
+                VanillaTradeDistributionCandidate {
+                    country_id,
+                    adjusted_amount_milli,
+                    unadjusted_amount_milli,
+                    transfer_modifier_milli: transfer_factor(country_id),
+                    global_multiplier_milli: 50,
+                }
+            },
+        )
+        .collect()
     };
     let route = |weight_milli, node_value_milli| VanillaTradeDistributionRouteInput {
         weight_milli,

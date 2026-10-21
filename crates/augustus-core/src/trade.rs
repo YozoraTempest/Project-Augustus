@@ -514,6 +514,72 @@ pub fn sort_vanilla_trade_candidates(candidates: &mut [VanillaTradeCandidate]) {
     });
 }
 
+/// A normalized set of trade modifiers attached to one country.
+///
+/// The compatibility layer resolves each entry through the country's modifier
+/// context before passing the values to the core.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeAttachedModifierGroup {
+    pub country_id: i16,
+    pub modifiers_milli: Vec<i32>,
+}
+
+/// Inputs for the verified country and attached-source steering modifier.
+///
+/// When attached modifiers are active, only the first matching country group
+/// contributes. The compatibility layer resolves source activation and the
+/// modifier values; the core preserves the native accumulation order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeSteeringModifierInput {
+    pub country_id: i16,
+    pub country_context_modifier_milli: i32,
+    pub attached_modifiers_active: bool,
+    pub attached_modifier_groups: Vec<VanillaTradeAttachedModifierGroup>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaTradeSteeringModifierResult {
+    pub country_context_modifier_milli: i32,
+    pub attached_modifier_milli: i32,
+    pub modifier_milli: i32,
+}
+
+/// Combines the verified country-context and attached-source modifiers.
+///
+/// Entries in the first matching country group are accumulated with 32-bit
+/// wrapping. Disabled or unmatched attached sources contribute zero.
+pub fn calculate_vanilla_trade_steering_modifier(
+    input: VanillaTradeSteeringModifierInput,
+) -> VanillaTradeSteeringModifierResult {
+    let attached_modifier = if input.attached_modifiers_active {
+        input
+            .attached_modifier_groups
+            .iter()
+            .find(|group| group.country_id == input.country_id)
+            .map(|group| {
+                group
+                    .modifiers_milli
+                    .iter()
+                    .copied()
+                    .fold(0_i32, i32::wrapping_add)
+            })
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let modifier = input
+        .country_context_modifier_milli
+        .wrapping_add(attached_modifier);
+
+    VanillaTradeSteeringModifierResult {
+        country_context_modifier_milli: input.country_context_modifier_milli,
+        attached_modifier_milli: attached_modifier,
+        modifier_milli: modifier,
+    }
+}
+
 /// A candidate already resolved by the compatibility layer for one outgoing
 /// route. The layer supplies the effective amount used by the native ordering
 /// and the two modifiers that the distribution stage combines. It does not
