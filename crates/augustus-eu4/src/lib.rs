@@ -129,8 +129,12 @@ pub use load::{ContentSet, ContentSource, FileCandidate, FileOrigin, FileTrace, 
 pub use politics::{RelationSource, RelationView};
 pub use religious_schools::ReligiousSchoolReport;
 pub use save_state::{
-    VanillaSaveState, VanillaSaveStateWithTradeNodeRuntimeStates, VanillaSaveStateWithTradeNodes,
-    read_vanilla_save_state, read_vanilla_save_state_and_trade_node_runtime_states,
+    VanillaSaveState, VanillaSaveStateWithOrderedTradeNodeRuntimeStates,
+    VanillaSaveStateWithTradeNodeRuntimeStates, VanillaSaveStateWithTradeNodes,
+    read_vanilla_save_state, read_vanilla_save_state_and_ordered_trade_node_runtime_states,
+    read_vanilla_save_state_and_ordered_trade_node_runtime_states_with_token_map,
+    read_vanilla_save_state_and_ordered_trade_node_runtime_states_with_token_resolver,
+    read_vanilla_save_state_and_trade_node_runtime_states,
     read_vanilla_save_state_and_trade_node_runtime_states_with_token_map,
     read_vanilla_save_state_and_trade_node_runtime_states_with_token_resolver,
     read_vanilla_save_state_and_trade_nodes,

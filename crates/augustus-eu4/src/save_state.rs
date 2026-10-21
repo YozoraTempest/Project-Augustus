@@ -96,6 +96,28 @@ impl VanillaSaveStateWithTradeNodeRuntimeStates {
     }
 }
 
+/// Supported save state with trade nodes in their serialized order.
+///
+/// This preserves save sequence without claiming it is the runtime scheduler
+/// order for every EU4 version or ruleset.
+#[derive(Debug, Clone, Serialize)]
+pub struct VanillaSaveStateWithOrderedTradeNodeRuntimeStates {
+    pub save: VanillaSaveStateWithTradeNodeRuntimeStates,
+    pub trade_node_order: Vec<String>,
+}
+
+impl VanillaSaveStateWithOrderedTradeNodeRuntimeStates {
+    /// Returns saved node names in serialized order, filtered to loaded content.
+    pub fn trade_node_order_for_world(&self, world: &VanillaWorld) -> Vec<String> {
+        let nodes = &world.initial.world().economy().trade_nodes;
+        self.trade_node_order
+            .iter()
+            .filter(|name| nodes.contains_key(*name))
+            .cloned()
+            .collect()
+    }
+}
+
 impl VanillaSaveState {
     /// Translate the save into a state bundle accepted by a loaded content set.
     ///
@@ -484,7 +506,8 @@ impl VanillaSaveState {
 
 /// Read supported state from an EU4 text save or a ZIP-wrapped text save.
 pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveState, Error> {
-    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, false).map(|save| save.state)
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, false)
+        .map(|save| save.save.state)
 }
 
 /// Read supported state and current trade-node values from an EU4 save.
@@ -503,6 +526,13 @@ pub fn read_vanilla_save_state_and_trade_nodes(
 pub fn read_vanilla_save_state_and_trade_node_runtime_states(
     path: impl AsRef<Path>,
 ) -> Result<VanillaSaveStateWithTradeNodeRuntimeStates, Error> {
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, true).map(|save| save.save)
+}
+
+/// Read supported state and trade nodes in their serialized save order.
+pub fn read_vanilla_save_state_and_ordered_trade_node_runtime_states(
+    path: impl AsRef<Path>,
+) -> Result<VanillaSaveStateWithOrderedTradeNodeRuntimeStates, Error> {
     read_vanilla_save_state_inner_thread(path.as_ref(), None, None, true)
 }
 
@@ -516,7 +546,7 @@ pub fn read_vanilla_save_state_with_token_map(
     token_map_path: impl AsRef<Path>,
 ) -> Result<VanillaSaveState, Error> {
     read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()), None, false)
-        .map(|save| save.state)
+        .map(|save| save.save.state)
 }
 
 /// Read supported state and current trade-node values using a player-provided binary token map.
@@ -537,6 +567,15 @@ pub fn read_vanilla_save_state_and_trade_node_runtime_states_with_token_map(
     token_map_path: impl AsRef<Path>,
 ) -> Result<VanillaSaveStateWithTradeNodeRuntimeStates, Error> {
     read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()), None, true)
+        .map(|save| save.save)
+}
+
+/// Read saved trade-node order using a player-provided binary token map.
+pub fn read_vanilla_save_state_and_ordered_trade_node_runtime_states_with_token_map(
+    path: impl AsRef<Path>,
+    token_map_path: impl AsRef<Path>,
+) -> Result<VanillaSaveStateWithOrderedTradeNodeRuntimeStates, Error> {
+    read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()), None, true)
 }
 
 /// Read supported state using an integration-provided token resolver.
@@ -552,7 +591,7 @@ where
     R: TokenResolver + Send + 'static,
 {
     read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), false)
-        .map(|save| save.state)
+        .map(|save| save.save.state)
 }
 
 /// Read supported state and current trade-node values using an integration-provided token resolver.
@@ -579,6 +618,18 @@ where
     R: TokenResolver + Send + 'static,
 {
     read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), true)
+        .map(|save| save.save)
+}
+
+/// Read saved trade-node order using an integration-provided token resolver.
+pub fn read_vanilla_save_state_and_ordered_trade_node_runtime_states_with_token_resolver<R>(
+    path: impl AsRef<Path>,
+    resolver: R,
+) -> Result<VanillaSaveStateWithOrderedTradeNodeRuntimeStates, Error>
+where
+    R: TokenResolver + Send + 'static,
+{
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), true)
 }
 
 fn read_vanilla_save_state_inner_thread(
@@ -586,7 +637,7 @@ fn read_vanilla_save_state_inner_thread(
     token_map_path: Option<&Path>,
     token_resolver: Option<SaveTokenResolver>,
     capture_trade_nodes: bool,
-) -> Result<VanillaSaveStateWithTradeNodeRuntimeStates, Error> {
+) -> Result<VanillaSaveStateWithOrderedTradeNodeRuntimeStates, Error> {
     let path = path.to_path_buf();
     let token_map_path = token_map_path.map(Path::to_path_buf);
     let parser_path = path.clone();
@@ -614,7 +665,7 @@ fn read_vanilla_save_state_inner(
     token_map_path: Option<&Path>,
     token_resolver: &mut Option<SaveTokenResolver>,
     capture_trade_nodes: bool,
-) -> Result<VanillaSaveStateWithTradeNodeRuntimeStates, Error> {
+) -> Result<VanillaSaveStateWithOrderedTradeNodeRuntimeStates, Error> {
     let documents = read_eu4_save_documents(path, token_map_path, token_resolver)?;
     let parsed = documents.game_state.parse()?;
     let metadata = documents
@@ -653,6 +704,7 @@ fn read_vanilla_save_state_inner(
     let mut external_state = VanillaExternalState::default();
     let mut current_trade_node_values_milli = BTreeMap::new();
     let mut trade_node_runtime_states = BTreeMap::new();
+    let mut trade_node_order = Vec::new();
     if capture_trade_nodes && let Some(trade) = optional_object(&parsed, &root, "trade")? {
         for (key, op, value) in trade.fields() {
             if key.read_string() != "node" {
@@ -679,7 +731,8 @@ fn read_vanilla_save_state_inner(
                     format!("duplicate saved trade node {name}"),
                 ));
             }
-            trade_node_runtime_states.insert(name, state);
+            trade_node_runtime_states.insert(name.clone(), state);
+            trade_node_order.push(name);
         }
     }
     if let Some(change_price) = optional_object(&parsed, &root, "change_price")? {
@@ -1202,15 +1255,18 @@ fn read_vanilla_save_state_inner(
         }
     }
 
-    Ok(VanillaSaveStateWithTradeNodeRuntimeStates {
-        state: VanillaSaveState {
-            date,
-            player,
-            players,
-            external_state,
+    Ok(VanillaSaveStateWithOrderedTradeNodeRuntimeStates {
+        save: VanillaSaveStateWithTradeNodeRuntimeStates {
+            state: VanillaSaveState {
+                date,
+                player,
+                players,
+                external_state,
+            },
+            current_trade_node_values_milli,
+            trade_node_runtime_states,
         },
-        current_trade_node_values_milli,
-        trade_node_runtime_states,
+        trade_node_order,
     })
 }
 
@@ -1774,6 +1830,7 @@ fn saved_government_mechanic_powers(
 mod tests {
     use super::{
         NationalFocus, RulerSkill, read_vanilla_save_state,
+        read_vanilla_save_state_and_ordered_trade_node_runtime_states,
         read_vanilla_save_state_and_trade_node_runtime_states,
         read_vanilla_save_state_and_trade_nodes,
         read_vanilla_save_state_and_trade_nodes_with_token_resolver,
@@ -2797,6 +2854,12 @@ trade={
         .unwrap();
 
         let save = read_vanilla_save_state_and_trade_node_runtime_states(&save_path).unwrap();
+        let ordered =
+            read_vanilla_save_state_and_ordered_trade_node_runtime_states(&save_path).unwrap();
+        assert_eq!(
+            ordered.trade_node_order,
+            ["river", "harbor", "missing_node"]
+        );
         assert_eq!(save.current_trade_node_values_milli["river"], Some(1_234));
         assert_eq!(save.current_trade_node_values_milli["harbor"], Some(0));
         assert_eq!(
@@ -2831,6 +2894,10 @@ trade={
         )])
         .unwrap();
         let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        assert_eq!(
+            ordered.trade_node_order_for_world(&baseline),
+            ["river", "harbor"]
+        );
         let trade_nodes = save.trade_node_current_values_for_world(&baseline);
         assert_eq!(trade_nodes.len(), 2);
         assert_eq!(trade_nodes["river"], Some(1_234));
