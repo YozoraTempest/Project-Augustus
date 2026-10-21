@@ -2,10 +2,34 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, Calendar, DailyEventCountry, DailyEventGroup, EntityId, EntityKind, Error,
+    Action, Calendar, DailyEventCountry, DailyEventGroup, DailySystem, EntityId, EntityKind, Error,
     EventCatalog, EventDefinition, EventOption, MonthlySystem, Schema, World, WorldDate,
     YearlyEventRules, YearlySystem,
 };
+
+struct DailyRecorder {
+    country: EntityId,
+}
+
+impl DailySystem for DailyRecorder {
+    fn id(&self) -> &str {
+        "test-daily:calendar-boundary"
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        if world.entity(self.country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid("daily recorder requires a country".into()));
+        }
+        Ok(())
+    }
+
+    fn tick(&self, world: &mut World) -> Result<(), Error> {
+        world.execute(
+            self.country,
+            &[Action::Emit(format!("daily:{}", world.day()))],
+        )
+    }
+}
 
 struct MonthlyRecorder {
     country: EntityId,
@@ -120,6 +144,48 @@ fn yearly_phase_runs_after_monthly_on_the_shared_year_boundary() {
     let restored = World::restore(&save, "yearly-test", world.schema()).unwrap();
     assert_eq!(restored.monthly_system_id(), Some("test-monthly:1"));
     assert_eq!(restored.yearly_system_id(), Some("test-yearly:1"));
+}
+
+#[test]
+fn eu4_calendar_runs_daily_then_monthly_then_yearly_at_the_new_year_boundary() {
+    let mut world = World::new(Schema::new([] as [&str; 0]).unwrap());
+    let country = world.add_entity("AAA", EntityKind::Country);
+    world
+        .set_calendar(Calendar {
+            start: WorldDate {
+                year: 1444,
+                month: 11,
+                day: 1,
+            },
+            month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+        })
+        .unwrap();
+    let daily = DailyRecorder { country };
+    let monthly = MonthlyRecorder { country };
+    let yearly = YearlyRecorder { country };
+    world.select_daily_system(&daily).unwrap();
+    world.select_monthly_system(&monthly).unwrap();
+    world.select_yearly_system(&yearly).unwrap();
+
+    world
+        .advance_with_systems_and_yearly(61, Some(&daily), Some(&monthly), Some(&yearly))
+        .unwrap();
+
+    assert_eq!(
+        world.date().unwrap(),
+        Some(WorldDate {
+            year: 1445,
+            month: 1,
+            day: 1,
+        })
+    );
+    let messages = world
+        .events()
+        .iter()
+        .map(|event| event.2.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(&messages[29..31], ["daily:30", "monthly:30"]);
+    assert_eq!(&messages[61..64], ["daily:61", "monthly:61", "yearly:61"]);
 }
 
 #[test]
