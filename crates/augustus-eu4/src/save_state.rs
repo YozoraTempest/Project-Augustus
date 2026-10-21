@@ -985,6 +985,13 @@ fn read_vanilla_save_state_inner(
                 .country_metric_values
                 .insert(tag.clone(), metrics);
         }
+        if let Some(value) = optional_milli(&parsed, &country, "navy_tradition")? {
+            external_state
+                .country_metric_values
+                .entry(tag.clone())
+                .or_default()
+                .insert("navy_tradition".into(), Some(value));
+        }
 
         if let Some(value) = optional_scalar(&parsed, &country, "is_at_war")? {
             let at_war = match value.as_str() {
@@ -2825,7 +2832,7 @@ provinces={
 date=1444.11.11
 player=AAA
 countries={
-    AAA={ human=yes }
+    AAA={ human=yes navy_tradition=9.000 }
 }
 provinces={
     -1={ owner="AAA" }
@@ -2854,6 +2861,10 @@ trade={
         .unwrap();
 
         let save = read_vanilla_save_state_and_trade_node_runtime_states(&save_path).unwrap();
+        assert_eq!(
+            save.state.external_state.country_metric_values["AAA"]["navy_tradition"],
+            Some(9_000)
+        );
         let ordered =
             read_vanilla_save_state_and_ordered_trade_node_runtime_states(&save_path).unwrap();
         assert_eq!(
@@ -2894,6 +2905,13 @@ trade={
         )])
         .unwrap();
         let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let bound_state = save.state.state_for_world(&baseline).unwrap();
+        assert!(
+            !bound_state
+                .country_metric_values
+                .get("AAA")
+                .is_some_and(|metrics| metrics.contains_key("navy_tradition"))
+        );
         assert_eq!(
             ordered.trade_node_order_for_world(&baseline),
             ["river", "harbor"]
