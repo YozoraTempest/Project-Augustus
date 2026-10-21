@@ -737,6 +737,24 @@ pub struct TradeNode {
     pub end: Option<bool>,
 }
 
+/// Runtime values saved for one trade node. Missing operands remain unknown.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TradeNodeRuntimeState {
+    pub current_milli: Option<i64>,
+    pub local_value_milli: Option<i64>,
+    pub outgoing_milli: Option<i64>,
+    pub value_added_outgoing_milli: Option<i64>,
+    pub retention_milli: Option<i64>,
+    pub p_pow_milli: Option<i64>,
+    pub max_milli: Option<i64>,
+    pub collector_power_milli: Option<i64>,
+    pub collector_power_including_pirates_milli: Option<i64>,
+    pub pull_power_milli: Option<i64>,
+    pub retain_power_milli: Option<i64>,
+    pub highest_power_milli: Option<i64>,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProvinceEconomy {

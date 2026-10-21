@@ -60,6 +60,42 @@ impl VanillaSaveStateWithTradeNodes {
     }
 }
 
+/// Supported save state plus all currently translated trade-node runtime fields.
+#[derive(Debug, Clone, Serialize)]
+pub struct VanillaSaveStateWithTradeNodeRuntimeStates {
+    pub state: VanillaSaveState,
+    pub current_trade_node_values_milli: BTreeMap<String, Option<i64>>,
+    pub trade_node_runtime_states: BTreeMap<String, augustus_core::TradeNodeRuntimeState>,
+}
+
+impl VanillaSaveStateWithTradeNodeRuntimeStates {
+    /// Keep trade-node values whose definitions exist in the loaded content.
+    pub fn trade_node_current_values_for_world(
+        &self,
+        world: &VanillaWorld,
+    ) -> BTreeMap<String, Option<i64>> {
+        let nodes = &world.initial.world().economy().trade_nodes;
+        self.current_trade_node_values_milli
+            .iter()
+            .filter(|(name, _)| nodes.contains_key(name.as_str()))
+            .map(|(name, value)| (name.clone(), *value))
+            .collect()
+    }
+
+    /// Keep saved runtime fields whose node definitions exist in the content.
+    pub fn trade_node_runtime_states_for_world(
+        &self,
+        world: &VanillaWorld,
+    ) -> BTreeMap<String, augustus_core::TradeNodeRuntimeState> {
+        let nodes = &world.initial.world().economy().trade_nodes;
+        self.trade_node_runtime_states
+            .iter()
+            .filter(|(name, _)| nodes.contains_key(name.as_str()))
+            .map(|(name, state)| (name.clone(), state.clone()))
+            .collect()
+    }
+}
+
 impl VanillaSaveState {
     /// Translate the save into a state bundle accepted by a loaded content set.
     ///
@@ -455,6 +491,18 @@ pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveStat
 pub fn read_vanilla_save_state_and_trade_nodes(
     path: impl AsRef<Path>,
 ) -> Result<VanillaSaveStateWithTradeNodes, Error> {
+    read_vanilla_save_state_and_trade_node_runtime_states(path).map(|save| {
+        VanillaSaveStateWithTradeNodes {
+            state: save.state,
+            current_trade_node_values_milli: save.current_trade_node_values_milli,
+        }
+    })
+}
+
+/// Read supported state and the supported runtime fields for each saved node.
+pub fn read_vanilla_save_state_and_trade_node_runtime_states(
+    path: impl AsRef<Path>,
+) -> Result<VanillaSaveStateWithTradeNodeRuntimeStates, Error> {
     read_vanilla_save_state_inner_thread(path.as_ref(), None, None, true)
 }
 
@@ -476,6 +524,18 @@ pub fn read_vanilla_save_state_and_trade_nodes_with_token_map(
     path: impl AsRef<Path>,
     token_map_path: impl AsRef<Path>,
 ) -> Result<VanillaSaveStateWithTradeNodes, Error> {
+    read_vanilla_save_state_and_trade_node_runtime_states_with_token_map(path, token_map_path).map(
+        |save| VanillaSaveStateWithTradeNodes {
+            state: save.state,
+            current_trade_node_values_milli: save.current_trade_node_values_milli,
+        },
+    )
+}
+
+pub fn read_vanilla_save_state_and_trade_node_runtime_states_with_token_map(
+    path: impl AsRef<Path>,
+    token_map_path: impl AsRef<Path>,
+) -> Result<VanillaSaveStateWithTradeNodeRuntimeStates, Error> {
     read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()), None, true)
 }
 
@@ -503,6 +563,21 @@ pub fn read_vanilla_save_state_and_trade_nodes_with_token_resolver<R>(
 where
     R: TokenResolver + Send + 'static,
 {
+    read_vanilla_save_state_and_trade_node_runtime_states_with_token_resolver(path, resolver).map(
+        |save| VanillaSaveStateWithTradeNodes {
+            state: save.state,
+            current_trade_node_values_milli: save.current_trade_node_values_milli,
+        },
+    )
+}
+
+pub fn read_vanilla_save_state_and_trade_node_runtime_states_with_token_resolver<R>(
+    path: impl AsRef<Path>,
+    resolver: R,
+) -> Result<VanillaSaveStateWithTradeNodeRuntimeStates, Error>
+where
+    R: TokenResolver + Send + 'static,
+{
     read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), true)
 }
 
@@ -511,7 +586,7 @@ fn read_vanilla_save_state_inner_thread(
     token_map_path: Option<&Path>,
     token_resolver: Option<SaveTokenResolver>,
     capture_trade_nodes: bool,
-) -> Result<VanillaSaveStateWithTradeNodes, Error> {
+) -> Result<VanillaSaveStateWithTradeNodeRuntimeStates, Error> {
     let path = path.to_path_buf();
     let token_map_path = token_map_path.map(Path::to_path_buf);
     let parser_path = path.clone();
@@ -539,7 +614,7 @@ fn read_vanilla_save_state_inner(
     token_map_path: Option<&Path>,
     token_resolver: &mut Option<SaveTokenResolver>,
     capture_trade_nodes: bool,
-) -> Result<VanillaSaveStateWithTradeNodes, Error> {
+) -> Result<VanillaSaveStateWithTradeNodeRuntimeStates, Error> {
     let documents = read_eu4_save_documents(path, token_map_path, token_resolver)?;
     let parsed = documents.game_state.parse()?;
     let metadata = documents
@@ -577,6 +652,7 @@ fn read_vanilla_save_state_inner(
 
     let mut external_state = VanillaExternalState::default();
     let mut current_trade_node_values_milli = BTreeMap::new();
+    let mut trade_node_runtime_states = BTreeMap::new();
     if capture_trade_nodes && let Some(trade) = optional_object(&parsed, &root, "trade")? {
         for (key, op, value) in trade.fields() {
             if key.read_string() != "node" {
@@ -592,7 +668,8 @@ fn read_vanilla_save_state_inner(
             let name = optional_scalar(&parsed, &node, "definitions")?
                 .filter(|name| !name.is_empty())
                 .ok_or_else(|| Error::message(parsed.source(), "missing saved trade-node name"))?;
-            let current = optional_milli(&parsed, &node, "current")?;
+            let state = saved_trade_node_runtime_state(&parsed, &node)?;
+            let current = state.current_milli;
             if current_trade_node_values_milli
                 .insert(name.clone(), current)
                 .is_some()
@@ -602,6 +679,7 @@ fn read_vanilla_save_state_inner(
                     format!("duplicate saved trade node {name}"),
                 ));
             }
+            trade_node_runtime_states.insert(name, state);
         }
     }
     if let Some(change_price) = optional_object(&parsed, &root, "change_price")? {
@@ -1124,7 +1202,7 @@ fn read_vanilla_save_state_inner(
         }
     }
 
-    Ok(VanillaSaveStateWithTradeNodes {
+    Ok(VanillaSaveStateWithTradeNodeRuntimeStates {
         state: VanillaSaveState {
             date,
             player,
@@ -1132,6 +1210,7 @@ fn read_vanilla_save_state_inner(
             external_state,
         },
         current_trade_node_values_milli,
+        trade_node_runtime_states,
     })
 }
 
@@ -1424,6 +1503,54 @@ fn optional_milli(
         .transpose()
 }
 
+fn saved_trade_node_runtime_state(
+    parsed: &ParsedText<'_>,
+    reader: &Object<'_, '_>,
+) -> Result<augustus_core::TradeNodeRuntimeState, Error> {
+    let mut state = augustus_core::TradeNodeRuntimeState::default();
+    let mut seen = BTreeSet::new();
+    for (key, operator, value) in reader.fields() {
+        let name = key.read_string();
+        let slot = match name.as_str() {
+            "current" => &mut state.current_milli,
+            "local_value" => &mut state.local_value_milli,
+            "outgoing" => &mut state.outgoing_milli,
+            "value_added_outgoing" => &mut state.value_added_outgoing_milli,
+            "retention" => &mut state.retention_milli,
+            "p_pow" => &mut state.p_pow_milli,
+            "max" => &mut state.max_milli,
+            "collector_power" => &mut state.collector_power_milli,
+            "collector_power_including_pirates" => {
+                &mut state.collector_power_including_pirates_milli
+            }
+            "pull_power" => &mut state.pull_power_milli,
+            "retain_power" => &mut state.retain_power_milli,
+            "highest_power" => &mut state.highest_power_milli,
+            _ => continue,
+        };
+        if operator.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("invalid saved trade-node field {name}"),
+            ));
+        }
+        if !seen.insert(name.clone()) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("duplicate saved trade-node field {name}"),
+            ));
+        }
+        let text = scalar(parsed, &value)?;
+        *slot = Some(signed_milli(&text).ok_or_else(|| {
+            Error::message(
+                parsed.source(),
+                format!("invalid saved decimal field {name}"),
+            )
+        })?);
+    }
+    Ok(state)
+}
+
 fn signed_milli(value: &str) -> Option<i64> {
     let (negative, unsigned) = match value.strip_prefix('-') {
         Some(value) => (true, value),
@@ -1647,6 +1774,7 @@ fn saved_government_mechanic_powers(
 mod tests {
     use super::{
         NationalFocus, RulerSkill, read_vanilla_save_state,
+        read_vanilla_save_state_and_trade_node_runtime_states,
         read_vanilla_save_state_and_trade_nodes,
         read_vanilla_save_state_and_trade_nodes_with_token_resolver,
         read_vanilla_save_state_with_token_map,
@@ -2646,7 +2774,21 @@ provinces={
     -1={ owner="AAA" }
 }
 trade={
-    node={ definitions=river current=1.234 }
+    node={
+        definitions=river
+        current=1.234
+        local_value=5.945
+        outgoing=5.626
+        value_added_outgoing=0.416
+        retention=0.744
+        p_pow=36.912
+        max=163.575
+        collector_power=135.369
+        collector_power_including_pirates=136.369
+        pull_power=46.674
+        retain_power=135.369
+        highest_power=14.880
+    }
     node={ definitions=harbor current=0.000 }
     node={ definitions=missing_node current=9.999 }
 }
@@ -2654,13 +2796,34 @@ trade={
         )
         .unwrap();
 
-        let save = read_vanilla_save_state_and_trade_nodes(&save_path).unwrap();
+        let save = read_vanilla_save_state_and_trade_node_runtime_states(&save_path).unwrap();
         assert_eq!(save.current_trade_node_values_milli["river"], Some(1_234));
         assert_eq!(save.current_trade_node_values_milli["harbor"], Some(0));
         assert_eq!(
             save.current_trade_node_values_milli["missing_node"],
             Some(9_999)
         );
+        let saved_wien = &save.trade_node_runtime_states["river"];
+        assert_eq!(saved_wien.local_value_milli, Some(5_945));
+        assert_eq!(saved_wien.outgoing_milli, Some(5_626));
+        assert_eq!(saved_wien.value_added_outgoing_milli, Some(416));
+        assert_eq!(saved_wien.retention_milli, Some(744));
+        assert_eq!(saved_wien.p_pow_milli, Some(36_912));
+        assert_eq!(saved_wien.max_milli, Some(163_575));
+        assert_eq!(saved_wien.collector_power_milli, Some(135_369));
+        assert_eq!(
+            saved_wien.collector_power_including_pirates_milli,
+            Some(136_369)
+        );
+        assert_eq!(saved_wien.pull_power_milli, Some(46_674));
+        assert_eq!(saved_wien.retain_power_milli, Some(135_369));
+        assert_eq!(saved_wien.highest_power_milli, Some(14_880));
+        let current_only = read_vanilla_save_state_and_trade_nodes(&save_path).unwrap();
+        assert_eq!(
+            current_only.current_trade_node_values_milli["river"],
+            Some(1_234)
+        );
+        assert_eq!(current_only.state.date, save.state.date);
 
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
         let content = ContentSet::resolve(vec![ContentSource::base(
@@ -2673,11 +2836,14 @@ trade={
         assert_eq!(trade_nodes["river"], Some(1_234));
         assert_eq!(trade_nodes["harbor"], Some(0));
         assert!(!trade_nodes.contains_key("missing_node"));
+        let trade_node_states = save.trade_node_runtime_states_for_world(&baseline);
+        assert_eq!(trade_node_states.len(), 2);
+        assert_eq!(trade_node_states["river"].local_value_milli, Some(5_945));
 
         let mut loaded =
             crate::VanillaWorld::load_from_content_with_save_state(&content, &save.state).unwrap();
         loaded
-            .set_vanilla_trade_node_current_values_milli(&trade_nodes)
+            .set_vanilla_trade_node_runtime_states(&trade_node_states)
             .unwrap();
         assert_eq!(
             loaded

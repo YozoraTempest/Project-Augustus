@@ -140,9 +140,17 @@ fn current_trade_node_values_are_runtime_state_and_restore() {
     let economy = economy();
     runtime_world.set_economy(economy).unwrap();
     runtime_world
-        .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
-            ("river".into(), Some(4_748)),
-            ("harbor".into(), None),
+        .set_trade_node_runtime_states(&std::collections::BTreeMap::from([
+            (
+                "river".into(),
+                augustus_core::TradeNodeRuntimeState {
+                    current_milli: Some(4_748),
+                    local_value_milli: Some(5_945),
+                    outgoing_milli: Some(5_626),
+                    ..Default::default()
+                },
+            ),
+            ("harbor".into(), Default::default()),
         ]))
         .unwrap();
 
@@ -166,6 +174,39 @@ fn current_trade_node_values_are_runtime_state_and_restore() {
     )
     .unwrap();
     assert_eq!(restored.economy(), runtime_world.economy());
+    assert_eq!(
+        restored
+            .trade_node_runtime_state("river")
+            .flatten()
+            .unwrap()
+            .local_value_milli,
+        Some(5_945)
+    );
+    assert_eq!(
+        restored
+            .trade_node_runtime_state("river")
+            .flatten()
+            .unwrap()
+            .outgoing_milli,
+        Some(5_626)
+    );
+
+    let mut legacy: serde_json::Value =
+        serde_json::from_str(&runtime_world.save("runtime-trade-node-legacy").unwrap()).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("trade_node_runtime_states");
+    let restored_legacy = World::restore(
+        &legacy.to_string(),
+        "runtime-trade-node-legacy",
+        runtime_world.schema(),
+    )
+    .unwrap();
+    assert_eq!(
+        restored_legacy.trade_node_current_value_milli("river"),
+        Some(Some(4_748))
+    );
 }
 
 #[test]

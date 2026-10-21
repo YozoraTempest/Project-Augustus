@@ -464,7 +464,7 @@ countries={
 	}
 }
 trade={
-	node={ definitions=river current=1.234 }
+    node={ definitions=river current=1.234 local_value=5.945 outgoing=5.626 p_pow=36.912 }
 	node={ definitions=harbor current=0.000 }
 	node={ definitions=missing_node current=9.999 }
 }
@@ -530,6 +530,27 @@ provinces={
             .find(|node| node["id"] == "harbor")
             .unwrap()["current_milli"],
         0
+    );
+    assert_eq!(
+        trade_nodes
+            .iter()
+            .find(|node| node["id"] == "river")
+            .unwrap()["runtime_state"]["local_value_milli"],
+        5_945
+    );
+    assert_eq!(
+        trade_nodes
+            .iter()
+            .find(|node| node["id"] == "river")
+            .unwrap()["runtime_state"]["outgoing_milli"],
+        5_626
+    );
+    assert_eq!(
+        trade_nodes
+            .iter()
+            .find(|node| node["id"] == "river")
+            .unwrap()["runtime_state"]["p_pow_milli"],
+        36_912
     );
     assert!(trade_nodes.iter().all(|node| node["id"] != "missing_node"));
 

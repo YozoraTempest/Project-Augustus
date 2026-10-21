@@ -322,6 +322,13 @@ impl InitialWorld {
         self.world.set_trade_node_current_values_milli(values)
     }
 
+    pub fn set_trade_node_runtime_states(
+        &mut self,
+        values: &BTreeMap<String, crate::TradeNodeRuntimeState>,
+    ) -> Result<(), Error> {
+        self.world.set_trade_node_runtime_states(values)
+    }
+
     pub fn set_attributes(&mut self, attributes: Attributes) -> Result<(), Error> {
         self.world.set_attributes(attributes)
     }

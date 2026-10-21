@@ -128,11 +128,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         .as_ref()
         .map(|path| match cli.eu4_token_map.as_ref() {
             Some(token_map) => {
-                augustus_eu4::read_vanilla_save_state_and_trade_nodes_with_token_map(
+                augustus_eu4::read_vanilla_save_state_and_trade_node_runtime_states_with_token_map(
                     path, token_map,
                 )
             }
-            None => augustus_eu4::read_vanilla_save_state_and_trade_nodes(path),
+            None => augustus_eu4::read_vanilla_save_state_and_trade_node_runtime_states(path),
         })
         .transpose()?;
     let load_snapshot = cli.load.as_ref().map(std::fs::read_to_string).transpose()?;
@@ -190,8 +190,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     if let Some(save) = save_state.as_ref() {
-        let trade_node_values = save.trade_node_current_values_for_world(&loaded);
-        loaded.set_vanilla_trade_node_current_values_milli(&trade_node_values)?;
+        let trade_node_states = save.trade_node_runtime_states_for_world(&loaded);
+        loaded.set_vanilla_trade_node_runtime_states(&trade_node_states)?;
     }
     if let (Some(output_path), Some(save)) =
         (cli.export_external_state.as_ref(), save_state.as_ref())
@@ -400,6 +400,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 "members": node.members.iter().copied().map(&province_id).collect::<Result<Vec<_>, _>>()?,
                 "outgoing": node.outgoing, "inland": node.inland, "end": node.end,
                 "current_milli": loaded.initial.world().trade_node_current_value_milli(id).flatten(),
+                "runtime_state": loaded.initial.world().trade_node_runtime_state(id).flatten(),
             }))
         }).collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
         output["economy"] = serde_json::json!({

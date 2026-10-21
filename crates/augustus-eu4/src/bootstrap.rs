@@ -3778,6 +3778,15 @@ impl VanillaWorld {
             .map_err(|error| Error::caused_by("saved trade-node values", error))
     }
 
+    pub fn set_vanilla_trade_node_runtime_states(
+        &mut self,
+        values: &BTreeMap<String, augustus_core::TradeNodeRuntimeState>,
+    ) -> Result<(), Error> {
+        self.initial
+            .set_trade_node_runtime_states(values)
+            .map_err(|error| Error::caused_by("saved trade-node values", error))
+    }
+
     pub fn province_trade_node_current_milli(&self, id: u32) -> Option<i64> {
         let entity = self.initial.province_entity(id)?;
         let node = self.initial.world().economy().province_node(entity)?;

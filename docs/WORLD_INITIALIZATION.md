@@ -145,7 +145,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 ## 建筑、商品与贸易网络
 
-EU4 存档中的贸易节点 current 会在 --economy 输出的节点条目中以 current_milli 字段显示；未提供时为 null。这是存档中的当前状态，不表示已完成节点刷新或贸易收入结算。
+EU4 存档中已支持的贸易节点运行值会在 --economy 输出各节点的 runtime_state 中显示，数值以千分位整数表示；支持 current、local_value、outgoing、value_added_outgoing、retention、p_pow、max、collector_power、collector_power_including_pirates、pull_power、retain_power 和 highest_power，未提供的字段为 null。它们是存档中的当前状态，不表示已完成下一期节点刷新或国家贸易收入结算。
 
 建筑目录读取明确声明的费用与工期；费用采用千分位整数，工期保留月数，不换算成固定天数。省份历史中以建筑标识为字段的 `yes` / `no` 条目，按开局历史顺序增删建筑。商品目录与价格目录合并为核心定义，保留兼容层观察到的运行时索引、基础价格和声明的金矿类别。运行时索引从 1 开始，按选定内容中 `common/tradegoods` 的定义顺序分配；核心把它当作可选的外部标识，不用它推导动态价格。缺少的费用、工期、价格或类别保持未知，不补默认值。
 

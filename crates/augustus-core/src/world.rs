@@ -13,8 +13,8 @@ use crate::rng::{Eu4Rng, RandomSource};
 use crate::{
     Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryLedger,
     CountryResource, CountryResources, DailySystem, Economy, Error, Governments, Ideas, Modifiers,
-    MonthlySystem, MonthlyTax, Plan, Politics, Target, Taxation, Technology, WorldDate,
-    YearlySystem,
+    MonthlySystem, MonthlyTax, Plan, Politics, Target, Taxation, Technology, TradeNodeRuntimeState,
+    WorldDate, YearlySystem,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -111,7 +111,7 @@ pub struct World {
     pub(crate) global_scopes: BTreeMap<String, EntityId>,
     pub(crate) known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
     economy: Economy,
-    trade_node_current_values_milli: BTreeMap<String, Option<i64>>,
+    trade_node_runtime_states: BTreeMap<String, TradeNodeRuntimeState>,
     technology: Technology,
     pub(crate) unit_selections: crate::unit_selections::UnitSelections,
     unit_templates: crate::UnitTemplates,
@@ -195,8 +195,11 @@ struct Snapshot {
     known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
     #[serde(default, skip_serializing_if = "Economy::is_empty")]
     economy: Economy,
+    // Kept for snapshots written before full trade-node runtime state landed.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     trade_node_current_values_milli: BTreeMap<String, Option<i64>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    trade_node_runtime_states: BTreeMap<String, TradeNodeRuntimeState>,
     #[serde(default, skip_serializing_if = "Technology::is_empty")]
     technology: Technology,
     #[serde(
@@ -307,7 +310,7 @@ impl World {
             global_scopes: BTreeMap::new(),
             known_absent_targets: BTreeMap::new(),
             economy: Economy::default(),
-            trade_node_current_values_milli: BTreeMap::new(),
+            trade_node_runtime_states: BTreeMap::new(),
             technology: Technology::default(),
             unit_selections: crate::unit_selections::UnitSelections::default(),
             unit_templates: crate::UnitTemplates::default(),
@@ -420,13 +423,37 @@ impl World {
     /// Returns the runtime value for a known trade node. The outer None means
     /// the node is unknown; the inner None means no value is available.
     pub fn trade_node_current_value_milli(&self, name: &str) -> Option<Option<i64>> {
+        self.trade_node_runtime_state(name)
+            .map(|state| state.and_then(|state| state.current_milli))
+    }
+
+    /// Returns saved runtime operands for a known node. The outer None means
+    /// the node is unknown; the inner None means the save had no node record.
+    pub fn trade_node_runtime_state(&self, name: &str) -> Option<Option<&TradeNodeRuntimeState>> {
         self.economy.trade_nodes.get(name)?;
-        Some(
-            self.trade_node_current_values_milli
-                .get(name)
-                .copied()
-                .flatten(),
-        )
+        Some(self.trade_node_runtime_states.get(name))
+    }
+
+    /// Replaces saved runtime operands after validating every node name.
+    pub fn set_trade_node_runtime_states(
+        &mut self,
+        values: &BTreeMap<String, TradeNodeRuntimeState>,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        if values
+            .keys()
+            .any(|name| !self.economy.trade_nodes.contains_key(name))
+        {
+            return Err(Error::Invalid(
+                "trade-node runtime state references an unknown node".into(),
+            ));
+        }
+        self.trade_node_runtime_states.extend(
+            values
+                .iter()
+                .map(|(name, state)| (name.clone(), state.clone())),
+        );
+        Ok(())
     }
 
     /// Applies current trade-node values after validating every node name.
@@ -443,8 +470,12 @@ impl World {
                 "current trade-node values reference an unknown node".into(),
             ));
         }
-        self.trade_node_current_values_milli
-            .extend(values.iter().map(|(name, value)| (name.clone(), *value)));
+        for (name, value) in values {
+            self.trade_node_runtime_states
+                .entry(name.clone())
+                .or_default()
+                .current_milli = *value;
+        }
         Ok(())
     }
 
@@ -708,7 +739,7 @@ impl World {
         self.require_running()?;
         economy.validate(self)?;
         if self
-            .trade_node_current_values_milli
+            .trade_node_runtime_states
             .keys()
             .any(|name| !economy.trade_nodes.contains_key(name))
         {
@@ -1335,7 +1366,12 @@ impl World {
             global_scopes: self.global_scopes.clone(),
             known_absent_targets: self.known_absent_targets.clone(),
             economy: self.economy.clone(),
-            trade_node_current_values_milli: self.trade_node_current_values_milli.clone(),
+            trade_node_current_values_milli: self
+                .trade_node_runtime_states
+                .iter()
+                .map(|(name, state)| (name.clone(), state.current_milli))
+                .collect(),
+            trade_node_runtime_states: self.trade_node_runtime_states.clone(),
             technology: self.technology.clone(),
             unit_selections: self.unit_selections.clone(),
             unit_templates: self.unit_templates.clone(),
@@ -1431,6 +1467,19 @@ impl World {
                 ));
             }
         };
+        let mut trade_node_runtime_states = snapshot.trade_node_runtime_states;
+        for (name, current) in &snapshot.trade_node_current_values_milli {
+            let state = trade_node_runtime_states.entry(name.clone()).or_default();
+            if state
+                .current_milli
+                .is_some_and(|value| Some(value) != *current)
+            {
+                return Err(Error::Invalid(
+                    "save trade-node current fields disagree".into(),
+                ));
+            }
+            state.current_milli = *current;
+        }
         let mut world = Self {
             schema: snapshot.schema,
             entities: snapshot.entities,
@@ -1461,7 +1510,7 @@ impl World {
             global_scopes: snapshot.global_scopes,
             known_absent_targets: snapshot.known_absent_targets,
             economy: snapshot.economy,
-            trade_node_current_values_milli: snapshot.trade_node_current_values_milli,
+            trade_node_runtime_states,
             technology: snapshot.technology,
             unit_selections: snapshot.unit_selections,
             unit_templates: snapshot.unit_templates,
@@ -1562,7 +1611,7 @@ impl World {
         world.subjects.validate_counts(&world)?;
         world.economy.validate(&world)?;
         if world
-            .trade_node_current_values_milli
+            .trade_node_runtime_states
             .keys()
             .any(|name| !world.economy.trade_nodes.contains_key(name))
         {
