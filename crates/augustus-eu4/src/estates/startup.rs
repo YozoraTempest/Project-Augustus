@@ -94,6 +94,7 @@ impl Compiler {
                 | "add_devotion"
                 | "add_stability"
                 | "add_prestige"
+                | "add_navy_tradition"
                 | "add_liberty_desire"
                 | "add_truce_with"
                 | "add_manpower"

@@ -1955,6 +1955,15 @@ impl<'a> ScriptCompiler<'a> {
                         value: quantized_decimal(field, "prestige")?,
                     });
                 }
+                "add_navy_tradition" => {
+                    self.power_scope(field, scope, "navy_tradition")?;
+                    plan.push(Action::UpdateNumeric {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Metric("navy_tradition".into()),
+                        operation: augustus_core::NumericOperation::Add,
+                        value: quantized_decimal(field, "navy tradition")?,
+                    });
+                }
                 "add_liberty_desire" => {
                     if scope != EntityKind::Country
                         || !self.metric_ids.contains("temporary_liberty_desire")

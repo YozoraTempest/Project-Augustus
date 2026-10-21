@@ -47,11 +47,40 @@ fn tradition_fixture(modifier: Option<&str>) -> tempfile::TempDir {
     root
 }
 
+fn startup_effect_fixture(effect: &str) -> tempfile::TempDir {
+    let root = tradition_fixture(None);
+    fs::create_dir_all(root.path().join("common/on_actions")).unwrap();
+    fs::write(
+        root.path()
+            .join("common/on_actions/navy_tradition_effect.txt"),
+        format!("on_startup={{if={{limit={{tag=AAA}} {effect}}}}}"),
+    )
+    .unwrap();
+    root
+}
+
 fn initial_values() -> BTreeMap<String, BTreeMap<String, Option<i64>>> {
+    known_navy_tradition(9_000)
+}
+
+fn known_navy_tradition(value: i64) -> BTreeMap<String, BTreeMap<String, Option<i64>>> {
     BTreeMap::from([(
         "AAA".into(),
-        BTreeMap::from([("navy_tradition".into(), Some(9_000))]),
+        BTreeMap::from([("navy_tradition".into(), Some(value))]),
     )])
+}
+
+fn load_with_startup_navy_effect(effect: &str, initial: Option<i64>) -> VanillaWorld {
+    let root = startup_effect_fixture(effect);
+    match initial {
+        Some(value) => VanillaWorld::load_with_country_metric_values(
+            root.path(),
+            "1444.11.11",
+            &known_navy_tradition(value),
+        ),
+        None => VanillaWorld::load(root.path(), "1444.11.11"),
+    }
+    .unwrap()
 }
 
 #[test]
@@ -68,6 +97,65 @@ fn save_import_reads_navy_tradition_in_milli_units() {
     assert_eq!(
         save.external_state.country_metric_values["AAA"]["navy_tradition"],
         Some(9_000)
+    );
+}
+
+#[test]
+fn startup_effect_adds_quantized_navy_tradition_with_bounds_and_unknown_base() {
+    let precise = load_with_startup_navy_effect("add_navy_tradition=1.234", Some(9_000));
+    assert!(
+        precise.report.estates.startup_unresolved.is_empty(),
+        "{:?}",
+        precise.report.estates.startup_unresolved
+    );
+    let precise_country = precise.initial.country_entity("AAA").unwrap();
+    let metric = NumericSlot::Metric("navy_tradition".into());
+    assert_eq!(
+        precise
+            .initial
+            .world()
+            .numeric_value(precise_country, &metric)
+            .unwrap(),
+        10_234
+    );
+
+    let lower_bound = load_with_startup_navy_effect("add_navy_tradition=-20", Some(9_000));
+    let lower_country = lower_bound.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        lower_bound
+            .initial
+            .world()
+            .numeric_value(lower_country, &metric)
+            .unwrap(),
+        0
+    );
+
+    let upper_bound = load_with_startup_navy_effect("add_navy_tradition=2", Some(99_000));
+    let upper_country = upper_bound.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        upper_bound
+            .initial
+            .world()
+            .numeric_value(upper_country, &metric)
+            .unwrap(),
+        100_000
+    );
+
+    let unknown_base = load_with_startup_navy_effect("add_navy_tradition=1.234", None);
+    let unknown_country = unknown_base.initial.country_entity("AAA").unwrap();
+    assert!(
+        unknown_base
+            .initial
+            .world()
+            .numeric_value(unknown_country, &metric)
+            .is_err()
+    );
+    assert_eq!(
+        unknown_base
+            .initial
+            .world()
+            .unbased_numeric_delta(unknown_country, &metric),
+        Some(1_234)
     );
 }
 
