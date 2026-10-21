@@ -6,14 +6,15 @@ use augustus_core::{
     VanillaTradeCountryFlags, VanillaTradeDistributionCandidate,
     VanillaTradeDistributionCandidateInput, VanillaTradeDistributionInput,
     VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput, VanillaTradeIncomePassInput,
-    VanillaTradeOutflowInput, VanillaTradePowerAmountInput, VanillaTradePowerModifierInput,
-    VanillaTradePropagationInput, VanillaTradeRetentionInput,
-    VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
-    VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightInput,
-    VanillaTradeRouteWeightPassInput, VanillaTradeSteeringEligibilityInput,
-    VanillaTradeSteeringModifierInput, calculate_vanilla_trade_caravan,
-    calculate_vanilla_trade_distribution, calculate_vanilla_trade_income,
-    calculate_vanilla_trade_income_pass, calculate_vanilla_trade_outflow,
+    VanillaTradeNodePassInput, VanillaTradeNodeRouteInput, VanillaTradeOutflowInput,
+    VanillaTradePowerAmountInput, VanillaTradePowerModifierInput, VanillaTradePropagationInput,
+    VanillaTradeRetentionInput, VanillaTradeRetentionParticipantInput,
+    VanillaTradeRetentionPassInput, VanillaTradeRouteWeightContributionInput,
+    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightPassInput,
+    VanillaTradeSteeringEligibilityInput, VanillaTradeSteeringModifierInput,
+    calculate_vanilla_trade_caravan, calculate_vanilla_trade_distribution,
+    calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
+    calculate_vanilla_trade_node_pass, calculate_vanilla_trade_outflow,
     calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
     calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weight_pass,
@@ -818,6 +819,131 @@ fn trade_outflow_value_pool_wraps_before_fixed_point_calculation() {
     assert_eq!(result.value_pool_milli, Some(i32::MIN));
     assert_eq!(result.outgoing_amount_milli, i32::MIN);
     assert_eq!(result.distribution_amount_milli, i32::MIN);
+}
+
+#[test]
+fn trade_node_pass_connects_retention_weights_outflow_and_route_distribution() {
+    let collecting = VanillaTradeCountryFlags {
+        special_country: false,
+        ae: true,
+        ac: false,
+        ad: false,
+    };
+    let steering = VanillaTradeCountryFlags {
+        special_country: false,
+        ae: false,
+        ac: false,
+        ad: false,
+    };
+    let route_candidates = |country_id, route_id| {
+        vec![VanillaTradeDistributionCandidateInput {
+            country_id,
+            reference_valid: true,
+            country_flags: VanillaTradeCountryFlags {
+                special_country: false,
+                ae: true,
+                ac: true,
+                ad: false,
+            },
+            route_id,
+            adjusted_amount_milli: 10_000,
+            unadjusted_amount_milli: 10_000,
+            transfer_modifier_milli: 1_000,
+            global_multiplier_milli: 50,
+        }]
+    };
+
+    let result = calculate_vanilla_trade_node_pass(VanillaTradeNodePassInput {
+        source_value_milli: 10_000,
+        retention: VanillaTradeRetentionPassInput {
+            participants: vec![
+                VanillaTradeRetentionParticipantInput {
+                    reference_valid: true,
+                    participation_balance_milli: 1,
+                    effective_amount_milli: 1_200,
+                    country_flags: collecting,
+                    cached_route_eligible: false,
+                },
+                VanillaTradeRetentionParticipantInput {
+                    reference_valid: true,
+                    participation_balance_milli: 1,
+                    effective_amount_milli: 800,
+                    country_flags: steering,
+                    cached_route_eligible: true,
+                },
+            ],
+        },
+        route_weights: VanillaTradeRouteWeightPassInput {
+            marked_routes: vec![true, true],
+            contributions: vec![
+                VanillaTradeRouteWeightContributionInput {
+                    selected_route_id: 0,
+                    effective_amount_milli: 500,
+                    steering_modifier_milli: 0,
+                },
+                VanillaTradeRouteWeightContributionInput {
+                    selected_route_id: 1,
+                    effective_amount_milli: 500,
+                    steering_modifier_milli: 0,
+                },
+            ],
+        },
+        has_downstream_routes: true,
+        node_value_milli: 10_000,
+        base_outgoing_value_milli: 4_000,
+        incoming_transfer_values_milli: vec![1_000],
+        additional_outgoing_multiplier_milli: 100,
+        routes: vec![
+            VanillaTradeNodeRouteInput {
+                route_id: 7,
+                candidates: route_candidates(145, 7),
+            },
+            VanillaTradeNodeRouteInput {
+                route_id: 8,
+                candidates: route_candidates(829, 8),
+            },
+        ],
+    })
+    .unwrap();
+
+    assert_eq!(result.retention.retention.retention_milli, 600);
+    assert_eq!(result.route_weights.weights_milli, [500, 500]);
+    assert_eq!(result.outflow.outgoing_amount_milli, 2_000);
+    assert_eq!(result.outflow.distribution_amount_milli, 2_500);
+    assert_eq!(result.route_ids, [7, 8]);
+    assert_eq!(result.distribution.source_value_milli, 8_000);
+    assert_eq!(result.distribution.distributed_value_milli, 2_624);
+    assert_eq!(
+        result
+            .distribution
+            .routes
+            .iter()
+            .map(|route| route.value_milli)
+            .collect::<Vec<_>>(),
+        [1_312, 1_312]
+    );
+}
+
+#[test]
+fn trade_node_pass_rejects_route_marker_definition_count_mismatch() {
+    let result = calculate_vanilla_trade_node_pass(VanillaTradeNodePassInput {
+        source_value_milli: 0,
+        retention: VanillaTradeRetentionPassInput {
+            participants: Vec::new(),
+        },
+        route_weights: VanillaTradeRouteWeightPassInput {
+            marked_routes: vec![true],
+            contributions: Vec::new(),
+        },
+        has_downstream_routes: false,
+        node_value_milli: 0,
+        base_outgoing_value_milli: 0,
+        incoming_transfer_values_milli: Vec::new(),
+        additional_outgoing_multiplier_milli: 0,
+        routes: Vec::new(),
+    });
+
+    assert!(result.is_err());
 }
 
 #[test]

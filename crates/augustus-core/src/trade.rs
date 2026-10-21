@@ -737,6 +737,97 @@ pub fn calculate_vanilla_trade_outflow(
     }
 }
 
+/// One outgoing route in a trade-node pass, in route declaration order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeNodeRouteInput {
+    pub route_id: i16,
+    pub candidates: Vec<VanillaTradeDistributionCandidateInput>,
+}
+
+/// Inputs for a single native-order trade-node calculation pass.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeNodePassInput {
+    /// Node current value before this node's outgoing distribution.
+    pub source_value_milli: i32,
+    pub retention: VanillaTradeRetentionPassInput,
+    /// Eligible country contributions and route markers for this node.
+    pub route_weights: VanillaTradeRouteWeightPassInput,
+    pub has_downstream_routes: bool,
+    /// Node value operand used by the native outflow gate.
+    pub node_value_milli: i32,
+    pub base_outgoing_value_milli: i32,
+    pub incoming_transfer_values_milli: Vec<i32>,
+    pub additional_outgoing_multiplier_milli: i32,
+    pub routes: Vec<VanillaTradeNodeRouteInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VanillaTradeNodePassResult {
+    pub retention: VanillaTradeRetentionPassResult,
+    pub route_weights: VanillaTradeRouteWeightPassResult,
+    pub outflow: VanillaTradeOutflowResult,
+    /// Route identifiers aligned by declaration order with `distribution.routes`.
+    pub route_ids: Vec<i16>,
+    pub distribution: VanillaTradeDistributionResult,
+}
+
+/// Runs the verified retention, route-weight, outflow, and distribution stages.
+///
+/// Record and route-state production stays in the compatibility layer. This
+/// function preserves the native phase order and feeds each stage's result to
+/// the next one without changing the input route declaration order.
+pub fn calculate_vanilla_trade_node_pass(
+    input: VanillaTradeNodePassInput,
+) -> Result<VanillaTradeNodePassResult, Error> {
+    if input.routes.len() != input.route_weights.marked_routes.len() {
+        return Err(Error::Invalid(
+            "trade node routes and route markers must have equal lengths".into(),
+        ));
+    }
+
+    let retention = calculate_vanilla_trade_retention_pass(input.retention);
+    let route_weights = calculate_vanilla_trade_route_weight_pass(input.route_weights)?;
+    let outflow = calculate_vanilla_trade_outflow(VanillaTradeOutflowInput {
+        has_downstream_routes: input.has_downstream_routes,
+        route_weights_milli: route_weights.weights_milli.clone(),
+        total_effective_amount_milli: retention.total_amount_milli,
+        node_value_milli: input.node_value_milli,
+        base_outgoing_value_milli: input.base_outgoing_value_milli,
+        incoming_transfer_values_milli: input.incoming_transfer_values_milli,
+        retention_milli: retention.retention.retention_milli,
+        additional_outgoing_multiplier_milli: input.additional_outgoing_multiplier_milli,
+    });
+    let route_ids = input.routes.iter().map(|route| route.route_id).collect();
+    let routes = input
+        .routes
+        .into_iter()
+        .zip(route_weights.weights_milli.iter().copied())
+        .map(|(route, weight_milli)| VanillaTradeDistributionRouteInput {
+            weight_milli,
+            node_value_milli: outflow.distribution_amount_milli,
+            candidates: select_vanilla_trade_distribution_candidates(
+                route.route_id,
+                route.candidates,
+            ),
+        })
+        .collect();
+    let distribution = calculate_vanilla_trade_distribution(VanillaTradeDistributionInput {
+        source_value_milli: input.source_value_milli,
+        source_debit_milli: outflow.outgoing_amount_milli,
+        routes,
+    });
+
+    Ok(VanillaTradeNodePassResult {
+        retention,
+        route_weights,
+        outflow,
+        route_ids,
+        distribution,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VanillaTradeCandidate {
