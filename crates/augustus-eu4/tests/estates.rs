@@ -94,6 +94,60 @@ fn external_privilege_validity_is_resolved_after_pending_startup() {
 }
 
 #[test]
+fn external_privilege_validity_expands_is_or_was_tag_parameters() {
+    let temp = startup_fixture();
+    write(
+        temp.path(),
+        "common/scripted_triggers/test.txt",
+        "is_or_was_tag = { OR = { tag = $tag$ was_tag = $tag$ } }",
+    );
+    write(
+        temp.path(),
+        "common/estate_privileges/test.txt",
+        r#"charter = {
+            benefits = { global_tax_modifier = 0.1 }
+            is_valid = { is_or_was_tag = { tag = AAA } has_dlc = "King of Kings" }
+        }"#,
+    );
+    let state = VanillaExternalState {
+        estate_privileges: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([(
+                "estate_guild".into(),
+                Some(BTreeSet::from(["charter".into()])),
+            )]),
+        )]),
+        estate_states: BTreeMap::from([(
+            "AAA".into(),
+            BTreeMap::from([(
+                "estate_guild".into(),
+                VanillaExternalEstateState {
+                    loyalty_milli: Some(50_000),
+                    land_share_micros: Some(150_000),
+                    active_influences: None,
+                },
+            )]),
+        )]),
+        ..Default::default()
+    };
+
+    let loaded = VanillaWorld::load_with_external_state(temp.path(), "1444.11.11", &state).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().estates().resolved_privilege_effects[&country]["charter"],
+        BTreeSet::from(["is_valid".into()])
+    );
+    assert_eq!(
+        loaded
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .known_totals_micros["global_tax_modifier"],
+        100_000
+    );
+}
+
+#[test]
 fn plaintext_save_binds_estate_state_and_resolves_privilege_validity() {
     let temp = startup_fixture();
     write(

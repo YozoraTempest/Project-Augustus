@@ -691,6 +691,74 @@ fn unsupported_effect_in_startup_event_option_does_not_discard_known_startup_sta
 }
 
 #[test]
+fn unavailable_cult_count_trigger_keeps_referenced_event_in_the_catalog() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=CCC} country_event={id=sample.cult}} log=after_cult_catalog}",
+    );
+    write(
+        temp.path(),
+        "events/cults.txt",
+        "country_event={id=sample.cult is_triggered_only=yes trigger={religion=shamanism num_of_unlocked_cults=1} option={name=continue trigger={has_unlocked_cult=yemoja_cult NOT={has_primary_cult={cult=yemoja_cult}}} ai_chance={factor=10 modifier={personality=ai_militarist factor=2}}}}",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let world = loaded.initial.world();
+
+    assert!(
+        loaded.report.estates.startup_unresolved.is_empty(),
+        "{:?}",
+        loaded.report.estates.startup_unresolved
+    );
+    assert!(
+        world
+            .event_catalog()
+            .definitions()
+            .contains_key("sample.cult")
+    );
+    assert!(
+        world
+            .events()
+            .iter()
+            .any(|event| event.2 == "after_cult_catalog")
+    );
+    assert!(matches!(
+        world.event_catalog().conditions().get("sample.cult"),
+        Some(augustus_core::Condition::All(conditions))
+            if conditions.iter().any(|condition| matches!(
+                condition,
+                augustus_core::Condition::Unavailable(reason)
+                    if reason == "EU4 cult state is unknown for num_of_unlocked_cults >= 1"
+            ))
+    ));
+    assert!(
+        world
+            .event_catalog()
+            .option_conditions()
+            .get("sample.cult")
+            .is_some_and(|conditions| conditions.values().any(|condition| {
+                let debug = format!("{condition:?}");
+                debug.contains("EU4 cult state is unknown for has_unlocked_cult = yemoja_cult")
+                    && debug
+                        .contains("EU4 cult state is unknown for has_primary_cult = yemoja_cult")
+            }))
+    );
+    assert!(
+        world
+            .event_catalog()
+            .option_weights()
+            .get("sample.cult")
+            .and_then(|options| options.get("0"))
+            .is_some_and(|weight| {
+                format!("{:?}", weight.modifiers)
+                    .contains("EU4 ruler personality is unknown for personality = ai_militarist")
+            })
+    );
+}
+
+#[test]
 fn global_history_writes_leave_unwritten_startup_flags_known_false() {
     let temp = fixture();
     write(

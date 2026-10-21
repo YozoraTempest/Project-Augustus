@@ -2737,6 +2737,62 @@ impl<'a> ScriptCompiler<'a> {
                         overlord: self.subject_reference(field)?,
                     }
                 }
+                "num_of_unlocked_cults" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("unlocked cult count requires country scope"));
+                    }
+                    let text = field.scalar()?;
+                    let count = text
+                        .parse::<u32>()
+                        .ok()
+                        .filter(|_| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()))
+                        .ok_or_else(|| {
+                            field.error("unlocked cult count requires a nonnegative literal integer")
+                        })?;
+                    Condition::Unavailable(format!(
+                        "EU4 cult state is unknown for num_of_unlocked_cults >= {count}"
+                    ))
+                }
+                "has_unlocked_cult" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("unlocked cult query requires country scope"));
+                    }
+                    let cult = field.scalar()?;
+                    if !crate::country_markers::literal_name(cult) {
+                        return Err(field.error("unlocked cult query requires a literal cult identifier"));
+                    }
+                    Condition::Unavailable(format!(
+                        "EU4 cult state is unknown for has_unlocked_cult = {cult}"
+                    ))
+                }
+                "has_primary_cult" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("primary cult query requires country scope"));
+                    }
+                    let parameters = field.block()?;
+                    if parameters.len() != 1 || parameters[0].name != "cult" {
+                        return Err(field.error("primary cult query requires exactly one cult field"));
+                    }
+                    let cult = parameters[0].scalar()?;
+                    if !crate::country_markers::literal_name(cult) {
+                        return Err(field.error("primary cult query requires a literal cult identifier"));
+                    }
+                    Condition::Unavailable(format!(
+                        "EU4 cult state is unknown for has_primary_cult = {cult}"
+                    ))
+                }
+                "personality" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("personality query requires country scope"));
+                    }
+                    let personality = field.scalar()?;
+                    if !crate::country_markers::literal_name(personality) {
+                        return Err(field.error("personality query requires a literal identifier"));
+                    }
+                    Condition::Unavailable(format!(
+                        "EU4 ruler personality is unknown for personality = {personality}"
+                    ))
+                }
                 "num_of_subjects" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("subject count requires country scope"));

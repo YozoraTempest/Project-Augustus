@@ -894,7 +894,16 @@ impl Condition {
                         let tag = value
                             .read_string()
                             .map_err(|_| fail("expected historical country identifier"))?;
-                        if !crate::script::country_identifier(&tag) {
+                        let parameter = tag
+                            .strip_prefix('$')
+                            .and_then(|value| value.strip_suffix('$'))
+                            .is_some_and(|name| {
+                                !name.is_empty()
+                                    && name
+                                        .bytes()
+                                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+                            });
+                        if !crate::script::country_identifier(&tag) && !parameter {
                             return Err(fail(
                                 "was_tag requires a literal three-character country identifier",
                             ));

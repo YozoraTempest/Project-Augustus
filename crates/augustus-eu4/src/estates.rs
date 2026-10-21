@@ -988,6 +988,7 @@ fn library(
                     | "has_disabled_estate"
                     | "has_unlocked_estate"
                     | "is_revolutionary_republic_trigger"
+                    | "is_or_was_tag"
             )
         }) {
             let at = parsed.field_location(&key);
