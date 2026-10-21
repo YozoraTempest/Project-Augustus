@@ -6,13 +6,14 @@ use augustus_core::{
     VanillaTradeCountryFlags, VanillaTradeDistributionCandidate,
     VanillaTradeDistributionCandidateInput, VanillaTradeDistributionInput,
     VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput, VanillaTradeIncomePassInput,
-    VanillaTradePowerAmountInput, VanillaTradePowerModifierInput, VanillaTradePropagationInput,
-    VanillaTradeRetentionInput, VanillaTradeRetentionParticipantInput,
-    VanillaTradeRetentionPassInput, VanillaTradeRouteWeightContributionInput,
-    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightPassInput,
-    VanillaTradeSteeringEligibilityInput, VanillaTradeSteeringModifierInput,
-    calculate_vanilla_trade_caravan, calculate_vanilla_trade_distribution,
-    calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
+    VanillaTradeOutflowInput, VanillaTradePowerAmountInput, VanillaTradePowerModifierInput,
+    VanillaTradePropagationInput, VanillaTradeRetentionInput,
+    VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
+    VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightInput,
+    VanillaTradeRouteWeightPassInput, VanillaTradeSteeringEligibilityInput,
+    VanillaTradeSteeringModifierInput, calculate_vanilla_trade_caravan,
+    calculate_vanilla_trade_distribution, calculate_vanilla_trade_income,
+    calculate_vanilla_trade_income_pass, calculate_vanilla_trade_outflow,
     calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
     calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weight_pass,
@@ -748,6 +749,75 @@ fn trade_route_weight_pass_wraps_route_contribution_accumulation() {
     assert_eq!(result.route_contributions_milli, [i32::MIN]);
     assert_eq!(result.total_milli, i32::MIN);
     assert_eq!(result.weights_milli, [1_000]);
+}
+
+#[test]
+fn trade_outflow_uses_the_incoming_value_pool_and_retention_order() {
+    let result = calculate_vanilla_trade_outflow(VanillaTradeOutflowInput {
+        has_downstream_routes: true,
+        route_weights_milli: vec![500, 500],
+        total_effective_amount_milli: 500,
+        node_value_milli: 100,
+        base_outgoing_value_milli: 4_000,
+        incoming_transfer_values_milli: vec![1_000, 500],
+        retention_milli: 750,
+        additional_outgoing_multiplier_milli: 100,
+    });
+
+    assert!(result.applied);
+    assert_eq!(result.value_pool_milli, Some(5_500));
+    assert_eq!(result.outgoing_amount_milli, 1_375);
+    assert_eq!(result.distribution_amount_milli, 1_925);
+}
+
+#[test]
+fn trade_outflow_honors_native_gates_and_does_not_clamp_retention() {
+    let no_positive_route = calculate_vanilla_trade_outflow(VanillaTradeOutflowInput {
+        has_downstream_routes: true,
+        route_weights_milli: vec![-10, 0],
+        total_effective_amount_milli: 500,
+        node_value_milli: 100,
+        base_outgoing_value_milli: 1_000,
+        incoming_transfer_values_milli: Vec::new(),
+        retention_milli: 750,
+        additional_outgoing_multiplier_milli: 100,
+    });
+    assert!(!no_positive_route.applied);
+    assert_eq!(no_positive_route.value_pool_milli, None);
+    assert_eq!(no_positive_route.outgoing_amount_milli, 0);
+    assert_eq!(no_positive_route.distribution_amount_milli, 0);
+
+    let empty_routes_with_value = calculate_vanilla_trade_outflow(VanillaTradeOutflowInput {
+        has_downstream_routes: true,
+        route_weights_milli: Vec::new(),
+        total_effective_amount_milli: 0,
+        node_value_milli: 1,
+        base_outgoing_value_milli: 1_000,
+        incoming_transfer_values_milli: Vec::new(),
+        retention_milli: 1_001,
+        additional_outgoing_multiplier_milli: 0,
+    });
+    assert!(empty_routes_with_value.applied);
+    assert_eq!(empty_routes_with_value.outgoing_amount_milli, -1);
+    assert_eq!(empty_routes_with_value.distribution_amount_milli, -1);
+}
+
+#[test]
+fn trade_outflow_value_pool_wraps_before_fixed_point_calculation() {
+    let result = calculate_vanilla_trade_outflow(VanillaTradeOutflowInput {
+        has_downstream_routes: true,
+        route_weights_milli: Vec::new(),
+        total_effective_amount_milli: 0,
+        node_value_milli: 1,
+        base_outgoing_value_milli: i32::MAX,
+        incoming_transfer_values_milli: vec![1],
+        retention_milli: 0,
+        additional_outgoing_multiplier_milli: 0,
+    });
+
+    assert_eq!(result.value_pool_milli, Some(i32::MIN));
+    assert_eq!(result.outgoing_amount_milli, i32::MIN);
+    assert_eq!(result.distribution_amount_milli, i32::MIN);
 }
 
 #[test]

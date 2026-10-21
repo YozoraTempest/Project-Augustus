@@ -673,6 +673,70 @@ pub fn calculate_vanilla_trade_route_weight_pass(
     })
 }
 
+/// Inputs for the verified trade-node outflow stage.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeOutflowInput {
+    pub has_downstream_routes: bool,
+    pub route_weights_milli: Vec<i32>,
+    pub total_effective_amount_milli: i32,
+    /// Node value used by the native outflow gate.
+    pub node_value_milli: i32,
+    /// The local value field included in the outgoing value pool.
+    pub base_outgoing_value_milli: i32,
+    pub incoming_transfer_values_milli: Vec<i32>,
+    pub retention_milli: i32,
+    pub additional_outgoing_multiplier_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaTradeOutflowResult {
+    pub applied: bool,
+    pub value_pool_milli: Option<i32>,
+    pub outgoing_amount_milli: i32,
+    pub distribution_amount_milli: i32,
+}
+
+/// Calculates node outflow and the value supplied to route distribution.
+///
+/// Outflow runs only with downstream routes, empty weights or a positive
+/// weight, and nonzero total effective amount or node value. The value pool
+/// accumulates with 32-bit wrapping; retention is not clamped.
+pub fn calculate_vanilla_trade_outflow(
+    input: VanillaTradeOutflowInput,
+) -> VanillaTradeOutflowResult {
+    let has_positive_weight = input.route_weights_milli.iter().any(|weight| *weight > 0);
+    let should_apply = input.has_downstream_routes
+        && (input.route_weights_milli.is_empty() || has_positive_weight)
+        && (input.total_effective_amount_milli != 0 || input.node_value_milli != 0);
+    if !should_apply {
+        return VanillaTradeOutflowResult {
+            applied: false,
+            value_pool_milli: None,
+            outgoing_amount_milli: 0,
+            distribution_amount_milli: 0,
+        };
+    }
+
+    let value_pool = input
+        .incoming_transfer_values_milli
+        .into_iter()
+        .fold(input.base_outgoing_value_milli, i32::wrapping_add);
+    let retention_factor = 1_000_i32.wrapping_sub(input.retention_milli);
+    let outgoing_amount = ((i64::from(retention_factor) * i64::from(value_pool)) / 1_000) as i32;
+    let additional_amount = ((i64::from(input.additional_outgoing_multiplier_milli)
+        * i64::from(value_pool))
+        / 1_000) as i32;
+    let distribution_amount = outgoing_amount.wrapping_add(additional_amount);
+
+    VanillaTradeOutflowResult {
+        applied: true,
+        value_pool_milli: Some(value_pool),
+        outgoing_amount_milli: outgoing_amount,
+        distribution_amount_milli: distribution_amount,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VanillaTradeCandidate {
