@@ -6,6 +6,8 @@ use godot::prelude::*;
 use serde::Serialize;
 use std::{collections::BTreeSet, path::PathBuf};
 
+mod frame_clock;
+
 struct AugustusExtension;
 
 #[gdextension]
@@ -46,6 +48,7 @@ struct AugustusWorldSession {
     loaded: Option<augustus_eu4::VanillaWorld>,
     saved_imperial_baseline: Option<augustus_eu4::SavedImperialBaselineReport>,
     saved_office_preferences: Option<augustus_eu4::SavedOfficePreferenceReport>,
+    frame_clock: frame_clock::FrameTimeSmoother,
 }
 
 enum SavedStateImport {
@@ -221,6 +224,7 @@ impl AugustusWorldSession {
                 self.loaded = Some(loaded);
                 self.saved_imperial_baseline = saved_imperial_baseline;
                 self.saved_office_preferences = saved_office_preferences;
+                self.frame_clock.reset();
                 self.world_overview()
             }
             Err(error) => world_reply::<serde_json::Value>(Err(error)),
@@ -255,6 +259,7 @@ impl AugustusWorldSession {
                 self.loaded = Some(loaded);
                 self.saved_imperial_baseline = saved_imperial_baseline;
                 self.saved_office_preferences = saved_office_preferences;
+                self.frame_clock.reset();
                 self.world_overview()
             }
             Err(error) => world_reply::<serde_json::Value>(Err(error)),
@@ -273,6 +278,15 @@ impl AugustusWorldSession {
 
 #[godot_api]
 impl AugustusWorldSession {
+    #[func]
+    fn update_frame_timing(&mut self, clock_value: f64) -> GString {
+        let timing = self.frame_clock.update(clock_value);
+        world_reply::<serde_json::Value>(Ok(serde_json::json!({
+            "raw_delta": timing.raw_delta.is_finite().then_some(f64::from(timing.raw_delta)),
+            "smoothed_delta": timing.smoothed_delta.is_finite().then_some(f64::from(timing.smoothed_delta)),
+        })))
+    }
+
     #[func]
     fn advance(&mut self, days: i64) -> GString {
         let result = (|| {
@@ -314,7 +328,10 @@ impl AugustusWorldSession {
                 .restore(&snapshot.to_string())
                 .map_err(|e| e.to_string())
         }) {
-            Ok(()) => self.simulation_view(),
+            Ok(()) => {
+                self.frame_clock.reset();
+                self.simulation_view()
+            }
             Err(error) => world_reply::<()>(Err(error)),
         }
     }
@@ -325,6 +342,7 @@ impl AugustusWorldSession {
                 self.loaded = Some(loaded);
                 self.saved_imperial_baseline = None;
                 self.saved_office_preferences = None;
+                self.frame_clock.reset();
                 self.world_overview()
             }
             Err(e) => world_reply::<serde_json::Value>(Err(e.to_string())),
