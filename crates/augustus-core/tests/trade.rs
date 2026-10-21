@@ -538,3 +538,83 @@ fn trade_distribution_does_not_debit_source_when_all_routes_are_zero() {
     assert_eq!(result.distributed_value_milli, 0);
     assert_eq!(result.routes[0].value_milli, 0);
 }
+
+#[test]
+fn trade_distribution_replays_observed_pest_and_krakow_inflows_to_wien() {
+    let candidates = || {
+        vec![
+            VanillaTradeDistributionCandidate {
+                country_id: 145,
+                adjusted_amount_milli: 67_299,
+                unadjusted_amount_milli: 65_658,
+                transfer_modifier_milli: 1_025,
+                global_multiplier_milli: 50,
+            },
+            VanillaTradeDistributionCandidate {
+                country_id: 829,
+                adjusted_amount_milli: 12_732,
+                unadjusted_amount_milli: 12_732,
+                transfer_modifier_milli: 1_000,
+                global_multiplier_milli: 50,
+            },
+            VanillaTradeDistributionCandidate {
+                country_id: 830,
+                adjusted_amount_milli: 10_963,
+                unadjusted_amount_milli: 10_963,
+                transfer_modifier_milli: 1_000,
+                global_multiplier_milli: 50,
+            },
+            VanillaTradeDistributionCandidate {
+                country_id: 836,
+                adjusted_amount_milli: 10_729,
+                unadjusted_amount_milli: 10_729,
+                transfer_modifier_milli: 1_000,
+                global_multiplier_milli: 50,
+            },
+            VanillaTradeDistributionCandidate {
+                country_id: 828,
+                adjusted_amount_milli: 10_610,
+                unadjusted_amount_milli: 10_610,
+                transfer_modifier_milli: 1_000,
+                global_multiplier_milli: 50,
+            },
+        ]
+    };
+    let route = |weight_milli, node_value_milli| VanillaTradeDistributionRouteInput {
+        weight_milli,
+        node_value_milli,
+        candidates: candidates(),
+    };
+
+    let pest = calculate_vanilla_trade_distribution(VanillaTradeDistributionInput {
+        source_value_milli: 5_666,
+        source_debit_milli: 3_427,
+        routes: vec![route(612, 3_427)],
+    });
+    assert_eq!(pest.source_value_milli, 2_239);
+    assert_eq!(pest.routes[0].base_value_milli, 2_097);
+    assert_eq!(pest.routes[0].applied_modifiers_milli, [51, 25, 16, 12, 10]);
+    assert_eq!(pest.routes[0].factor_milli, 1_114);
+    assert_eq!(pest.routes[0].value_milli, 2_336);
+
+    let krakow = calculate_vanilla_trade_distribution(VanillaTradeDistributionInput {
+        source_value_milli: 8_008,
+        source_debit_milli: 5_261,
+        routes: vec![route(352, 5_261)],
+    });
+    assert_eq!(krakow.source_value_milli, 2_747);
+    assert_eq!(krakow.routes[0].base_value_milli, 1_851);
+    assert_eq!(
+        krakow.routes[0].applied_modifiers_milli,
+        [51, 25, 16, 12, 10]
+    );
+    assert_eq!(krakow.routes[0].factor_milli, 1_114);
+    assert_eq!(krakow.routes[0].value_milli, 2_062);
+
+    let wien_before_outgoing = 5_945_i32
+        .wrapping_add(pest.routes[0].value_milli)
+        .wrapping_add(krakow.routes[0].value_milli);
+    let wien_current = wien_before_outgoing.wrapping_sub(5_626);
+    assert_eq!(wien_before_outgoing, 10_343);
+    assert_eq!(wien_current, 4_717);
+}
