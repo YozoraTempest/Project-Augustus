@@ -147,6 +147,79 @@ fn center_of_trade_trigger_uses_a_minimum_level_and_requires_province_scope() {
 }
 
 #[test]
+fn center_of_trade_effects_set_and_adjust_the_live_level() {
+    let schema = Schema::new(Vec::<String>::new()).unwrap();
+    let library = ScriptLibrary::new();
+    let script = ScriptCompiler::new(&schema, &library, false)
+        .compile(
+            &document(
+                "center_of_trade = 3\n\
+                 add_center_of_trade_level = -1\n\
+                 if = { limit = { province_has_center_of_trade_of_level = 2 } log = level_two }",
+            ),
+            EntityKind::Province,
+        )
+        .unwrap();
+    let capped = ScriptCompiler::new(&schema, &library, false)
+        .compile(
+            &document("add_center_of_trade_level = 3"),
+            EntityKind::Province,
+        )
+        .unwrap();
+
+    let mut world = World::new(schema.clone());
+    let province = world.add_entity("province", EntityKind::Province);
+    world
+        .set_province_center_of_trade_level(province, Some(0))
+        .unwrap();
+    world.execute(province, &script.plan).unwrap();
+    assert_eq!(
+        world.province_center_of_trade_level(province).unwrap(),
+        Some(2)
+    );
+    assert_eq!(world.events()[0].2, "level_two");
+
+    world
+        .set_province_center_of_trade_level(province, Some(1))
+        .unwrap();
+    world.execute(province, &capped.plan).unwrap();
+    assert_eq!(
+        world.province_center_of_trade_level(province).unwrap(),
+        Some(3)
+    );
+
+    assert!(
+        ScriptCompiler::new(&schema, &library, false)
+            .compile(&document("center_of_trade = 2"), EntityKind::Country)
+            .is_err()
+    );
+    for invalid in ["0", "4"] {
+        assert!(
+            ScriptCompiler::new(&schema, &library, false)
+                .compile(
+                    &document(&format!("center_of_trade = {invalid}")),
+                    EntityKind::Province,
+                )
+                .is_err()
+        );
+    }
+
+    let unknown_script = ScriptCompiler::new(&schema, &library, false)
+        .compile(
+            &document("add_center_of_trade_level = 1"),
+            EntityKind::Province,
+        )
+        .unwrap();
+    let mut unknown_world = World::new(schema);
+    let unknown = unknown_world.add_entity("unknown", EntityKind::Province);
+    assert!(
+        unknown_world
+            .execute(unknown, &unknown_script.plan)
+            .is_err()
+    );
+}
+
+#[test]
 fn vanilla_adapter_derives_and_retains_port_presence_from_the_province_bitmap() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let loaded = VanillaWorld::load(root, "1444.11.11").unwrap();

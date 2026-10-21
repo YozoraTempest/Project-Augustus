@@ -1869,6 +1869,38 @@ impl<'a> ScriptCompiler<'a> {
                         },
                     });
                 }
+                "center_of_trade" => {
+                    if scope != EntityKind::Province {
+                        return Err(field.error("center_of_trade requires province scope"));
+                    }
+                    let text = field.scalar()?;
+                    let level = text
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit())
+                        .then(|| text.parse::<u8>().ok())
+                        .flatten()
+                        .filter(|level| (1..=3).contains(level))
+                        .ok_or_else(|| {
+                            field.error("center_of_trade requires a level from 1 to 3")
+                        })?;
+                    plan.push(Action::SetProvinceCenterOfTradeLevel {
+                        target: Target::Current,
+                        level,
+                    });
+                }
+                "add_center_of_trade_level" => {
+                    if scope != EntityKind::Province {
+                        return Err(
+                            field.error("add_center_of_trade_level requires province scope")
+                        );
+                    }
+                    let amount = i32::try_from(script_integer(field, "center of trade level")?)
+                        .map_err(|_| field.error("center of trade level change overflow"))?;
+                    plan.push(Action::AddProvinceCenterOfTradeLevel {
+                        target: Target::Current,
+                        amount,
+                    });
+                }
                 "set_owner" => {
                     if scope != EntityKind::Province {
                         return Err(field.error("set_owner requires province scope"));

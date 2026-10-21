@@ -239,6 +239,14 @@ pub enum Action {
         country: crate::EntityRef,
         core: Option<crate::CoreType>,
     },
+    SetProvinceCenterOfTradeLevel {
+        target: Target,
+        level: u8,
+    },
+    AddProvinceCenterOfTradeLevel {
+        target: Target,
+        amount: i32,
+    },
     /// Capture the current direct subjects in relation order, then filter live state.
     ForEachSubjectCountry {
         country: Target,
@@ -1109,6 +1117,18 @@ impl World {
                     ) {
                         self.set_province_core(province, country, *core)?;
                     }
+                }
+                Action::SetProvinceCenterOfTradeLevel { target, level } => {
+                    self.set_province_center_of_trade_level(
+                        self.target(current, *target)?,
+                        Some(*level),
+                    )?;
+                }
+                Action::AddProvinceCenterOfTradeLevel { target, amount } => {
+                    self.adjust_province_center_of_trade_level(
+                        self.target(current, *target)?,
+                        *amount,
+                    )?;
                 }
                 Action::ChangeGovernment {
                     target,

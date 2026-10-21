@@ -1227,8 +1227,30 @@ impl World {
                 "center of trade property requires a province".into(),
             ));
         }
+        if level.is_some_and(|level| level > 3) {
+            return Err(Error::Invalid(
+                "center of trade level must be between 0 and 3".into(),
+            ));
+        }
         self.entities[province.0].province_center_of_trade_level = level;
         Ok(())
+    }
+
+    pub fn adjust_province_center_of_trade_level(
+        &mut self,
+        province: EntityId,
+        amount: i32,
+    ) -> Result<(), Error> {
+        let current = self
+            .province_center_of_trade_level(province)?
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "center of trade level is unknown for province {}",
+                    province.0
+                ))
+            })?;
+        let adjusted = (i64::from(current) + i64::from(amount)).clamp(0, 3) as u8;
+        self.set_province_center_of_trade_level(province, Some(adjusted))
     }
 
     pub fn province_terrain(&self, province: EntityId) -> Result<Option<&str>, Error> {
@@ -1846,6 +1868,19 @@ impl World {
             if entity.values.len() != world.schema.fields.len() {
                 return Err(Error::Invalid("invalid state field count".into()));
             }
+            if entity
+                .province_center_of_trade_level
+                .is_some_and(|level| level > 3)
+            {
+                return Err(Error::Invalid("invalid saved center of trade level".into()));
+            }
+            if entity.province_center_of_trade_level.is_some()
+                && entity.kind != EntityKind::Province
+            {
+                return Err(Error::Invalid(
+                    "center of trade level is attached to a non-province".into(),
+                ));
+            }
             if let Some(owner) = entity.owner
                 && (entity.kind != EntityKind::Province
                     || world.entity(owner)?.kind != EntityKind::Country)
@@ -2248,6 +2283,11 @@ pub(crate) fn validate_plan(
             } => {
                 province.validate()?;
                 country.validate()?;
+            }
+            Action::SetProvinceCenterOfTradeLevel { level, .. } if !(1..=3).contains(level) => {
+                return Err(Error::Invalid(
+                    "center of trade level must be between 1 and 3".into(),
+                ));
             }
             Action::Description { key, .. } => crate::plan::validate_description_key(key)?,
             Action::SetMarker { name, .. } | Action::SetGlobalMarker { name, .. } => {
