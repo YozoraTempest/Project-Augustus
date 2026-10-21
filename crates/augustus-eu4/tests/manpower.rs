@@ -261,6 +261,8 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         country_primary_cultures: Default::default(),
         country_religions: Default::default(),
         country_ideas: Default::default(),
+        country_mission_completions: Default::default(),
+        country_variables: Default::default(),
         country_metric_ceilings: Default::default(),
         country_resources: BTreeMap::from([(
             "AAA".into(),

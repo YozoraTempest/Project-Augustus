@@ -2,8 +2,12 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{EntityId, EventChoice, PendingEventId};
-use augustus_eu4::VanillaWorld;
-use std::{fs, path::Path};
+use augustus_eu4::{VanillaExternalState, VanillaSaveState, VanillaWorld};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 fn write(root: &Path, name: &str, text: &str) {
     let path = root.join(name);
@@ -755,6 +759,80 @@ fn unavailable_cult_count_trigger_keeps_referenced_event_in_the_catalog() {
                 format!("{:?}", weight.modifiers)
                     .contains("EU4 ruler personality is unknown for personality = ai_militarist")
             })
+    );
+}
+
+#[test]
+fn saved_missions_and_variables_are_bound_before_startup_effects() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "missions/test.txt",
+        "test_series={slot=1 sample_mission={position=1}}",
+    );
+    write(
+        temp.path(),
+        "common/on_actions/test.txt",
+        "on_startup={if={limit={tag=AAA mission_completed=sample_mission check_variable={which=can_preview_missions_var value=0}} log=mission_state_imported}}",
+    );
+
+    let baseline = VanillaWorld::load(temp.path(), "1445.1.1").unwrap();
+    assert!(
+        baseline
+            .report
+            .estates
+            .startup_unresolved
+            .iter()
+            .any(|reason| reason.contains("unknown_mission_state:sample_mission"))
+    );
+    let save = VanillaSaveState {
+        date: "1445.1.1".into(),
+        player: Some("AAA".into()),
+        players: BTreeSet::from(["AAA".into()]),
+        external_state: VanillaExternalState {
+            country_mission_completions: BTreeMap::from([(
+                "AAA".into(),
+                BTreeSet::from(["sample_mission".into(), "not_in_content".into()]),
+            )]),
+            country_variables: BTreeMap::from([("AAA".into(), BTreeMap::new())]),
+            ..Default::default()
+        },
+    };
+    let state = save.state_for_world(&baseline).unwrap();
+    assert_eq!(
+        state.country_mission_completions["AAA"],
+        BTreeSet::from(["sample_mission".into()])
+    );
+    assert!(state.country_variables["AAA"].is_empty());
+
+    let loaded = VanillaWorld::load_with_external_state(temp.path(), "1445.1.1", &state).unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    assert!(
+        loaded
+            .initial
+            .world()
+            .completion_recorded(country, "sample_mission")
+            .unwrap()
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .numeric_value(
+                country,
+                &augustus_core::NumericSlot::Named("can_preview_missions_var".into())
+            )
+            .unwrap(),
+        0
+    );
+    assert!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .any(|event| event.2 == "mission_state_imported")
     );
 }
 

@@ -60,7 +60,11 @@ impl MissionDraft {
             .map_err(|e| Error::caused_by("missions", e))
     }
 
-    pub(crate) fn bind(self, initial: &mut InitialWorld) -> Result<MissionReport, Error> {
+    pub(crate) fn bind(
+        self,
+        initial: &mut InitialWorld,
+        saved_completions: Option<&BTreeMap<String, BTreeSet<String>>>,
+    ) -> Result<MissionReport, Error> {
         let mut report = MissionReport {
             series: self.objectives.groups.len(),
             objectives: self.ids.len(),
@@ -78,22 +82,26 @@ impl MissionDraft {
                 month: 11,
                 day: 11,
             });
-        let entities = if fixed_start {
-            initial
-                .countries()
-                .iter()
-                .map(|country| {
-                    (
-                        initial
-                            .country_entity(&country.id)
-                            .expect("registered country"),
-                        BTreeSet::new(),
+        let mut entities = BTreeMap::new();
+        if let Some(saved_completions) = saved_completions {
+            for (tag, missions) in saved_completions {
+                let entity = initial.country_entity(tag).ok_or_else(|| {
+                    Error::message(
+                        "saved mission completions",
+                        format!("unknown country {tag}"),
                     )
-                })
-                .collect()
-        } else {
-            BTreeMap::new()
-        };
+                })?;
+                entities.insert(entity, missions.clone());
+            }
+        }
+        if fixed_start {
+            for country in initial.countries() {
+                let entity = initial
+                    .country_entity(&country.id)
+                    .expect("registered country");
+                entities.entry(entity).or_default();
+            }
+        }
         initial
             .set_completions(Completions {
                 identifiers: self.ids,

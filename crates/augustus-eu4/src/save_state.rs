@@ -266,6 +266,22 @@ impl VanillaSaveState {
             if let Some(ideas) = self.external_state.country_ideas.get(*country) {
                 state.country_ideas.insert((*country).into(), ideas.clone());
             }
+            if let Some(completed) = self
+                .external_state
+                .country_mission_completions
+                .get(*country)
+            {
+                let identifiers = &world.initial.world().completions().identifiers;
+                state.country_mission_completions.insert(
+                    (*country).into(),
+                    completed.intersection(identifiers).cloned().collect(),
+                );
+            }
+            if let Some(variables) = self.external_state.country_variables.get(*country) {
+                state
+                    .country_variables
+                    .insert((*country).into(), variables.clone());
+            }
             if let Some(advisors) = self.external_state.advisors.get(*country) {
                 state.advisors.insert((*country).into(), advisors.clone());
             }
@@ -776,6 +792,41 @@ fn read_vanilla_save_state_inner(
         external_state
             .country_resources
             .insert(tag.clone(), resources);
+        let completed_missions = optional_field(&parsed, &country, "completed_missions")?
+            .map(|value| string_id_set(&parsed, &value, "mission"))
+            .transpose()?
+            .unwrap_or_default();
+        external_state
+            .country_mission_completions
+            .insert(tag.clone(), completed_missions);
+        let mut variables = BTreeMap::new();
+        if let Some(saved_variables) = optional_object(&parsed, &country, "variables")? {
+            for (key, operator, value) in saved_variables.fields() {
+                if operator.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {tag} has an invalid saved variable"),
+                    ));
+                }
+                let name = key.read_string();
+                let raw = scalar(&parsed, &value)?;
+                let value = signed_milli(&raw).ok_or_else(|| {
+                    Error::message(
+                        parsed.source(),
+                        format!("country {tag} has invalid value for saved variable {name}"),
+                    )
+                })?;
+                if name.is_empty() || variables.insert(name.clone(), value).is_some() {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {tag} has an empty or duplicate saved variable {name}"),
+                    ));
+                }
+            }
+        }
+        external_state
+            .country_variables
+            .insert(tag.clone(), variables);
 
         if let Some(value) = optional_scalar(&parsed, &country, "technology_group")? {
             external_state
@@ -1996,6 +2047,12 @@ countries={
 		flags={
 			sample_flag=1444.11.11
 		}
+		completed_missions={
+			"saved_mission"
+		}
+		variables={
+			saved_counter=2.375
+		}
 		estate={
 			type="estate_nobles"
 			loyalty=44.600
@@ -2027,6 +2084,11 @@ countries={
 			}
 		}
 	}
+	BBB={
+		completed_missions={}
+		variables={}
+	}
+	CCC={}
 }
 provinces={
 	-1={
@@ -2058,6 +2120,30 @@ provinces={
         assert_eq!(state.date, "1444.11.11");
         assert_eq!(state.player.as_deref(), Some("AAA"));
         assert!(state.players.contains("AAA"));
+        assert_eq!(
+            state.external_state.country_mission_completions["AAA"],
+            BTreeSet::from(["saved_mission".into()])
+        );
+        assert_eq!(
+            state.external_state.country_mission_completions["BBB"],
+            BTreeSet::new()
+        );
+        assert_eq!(
+            state.external_state.country_mission_completions["CCC"],
+            BTreeSet::new()
+        );
+        assert_eq!(
+            state.external_state.country_variables["AAA"]["saved_counter"],
+            2_375
+        );
+        assert_eq!(
+            state.external_state.country_variables["BBB"],
+            BTreeMap::new()
+        );
+        assert_eq!(
+            state.external_state.country_variables["CCC"],
+            BTreeMap::new()
+        );
         assert_eq!(
             state.external_state.trade_good_prices_milli["grain"],
             Some(3_500)

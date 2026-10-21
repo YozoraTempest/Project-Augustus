@@ -398,6 +398,14 @@ pub struct VanillaExternalState {
     /// reader. A missing country keeps the content-derived idea state.
     #[serde(default)]
     pub country_ideas: BTreeMap<String, augustus_core::IdeaState>,
+    /// Completed mission identifiers supplied by a save reader. A present
+    /// empty set means no missions are complete; an omitted country is unknown.
+    #[serde(default)]
+    pub country_mission_completions: BTreeMap<String, BTreeSet<String>>,
+    /// Current country variables from a save, stored in thousandths. A
+    /// present empty map means the country's variable namespace is empty.
+    #[serde(default)]
+    pub country_variables: BTreeMap<String, BTreeMap<String, i64>>,
     /// Current per-country growth ceilings for metrics such as monarch power.
     /// A missing country or metric remains unresolved; `Some(value)` is an
     /// authoritative ceiling supplied by the compatibility provider.
@@ -543,6 +551,8 @@ struct LoadOverrides<'a> {
     country_primary_cultures: Option<&'a BTreeMap<String, Option<String>>>,
     country_religions: Option<&'a BTreeMap<String, Option<String>>>,
     country_ideas: Option<&'a BTreeMap<String, augustus_core::IdeaState>>,
+    country_mission_completions: Option<&'a BTreeMap<String, BTreeSet<String>>>,
+    country_variables: Option<&'a BTreeMap<String, BTreeMap<String, i64>>>,
     country_metric_ceilings: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_resources: Option<&'a BTreeMap<String, CountryResources>>,
     country_ledgers: Option<&'a BTreeMap<String, CountryLedger>>,
@@ -610,6 +620,10 @@ impl<'a> LoadOverrides<'a> {
             country_religions: (!state.country_religions.is_empty())
                 .then_some(&state.country_religions),
             country_ideas: (!state.country_ideas.is_empty()).then_some(&state.country_ideas),
+            country_mission_completions: (!state.country_mission_completions.is_empty())
+                .then_some(&state.country_mission_completions),
+            country_variables: (!state.country_variables.is_empty())
+                .then_some(&state.country_variables),
             country_metric_ceilings: (!state.country_metric_ceilings.is_empty())
                 .then_some(&state.country_metric_ceilings),
             country_resources: (!state.country_resources.is_empty())
@@ -778,6 +792,10 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     base.country_religions
         .extend(overlay.country_religions.clone());
     base.country_ideas.extend(overlay.country_ideas.clone());
+    base.country_mission_completions
+        .extend(overlay.country_mission_completions.clone());
+    base.country_variables
+        .extend(overlay.country_variables.clone());
     overlay_nested_map(
         &mut base.country_metric_ceilings,
         &overlay.country_metric_ceilings,
@@ -1169,6 +1187,29 @@ fn bind_external_country_statuses(
     initial
         .set_politics(politics)
         .map_err(|e| Error::caused_by("external country statuses", e))
+}
+
+fn bind_external_country_variables(
+    initial: &mut InitialWorld,
+    values: Option<&BTreeMap<String, BTreeMap<String, i64>>>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut variables = initial.world().named_values().clone();
+    for (country, state) in values {
+        let entity = initial.country_entity(country).ok_or_else(|| {
+            Error::message(
+                "external country variables",
+                format!("unknown country {country}"),
+            )
+        })?;
+        variables.entities.insert(entity, state.clone());
+        variables.unknown_entities.remove(&entity);
+    }
+    initial
+        .set_named_values(variables)
+        .map_err(|e| Error::caused_by("external country variables", e))
 }
 
 fn bind_external_national_focus(
@@ -3549,6 +3590,7 @@ impl VanillaWorld {
                 })
                 .map_err(|e| Error::caused_by("variables", e))?;
         }
+        bind_external_country_variables(&mut initial, overrides.country_variables)?;
         if !dynamic_global_marker_history && !initial.world().global_markers().known {
             let mut global_markers = initial.world().global_markers().clone();
             for name in startup.global_marker_references() {
@@ -3566,7 +3608,7 @@ impl VanillaWorld {
             overrides.naval_units,
             overrides.naval_fleets,
         )?;
-        report.missions = missions.bind(&mut initial)?;
+        report.missions = missions.bind(&mut initial, overrides.country_mission_completions)?;
         // Content identity is based on the bound initial world. Startup effects
         // and AI choices are runtime state and must not vary the hash by seed.
         let content_identity_initial = initial.clone();
