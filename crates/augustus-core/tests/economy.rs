@@ -5,11 +5,13 @@ use augustus_core::{
     Economy, EntityKind, Error, Schema, TradeGoodDefinition, TradeProductionInput,
     TradeProductionResult, VanillaDerivedModifierInput, VanillaGoldBaseInput,
     VanillaGoldProductionInput, VanillaModifierAggregationInput, VanillaProductionBaseValueInput,
-    VanillaProductionInput, VanillaProductionResult, VanillaTradeDistributionInput,
-    VanillaTradeDistributionRouteInput, VanillaTradeGoodPriceInput,
-    VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, World,
-    aggregate_vanilla_modifier_contributions, calculate_trade_production,
-    calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
+    VanillaProductionInput, VanillaProductionResult, VanillaTradeCountryFlags,
+    VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput, VanillaTradeGoodPriceInput,
+    VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, VanillaTradeNodePassInput,
+    VanillaTradeNodeRouteInput, VanillaTradeRetentionParticipantInput,
+    VanillaTradeRetentionPassInput, VanillaTradeRouteWeightContributionInput,
+    VanillaTradeRouteWeightPassInput, World, aggregate_vanilla_modifier_contributions,
+    calculate_trade_production, calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
     calculate_vanilla_gold_production, calculate_vanilla_production,
     calculate_vanilla_production_base_value, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
@@ -381,6 +383,102 @@ fn vanilla_trade_nodes_run_in_caller_order_and_observe_prior_inflows() {
     assert_eq!(
         runtime_world.trade_node_current_value_milli("river"),
         Some(Some(10_000))
+    );
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("harbor"),
+        Some(Some(6_000))
+    );
+}
+
+#[test]
+fn vanilla_trade_node_passes_calculate_and_apply_in_caller_order() {
+    let mut runtime_world = world();
+    runtime_world.set_economy(economy()).unwrap();
+    runtime_world
+        .set_trade_node_route_orders(&trade_node_route_orders())
+        .unwrap();
+    runtime_world
+        .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
+            ("river".into(), Some(10_000)),
+            ("harbor".into(), Some(5_000)),
+        ]))
+        .unwrap();
+
+    let order = ["river".to_owned(), "harbor".to_owned()];
+    let mut visited = Vec::new();
+    let passes = runtime_world
+        .run_vanilla_trade_node_passes_in_order(&order, |world, source_node| {
+            visited.push(source_node.to_owned());
+            let source_value = world
+                .trade_node_current_value_milli(source_node)
+                .flatten()
+                .unwrap() as i32;
+            if source_node == "river" {
+                Ok(VanillaTradeNodePassInput {
+                    source_value_milli: source_value,
+                    retention: VanillaTradeRetentionPassInput {
+                        participants: vec![VanillaTradeRetentionParticipantInput {
+                            reference_valid: true,
+                            participation_balance_milli: 1,
+                            effective_amount_milli: 2_000,
+                            country_flags: VanillaTradeCountryFlags {
+                                special_country: false,
+                                ae: true,
+                                ac: true,
+                                ad: false,
+                            },
+                            cached_route_eligible: true,
+                        }],
+                    },
+                    route_weights: VanillaTradeRouteWeightPassInput {
+                        contributions: vec![VanillaTradeRouteWeightContributionInput {
+                            selected_route_id: 0,
+                            effective_amount_milli: 1_000,
+                            steering_modifier_milli: 0,
+                        }],
+                        marked_routes: vec![true],
+                    },
+                    has_downstream_routes: true,
+                    node_value_milli: 1_000,
+                    base_outgoing_value_milli: 1_000,
+                    incoming_transfer_values_milli: Vec::new(),
+                    additional_outgoing_multiplier_milli: 0,
+                    routes: vec![VanillaTradeNodeRouteInput {
+                        route_id: 0,
+                        candidates: Vec::new(),
+                    }],
+                })
+            } else {
+                assert_eq!(source_value, 6_000);
+                Ok(VanillaTradeNodePassInput {
+                    source_value_milli: source_value,
+                    retention: VanillaTradeRetentionPassInput {
+                        participants: Vec::new(),
+                    },
+                    route_weights: VanillaTradeRouteWeightPassInput {
+                        contributions: Vec::new(),
+                        marked_routes: Vec::new(),
+                    },
+                    has_downstream_routes: false,
+                    node_value_milli: 0,
+                    base_outgoing_value_milli: 0,
+                    incoming_transfer_values_milli: Vec::new(),
+                    additional_outgoing_multiplier_milli: 0,
+                    routes: Vec::new(),
+                })
+            }
+        })
+        .unwrap();
+
+    assert_eq!(visited, ["river", "harbor"]);
+    assert_eq!(passes.len(), 2);
+    assert_eq!(passes[0].route_weights.weights_milli, [1_000]);
+    assert_eq!(passes[0].outflow.outgoing_amount_milli, 1_000);
+    assert_eq!(passes[0].distribution.routes[0].value_milli, 1_000);
+    assert!(passes[1].distribution.routes.is_empty());
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("river"),
+        Some(Some(9_000))
     );
     assert_eq!(
         runtime_world.trade_node_current_value_milli("harbor"),

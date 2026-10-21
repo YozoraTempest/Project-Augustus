@@ -14,7 +14,8 @@ use crate::{
     Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryLedger,
     CountryResource, CountryResources, DailySystem, Economy, Error, Governments, Ideas, Modifiers,
     MonthlySystem, MonthlyTax, Plan, Politics, Target, Taxation, Technology, TradeNodeRuntimeState,
-    VanillaTradeDistributionResult, WorldDate, YearlySystem,
+    VanillaTradeDistributionResult, VanillaTradeNodePassInput, VanillaTradeNodePassResult,
+    WorldDate, YearlySystem, calculate_vanilla_trade_node_pass,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -648,6 +649,50 @@ impl World {
             self.trade_node_runtime_states = previous_runtime_states;
         }
         result
+    }
+
+    /// Calculates and applies the verified trade-node stages in caller order.
+    ///
+    /// The input builder sees all writes from earlier nodes. Routes in each
+    /// pass input must follow the stored content declaration order; a node
+    /// with outgoing routes but no stored order cannot be processed.
+    pub fn run_vanilla_trade_node_passes_in_order(
+        &mut self,
+        ordered_nodes: &[String],
+        mut build_input: impl FnMut(&Self, &str) -> Result<VanillaTradeNodePassInput, Error>,
+    ) -> Result<Vec<VanillaTradeNodePassResult>, Error> {
+        let mut results = Vec::with_capacity(ordered_nodes.len());
+        self.run_vanilla_trade_node_distributions_in_order(ordered_nodes, |world, source_node| {
+            let input = build_input(world, source_node)?;
+            let destinations = match world.trade_node_route_order(source_node) {
+                Some(Some(routes)) => routes.to_vec(),
+                Some(None)
+                    if world
+                        .economy
+                        .trade_nodes
+                        .get(source_node)
+                        .is_some_and(|node| node.outgoing.is_empty()) =>
+                {
+                    Vec::new()
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "trade node route order is unavailable".into(),
+                    ));
+                }
+            };
+            if input.routes.len() != destinations.len() {
+                return Err(Error::Invalid(
+                    "trade node pass routes do not match content route count".into(),
+                ));
+            }
+
+            let result = calculate_vanilla_trade_node_pass(input)?;
+            let distribution = result.distribution.clone();
+            results.push(result);
+            Ok((destinations, distribution))
+        })?;
+        Ok(results)
     }
 
     pub fn attributes(&self) -> &Attributes {
