@@ -8,16 +8,17 @@ use augustus_core::{
     VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput, VanillaTradeIncomePassInput,
     VanillaTradePowerAmountInput, VanillaTradePowerModifierInput, VanillaTradePropagationInput,
     VanillaTradeRetentionInput, VanillaTradeRetentionParticipantInput,
-    VanillaTradeRetentionPassInput, VanillaTradeRouteWeightInput,
+    VanillaTradeRetentionPassInput, VanillaTradeRouteWeightContributionInput,
+    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightPassInput,
     VanillaTradeSteeringEligibilityInput, VanillaTradeSteeringModifierInput,
     calculate_vanilla_trade_caravan, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
     calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
-    calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weights,
-    calculate_vanilla_trade_steering_modifier, is_vanilla_trade_collector,
-    is_vanilla_trade_steering_eligible, select_vanilla_trade_distribution_candidates,
-    sort_vanilla_trade_candidates,
+    calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weight_pass,
+    calculate_vanilla_trade_route_weights, calculate_vanilla_trade_steering_modifier,
+    is_vanilla_trade_collector, is_vanilla_trade_steering_eligible,
+    select_vanilla_trade_distribution_candidates, sort_vanilla_trade_candidates,
 };
 
 #[test]
@@ -662,6 +663,91 @@ fn trade_route_weights_normalize_nonzero_totals_and_split_marked_zero_totals() {
         })
         .is_err()
     );
+}
+
+#[test]
+fn trade_route_weight_pass_applies_modifiers_and_maps_routes_past_the_table_to_zero() {
+    let result = calculate_vanilla_trade_route_weight_pass(VanillaTradeRouteWeightPassInput {
+        marked_routes: vec![true, false, true],
+        contributions: vec![
+            VanillaTradeRouteWeightContributionInput {
+                selected_route_id: 0,
+                effective_amount_milli: 400,
+                steering_modifier_milli: 250,
+            },
+            VanillaTradeRouteWeightContributionInput {
+                selected_route_id: 2,
+                effective_amount_milli: 300,
+                steering_modifier_milli: 0,
+            },
+            VanillaTradeRouteWeightContributionInput {
+                selected_route_id: 9,
+                effective_amount_milli: 1_000,
+                steering_modifier_milli: 0,
+            },
+        ],
+    })
+    .unwrap();
+
+    assert_eq!(result.route_contributions_milli, [1_500, 0, 300]);
+    assert_eq!(result.total_milli, 1_800);
+    assert_eq!(result.weights_milli, [833, 0, 166]);
+}
+
+#[test]
+fn trade_route_weight_pass_splits_marked_zero_total_and_rejects_unknown_negative_routes() {
+    let zero_total = calculate_vanilla_trade_route_weight_pass(VanillaTradeRouteWeightPassInput {
+        marked_routes: vec![true, false, true],
+        contributions: Vec::new(),
+    })
+    .unwrap();
+    assert_eq!(zero_total.route_contributions_milli, [0, 0, 0]);
+    assert_eq!(zero_total.weights_milli, [500, 0, 500]);
+
+    assert!(
+        calculate_vanilla_trade_route_weight_pass(VanillaTradeRouteWeightPassInput {
+            marked_routes: vec![true],
+            contributions: vec![VanillaTradeRouteWeightContributionInput {
+                selected_route_id: -1,
+                effective_amount_milli: 1,
+                steering_modifier_milli: 0,
+            }],
+        })
+        .is_err()
+    );
+    assert!(
+        calculate_vanilla_trade_route_weight_pass(VanillaTradeRouteWeightPassInput {
+            marked_routes: Vec::new(),
+            contributions: vec![VanillaTradeRouteWeightContributionInput {
+                selected_route_id: 0,
+                effective_amount_milli: 1,
+                steering_modifier_milli: 0,
+            }],
+        })
+        .is_err()
+    );
+}
+
+#[test]
+fn trade_route_weight_pass_wraps_route_contribution_accumulation() {
+    let result = calculate_vanilla_trade_route_weight_pass(VanillaTradeRouteWeightPassInput {
+        marked_routes: vec![true],
+        contributions: [i32::MAX, 1]
+            .into_iter()
+            .map(
+                |effective_amount_milli| VanillaTradeRouteWeightContributionInput {
+                    selected_route_id: 0,
+                    effective_amount_milli,
+                    steering_modifier_milli: 0,
+                },
+            )
+            .collect(),
+    })
+    .unwrap();
+
+    assert_eq!(result.route_contributions_milli, [i32::MIN]);
+    assert_eq!(result.total_milli, i32::MIN);
+    assert_eq!(result.weights_milli, [1_000]);
 }
 
 #[test]

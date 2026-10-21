@@ -553,8 +553,34 @@ pub struct VanillaTradeRouteWeightInput {
     pub marked_routes: Vec<bool>,
 }
 
+/// One already-eligible country's contribution to a selected trade route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeRouteWeightContributionInput {
+    pub selected_route_id: i16,
+    /// Amount resolved from the current country record before steering bonus.
+    pub effective_amount_milli: i32,
+    pub steering_modifier_milli: i32,
+}
+
+/// Inputs for route contribution assembly and normalization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeRouteWeightPassInput {
+    /// Eligibility and modifier-source selection are resolved upstream.
+    pub contributions: Vec<VanillaTradeRouteWeightContributionInput>,
+    pub marked_routes: Vec<bool>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VanillaTradeRouteWeightResult {
+    pub total_milli: i32,
+    pub weights_milli: Vec<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VanillaTradeRouteWeightPassResult {
+    pub route_contributions_milli: Vec<i32>,
     pub total_milli: i32,
     pub weights_milli: Vec<i32>,
 }
@@ -603,6 +629,47 @@ pub fn calculate_vanilla_trade_route_weights(
     Ok(VanillaTradeRouteWeightResult {
         total_milli: total,
         weights_milli: weights,
+    })
+}
+
+/// Accumulates eligible country contributions and normalizes the route weights.
+///
+/// The compatibility layer supplies already-eligible records and resolved
+/// amounts. A selected route past the route table maps to slot zero. Negative
+/// route identifiers are rejected because their native behavior has not been
+/// established.
+pub fn calculate_vanilla_trade_route_weight_pass(
+    input: VanillaTradeRouteWeightPassInput,
+) -> Result<VanillaTradeRouteWeightPassResult, Error> {
+    let route_count = input.marked_routes.len();
+    let mut contributions_milli = vec![0_i32; route_count];
+
+    for contribution in input.contributions {
+        let route_id = usize::try_from(contribution.selected_route_id)
+            .map_err(|_| Error::Invalid("trade route identifier must be nonnegative".into()))?;
+        if route_count == 0 {
+            return Err(Error::Invalid(
+                "trade route contributions require at least one route".into(),
+            ));
+        }
+        let route_index = if route_id >= route_count { 0 } else { route_id };
+        let factor_milli = 1_000_i32.wrapping_add(contribution.steering_modifier_milli);
+        let route_amount = ((i64::from(contribution.effective_amount_milli)
+            * i64::from(factor_milli))
+            / 1_000) as i32;
+        contributions_milli[route_index] =
+            contributions_milli[route_index].wrapping_add(route_amount);
+    }
+
+    let normalized = calculate_vanilla_trade_route_weights(VanillaTradeRouteWeightInput {
+        contributions_milli: contributions_milli.clone(),
+        marked_routes: input.marked_routes,
+    })?;
+
+    Ok(VanillaTradeRouteWeightPassResult {
+        route_contributions_milli: contributions_milli,
+        total_milli: normalized.total_milli,
+        weights_milli: normalized.weights_milli,
     })
 }
 
