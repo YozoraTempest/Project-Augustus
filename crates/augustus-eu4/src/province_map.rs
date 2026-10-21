@@ -325,7 +325,11 @@ mod tests {
 
     #[test]
     fn horizontal_map_edges_wrap() {
-        let (pixels, ids_by_color, provinces) = map(2, 1, &[LAND, SEA]);
+        let (pixels, ids_by_color, mut provinces) = map(3, 1, &[LAND, SEA, EXTRA_LAND]);
+        provinces.get_mut(&1).unwrap().owner = Some("AAA".into());
+        provinces.get_mut(&1).unwrap().has_port = Some(false);
+        provinces.get_mut(&5).unwrap().owner = Some("AAA".into());
+        provinces.get_mut(&5).unwrap().has_port = Some(true);
         let result = derive(&pixels, &ids_by_color, &provinces, &BTreeSet::new());
         assert_eq!(result.port_presence[&1], Some(true));
         assert_eq!(
@@ -335,7 +339,7 @@ mod tests {
                 "AAA",
                 1,
             ),
-            None
+            Some(1)
         );
     }
 
@@ -397,12 +401,22 @@ mod tests {
 
     #[test]
     fn special_edges_connect_owned_provinces_and_skip_the_terminator() {
-        let (pixels, ids_by_color, mut provinces) = map(3, 1, &[LAND, SEA, EXTRA_LAND]);
+        let (pixels, ids_by_color, mut provinces) =
+            map(4, 2, &[LAND, SEA, SEA, SEA, SEA, SEA, SEA, EXTRA_LAND]);
         provinces.get_mut(&1).unwrap().owner = Some("AAA".into());
         provinces.get_mut(&1).unwrap().has_port = Some(false);
         provinces.get_mut(&5).unwrap().owner = Some("AAA".into());
         provinces.get_mut(&5).unwrap().has_port = Some(true);
         let mut result = derive(&pixels, &ids_by_color, &provinces, &BTreeSet::new());
+        assert_eq!(
+            result.topology.capital_area_port_count(
+                &province_references(&provinces),
+                &BTreeSet::new(),
+                "AAA",
+                1,
+            ),
+            Some(0)
+        );
         let adjacency = TextDocument::from_bytes(
             "self-authored-adjacencies.csv",
             b"From;To;Type\n1;5;sea\n-1;-1;sea\n".to_vec(),
@@ -425,12 +439,22 @@ mod tests {
 
     #[test]
     fn non_sea_special_edges_also_join_the_owned_area() {
-        let (pixels, ids_by_color, mut provinces) = map(3, 1, &[LAND, SEA, EXTRA_LAND]);
+        let (pixels, ids_by_color, mut provinces) =
+            map(4, 2, &[LAND, SEA, SEA, SEA, SEA, SEA, SEA, EXTRA_LAND]);
         provinces.get_mut(&1).unwrap().owner = Some("AAA".into());
         provinces.get_mut(&1).unwrap().has_port = Some(false);
         provinces.get_mut(&5).unwrap().owner = Some("AAA".into());
         provinces.get_mut(&5).unwrap().has_port = Some(true);
         let mut result = derive(&pixels, &ids_by_color, &provinces, &BTreeSet::new());
+        assert_eq!(
+            result.topology.capital_area_port_count(
+                &province_references(&provinces),
+                &BTreeSet::new(),
+                "AAA",
+                1,
+            ),
+            Some(0)
+        );
         let adjacency = TextDocument::from_bytes(
             "self-authored-adjacencies.csv",
             b"From;To;Type\n1;5;canal\n-1;-1;sea\n".to_vec(),
