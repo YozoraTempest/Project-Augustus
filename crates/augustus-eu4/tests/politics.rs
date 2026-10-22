@@ -2,7 +2,10 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{Action, Condition, DiplomaticKind, EntityKind, Schema};
-use augustus_eu4::{ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding, VanillaWorld};
+use augustus_eu4::{
+    ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding, VanillaWorld,
+    read_vanilla_save_state,
+};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -194,6 +197,49 @@ fn elector_history_and_queries_follow_the_selected_date_and_preserve_unknowns() 
         )
         .unwrap()
     );
+}
+
+#[test]
+fn saved_elector_roster_overrides_history_and_drives_elector_queries() {
+    let temp = copy_fixture();
+    for (file, status) in [("AAA - Alpha.txt", "yes"), ("BBB - Beta.txt", "no")] {
+        let path = temp.path().join("history/countries").join(file);
+        let existing = fs::read_to_string(&path).unwrap();
+        fs::write(&path, format!("{existing}\nelector = {status}\n")).unwrap();
+    }
+
+    let save_directory = tempfile::tempdir().unwrap();
+    let save_path = save_directory.path().join("electors.eu4");
+    fs::write(
+        &save_path,
+        r#"EU4txt
+date=1444.11.11
+empire={ electors={ BBB } }
+countries={ AAA={} BBB={} }
+provinces={}
+"#,
+    )
+    .unwrap();
+
+    let save = read_vanilla_save_state(&save_path).unwrap();
+    let content = VanillaWorld::load(temp.path(), &save.date).unwrap();
+    let external_state = save.state_for_world(&content).unwrap();
+    let loaded =
+        VanillaWorld::load_with_external_state(temp.path(), &save.date, &external_state).unwrap();
+    let world = loaded.initial.world();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    let beta = loaded.initial.country_entity("BBB").unwrap();
+
+    assert_eq!(world.politics().status(alpha, "elector"), Some(false));
+    assert_eq!(world.politics().status(beta, "elector"), Some(true));
+    for optimise in [false, true] {
+        let yes = elector_condition("is_elector=yes", optimise);
+        let no = elector_condition("is_elector=no", optimise);
+        assert!(!yes.evaluate(world, alpha).unwrap());
+        assert!(no.evaluate(world, alpha).unwrap());
+        assert!(yes.evaluate(world, beta).unwrap());
+        assert!(!no.evaluate(world, beta).unwrap());
+    }
 }
 
 #[test]

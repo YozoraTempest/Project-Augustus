@@ -751,6 +751,24 @@ fn read_vanilla_save_state_inner(
         players.insert(player.clone());
     }
 
+    let saved_electors = optional_object(&parsed, &root, "empire")?
+        .map(|empire| {
+            optional_field(&parsed, &empire, "electors")?
+                .map(|value| string_id_set(&parsed, &value, "elector"))
+                .transpose()
+        })
+        .transpose()?
+        .flatten();
+    if let Some(tag) = saved_electors
+        .as_ref()
+        .and_then(|electors| electors.iter().find(|tag| !is_country_tag(tag)))
+    {
+        return Err(Error::message(
+            parsed.source(),
+            format!("invalid saved elector country tag {tag}"),
+        ));
+    }
+
     let mut external_state = VanillaExternalState::default();
     let mut current_trade_node_values_milli = BTreeMap::new();
     let mut trade_node_runtime_states = BTreeMap::new();
@@ -818,6 +836,13 @@ fn read_vanilla_save_state_inner(
             continue;
         }
         let country = object(&parsed, &value)?;
+        if let Some(electors) = &saved_electors {
+            external_state
+                .country_statuses
+                .entry(tag.clone())
+                .or_default()
+                .insert("elector".into(), Some(electors.contains(&tag)));
+        }
         let relation_states = saved_country_relation_states(&parsed, &country, &tag)?;
         if !relation_states.is_empty() {
             external_state
@@ -2415,6 +2440,75 @@ mod tests {
         )
         .unwrap();
         path
+    }
+
+    #[test]
+    fn saved_elector_roster_sets_membership_and_leaves_missing_rosters_unknown() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("electors.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+empire={ electors={ AAA CCC } }
+countries={ AAA={} BBB={} CCC={} }
+provinces={}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert_eq!(
+            save.external_state.country_statuses["AAA"]["elector"],
+            Some(true)
+        );
+        assert_eq!(
+            save.external_state.country_statuses["BBB"]["elector"],
+            Some(false)
+        );
+        assert_eq!(
+            save.external_state.country_statuses["CCC"]["elector"],
+            Some(true)
+        );
+
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+empire={ electors={} }
+countries={ AAA={} BBB={} }
+provinces={}
+"#,
+        )
+        .unwrap();
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert_eq!(
+            save.external_state.country_statuses["AAA"]["elector"],
+            Some(false)
+        );
+        assert_eq!(
+            save.external_state.country_statuses["BBB"]["elector"],
+            Some(false)
+        );
+
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+empire={}
+countries={ AAA={} BBB={} }
+provinces={}
+"#,
+        )
+        .unwrap();
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert!(
+            !save
+                .external_state
+                .country_statuses
+                .get("AAA")
+                .is_some_and(|statuses| statuses.contains_key("elector"))
+        );
     }
 
     #[test]
