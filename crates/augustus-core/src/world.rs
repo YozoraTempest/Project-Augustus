@@ -614,19 +614,15 @@ impl World {
         self.set_trade_node_current_values_milli(&current_values)
     }
 
-    /// Calculates and applies trade-node distributions in the supplied order.
-    ///
-    /// Each calculation sees runtime state updates from earlier nodes. If a
-    /// calculation or application fails, all trade-node runtime changes from
-    /// this call are rolled back. The caller owns the native processing order.
-    pub fn run_vanilla_trade_node_distributions_in_order(
+    fn run_vanilla_trade_node_distributions_with_updates_in_order<T>(
         &mut self,
         ordered_nodes: &[String],
         mut calculate: impl FnMut(
             &Self,
             &str,
         )
-            -> Result<(Vec<String>, VanillaTradeDistributionResult), Error>,
+            -> Result<(Vec<String>, VanillaTradeDistributionResult, T), Error>,
+        mut update_runtime: impl FnMut(&mut Self, &str, T),
     ) -> Result<(), Error> {
         self.require_running()?;
 
@@ -646,7 +642,7 @@ impl World {
 
         let previous_runtime_states = self.trade_node_runtime_states.clone();
         let result: Result<(), Error> = ordered_nodes.iter().try_for_each(|source_node| {
-            let (destinations, distribution) = calculate(self, source_node)?;
+            let (destinations, distribution, runtime_update) = calculate(self, source_node)?;
             if self
                 .trade_node_route_order(source_node)
                 .flatten()
@@ -656,13 +652,39 @@ impl World {
                     "trade distribution destinations do not match content route order".into(),
                 ));
             }
-            self.apply_vanilla_trade_node_distribution(source_node, &destinations, &distribution)
+            self.apply_vanilla_trade_node_distribution(source_node, &destinations, &distribution)?;
+            update_runtime(self, source_node, runtime_update);
+            Ok(())
         });
 
         if result.is_err() {
             self.trade_node_runtime_states = previous_runtime_states;
         }
         result
+    }
+
+    /// Calculates and applies trade-node distributions in the supplied order.
+    ///
+    /// Each calculation sees runtime state updates from earlier nodes. If a
+    /// calculation or application fails, all trade-node runtime changes from
+    /// this call are rolled back. The caller owns the native processing order.
+    pub fn run_vanilla_trade_node_distributions_in_order(
+        &mut self,
+        ordered_nodes: &[String],
+        mut calculate: impl FnMut(
+            &Self,
+            &str,
+        )
+            -> Result<(Vec<String>, VanillaTradeDistributionResult), Error>,
+    ) -> Result<(), Error> {
+        self.run_vanilla_trade_node_distributions_with_updates_in_order(
+            ordered_nodes,
+            |world, source_node| {
+                calculate(world, source_node)
+                    .map(|(destinations, distribution)| (destinations, distribution, ()))
+            },
+            |_, _, ()| {},
+        )
     }
 
     /// Calculates and applies the verified trade-node stages in caller order.
@@ -676,36 +698,54 @@ impl World {
         mut build_input: impl FnMut(&Self, &str) -> Result<VanillaTradeNodePassInput, Error>,
     ) -> Result<Vec<VanillaTradeNodePassResult>, Error> {
         let mut results = Vec::with_capacity(ordered_nodes.len());
-        self.run_vanilla_trade_node_distributions_in_order(ordered_nodes, |world, source_node| {
-            let input = build_input(world, source_node)?;
-            let destinations = match world.trade_node_route_order(source_node) {
-                Some(Some(routes)) => routes.to_vec(),
-                Some(None)
-                    if world
-                        .economy
-                        .trade_nodes
-                        .get(source_node)
-                        .is_some_and(|node| node.outgoing.is_empty()) =>
-                {
-                    Vec::new()
-                }
-                _ => {
+        self.run_vanilla_trade_node_distributions_with_updates_in_order(
+            ordered_nodes,
+            |world, source_node| {
+                let input = build_input(world, source_node)?;
+                let destinations = match world.trade_node_route_order(source_node) {
+                    Some(Some(routes)) => routes.to_vec(),
+                    Some(None)
+                        if world
+                            .economy
+                            .trade_nodes
+                            .get(source_node)
+                            .is_some_and(|node| node.outgoing.is_empty()) =>
+                    {
+                        Vec::new()
+                    }
+                    _ => {
+                        return Err(Error::Invalid(
+                            "trade node route order is unavailable".into(),
+                        ));
+                    }
+                };
+                if input.routes.len() != destinations.len() {
                     return Err(Error::Invalid(
-                        "trade node route order is unavailable".into(),
+                        "trade node pass routes do not match content route count".into(),
                     ));
                 }
-            };
-            if input.routes.len() != destinations.len() {
-                return Err(Error::Invalid(
-                    "trade node pass routes do not match content route count".into(),
-                ));
-            }
 
-            let result = calculate_vanilla_trade_node_pass(input)?;
-            let distribution = result.distribution.clone();
-            results.push(result);
-            Ok((destinations, distribution))
-        })?;
+                let local_value = i64::from(input.base_outgoing_value_milli);
+                let result = calculate_vanilla_trade_node_pass(input)?;
+                let runtime_update = (
+                    local_value,
+                    i64::from(result.outflow.outgoing_amount_milli),
+                    i64::from(result.retention.retention.retention_milli),
+                );
+                let distribution = result.distribution.clone();
+                results.push(result);
+                Ok((destinations, distribution, runtime_update))
+            },
+            |world, source_node, (local_value, outgoing, retention)| {
+                let state = world
+                    .trade_node_runtime_states
+                    .entry(source_node.to_owned())
+                    .or_default();
+                state.local_value_milli = Some(local_value);
+                state.outgoing_milli = Some(outgoing);
+                state.retention_milli = Some(retention);
+            },
+        )?;
         Ok(results)
     }
 

@@ -391,7 +391,136 @@ fn vanilla_trade_nodes_run_in_caller_order_and_observe_prior_inflows() {
 }
 
 #[test]
-fn vanilla_trade_node_passes_calculate_and_apply_in_caller_order() {
+fn vanilla_trade_node_passes_persist_researched_wien_state_in_caller_order() {
+    let mut runtime_world = world();
+    runtime_world.set_economy(economy()).unwrap();
+    runtime_world
+        .set_trade_node_route_orders(&trade_node_route_orders())
+        .unwrap();
+    runtime_world
+        .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
+            ("river".into(), Some(10_343)),
+            ("harbor".into(), Some(0)),
+        ]))
+        .unwrap();
+
+    let order = ["river".to_owned(), "harbor".to_owned()];
+    let mut visited = Vec::new();
+    let passes = runtime_world
+        .run_vanilla_trade_node_passes_in_order(&order, |world, source_node| {
+            visited.push(source_node.to_owned());
+            let source_value = world
+                .trade_node_current_value_milli(source_node)
+                .flatten()
+                .unwrap() as i32;
+            if source_node == "river" {
+                // Local production, two measured inflows, and the observed
+                // retention produce Wien's 4717 current and 5626 outflow.
+                Ok(VanillaTradeNodePassInput {
+                    source_value_milli: source_value,
+                    retention: VanillaTradeRetentionPassInput {
+                        participants: vec![
+                            VanillaTradeRetentionParticipantInput {
+                                reference_valid: true,
+                                participation_balance_milli: 1,
+                                effective_amount_milli: 456,
+                                country_flags: VanillaTradeCountryFlags {
+                                    special_country: true,
+                                    ae: false,
+                                    ac: false,
+                                    ad: false,
+                                },
+                                cached_route_eligible: false,
+                            },
+                            VanillaTradeRetentionParticipantInput {
+                                reference_valid: true,
+                                participation_balance_milli: 1,
+                                effective_amount_milli: 544,
+                                country_flags: VanillaTradeCountryFlags {
+                                    special_country: false,
+                                    ae: true,
+                                    ac: true,
+                                    ad: false,
+                                },
+                                cached_route_eligible: true,
+                            },
+                        ],
+                    },
+                    route_weights: VanillaTradeRouteWeightPassInput {
+                        contributions: vec![VanillaTradeRouteWeightContributionInput {
+                            selected_route_id: 0,
+                            effective_amount_milli: 544,
+                            steering_modifier_milli: 0,
+                        }],
+                        marked_routes: vec![true],
+                    },
+                    has_downstream_routes: true,
+                    node_value_milli: 10_343,
+                    base_outgoing_value_milli: 5_945,
+                    incoming_transfer_values_milli: vec![2_336, 2_062],
+                    additional_outgoing_multiplier_milli: 0,
+                    routes: vec![VanillaTradeNodeRouteInput {
+                        route_id: 0,
+                        candidates: Vec::new(),
+                    }],
+                })
+            } else {
+                assert_eq!(source_value, 5_626);
+                Ok(VanillaTradeNodePassInput {
+                    source_value_milli: source_value,
+                    retention: VanillaTradeRetentionPassInput {
+                        participants: Vec::new(),
+                    },
+                    route_weights: VanillaTradeRouteWeightPassInput {
+                        contributions: Vec::new(),
+                        marked_routes: Vec::new(),
+                    },
+                    has_downstream_routes: false,
+                    node_value_milli: 0,
+                    base_outgoing_value_milli: 0,
+                    incoming_transfer_values_milli: Vec::new(),
+                    additional_outgoing_multiplier_milli: 0,
+                    routes: Vec::new(),
+                })
+            }
+        })
+        .unwrap();
+
+    assert_eq!(visited, ["river", "harbor"]);
+    assert_eq!(passes.len(), 2);
+    assert_eq!(passes[0].route_weights.weights_milli, [1_000]);
+    assert_eq!(passes[0].retention.retention.retention_milli, 456);
+    assert_eq!(passes[0].outflow.outgoing_amount_milli, 5_626);
+    assert_eq!(passes[0].distribution.source_value_milli, 4_717);
+    assert_eq!(passes[0].distribution.routes[0].value_milli, 5_626);
+    assert!(passes[1].distribution.routes.is_empty());
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("river"),
+        Some(Some(4_717))
+    );
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("harbor"),
+        Some(Some(5_626))
+    );
+    let wien = runtime_world
+        .trade_node_runtime_state("river")
+        .flatten()
+        .unwrap();
+    assert_eq!(wien.local_value_milli, Some(5_945));
+    assert_eq!(wien.outgoing_milli, Some(5_626));
+    assert_eq!(wien.retention_milli, Some(456));
+
+    let restored = World::restore(
+        &runtime_world.save("wien-trade-node-state").unwrap(),
+        "wien-trade-node-state",
+        runtime_world.schema(),
+    )
+    .unwrap();
+    assert_eq!(restored, runtime_world);
+}
+
+#[test]
+fn vanilla_trade_node_sequence_rolls_back_when_a_later_node_fails() {
     let mut runtime_world = world();
     runtime_world.set_economy(economy()).unwrap();
     runtime_world
@@ -405,10 +534,9 @@ fn vanilla_trade_node_passes_calculate_and_apply_in_caller_order() {
         .unwrap();
 
     let order = ["river".to_owned(), "harbor".to_owned()];
-    let mut visited = Vec::new();
-    let passes = runtime_world
-        .run_vanilla_trade_node_passes_in_order(&order, |world, source_node| {
-            visited.push(source_node.to_owned());
+    let before = runtime_world.clone();
+    let result =
+        runtime_world.run_vanilla_trade_node_passes_in_order(&order, |world, source_node| {
             let source_value = world
                 .trade_node_current_value_milli(source_node)
                 .flatten()
@@ -449,7 +577,6 @@ fn vanilla_trade_node_passes_calculate_and_apply_in_caller_order() {
                     }],
                 })
             } else {
-                assert_eq!(source_value, 6_000);
                 Ok(VanillaTradeNodePassInput {
                     source_value_milli: source_value,
                     retention: VanillaTradeRetentionPassInput {
@@ -457,7 +584,7 @@ fn vanilla_trade_node_passes_calculate_and_apply_in_caller_order() {
                     },
                     route_weights: VanillaTradeRouteWeightPassInput {
                         contributions: Vec::new(),
-                        marked_routes: Vec::new(),
+                        marked_routes: vec![true],
                     },
                     has_downstream_routes: false,
                     node_value_milli: 0,
@@ -467,76 +594,10 @@ fn vanilla_trade_node_passes_calculate_and_apply_in_caller_order() {
                     routes: Vec::new(),
                 })
             }
-        })
-        .unwrap();
-
-    assert_eq!(visited, ["river", "harbor"]);
-    assert_eq!(passes.len(), 2);
-    assert_eq!(passes[0].route_weights.weights_milli, [1_000]);
-    assert_eq!(passes[0].outflow.outgoing_amount_milli, 1_000);
-    assert_eq!(passes[0].distribution.routes[0].value_milli, 1_000);
-    assert!(passes[1].distribution.routes.is_empty());
-    assert_eq!(
-        runtime_world.trade_node_current_value_milli("river"),
-        Some(Some(9_000))
-    );
-    assert_eq!(
-        runtime_world.trade_node_current_value_milli("harbor"),
-        Some(Some(6_000))
-    );
-}
-
-#[test]
-fn vanilla_trade_node_sequence_rolls_back_when_a_later_node_fails() {
-    let mut runtime_world = world();
-    runtime_world.set_economy(economy()).unwrap();
-    runtime_world
-        .set_trade_node_route_orders(&trade_node_route_orders())
-        .unwrap();
-    runtime_world
-        .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
-            ("river".into(), Some(10_000)),
-            ("harbor".into(), Some(5_000)),
-        ]))
-        .unwrap();
-
-    let order = ["river".to_owned(), "harbor".to_owned()];
-    let result = runtime_world.run_vanilla_trade_node_distributions_in_order(
-        &order,
-        |world, source_node| {
-            let source_value = world
-                .trade_node_current_value_milli(source_node)
-                .flatten()
-                .unwrap() as i32;
-            let destination = if source_node == "river" {
-                "harbor"
-            } else {
-                "river"
-            };
-            Ok((
-                vec![destination.to_owned()],
-                calculate_vanilla_trade_distribution(VanillaTradeDistributionInput {
-                    source_value_milli: source_value,
-                    source_debit_milli: 0,
-                    routes: vec![VanillaTradeDistributionRouteInput {
-                        weight_milli: 1_000,
-                        node_value_milli: 1_000,
-                        candidates: Vec::new(),
-                    }],
-                }),
-            ))
-        },
-    );
+        });
 
     assert!(matches!(result, Err(Error::Invalid(_))));
-    assert_eq!(
-        runtime_world.trade_node_current_value_milli("river"),
-        Some(Some(10_000))
-    );
-    assert_eq!(
-        runtime_world.trade_node_current_value_milli("harbor"),
-        Some(Some(5_000))
-    );
+    assert_eq!(runtime_world, before);
 }
 
 #[test]
