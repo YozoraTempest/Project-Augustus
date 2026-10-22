@@ -546,16 +546,28 @@ fn trade_income_records_feed_monthly_cashflow_and_native_ledger() {
     let breakdown = CashflowBreakdown {
         trade_milli: None,
         trade_income_pass: Some(VanillaTradeIncomePassInput {
-            eligible_records: vec![VanillaTradeIncomeInput {
-                node_value_milli: 3_817,
-                country_record_value_milli: 349,
-                base_context_modifier_milli: 20,
-                selected_context_modifier_milli: 50,
-                virtual_context_modifier_milli: None,
-                minimum_context_modifier_milli: 10,
-                maximum_context_modifier_milli: 2_000,
-                post_context_modifier_milli: 100,
-            }],
+            eligible_records: vec![
+                VanillaTradeIncomeInput {
+                    node_value_milli: 3_817,
+                    country_record_value_milli: 349,
+                    base_context_modifier_milli: 20,
+                    selected_context_modifier_milli: 50,
+                    virtual_context_modifier_milli: None,
+                    minimum_context_modifier_milli: 10,
+                    maximum_context_modifier_milli: 2_000,
+                    post_context_modifier_milli: 100,
+                },
+                VanillaTradeIncomeInput {
+                    node_value_milli: 5_390,
+                    country_record_value_milli: 305,
+                    base_context_modifier_milli: 0,
+                    selected_context_modifier_milli: 70,
+                    virtual_context_modifier_milli: None,
+                    minimum_context_modifier_milli: 10,
+                    maximum_context_modifier_milli: 2_000,
+                    post_context_modifier_milli: 0,
+                },
+            ],
         }),
         gold_milli: Some(0),
         expenses_milli: Some(0),
@@ -589,15 +601,15 @@ fn trade_income_records_feed_monthly_cashflow_and_native_ledger() {
         .as_ref()
         .unwrap()
         .accounts[&country];
-    assert_eq!(account.amount_milli, Some(1_558));
-    assert_eq!(account.credited_milli, Some(1_558));
+    assert_eq!(account.amount_milli, Some(3_316));
+    assert_eq!(account.credited_milli, Some(3_316));
     assert_eq!(
         world.country_resources()[&country].treasury_milli,
-        Some(101_558)
+        Some(103_316)
     );
     assert_eq!(
         world.country_ledgers()[&country].income_snapshot_milli[2],
-        1_558
+        3_316
     );
 
     let saved = world.save("trade-income-cashflow").unwrap();

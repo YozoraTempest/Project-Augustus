@@ -65,6 +65,28 @@ fn trade_income_matches_the_two_verified_syria_paths() {
 }
 
 #[test]
+fn trade_income_matches_the_observed_hab_wien_integer_stages() {
+    // The observed 1.070 multiplier is the native 1.000 baseline plus 70.
+    let income = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
+        node_value_milli: 5_390,
+        country_record_value_milli: 305,
+        base_context_modifier_milli: 0,
+        selected_context_modifier_milli: 70,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: 0,
+    })
+    .unwrap();
+
+    assert_eq!(income.stage_one_product, 1_643_950);
+    assert_eq!(income.stage_one_milli, 1_643);
+    assert_eq!(income.effective_multiplier_milli, 1_070);
+    assert_eq!(income.stage_two_product, 1_758_010);
+    assert_eq!(income.trade_income_milli, 1_758);
+}
+
+#[test]
 fn trade_income_clamps_context_before_bonus_and_truncates_signed_stages() {
     let upper = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
         node_value_milli: 1,
