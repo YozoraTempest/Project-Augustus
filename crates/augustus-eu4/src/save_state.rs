@@ -904,7 +904,7 @@ fn read_vanilla_save_state_inner(
             let reforms =
                 if let Some(stack) = optional_object(&parsed, &government, "reform_stack")? {
                     optional_field(&parsed, &stack, "reforms")?
-                        .map(|value| string_id_set(&parsed, &value, "government reform"))
+                        .map(|value| saved_government_reform_set(&parsed, &value))
                         .transpose()?
                 } else {
                     None
@@ -2201,6 +2201,30 @@ fn string_id_set(
     Ok(result)
 }
 
+fn saved_government_reform_set(
+    parsed: &ParsedText<'_>,
+    value: &Field<'_, '_>,
+) -> Result<BTreeSet<String>, Error> {
+    let array = value
+        .read_array()
+        .map_err(|error| Error::caused_by(parsed.source(), error))?;
+    let mut result = BTreeSet::new();
+    for item in array.values() {
+        let id = scalar(parsed, &item)?;
+        if id.is_empty() {
+            // EU4 saves include empty entries for unselected reform slots.
+            continue;
+        }
+        if !result.insert(id) {
+            return Err(Error::message(
+                parsed.source(),
+                "duplicate saved government reform identifier",
+            ));
+        }
+    }
+    Ok(result)
+}
+
 fn saved_government_mechanic_powers(
     parsed: &ParsedText<'_>,
     government: &Object<'_, '_>,
@@ -3340,6 +3364,7 @@ countries={
             reform_stack={
                 reforms={
                     "test_council"
+                    ""
                     "test_charter"
                 }
                 history={
@@ -3473,6 +3498,42 @@ provinces={}
             .insert("AAA".into(), Some(4));
         assert!(
             crate::VanillaWorld::load_from_content_with_save_state(&content, &invalid).is_err()
+        );
+    }
+
+    #[test]
+    fn saved_government_reforms_reject_duplicate_nonempty_identifiers() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("duplicate-reforms.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+countries={
+    AAA={
+        government={
+            reform_stack={
+                reforms={
+                    "test_council"
+                    "test_council"
+                }
+            }
+        }
+        human=yes
+    }
+}
+provinces={}
+"#,
+        )
+        .unwrap();
+
+        let error = match read_vanilla_save_state(&save_path) {
+            Ok(_) => panic!("duplicate government reforms were accepted"),
+            Err(error) => error.to_string(),
+        };
+        assert!(
+            error.contains("duplicate saved government reform identifier"),
+            "{error}"
         );
     }
 
