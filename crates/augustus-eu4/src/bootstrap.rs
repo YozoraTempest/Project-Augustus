@@ -3161,7 +3161,7 @@ impl VanillaWorld {
             .set_affiliations(affiliations)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         bind_external_province_in_empire(&mut initial, overrides.province_in_empire)?;
-        let area_scopes = administration.ordered_areas();
+        let geographic_scopes = administration.geographic_scopes();
         let mut metrics = crate::province_metrics::bind(
             &initial,
             &attribute_draft,
@@ -3364,8 +3364,12 @@ impl VanillaWorld {
                 ..Default::default()
             })
             .map_err(|e| Error::caused_by("common/cb_types", e))?;
-        let missions =
-            crate::missions::MissionDraft::load(&root, &files, initial.world(), &area_scopes)?;
+        let missions = crate::missions::MissionDraft::load(
+            &root,
+            &files,
+            initial.world(),
+            &geographic_scopes,
+        )?;
         missions.register_identifiers(&mut initial)?;
         crate::truces::bind(&files, &defines, &mut report.setup)?;
         crate::truces::bind_history(
@@ -3421,7 +3425,7 @@ impl VanillaWorld {
                 .collect(),
             report.setup.advisor_types.clone(),
             report.setup.truce_months,
-            area_scopes,
+            geographic_scopes,
             initial.world().affiliations().0["religious_school"]
                 .groups
                 .clone(),

@@ -61,8 +61,41 @@ pub(super) struct AdministrationDraft {
 }
 
 impl AdministrationDraft {
-    pub(super) fn ordered_areas(&self) -> BTreeMap<String, Vec<u32>> {
-        self.ordered_areas.clone()
+    pub(super) fn geographic_scopes(&self) -> BTreeMap<String, Vec<u32>> {
+        let geography = &self.autonomy.geography;
+        let mut scopes = self.ordered_areas.clone();
+        let mut ambiguous = BTreeSet::new();
+
+        for (name, areas) in &geography.regions {
+            let provinces = areas
+                .iter()
+                .filter_map(|area| self.ordered_areas.get(area))
+                .flatten()
+                .copied()
+                .collect();
+            insert_geographic_scope(&mut scopes, &mut ambiguous, name, provinces);
+        }
+        for (name, regions) in &geography.superregions {
+            let provinces = regions
+                .iter()
+                .filter_map(|region| geography.regions.get(region))
+                .flatten()
+                .filter_map(|area| self.ordered_areas.get(area))
+                .flatten()
+                .copied()
+                .collect();
+            insert_geographic_scope(&mut scopes, &mut ambiguous, name, provinces);
+        }
+        for (name, provinces) in &geography.continents {
+            insert_geographic_scope(
+                &mut scopes,
+                &mut ambiguous,
+                name,
+                provinces.iter().copied().collect(),
+            );
+        }
+
+        scopes
     }
 
     pub(super) fn affiliations(&self, initial: &InitialWorld) -> augustus_core::Affiliations {
@@ -471,6 +504,23 @@ impl AdministrationDraft {
             .count();
         report.province_records = administration.provinces.len();
         Ok(administration)
+    }
+}
+
+fn insert_geographic_scope(
+    scopes: &mut BTreeMap<String, Vec<u32>>,
+    ambiguous: &mut BTreeSet<String>,
+    name: &str,
+    provinces: Vec<u32>,
+) {
+    if ambiguous.contains(name) {
+        return;
+    }
+    if scopes.contains_key(name) {
+        scopes.remove(name);
+        ambiguous.insert(name.into());
+    } else {
+        scopes.insert(name.into(), provinces);
     }
 }
 

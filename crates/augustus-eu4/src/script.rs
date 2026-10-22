@@ -435,7 +435,7 @@ pub struct ScriptCompiler<'a> {
     advisor_types: BTreeMap<String, augustus_core::RulerSkill>,
     truce_months: Option<u32>,
     treasury_slot: Option<augustus_core::NumericSlot>,
-    area_scopes: BTreeMap<String, Vec<u32>>,
+    geographic_scopes: BTreeMap<String, Vec<u32>>,
     religious_school_groups: BTreeMap<String, Option<String>>,
     hidden_descriptions: bool,
     root_scope: Option<EntityKind>,
@@ -464,7 +464,7 @@ impl<'a> ScriptCompiler<'a> {
             advisor_types: library.advisor_types.clone(),
             truce_months: None,
             treasury_slot: None,
-            area_scopes: BTreeMap::new(),
+            geographic_scopes: BTreeMap::new(),
             religious_school_groups: BTreeMap::new(),
             hidden_descriptions: false,
             root_scope: None,
@@ -566,9 +566,14 @@ impl<'a> ScriptCompiler<'a> {
         self
     }
 
-    /// Members retain content declaration order, including repeated entries.
-    pub fn with_area_scopes(mut self, areas: BTreeMap<String, Vec<u32>>) -> Self {
-        self.area_scopes = areas;
+    /// Members retain their source order, including repeated entries.
+    pub fn with_area_scopes(self, areas: BTreeMap<String, Vec<u32>>) -> Self {
+        self.with_geographic_scopes(areas)
+    }
+
+    /// Bind named province sets used by area, region, superregion, and continent scopes.
+    pub fn with_geographic_scopes(mut self, scopes: BTreeMap<String, Vec<u32>>) -> Self {
+        self.geographic_scopes = scopes;
         self
     }
 
@@ -2207,11 +2212,11 @@ impl<'a> ScriptCompiler<'a> {
                         category,
                     });
                 }
-                name if self.area_scopes.contains_key(name) => {
-                    let members = self.area_scopes[name].clone();
+                name if self.geographic_scopes.contains_key(name) => {
+                    let members = self.geographic_scopes[name].clone();
                     if members.contains(&0) {
                         return Err(
-                            field.error("area scope requires positive province identifiers")
+                            field.error("geographic scope requires positive province identifiers")
                         );
                     }
                     let mut body = Vec::new();

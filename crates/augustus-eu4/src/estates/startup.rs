@@ -54,7 +54,7 @@ struct Compiler {
     advisor_types: BTreeMap<String, augustus_core::RulerSkill>,
     truce_months: Option<u32>,
     age_rules: crate::country_conditions::AgeRules,
-    area_scopes: BTreeMap<String, Vec<u32>>,
+    geographic_scopes: BTreeMap<String, Vec<u32>>,
     religious_school_groups: BTreeMap<String, Option<String>>,
     casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
     hidden_descriptions: bool,
@@ -132,7 +132,7 @@ impl Compiler {
                         .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
                             augustus_core::CountryResource::Treasury,
                         )))
-                        .with_area_scopes(self.area_scopes.clone())
+                        .with_geographic_scopes(self.geographic_scopes.clone())
                         .compile_scalar_effect_reader(
                             parsed,
                             &name,
@@ -209,7 +209,7 @@ impl Compiler {
                     ),
                     location,
                 )),
-                name if self.area_scopes.contains_key(name)
+                name if self.geographic_scopes.contains_key(name)
                     || name.parse::<u32>().is_ok_and(|id| id > 0) =>
                 {
                     let compiled = crate::ScriptCompiler::new(&self.schema, &self.library, true)
@@ -221,7 +221,7 @@ impl Compiler {
                             augustus_core::CountryResource::Treasury,
                         )))
                         .with_hidden_descriptions(self.hidden_descriptions)
-                        .with_area_scopes(self.area_scopes.clone())
+                        .with_geographic_scopes(self.geographic_scopes.clone())
                         .with_government_metric_ids(self.government_metric_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())
                         .with_mission_ids(self.mission_ids.clone())
@@ -273,7 +273,7 @@ impl Compiler {
                         .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
                             augustus_core::CountryResource::Treasury,
                         )))
-                        .with_area_scopes(self.area_scopes.clone())
+                        .with_geographic_scopes(self.geographic_scopes.clone())
                         .with_mission_ids(self.mission_ids.clone())
                         .with_modifier_ids(self.modifier_ids.clone())
                         .with_religious_school_groups(self.religious_school_groups.clone())
@@ -465,7 +465,7 @@ impl Compiler {
                                 .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
                                     augustus_core::CountryResource::Treasury,
                                 )))
-                                .with_area_scopes(self.area_scopes.clone())
+                                .with_geographic_scopes(self.geographic_scopes.clone())
                                 .compile_effect_reader(
                                     parsed,
                                     &name,
@@ -673,7 +673,7 @@ impl EstateStartup {
         metric_ids: BTreeSet<String>,
         advisor_types: BTreeMap<String, augustus_core::RulerSkill>,
         truce_months: Option<u32>,
-        area_scopes: BTreeMap<String, Vec<u32>>,
+        geographic_scopes: BTreeMap<String, Vec<u32>>,
         religious_school_groups: BTreeMap<String, Option<String>>,
         casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
         external_privileges: BTreeSet<String>,
@@ -700,7 +700,7 @@ impl EstateStartup {
             metric_ids,
             truce_months,
             age_rules,
-            area_scopes,
+            geographic_scopes,
             religious_school_groups,
             casus_belli_types,
         };
@@ -1420,7 +1420,7 @@ fn load_events(
                     .with_treasury_slot(Some(augustus_core::NumericSlot::Resource(
                         augustus_core::CountryResource::Treasury,
                     )))
-                    .with_area_scopes(compiler.area_scopes.clone())
+                    .with_geographic_scopes(compiler.geographic_scopes.clone())
                     .with_mission_ids(compiler.mission_ids.clone())
                     .with_modifier_ids(compiler.modifier_ids.clone())
                     .with_religious_school_groups(compiler.religious_school_groups.clone())

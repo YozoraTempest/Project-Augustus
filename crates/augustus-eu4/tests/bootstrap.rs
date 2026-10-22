@@ -530,6 +530,62 @@ fn startup_actions_from_separate_files_are_all_applied() {
 }
 
 #[test]
+fn startup_region_scope_discovers_each_member_province_for_the_root_country() {
+    let root = copy_fixture();
+    append_fixture(root.path(), "map/area.txt", "highland_area = { 4 }");
+    append_fixture(
+        root.path(),
+        "map/default.map",
+        "region = \"region.txt\"\nsuperregion = \"superregion.txt\"\ncontinent = \"continent.txt\"",
+    );
+    fs::write(
+        root.path().join("map/region.txt"),
+        "discovery_region = { areas = { north_area } } east_region = { areas = { east_area } }",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("map/superregion.txt"),
+        "discovery_superregion = { east_region }",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("map/continent.txt"),
+        "discovery_continent = { 4 }",
+    )
+    .unwrap();
+    let on_actions = root.path().join("common/on_actions");
+    fs::create_dir_all(&on_actions).unwrap();
+    fs::write(
+        on_actions.join("discovery.txt"),
+        "on_startup = { if = { limit = { tag = BBB } discovery_region = { discover_country = ROOT } discovery_superregion = { discover_country = ROOT } discovery_continent = { discover_country = ROOT } } }",
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    let world = loaded.initial.world();
+    let beta = loaded.initial.country_entity("BBB").unwrap();
+    let north = loaded.initial.province_entity(1).unwrap();
+    let east = loaded.initial.province_entity(2).unwrap();
+    let sea = loaded.initial.province_entity(3).unwrap();
+    let highland = loaded.initial.province_entity(4).unwrap();
+
+    assert_eq!(
+        world.province_discovered_by(north, beta).unwrap(),
+        Some(true)
+    );
+    assert_eq!(
+        world.province_discovered_by(east, beta).unwrap(),
+        Some(true)
+    );
+    assert_eq!(world.province_discovered_by(sea, beta).unwrap(), None);
+    assert_eq!(
+        world.province_discovered_by(highland, beta).unwrap(),
+        Some(true)
+    );
+    assert!(loaded.report.estates.pending_startup_effects.is_empty());
+}
+
+#[test]
 fn delayed_mod_event_replaces_advisor_after_save_resume() {
     let root = copy_fixture();
     let advisor_types = root.path().join("common/advisortypes");

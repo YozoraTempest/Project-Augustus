@@ -28,7 +28,7 @@ impl MissionDraft {
         root: &impl ContentView,
         files: &[FileEntry],
         world: &World,
-        areas: &BTreeMap<String, Vec<u32>>,
+        geographic_scopes: &BTreeMap<String, Vec<u32>>,
     ) -> Result<Self, Error> {
         let ids = identifiers(root, files)?;
         let library = ScriptLibrary::from_root(root, files, TextEncoding::Windows1252)?;
@@ -39,7 +39,7 @@ impl MissionDraft {
             .collect::<Result<Vec<_>, _>>()?;
         let mut objectives = ScriptCompiler::for_world(world, &library, true)
             .with_mission_ids(ids.clone())
-            .with_area_scopes(areas.clone())
+            .with_geographic_scopes(geographic_scopes.clone())
             .compile_missions(&documents)?;
         // Persistent conditions use content paths, independent of the player's installation.
         for source_root in root.source_roots() {
