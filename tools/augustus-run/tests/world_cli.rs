@@ -235,6 +235,9 @@ fn diplomacy_query_reports_saved_country_relation_state() {
             "country_relation_states": {
                 "AAA": {
                     "BBB": { "attitude": "probe_attitude", "trust_value": 42 }
+                },
+                "BBB": {
+                    "AAA": { "attitude": "other_probe_attitude", "trust_value": 7 }
                 }
             }
         })
@@ -260,12 +263,37 @@ fn diplomacy_query_reports_saved_country_relation_state() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         value["country_relation_states"],
-        serde_json::json!([{
-            "owner": "AAA",
-            "target": "BBB",
-            "attitude": "probe_attitude",
-            "trust_value": 42
-        }])
+        serde_json::json!({
+            "AAA": {
+                "BBB": { "attitude": "probe_attitude", "trust_value": 42 }
+            },
+            "BBB": {
+                "AAA": { "attitude": "other_probe_attitude", "trust_value": 7 }
+            }
+        })
+    );
+
+    let filtered = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external_state)
+        .args(["--country", "AAA", "--diplomacy", "--omit-load-report"])
+        .output()
+        .unwrap();
+    assert!(
+        filtered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&filtered.stderr)
+    );
+    let filtered: serde_json::Value = serde_json::from_slice(&filtered.stdout).unwrap();
+    assert_eq!(
+        filtered["country_relation_states"],
+        serde_json::json!({
+            "AAA": {
+                "BBB": { "attitude": "probe_attitude", "trust_value": 42 }
+            }
+        })
     );
 }
 

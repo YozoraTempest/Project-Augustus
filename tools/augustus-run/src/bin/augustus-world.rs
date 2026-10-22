@@ -423,22 +423,37 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        output["country_relation_states"] = serde_json::to_value(
-            loaded
-                .initial
-                .world()
-                .country_relation_states()
-                .filter(|(_, _, state)| !state.is_empty())
-                .map(|(owner, target, state)| {
-                    serde_json::json!({
-                        "owner": country_tags.get(&owner).expect("registered relation owner"),
-                        "target": country_tags.get(&target).expect("registered relation target"),
-                        "attitude": state.attitude.as_deref(),
-                        "trust_value": state.trust_value,
-                    })
-                })
-                .collect::<Vec<_>>(),
-        )?;
+        let mut relation_states = BTreeMap::<&str, BTreeMap<&str, serde_json::Value>>::new();
+        for (owner, target, state) in loaded
+            .initial
+            .world()
+            .country_relation_states()
+            .filter(|(_, _, state)| !state.is_empty())
+        {
+            let owner_tag = country_tags
+                .get(&owner)
+                .expect("registered relation owner")
+                .as_str();
+            if cli
+                .country
+                .as_deref()
+                .is_some_and(|selected| selected != owner_tag)
+            {
+                continue;
+            }
+            let target_tag = country_tags
+                .get(&target)
+                .expect("registered relation target")
+                .as_str();
+            relation_states.entry(owner_tag).or_default().insert(
+                target_tag,
+                serde_json::json!({
+                    "attitude": state.attitude.as_deref(),
+                    "trust_value": state.trust_value,
+                }),
+            );
+        }
+        output["country_relation_states"] = serde_json::to_value(relation_states)?;
         let calendar = loaded
             .initial
             .world()
