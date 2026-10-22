@@ -357,6 +357,26 @@ impl VanillaSaveState {
             }
         }
 
+        for (office, holder) in &self.external_state.political_office_holders {
+            if office.is_empty() {
+                return Err(Error::message(
+                    "save state",
+                    "saved political office is empty",
+                ));
+            }
+            if let Some(holder) = holder
+                && !countries.contains(holder.as_str())
+            {
+                return Err(Error::message(
+                    "save state",
+                    format!("office {office} references unknown saved holder {holder}"),
+                ));
+            }
+            state
+                .political_office_holders
+                .insert(office.clone(), holder.clone());
+        }
+
         for (trade_good, price) in &self.external_state.trade_good_prices_milli {
             if world
                 .initial
@@ -751,12 +771,19 @@ fn read_vanilla_save_state_inner(
         players.insert(player.clone());
     }
 
-    let saved_electors = optional_object(&parsed, &root, "empire")?
+    let empire = optional_object(&parsed, &root, "empire")?;
+    let saved_electors = empire
+        .as_ref()
         .map(|empire| {
-            optional_field(&parsed, &empire, "electors")?
+            optional_field(&parsed, empire, "electors")?
                 .map(|value| string_id_set(&parsed, &value, "elector"))
                 .transpose()
         })
+        .transpose()?
+        .flatten();
+    let saved_emperor = empire
+        .as_ref()
+        .map(|empire| optional_scalar(&parsed, empire, "emperor"))
         .transpose()?
         .flatten();
     if let Some(tag) = saved_electors
@@ -768,8 +795,21 @@ fn read_vanilla_save_state_inner(
             format!("invalid saved elector country tag {tag}"),
         ));
     }
+    if let Some(emperor) = &saved_emperor
+        && !is_country_tag(emperor)
+    {
+        return Err(Error::message(
+            parsed.source(),
+            format!("invalid saved imperial emperor tag {emperor}"),
+        ));
+    }
 
     let mut external_state = VanillaExternalState::default();
+    if let Some(emperor) = saved_emperor {
+        external_state
+            .political_office_holders
+            .insert("imperial_emperor".into(), Some(emperor));
+    }
     let mut current_trade_node_values_milli = BTreeMap::new();
     let mut trade_node_runtime_states = BTreeMap::new();
     let mut trade_node_order = Vec::new();
@@ -2508,6 +2548,46 @@ provinces={}
                 .country_statuses
                 .get("AAA")
                 .is_some_and(|statuses| statuses.contains_key("elector"))
+        );
+    }
+
+    #[test]
+    fn saved_emperor_is_imported_and_missing_emperor_stays_unset() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("emperor.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+empire={ emperor="BBB" }
+countries={ AAA={} BBB={} }
+provinces={}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert_eq!(
+            save.external_state.political_office_holders["imperial_emperor"].as_deref(),
+            Some("BBB")
+        );
+
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+empire={}
+countries={ AAA={} BBB={} }
+provinces={}
+"#,
+        )
+        .unwrap();
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert!(
+            !save
+                .external_state
+                .political_office_holders
+                .contains_key("imperial_emperor")
         );
     }
 

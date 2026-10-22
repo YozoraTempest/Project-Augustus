@@ -309,6 +309,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         estate_states: Default::default(),
         country_markers: Default::default(),
         country_statuses: Default::default(),
+        political_office_holders: Default::default(),
         country_relation_states: Default::default(),
         estate_loyalty_targets: BTreeMap::from([(
             "AAA".into(),

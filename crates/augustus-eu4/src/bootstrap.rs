@@ -550,6 +550,10 @@ pub struct VanillaExternalState {
     /// reader. Omitted statuses remain at their content-derived state.
     #[serde(default)]
     pub country_statuses: VanillaExternalCountryStatuses,
+    /// Current political office holders supplied by a save reader. An omitted
+    /// office keeps its content-derived holder; `None` explicitly clears it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub political_office_holders: BTreeMap<String, Option<String>>,
     /// Current bilateral relation inputs imported from a save. Missing
     /// targets remain unresolved; this does not recalculate AI attitudes.
     #[serde(default)]
@@ -637,6 +641,7 @@ struct LoadOverrides<'a> {
     estate_states: Option<&'a VanillaExternalEstateStates>,
     country_markers: Option<&'a VanillaExternalCountryMarkers>,
     country_statuses: Option<&'a VanillaExternalCountryStatuses>,
+    political_office_holders: Option<&'a BTreeMap<String, Option<String>>>,
     country_relation_states: Option<&'a VanillaExternalCountryRelationStates>,
     estate_loyalty_targets: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_monthly_cashflows_milli: Option<&'a BTreeMap<String, Option<i64>>>,
@@ -734,6 +739,8 @@ impl<'a> LoadOverrides<'a> {
             country_markers: (!state.country_markers.is_empty()).then_some(&state.country_markers),
             country_statuses: (!state.country_statuses.is_empty())
                 .then_some(&state.country_statuses),
+            political_office_holders: (!state.political_office_holders.is_empty())
+                .then_some(&state.political_office_holders),
             country_relation_states: (!state.country_relation_states.is_empty())
                 .then_some(&state.country_relation_states),
             estate_loyalty_targets: (!state.estate_loyalty_targets.is_empty())
@@ -929,6 +936,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     overlay_estate_states(&mut base.estate_states, &overlay.estate_states);
     base.country_markers.extend(overlay.country_markers.clone());
     overlay_nested_map(&mut base.country_statuses, &overlay.country_statuses);
+    base.political_office_holders
+        .extend(overlay.political_office_holders.clone());
     overlay_country_relation_states(
         &mut base.country_relation_states,
         &overlay.country_relation_states,
@@ -1450,6 +1459,38 @@ fn bind_external_country_statuses(
     initial
         .set_politics(politics)
         .map_err(|e| Error::caused_by("external country statuses", e))
+}
+
+fn bind_external_political_office_holders(
+    initial: &mut InitialWorld,
+    values: Option<&BTreeMap<String, Option<String>>>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut politics = initial.world().politics().clone();
+    for (office, holder) in values {
+        if office.is_empty() {
+            return Err(Error::message(
+                "external political offices",
+                "political office name is empty",
+            ));
+        }
+        if let Some(holder) = holder {
+            let entity = initial.country_entity(holder).ok_or_else(|| {
+                Error::message(
+                    "external political offices",
+                    format!("unknown holder {holder} for office {office}"),
+                )
+            })?;
+            politics.offices.insert(office.clone(), entity);
+        } else {
+            politics.offices.remove(office);
+        }
+    }
+    initial
+        .set_politics(politics)
+        .map_err(|error| Error::caused_by("external political offices", error))
 }
 
 fn bind_external_country_relation_states(
@@ -3538,6 +3579,7 @@ impl VanillaWorld {
         initial
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        bind_external_political_office_holders(&mut initial, overrides.political_office_holders)?;
         bind_external_country_statuses(&mut initial, overrides.country_statuses)?;
         bind_external_country_relation_states(&mut initial, overrides.country_relation_states)?;
         bind_external_national_focus(&mut initial, overrides.country_national_focus)?;
@@ -4000,6 +4042,7 @@ impl VanillaWorld {
             )?;
             bind_external_province_in_empire(&mut initial, overrides.province_in_empire)?;
         }
+        bind_external_political_office_holders(&mut initial, overrides.political_office_holders)?;
         bind_external_country_statuses(&mut initial, overrides.country_statuses)?;
         bind_external_country_relation_states(&mut initial, overrides.country_relation_states)?;
         bind_external_country_markers(&mut initial, overrides.country_markers)?;

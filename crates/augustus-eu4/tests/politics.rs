@@ -3,7 +3,7 @@
 
 use augustus_core::{Action, Condition, DiplomaticKind, EntityKind, Schema};
 use augustus_eu4::{
-    ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding, VanillaWorld,
+    ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding, VanillaExternalState, VanillaWorld,
     read_vanilla_save_state,
 };
 use std::{
@@ -46,7 +46,7 @@ fn has_idea_group(world: &VanillaWorld, country: &str, group: &str) -> bool {
         .is_some_and(|groups| groups.contains_key(group))
 }
 
-fn elector_condition(script: &str, optimise: bool) -> Condition {
+fn country_condition(script: &str, optimise: bool) -> Condition {
     let source = format!("if={{limit={{{script}}} log=elector_condition_matched}}");
     let document = TextDocument::from_bytes(
         "self-authored-elector-condition.txt",
@@ -64,6 +64,10 @@ fn elector_condition(script: &str, optimise: bool) -> Condition {
         [Action::If { condition, .. }] => condition.clone(),
         _ => panic!("expected one conditional action"),
     }
+}
+
+fn elector_condition(script: &str, optimise: bool) -> Condition {
+    country_condition(script, optimise)
 }
 
 #[test]
@@ -240,6 +244,69 @@ provinces={}
         assert!(yes.evaluate(world, beta).unwrap());
         assert!(!no.evaluate(world, beta).unwrap());
     }
+}
+
+#[test]
+fn saved_emperor_overrides_history_and_drives_emperor_queries() {
+    let temp = copy_fixture();
+    let save_directory = tempfile::tempdir().unwrap();
+    let save_path = save_directory.path().join("emperor.eu4");
+    fs::write(
+        &save_path,
+        r#"EU4txt
+date=1444.11.11
+empire={ emperor="BBB" }
+countries={ AAA={} BBB={} }
+provinces={}
+"#,
+    )
+    .unwrap();
+
+    let save = read_vanilla_save_state(&save_path).unwrap();
+    let content = VanillaWorld::load(temp.path(), &save.date).unwrap();
+    assert_eq!(
+        content
+            .initial
+            .world()
+            .politics()
+            .offices
+            .get("imperial_emperor"),
+        Some(&content.initial.country_entity("AAA").unwrap())
+    );
+    let external_state = save.state_for_world(&content).unwrap();
+    let loaded =
+        VanillaWorld::load_with_external_state(temp.path(), &save.date, &external_state).unwrap();
+    let world = loaded.initial.world();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    let beta = loaded.initial.country_entity("BBB").unwrap();
+
+    assert_eq!(
+        world.politics().offices.get("imperial_emperor"),
+        Some(&beta)
+    );
+    for optimise in [false, true] {
+        let yes = country_condition("is_emperor=yes", optimise);
+        let no = country_condition("is_emperor=no", optimise);
+        assert!(!yes.evaluate(world, alpha).unwrap());
+        assert!(no.evaluate(world, alpha).unwrap());
+        assert!(yes.evaluate(world, beta).unwrap());
+        assert!(!no.evaluate(world, beta).unwrap());
+    }
+
+    let cleared_state = VanillaExternalState {
+        political_office_holders: [("imperial_emperor".into(), None)].into(),
+        ..Default::default()
+    };
+    let cleared =
+        VanillaWorld::load_with_external_state(temp.path(), &save.date, &cleared_state).unwrap();
+    assert!(
+        !cleared
+            .initial
+            .world()
+            .politics()
+            .offices
+            .contains_key("imperial_emperor")
+    );
 }
 
 #[test]
