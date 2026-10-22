@@ -217,3 +217,81 @@ provinces={
         Some(false)
     );
 }
+
+#[test]
+fn discover_province_effect_handles_literal_and_previous_scope_targets() {
+    let fixture = fixture();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    let beta = loaded.initial.country_entity("BBB").unwrap();
+    let second = loaded.initial.province_entity(2).unwrap();
+    let third = loaded.initial.province_entity(3).unwrap();
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let library = ScriptLibrary::new();
+    let literal = ScriptCompiler::new(&schema, &library, true)
+        .compile(
+            &TextDocument::from_bytes(
+                "self-authored-discovery-effect.txt",
+                b"discover_province = 3".to_vec(),
+                TextEncoding::Utf8,
+            ),
+            EntityKind::Country,
+        )
+        .unwrap();
+    let previous = ScriptCompiler::new(&schema, &library, true)
+        .compile(
+            &TextDocument::from_bytes(
+                "self-authored-discovery-previous.txt",
+                b"2 = { owner = { discover_province = PREV } }".to_vec(),
+                TextEncoding::Utf8,
+            ),
+            EntityKind::Country,
+        )
+        .unwrap();
+    let mut world = loaded.initial.world().clone();
+
+    world.execute(alpha, &literal.plan).unwrap();
+    world.execute(alpha, &previous.plan).unwrap();
+
+    assert_eq!(
+        world.province_discovered_by(third, alpha).unwrap(),
+        Some(true)
+    );
+    assert_eq!(world.province_discovered_by(third, beta).unwrap(), None);
+    assert_eq!(
+        world.province_discovered_by(second, alpha).unwrap(),
+        Some(true)
+    );
+    assert_eq!(
+        world.province_discovered_by(second, beta).unwrap(),
+        Some(false)
+    );
+
+    let wrong_scope = ScriptCompiler::new(&schema, &library, true)
+        .compile(
+            &TextDocument::from_bytes(
+                "self-authored-discovery-scope.txt",
+                b"discover_province = 3".to_vec(),
+                TextEncoding::Utf8,
+            ),
+            EntityKind::Province,
+        )
+        .unwrap_err();
+    assert!(wrong_scope.to_string().contains("requires country scope"));
+
+    let invalid_previous = ScriptCompiler::new(&schema, &library, true)
+        .compile(
+            &TextDocument::from_bytes(
+                "self-authored-discovery-previous.txt",
+                b"discover_province = PREV".to_vec(),
+                TextEncoding::Utf8,
+            ),
+            EntityKind::Country,
+        )
+        .unwrap_err();
+    assert!(
+        invalid_previous
+            .to_string()
+            .contains("previous province scope")
+    );
+}

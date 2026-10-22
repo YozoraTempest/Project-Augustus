@@ -728,6 +728,53 @@ impl World {
         Ok(self.map_knowledge.discovered_by(province, country))
     }
 
+    pub fn set_province_discovered_by(
+        &mut self,
+        province: EntityId,
+        country: EntityId,
+        discovered: bool,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        if self.entity(province)?.kind != EntityKind::Province
+            || self.entity(country)?.kind != EntityKind::Country
+        {
+            return Err(Error::Invalid(
+                "map knowledge requires a province and a country".into(),
+            ));
+        }
+
+        if !self.map_knowledge.provinces.contains_key(&province) {
+            let unresolved_countries = self
+                .entities()
+                .iter()
+                .enumerate()
+                .filter(|(index, entity)| {
+                    entity.kind == EntityKind::Country && EntityId(*index) != country
+                })
+                .map(|(index, _)| EntityId(index))
+                .collect();
+            self.map_knowledge.provinces.insert(
+                province,
+                crate::ProvinceDiscovery {
+                    discovered_by: Default::default(),
+                    unresolved_countries,
+                },
+            );
+        }
+        let state = self
+            .map_knowledge
+            .provinces
+            .get_mut(&province)
+            .expect("discovery state inserted or already present");
+        state.unresolved_countries.remove(&country);
+        if discovered {
+            state.discovered_by.insert(country);
+        } else {
+            state.discovered_by.remove(&country);
+        }
+        Ok(())
+    }
+
     pub fn set_map_knowledge(&mut self, map_knowledge: crate::MapKnowledge) -> Result<(), Error> {
         self.require_running()?;
         map_knowledge.validate(self)?;
@@ -1153,6 +1200,11 @@ impl World {
         let id = EntityId(self.entities.len());
         let name = name.into();
         self.entity_names.entry(name.clone()).or_default().push(id);
+        if kind == EntityKind::Country {
+            for discovery in self.map_knowledge.provinces.values_mut() {
+                discovery.unresolved_countries.insert(id);
+            }
+        }
         if kind == EntityKind::Province {
             Arc::make_mut(&mut self.ownership).add_province();
         }
@@ -2312,6 +2364,12 @@ pub(crate) fn validate_plan(
                 justifications.identifier(name)?;
             }
             Action::SetProvinceCore {
+                province, country, ..
+            } => {
+                province.validate()?;
+                country.validate()?;
+            }
+            Action::SetProvinceDiscovery {
                 province, country, ..
             } => {
                 province.validate()?;

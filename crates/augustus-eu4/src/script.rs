@@ -916,6 +916,42 @@ impl<'a> ScriptCompiler<'a> {
         }
     }
 
+    fn discovery_province_reference(
+        &self,
+        field: &Field,
+    ) -> Result<augustus_core::EntityRef, Error> {
+        let value = field.scalar()?;
+        if value.eq_ignore_ascii_case("PREV") {
+            if self.previous_scope_kind != Some(EntityKind::Province) {
+                return Err(
+                    field.error("discover_province PREV requires a previous province scope")
+                );
+            }
+            return Ok(augustus_core::EntityRef::Previous);
+        }
+        let selector = if value.eq_ignore_ascii_case("ROOT") {
+            if self.root_kind(field)? != EntityKind::Province {
+                return Err(field.error("discover_province ROOT requires a province root"));
+            }
+            ScopeSelector::Root
+        } else if let Some(name) = value.strip_prefix("event_target:") {
+            if self.global_scope_types.get(name) != Some(&EntityKind::Province) {
+                return Err(field.error("discover_province requires a declared province reference"));
+            }
+            ScopeSelector::Global(name.into())
+        } else if let Some(id) = province_identifier(value) {
+            ScopeSelector::Named {
+                kind: EntityKind::Province,
+                name: id.to_string(),
+            }
+        } else {
+            return Err(field.error(
+                "discover_province requires a literal province, typed ROOT/PREV, or declared event target",
+            ));
+        };
+        Ok(augustus_core::EntityRef::Selected(selector))
+    }
+
     fn casus_belli_operands(
         &mut self,
         field: &Field,
@@ -1908,6 +1944,16 @@ impl<'a> ScriptCompiler<'a> {
                     plan.push(Action::SetOwner {
                         target: Target::Current,
                         owner: self.typed_country_reference(field)?,
+                    });
+                }
+                "discover_province" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("discover_province requires country scope"));
+                    }
+                    plan.push(Action::SetProvinceDiscovery {
+                        province: self.discovery_province_reference(field)?,
+                        country: augustus_core::EntityRef::Relative(Target::Current),
+                        discovered: true,
                     });
                 }
                 name if matches!(name, "heavy_ship" | "light_ship" | "galley" | "transport") => {

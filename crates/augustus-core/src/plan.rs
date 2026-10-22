@@ -243,6 +243,11 @@ pub enum Action {
         country: crate::EntityRef,
         core: Option<crate::CoreType>,
     },
+    SetProvinceDiscovery {
+        province: crate::EntityRef,
+        country: crate::EntityRef,
+        discovered: bool,
+    },
     SetProvinceCenterOfTradeLevel {
         target: Target,
         level: u8,
@@ -1131,6 +1136,18 @@ impl World {
                         country.resolve_in_context(self, context)?,
                     ) {
                         self.set_province_core(province, country, *core)?;
+                    }
+                }
+                Action::SetProvinceDiscovery {
+                    province,
+                    country,
+                    discovered,
+                } => {
+                    if let (Some(province), Some(country)) = (
+                        province.resolve_in_context(self, context)?,
+                        country.resolve_in_context(self, context)?,
+                    ) {
+                        self.set_province_discovered_by(province, country, *discovered)?;
                     }
                 }
                 Action::SetProvinceCenterOfTradeLevel { target, level } => {
