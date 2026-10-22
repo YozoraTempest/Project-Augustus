@@ -82,6 +82,35 @@ fn balance(world: &World, id: usize) -> Option<i64> {
     world.country_resources()[&EntityId(id)].treasury_milli
 }
 
+#[test]
+fn monthly_tax_truncates_fractional_milli_and_records_tax_ledger_slot() {
+    let mut current = scenario();
+    current.set(EntityId(2), FieldId(0), 95_727).unwrap();
+
+    current.advance_to(20).unwrap();
+
+    let account = &current
+        .taxation()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&EntityId(0)];
+    assert_eq!(account.known_subtotal_milli, 7_977);
+    assert_eq!(account.income_milli, Some(7_977));
+    assert_eq!(account.credited_milli, Some(7_977));
+    assert_eq!(account.treasury_before_milli, Some(10_000));
+    assert_eq!(account.treasury_after_milli, Some(17_977));
+    assert_eq!(
+        current.country_ledgers()[&EntityId(0)].income_sources_milli[0],
+        7_977
+    );
+    assert_eq!(
+        current.country_ledgers()[&EntityId(0)].income_sources_milli[1],
+        0
+    );
+}
+
 fn with_country_tax(mut world: World, unknown: bool) -> World {
     let mut attributes = world.attributes().clone();
     for (country, micros) in [(EntityId(0), 6_006_000), (EntityId(1), 18_000_000)] {
