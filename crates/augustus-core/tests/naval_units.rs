@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, EntityKind, EntityRef, FleetId, NavalUnitId, Schema, ScopeContext, ScopeSelector, World,
+    Action, EntityKind, EntityRef, FleetId, NavalUnitId, NavalUnitState, Schema, ScopeContext,
+    ScopeSelector, World,
 };
 
 fn fixture() -> (World, augustus_core::EntityId, augustus_core::EntityId) {
@@ -74,6 +75,87 @@ fn fleet_keeps_its_ship_group_across_save_restore() {
     let saved = world.save("fleet:1").unwrap();
     let restored = World::restore(&saved, "fleet:1", world.schema()).unwrap();
     assert_eq!(restored, world);
+}
+
+#[test]
+fn fleet_ship_names_morale_and_home_provinces_round_trip() {
+    let (mut world, country, port) = fixture();
+    let ship_types = vec!["galley".into(), "light_ship".into()];
+    let states = vec![
+        NavalUnitState {
+            name: Some("North Star".into()),
+            morale_milli: Some(950),
+            home_province: Some(port),
+        },
+        NavalUnitState::default(),
+    ];
+
+    world
+        .create_fleet_with_ship_states(
+            country,
+            port,
+            Some("North Sea Patrol".into()),
+            &ship_types,
+            &states,
+        )
+        .unwrap();
+
+    assert_eq!(world.naval_units()[0].name.as_deref(), Some("North Star"));
+    assert_eq!(world.naval_units()[0].morale_milli, Some(950));
+    assert_eq!(world.naval_units()[0].home_province, Some(port));
+    assert_eq!(world.naval_units()[1].name, None);
+    assert_eq!(world.naval_units()[1].morale_milli, None);
+
+    let saved = world.save("fleet-ship-state:1").unwrap();
+    let restored = World::restore(&saved, "fleet-ship-state:1", world.schema()).unwrap();
+    assert_eq!(restored, world);
+}
+
+#[test]
+fn fleet_ship_state_rejects_invalid_morale_home_and_count() {
+    let (mut world, country, port) = fixture();
+    let ship_types = vec!["galley".into()];
+    assert!(
+        world
+            .create_fleet_with_ship_states(
+                country,
+                port,
+                None,
+                &ship_types,
+                &[NavalUnitState {
+                    morale_milli: Some(-1),
+                    ..Default::default()
+                }],
+            )
+            .is_err()
+    );
+    assert!(
+        world
+            .create_fleet_with_ship_states(
+                country,
+                port,
+                None,
+                &ship_types,
+                &[NavalUnitState {
+                    home_province: Some(country),
+                    ..Default::default()
+                }],
+            )
+            .is_err()
+    );
+    assert!(
+        world
+            .create_fleet_with_ship_states(
+                country,
+                port,
+                None,
+                &ship_types,
+                &[NavalUnitState::default(), NavalUnitState::default()],
+            )
+            .is_err()
+    );
+    assert!(world.naval_units().is_empty());
+    assert!(world.fleets().is_empty());
 }
 
 #[test]

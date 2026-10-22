@@ -19,8 +19,8 @@ use augustus_core::{
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
     VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalFleet,
-    VanillaExternalNavalUnit, VanillaExternalRegimentState, VanillaExternalState, VanillaWorld,
-    read_vanilla_save_state,
+    VanillaExternalNavalUnit, VanillaExternalRegimentState, VanillaExternalShipState,
+    VanillaExternalState, VanillaWorld, read_vanilla_save_state,
 };
 
 fn fixture() -> PathBuf {
@@ -2212,6 +2212,11 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
         owner: "AAA".into(),
         location: port,
         unit_type: "light_ship".into(),
+        state: Some(VanillaExternalShipState {
+            name: Some("North Star".into()),
+            morale_milli: Some(1_050),
+            home_province: Some(port),
+        }),
     });
 
     let mut loaded =
@@ -2244,6 +2249,15 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
     assert_eq!(loaded.initial.fleets().len(), 1);
     assert_eq!(loaded.initial.fleets()[0].ships.len(), 1);
     assert_eq!(
+        loaded.initial.naval_units()[0].name.as_deref(),
+        Some("North Star")
+    );
+    assert_eq!(loaded.initial.naval_units()[0].morale_milli, Some(1_050));
+    assert_eq!(
+        loaded.initial.naval_units()[0].home_province,
+        loaded.initial.province_entity(port)
+    );
+    assert_eq!(
         loaded.initial.naval_units()[0].location.0,
         loaded.initial.province_entity(port).unwrap().0
     );
@@ -2269,6 +2283,11 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
     );
     assert_eq!(loaded.initial.naval_units().len(), 1);
     assert_eq!(loaded.initial.fleets().len(), 1);
+    assert_eq!(
+        loaded.initial.naval_units()[0].name.as_deref(),
+        Some("North Star")
+    );
+    assert_eq!(loaded.initial.naval_units()[0].morale_milli, Some(1_050));
 
     let grouped = VanillaExternalState {
         naval_fleets: vec![VanillaExternalFleet {
@@ -2276,6 +2295,7 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
             location: port,
             name: Some("Test Navy".into()),
             ship_types: vec!["galley".into(), "light_ship".into()],
+            ship_states: vec![],
         }],
         ..Default::default()
     };
@@ -2335,6 +2355,40 @@ fn external_army_rejects_unknown_regiment_home_province() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("unknown regiment home province"), "{error}");
+}
+
+#[test]
+fn external_fleet_rejects_unknown_ship_home_province() {
+    let external = VanillaExternalState {
+        naval_fleets: vec![VanillaExternalFleet {
+            owner: "AAA".into(),
+            location: 1,
+            name: None,
+            ship_types: vec!["galley".into()],
+            ship_states: vec![VanillaExternalShipState {
+                home_province: Some(u32::MAX),
+                ..Default::default()
+            }],
+        }],
+        ..Default::default()
+    };
+    let error = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &external)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown ship home province"), "{error}");
+}
+
+#[test]
+fn older_external_navy_bundles_default_ship_state_to_unknown() {
+    let fleet: VanillaExternalFleet = serde_json::from_str(
+        r#"{"owner":"AAA","location":1,"name":"Navy","ship_types":["galley"]}"#,
+    )
+    .unwrap();
+    assert!(fleet.ship_states.is_empty());
+
+    let unit: VanillaExternalNavalUnit =
+        serde_json::from_str(r#"{"owner":"AAA","location":1,"unit_type":"galley"}"#).unwrap();
+    assert_eq!(unit.state, None);
 }
 
 #[test]

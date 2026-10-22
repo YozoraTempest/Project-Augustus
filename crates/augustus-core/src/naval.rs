@@ -19,6 +19,22 @@ pub struct NavalUnit {
     pub owner: EntityId,
     pub location: EntityId,
     pub unit_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub morale_milli: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_province: Option<EntityId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct NavalUnitState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub morale_milli: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_province: Option<EntityId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,6 +178,7 @@ impl NavalUnits {
         owner: EntityId,
         location: EntityId,
         ship_types: &[String],
+        states: Option<&[NavalUnitState]>,
     ) -> Result<Vec<NavalUnitId>, Error> {
         if ship_types.is_empty() {
             return Err(Error::Invalid("fleet requires at least one ship".into()));
@@ -169,20 +186,36 @@ impl NavalUnits {
         for ship_type in ship_types {
             Self::validate_type(ship_type)?;
         }
+        if states.is_some_and(|states| !states.is_empty() && states.len() != ship_types.len()) {
+            return Err(Error::Invalid(
+                "fleet ship state count does not match ship count".into(),
+            ));
+        }
+        if states.is_some_and(|states| {
+            states
+                .iter()
+                .any(|state| state.morale_milli.is_some_and(|morale| morale < 0))
+        }) {
+            return Err(Error::Invalid("invalid naval unit morale".into()));
+        }
         let count = u64::try_from(ship_types.len()).map_err(|_| Error::Overflow)?;
         let next_id = self.next_id.checked_add(count).ok_or(Error::Overflow)?;
         let ids = (self.next_id..next_id).map(NavalUnitId).collect::<Vec<_>>();
-        self.units.extend(
-            ship_types
-                .iter()
-                .zip(ids.iter().copied())
-                .map(|(unit_type, id)| NavalUnit {
-                    id,
-                    owner,
-                    location,
-                    unit_type: unit_type.clone(),
-                }),
-        );
+        self.units
+            .extend(ship_types.iter().enumerate().zip(ids.iter().copied()).map(
+                |((index, unit_type), id)| {
+                    let state = states.and_then(|states| states.get(index));
+                    NavalUnit {
+                        id,
+                        owner,
+                        location,
+                        unit_type: unit_type.clone(),
+                        name: state.and_then(|state| state.name.clone()),
+                        morale_milli: state.and_then(|state| state.morale_milli),
+                        home_province: state.and_then(|state| state.home_province),
+                    }
+                },
+            ));
         self.next_id = next_id;
         Ok(ids)
     }
@@ -205,6 +238,18 @@ impl NavalUnits {
                     "invalid naval unit owner or location".into(),
                 ));
             }
+            if unit.morale_milli.is_some_and(|morale| morale < 0) {
+                return Err(Error::Invalid("invalid naval unit morale".into()));
+            }
+            if let Some(home) = unit.home_province
+                && entities
+                    .get(home.0)
+                    .is_none_or(|entity| entity.kind != EntityKind::Province)
+            {
+                return Err(Error::Invalid(
+                    "naval unit references an invalid home province".into(),
+                ));
+            }
         }
         Ok(())
     }
@@ -225,9 +270,12 @@ impl World {
         location: EntityId,
         name: Option<String>,
         ship_types: &[String],
+        states: Option<&[NavalUnitState]>,
     ) -> Result<(FleetId, Vec<NavalUnitId>), Error> {
         let fleet_id = self.fleets.next_id()?;
-        let ship_ids = self.naval_units.create_many(owner, location, ship_types)?;
+        let ship_ids = self
+            .naval_units
+            .create_many(owner, location, ship_types, states)?;
         self.fleets
             .push(fleet_id, owner, location, name, ship_ids.clone());
         Ok((fleet_id, ship_ids))
@@ -246,7 +294,26 @@ impl World {
         if self.entity(location)?.kind != EntityKind::Province {
             return Err(Error::Invalid("fleet location must be a province".into()));
         }
-        self.insert_fleet(owner, location, name, ship_types)
+        self.insert_fleet(owner, location, name, ship_types, None)
+            .map(|(id, _)| id)
+    }
+
+    pub(crate) fn bind_fleet_with_ship_states(
+        &mut self,
+        owner: EntityId,
+        location: EntityId,
+        name: Option<String>,
+        ship_types: &[String],
+        states: &[NavalUnitState],
+    ) -> Result<FleetId, Error> {
+        if self.entity(owner)?.kind != EntityKind::Country {
+            return Err(Error::Invalid("fleet owner must be a country".into()));
+        }
+        if self.entity(location)?.kind != EntityKind::Province {
+            return Err(Error::Invalid("fleet location must be a province".into()));
+        }
+        self.validate_ship_home_provinces(states)?;
+        self.insert_fleet(owner, location, name, ship_types, Some(states))
             .map(|(id, _)| id)
     }
 
@@ -269,7 +336,32 @@ impl World {
                 "fleet creation requires a port province".into(),
             ));
         }
-        self.insert_fleet(owner, location, name, ship_types)
+        self.insert_fleet(owner, location, name, ship_types, None)
+            .map(|(id, _)| id)
+    }
+
+    pub fn create_fleet_with_ship_states(
+        &mut self,
+        owner: EntityId,
+        location: EntityId,
+        name: Option<String>,
+        ship_types: &[String],
+        states: &[NavalUnitState],
+    ) -> Result<FleetId, Error> {
+        self.require_running()?;
+        if self.entity(owner)?.kind != EntityKind::Country {
+            return Err(Error::Invalid("fleet owner must be a country".into()));
+        }
+        if self.entity(location)?.kind != EntityKind::Province {
+            return Err(Error::Invalid("fleet location must be a province".into()));
+        }
+        if !self.province_has_port(location)? {
+            return Err(Error::Invalid(
+                "fleet creation requires a port province".into(),
+            ));
+        }
+        self.validate_ship_home_provinces(states)?;
+        self.insert_fleet(owner, location, name, ship_types, Some(states))
             .map(|(id, _)| id)
     }
 
@@ -292,7 +384,26 @@ impl World {
             return Err(Error::Invalid("naval unit requires a port province".into()));
         }
         let ship_type = unit_type.to_owned();
-        self.insert_fleet(owner, location, None, std::slice::from_ref(&ship_type))
-            .map(|(_, mut ships)| ships.remove(0))
+        self.insert_fleet(
+            owner,
+            location,
+            None,
+            std::slice::from_ref(&ship_type),
+            None,
+        )
+        .map(|(_, mut ships)| ships.remove(0))
+    }
+
+    fn validate_ship_home_provinces(&self, states: &[NavalUnitState]) -> Result<(), Error> {
+        for state in states {
+            if let Some(home) = state.home_province
+                && self.entity(home)?.kind != EntityKind::Province
+            {
+                return Err(Error::Invalid(
+                    "naval unit home province must be a province".into(),
+                ));
+            }
+        }
+        Ok(())
     }
 }

@@ -148,7 +148,7 @@ pub use markers::{GlobalMarkers, Markers};
 pub use metrics::{MetricContribution, MetricDefinition, MetricEffect, MetricEvaluation, Metrics};
 pub use modifiers::{ModifierDefinition, ModifierInstance, ModifierRenewal, Modifiers};
 pub use named_values::{NamedValues, NumericComparison, NumericOperation, NumericSlot};
-pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId};
+pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId, NavalUnitState};
 pub use objectives::{ObjectiveGroup, Objectives};
 pub use plan::{Action, Condition, Plan, SchoolOpinionTarget, Target};
 pub use politics::{

@@ -19,7 +19,7 @@ use crate::administration_validation::{SaveTokenResolver, read_eu4_save_document
 use crate::bootstrap::{
     VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalFleet,
     VanillaExternalNavalUnit, VanillaExternalProvinceDevelopment, VanillaExternalRegimentState,
-    VanillaExternalState, VanillaWorld,
+    VanillaExternalShipState, VanillaExternalState, VanillaWorld,
 };
 use crate::{Error, ParsedText, TextEncoding};
 
@@ -401,10 +401,12 @@ impl VanillaSaveState {
                         fleet
                             .ship_types
                             .iter()
-                            .map(|unit_type| VanillaExternalNavalUnit {
+                            .enumerate()
+                            .map(|(index, unit_type)| VanillaExternalNavalUnit {
                                 owner: fleet.owner.clone(),
                                 location: fleet.location,
                                 unit_type: unit_type.clone(),
+                                state: fleet.ship_states.get(index).cloned(),
                             }),
                     );
             }
@@ -1199,18 +1201,25 @@ fn read_vanilla_save_state_inner(
             if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
                 return Err(Error::message(parsed.source(), "invalid saved navy block"));
             }
-            let (location, name, ships) = saved_navy(&parsed, &value)?;
+            let SavedNavy {
+                location,
+                name,
+                ships,
+                ship_states,
+            } = saved_navy(&parsed, &value)?;
             external_state.naval_fleets.push(VanillaExternalFleet {
                 owner: tag.clone(),
                 location,
                 name,
                 ship_types: ships.clone(),
+                ship_states: ship_states.clone(),
             });
-            for unit_type in ships {
+            for (unit_type, ship_state) in ships.into_iter().zip(ship_states) {
                 external_state.naval_units.push(VanillaExternalNavalUnit {
                     owner: tag.clone(),
                     location,
                     unit_type,
+                    state: Some(ship_state),
                 });
             }
             let _ = key;
@@ -1609,14 +1618,12 @@ fn saved_regiment(
     Ok((unit_type, state))
 }
 
-fn saved_navy(
-    parsed: &ParsedText<'_>,
-    value: &Field<'_, '_>,
-) -> Result<(u32, Option<String>, Vec<String>), Error> {
+fn saved_navy(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<SavedNavy, Error> {
     let navy = object(parsed, value)?;
     let mut location = None;
     let mut name = None;
     let mut ships = Vec::new();
+    let mut ship_states = Vec::new();
     for (key, op, value) in navy.fields() {
         let field = key.read_string();
         if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
@@ -1641,18 +1648,9 @@ fn saved_navy(
                 location = Some(id);
             }
             "ship" => {
-                let ship = object(parsed, &value)?;
-                let unit_type = optional_scalar(parsed, &ship, "type")?.ok_or_else(|| {
-                    Error::message(parsed.source(), "saved ship is missing its type")
-                })?;
-                if unit_type.is_empty() || unit_type.bytes().any(|byte| byte.is_ascii_whitespace())
-                {
-                    return Err(Error::message(
-                        parsed.source(),
-                        "saved ship has an invalid type",
-                    ));
-                }
+                let (unit_type, state) = saved_ship(parsed, &value)?;
                 ships.push(unit_type);
+                ship_states.push(state);
             }
             _ => {}
         }
@@ -1662,7 +1660,84 @@ fn saved_navy(
     if ships.is_empty() {
         return Err(Error::message(parsed.source(), "saved navy has no ships"));
     }
-    Ok((location, name, ships))
+    Ok(SavedNavy {
+        location,
+        name,
+        ships,
+        ship_states,
+    })
+}
+
+struct SavedNavy {
+    location: u32,
+    name: Option<String>,
+    ships: Vec<String>,
+    ship_states: Vec<VanillaExternalShipState>,
+}
+
+fn saved_ship(
+    parsed: &ParsedText<'_>,
+    value: &Field<'_, '_>,
+) -> Result<(String, VanillaExternalShipState), Error> {
+    let ship = object(parsed, value)?;
+    let mut seen = BTreeSet::new();
+    let mut unit_type = None;
+    let mut state = VanillaExternalShipState::default();
+    for (key, op, value) in ship.fields() {
+        let field = key.read_string();
+        if !matches!(field.as_str(), "type" | "name" | "morale" | "home") {
+            continue;
+        }
+        if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("invalid saved ship field {field}"),
+            ));
+        }
+        if !seen.insert(field.clone()) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("duplicate saved ship field {field}"),
+            ));
+        }
+        let text = scalar(parsed, &value)?;
+        match field.as_str() {
+            "type" => unit_type = Some(text),
+            "name" => state.name = Some(text),
+            "morale" => {
+                let morale = signed_milli(&text)
+                    .ok_or_else(|| Error::message(parsed.source(), "invalid saved ship morale"))?;
+                if morale < 0 {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "saved ship morale must not be negative",
+                    ));
+                }
+                state.morale_milli = Some(morale);
+            }
+            "home" => {
+                let province = text
+                    .parse::<u32>()
+                    .map_err(|error| Error::caused_by(parsed.source(), error))?;
+                if province == 0 {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "saved ship home province must be positive",
+                    ));
+                }
+                state.home_province = Some(province);
+            }
+            _ => unreachable!(),
+        }
+    }
+    let unit_type = unit_type
+        .filter(|unit_type| {
+            !unit_type.is_empty() && !unit_type.bytes().any(|byte| byte.is_ascii_whitespace())
+        })
+        .ok_or_else(|| {
+            Error::message(parsed.source(), "saved ship is missing or has invalid type")
+        })?;
+    Ok((unit_type, state))
 }
 
 fn optional_field<'a, 'b>(
@@ -2787,6 +2862,27 @@ provinces={
     }
 
     #[test]
+    fn saved_ship_state_rejects_invalid_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("invalid-ship-state.eu4");
+        for ship in [
+            "type=galley morale=-0.001",
+            "type=galley morale=invalid",
+            "type=galley morale=0.1234",
+            "type=galley home=0",
+            "type=galley home=invalid",
+            "type=galley name=first name=second",
+            "type=galley type=light_ship",
+        ] {
+            let text = format!(
+                "EU4txt\ndate=1444.11.11\ncountries={{ AAA={{ navy={{ location=1 ship={{ {ship} }} }} }} }}\nprovinces={{}}\n"
+            );
+            std::fs::write(&path, text).unwrap();
+            assert!(read_vanilla_save_state(&path).is_err(), "{ship}");
+        }
+    }
+
+    #[test]
     fn saved_fleet_groups_load_at_non_port_provinces() {
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
         let content = ContentSet::resolve(vec![ContentSource::base(
@@ -2809,7 +2905,7 @@ provinces={
         std::fs::write(
             &path,
             format!(
-                "EU4txt\ndate=1444.11.11\nplayer=\"AAA\"\ncountries={{ AAA={{ human=yes navy={{ name=\"North Sea Patrol\" location={location} ship={{ type=galley }} ship={{ type=light_ship }} }} }} }}\nprovinces={{}}\n"
+                "EU4txt\ndate=1444.11.11\nplayer=\"AAA\"\ncountries={{ AAA={{ human=yes navy={{ name=\"North Sea Patrol\" location={location} ship={{ name=\"North Star\" home=1 type=galley morale=0.950 }} ship={{ type=light_ship }} }} }} }}\nprovinces={{}}\n"
             ),
         )
         .unwrap();
@@ -2825,6 +2921,20 @@ provinces={
             filtered.naval_fleets[0].ship_types,
             ["galley", "light_ship"]
         );
+        assert_eq!(filtered.naval_fleets[0].ship_states.len(), 2);
+        assert_eq!(
+            filtered.naval_fleets[0].ship_states[0].name.as_deref(),
+            Some("North Star")
+        );
+        assert_eq!(
+            filtered.naval_fleets[0].ship_states[0].morale_milli,
+            Some(950)
+        );
+        assert_eq!(
+            filtered.naval_fleets[0].ship_states[0].home_province,
+            Some(1)
+        );
+        assert_eq!(filtered.naval_fleets[0].ship_states[1].name, None);
 
         let loaded = VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
         assert_eq!(loaded.initial.fleets().len(), 1);
@@ -2844,6 +2954,16 @@ provinces={
                 .collect::<Vec<_>>(),
             ["galley", "light_ship"]
         );
+        assert_eq!(
+            loaded.initial.naval_units()[0].name.as_deref(),
+            Some("North Star")
+        );
+        assert_eq!(loaded.initial.naval_units()[0].morale_milli, Some(950));
+        assert_eq!(
+            loaded.initial.naval_units()[0].home_province,
+            loaded.initial.province_entity(1)
+        );
+        assert_eq!(loaded.initial.naval_units()[1].name, None);
     }
 
     #[test]

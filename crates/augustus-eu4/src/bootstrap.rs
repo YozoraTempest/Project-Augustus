@@ -269,6 +269,8 @@ pub struct VanillaExternalNavalUnit {
     pub owner: String,
     pub location: u32,
     pub unit_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<VanillaExternalShipState>,
 }
 
 /// A fleet translated from a save or another compatibility source.
@@ -280,6 +282,22 @@ pub struct VanillaExternalFleet {
     #[serde(default)]
     pub name: Option<String>,
     pub ship_types: Vec<String>,
+    /// Optional current state aligned with `ship_types` by index.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ship_states: Vec<VanillaExternalShipState>,
+}
+
+/// Current state translated for a ship from a save reader or simulator.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalShipState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub morale_milli: Option<i64>,
+    /// EU4 province ID; the compatibility layer resolves it to a core entity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_province: Option<u32>,
 }
 
 /// A current advisor translated from a save or another compatibility source.
@@ -1016,9 +1034,29 @@ fn bind_external_units(
                     format!("unknown fleet location {}", fleet.location),
                 )
             })?;
-            initial
-                .create_fleet(owner, location, fleet.name.clone(), &fleet.ship_types)
-                .map_err(|error| Error::caused_by("external fleets", error))?;
+            if !fleet.ship_states.is_empty() && fleet.ship_states.len() != fleet.ship_types.len() {
+                return Err(Error::message(
+                    "external fleets",
+                    "fleet ship state count does not match ship count",
+                ));
+            }
+            if fleet.ship_states.is_empty() {
+                initial.create_fleet(owner, location, fleet.name.clone(), &fleet.ship_types)
+            } else {
+                let states = fleet
+                    .ship_states
+                    .iter()
+                    .map(|state| translated_ship_state(initial, state, "external fleets"))
+                    .collect::<Result<Vec<_>, _>>()?;
+                initial.create_fleet_with_ship_states(
+                    owner,
+                    location,
+                    fleet.name.clone(),
+                    &fleet.ship_types,
+                    &states,
+                )
+            }
+            .map_err(|error| Error::caused_by("external fleets", error))?;
         }
     } else if let Some(naval_units) = naval_units {
         for unit in naval_units {
@@ -1034,12 +1072,42 @@ fn bind_external_units(
                     format!("unknown naval unit location {}", unit.location),
                 )
             })?;
-            initial
-                .create_fleet(owner, location, None, std::slice::from_ref(&unit.unit_type))
-                .map_err(|error| Error::caused_by("external naval units", error))?;
+            if let Some(state) = &unit.state {
+                let state = translated_ship_state(initial, state, "external naval units")?;
+                initial.create_fleet_with_ship_states(
+                    owner,
+                    location,
+                    None,
+                    std::slice::from_ref(&unit.unit_type),
+                    std::slice::from_ref(&state),
+                )
+            } else {
+                initial.create_fleet(owner, location, None, std::slice::from_ref(&unit.unit_type))
+            }
+            .map_err(|error| Error::caused_by("external naval units", error))?;
         }
     }
     Ok(())
+}
+
+fn translated_ship_state(
+    initial: &InitialWorld,
+    state: &VanillaExternalShipState,
+    source: &str,
+) -> Result<augustus_core::NavalUnitState, Error> {
+    let home_province = state
+        .home_province
+        .map(|province| {
+            initial.province_entity(province).ok_or_else(|| {
+                Error::message(source, format!("unknown ship home province {province}"))
+            })
+        })
+        .transpose()?;
+    Ok(augustus_core::NavalUnitState {
+        name: state.name.clone(),
+        morale_milli: state.morale_milli,
+        home_province,
+    })
 }
 
 fn bind_external_advisors(
