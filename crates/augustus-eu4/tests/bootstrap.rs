@@ -1108,6 +1108,60 @@ fn startup_random_choices_do_not_change_content_identity_or_block_cross_seed_res
 }
 
 #[test]
+fn startup_ai_seed_uses_country_tag_registration_order() {
+    let run = |country_tags: &str| {
+        let fixture = copy_fixture();
+        fs::write(
+            fixture.path().join("common/country_tags/test.txt"),
+            country_tags,
+        )
+        .unwrap();
+        fs::create_dir_all(fixture.path().join("common/on_actions")).unwrap();
+        fs::create_dir_all(fixture.path().join("events")).unwrap();
+        fs::write(
+            fixture.path().join("common/on_actions/seeded_startup.txt"),
+            "on_startup={if={limit={tag=AAA} country_event={id=seeded.order.1}}}",
+        )
+        .unwrap();
+        fs::write(
+            fixture.path().join("events/seeded_startup.txt"),
+            "country_event={id=seeded.order.1 is_triggered_only=yes option={name=left ai_chance={factor=1} log=seed_left} option={name=right ai_chance={factor=1} log=seed_right}}",
+        )
+        .unwrap();
+
+        let mut loaded = VanillaWorld::load_with_players_and_seed(
+            fixture.path(),
+            "1444.11.11",
+            &BTreeSet::new(),
+            1,
+        )
+        .unwrap();
+        loaded.advance(1).unwrap();
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.2 == "seed_left" || event.2 == "seed_right")
+            .map(|event| event.2.clone())
+            .unwrap()
+    };
+
+    assert_eq!(
+        run(r#"AAA = "countries/Alpha.txt"
+BBB = "countries/Beta.txt"
+"#),
+        "seed_right"
+    );
+    assert_eq!(
+        run(r#"BBB = "countries/Beta.txt"
+AAA = "countries/Alpha.txt"
+"#),
+        "seed_left"
+    );
+}
+
+#[test]
 fn revolutionary_reforms_and_revolution_target_history_are_distinct_conditions() {
     let fixture = copy_fixture();
     append_fixture(
