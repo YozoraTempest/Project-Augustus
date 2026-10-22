@@ -7,13 +7,13 @@ use crate::bootstrap::{equal, source};
 use crate::setup::block;
 use crate::{AdministrationReport, ContentView, Error, ParsedText, TextEncoding};
 
-type Groups = BTreeMap<String, BTreeSet<String>>;
+type Groups = BTreeMap<String, Vec<String>>;
 
 #[derive(Default)]
 pub(super) struct GeographicGroups {
     pub regions: Groups,
     pub superregions: Groups,
-    pub continents: BTreeMap<String, BTreeSet<u32>>,
+    pub continents: BTreeMap<String, Vec<u32>>,
 }
 
 impl GeographicGroups {
@@ -70,7 +70,8 @@ impl GeographicGroups {
                     {
                         return Err(fail("expected continent province list"));
                     }
-                    let mut provinces = BTreeSet::new();
+                    let mut provinces = Vec::new();
+                    let mut seen = BTreeSet::new();
                     for value in value
                         .read_array()
                         .map_err(|_| fail("expected continent province list"))?
@@ -82,7 +83,9 @@ impl GeographicGroups {
                             .and_then(|id| id.parse::<u32>().ok())
                             .filter(|id| *id > 0)
                             .ok_or_else(|| fail("expected positive province identifier"))?;
-                        provinces.insert(id);
+                        if seen.insert(id) {
+                            provinces.push(id);
+                        }
                     }
                     if result.continents.insert(name.clone(), provinces).is_some() {
                         return Err(fail("duplicate continent identifier"));
@@ -101,7 +104,8 @@ impl GeographicGroups {
                 if name.is_empty() {
                     return Err(fail("empty geographic group identifier"));
                 }
-                let mut members = BTreeSet::new();
+                let mut members = Vec::new();
+                let mut seen = BTreeSet::new();
                 if kind == "region" {
                     let body = block(&value, &fail)?;
                     let mut fields = body.fields();
@@ -135,7 +139,9 @@ impl GeographicGroups {
                             if id.is_empty() {
                                 return Err(fail("empty area identifier"));
                             }
-                            members.insert(id);
+                            if seen.insert(id.clone()) {
+                                members.push(id);
+                            }
                         }
                     }
                     if !seen_areas && body.fields().next().is_some() {
@@ -166,7 +172,9 @@ impl GeographicGroups {
                         } else if id.is_empty() {
                             return Err(fail("empty region identifier"));
                         } else {
-                            members.insert(id);
+                            if seen.insert(id.clone()) {
+                                members.push(id);
+                            }
                         }
                     }
                 }

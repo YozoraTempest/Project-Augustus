@@ -599,7 +599,16 @@ impl AutonomyDraft {
         match predicate {
             Predicate::Constant(v) => Some(*v),
             Predicate::Area(v) => area.map(|a| a == v),
-            Predicate::Region(v) => Some(self.geography.regions.get(v)?.contains(area?)),
+            Predicate::Region(v) => {
+                let area = area?;
+                Some(
+                    self.geography
+                        .regions
+                        .get(v)?
+                        .iter()
+                        .any(|member| member == area),
+                )
+            }
             Predicate::Owner(v) => Some(owner == Some(v)),
             Predicate::Not(v) => self.test(v, area, owner).map(|v| !v),
             Predicate::And(v) | Predicate::Or(v) => {

@@ -91,7 +91,7 @@ impl AdministrationDraft {
                 &mut scopes,
                 &mut ambiguous,
                 name,
-                provinces.iter().copied().collect(),
+                provinces.to_vec(),
             );
         }
 
@@ -373,8 +373,20 @@ impl AdministrationDraft {
         };
         let mut administration = Administration {
             areas: self.areas,
-            regions: self.autonomy.geography.regions.clone(),
-            superregions: self.autonomy.geography.superregions.clone(),
+            regions: self
+                .autonomy
+                .geography
+                .regions
+                .iter()
+                .map(|(name, areas)| (name.clone(), areas.iter().cloned().collect()))
+                .collect(),
+            superregions: self
+                .autonomy
+                .geography
+                .superregions
+                .iter()
+                .map(|(name, regions)| (name.clone(), regions.iter().cloned().collect()))
+                .collect(),
             rules,
             ..Default::default()
         };

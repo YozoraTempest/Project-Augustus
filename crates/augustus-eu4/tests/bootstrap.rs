@@ -540,12 +540,12 @@ fn startup_region_scope_discovers_each_member_province_for_the_root_country() {
     );
     fs::write(
         root.path().join("map/region.txt"),
-        "discovery_region = { areas = { north_area } } east_region = { areas = { east_area } }",
+        "discovery_region = { areas = { north_area east_area } }",
     )
     .unwrap();
     fs::write(
         root.path().join("map/superregion.txt"),
-        "discovery_superregion = { east_region }",
+        "discovery_superregion = { discovery_region }",
     )
     .unwrap();
     fs::write(
@@ -557,7 +557,7 @@ fn startup_region_scope_discovers_each_member_province_for_the_root_country() {
     fs::create_dir_all(&on_actions).unwrap();
     fs::write(
         on_actions.join("discovery.txt"),
-        "on_startup = { if = { limit = { tag = BBB } discovery_region = { discover_country = ROOT } discovery_superregion = { discover_country = ROOT } discovery_continent = { discover_country = ROOT } } }",
+        "on_startup = { if = { limit = { tag = BBB } discovery_region = { log = discovery_scope discover_country = ROOT } discovery_superregion = { discover_country = ROOT } discovery_continent = { discover_country = ROOT } } }",
     )
     .unwrap();
 
@@ -582,6 +582,13 @@ fn startup_region_scope_discovers_each_member_province_for_the_root_country() {
         world.province_discovered_by(highland, beta).unwrap(),
         Some(true)
     );
+    let region_visits: Vec<_> = world
+        .events()
+        .iter()
+        .filter(|event| event.2 == "discovery_scope")
+        .map(|event| event.1)
+        .collect();
+    assert_eq!(region_visits, [north, east]);
     assert!(loaded.report.estates.pending_startup_effects.is_empty());
 }
 
