@@ -46,8 +46,8 @@ struct Cli {
     export_external_state: Option<PathBuf>,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
-    /// Explicit EU4 random seed; omitted seeds use the runtime clock for local AI event choices.
-    #[arg(long)]
+    /// Explicit EU4 command-line seed; omitted seeds use the runtime clock for local AI event choices.
+    #[arg(long, value_parser = parse_eu4_seed, allow_negative_numbers = true)]
     seed: Option<u32>,
     /// Advance calendar days and execute selected monthly and yearly systems.
     #[arg(
@@ -95,6 +95,47 @@ struct Cli {
     /// Show one unit template by its file stem.
     #[arg(long)]
     unit: Option<String>,
+}
+
+fn parse_eu4_seed(value: &str) -> Result<u32, String> {
+    let value = value.trim_start_matches([' ', '\t']);
+    let (negative, digits) = if let Some(digits) = value.strip_prefix('-') {
+        (true, digits)
+    } else if let Some(digits) = value.strip_prefix('+') {
+        (false, digits)
+    } else {
+        (false, value)
+    };
+    let limit = if negative {
+        i32::MAX as u64 + 1
+    } else {
+        i32::MAX as u64
+    };
+    let mut magnitude = 0_u64;
+    let mut has_digits = false;
+    for digit in digits.bytes() {
+        if !digit.is_ascii_digit() {
+            break;
+        }
+        has_digits = true;
+        magnitude = magnitude
+            .saturating_mul(10)
+            .saturating_add(u64::from(digit - b'0'))
+            .min(limit);
+    }
+    if !has_digits {
+        return Ok(0);
+    }
+    let signed = if negative {
+        if magnitude == i32::MAX as u64 + 1 {
+            i32::MIN
+        } else {
+            -(magnitude as i32)
+        }
+    } else {
+        magnitude as i32
+    };
+    Ok(signed as u32)
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
@@ -547,6 +588,32 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("{e}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(test)]
+mod seed_tests {
+    use super::parse_eu4_seed;
+
+    #[test]
+    fn eu4_seed_parser_matches_signed_32_bit_atol_conversion() {
+        let cases = [
+            ("2147483647", 2_147_483_647),
+            ("2147483648", 2_147_483_647),
+            ("4149563735", 2_147_483_647),
+            ("-2147483647", 2_147_483_649),
+            ("-2147483648", 2_147_483_648),
+            ("-2147483649", 2_147_483_648),
+            ("-145403561", 4_149_563_735),
+            ("123suffix", 123),
+            ("no digits", 0),
+            (" \t-123suffix", 4_294_967_173),
+            ("\n-123", 0),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(parse_eu4_seed(input).unwrap(), expected, "input {input:?}");
         }
     }
 }

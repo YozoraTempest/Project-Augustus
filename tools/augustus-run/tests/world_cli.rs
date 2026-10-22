@@ -886,6 +886,30 @@ fn world_cli_saves_and_resumes_across_monthly_tax_settlements() {
 }
 
 #[test]
+fn world_cli_seed_matches_eu4_signed_32_bit_conversion() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let cases: [(&str, u32); 2] = [("4149563735", 2_147_483_647), ("-145403561", 4_149_563_735)];
+    for (seed_text, expected_seed) in cases {
+        let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+            .arg("--game-root")
+            .arg(&fixture)
+            .args(["--seed", seed_text, "--days", "0", "--omit-load-report"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "seed {seed_text}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            value["simulation"]["eu4_random"]["seed"], expected_seed,
+            "seed {seed_text}"
+        );
+    }
+}
+
+#[test]
 fn world_cli_runs_and_resumes_the_monthly_ledger_pipeline() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();
