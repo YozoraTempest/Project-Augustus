@@ -766,6 +766,20 @@ impl InitialWorld {
         self.world
             .set_regiment_morale_milli(army_id, regiment_id, morale_milli)
     }
+    pub fn apply_regiment_strength_loss_milli(
+        &mut self,
+        army_id: crate::ArmyId,
+        regiment_id: crate::RegimentId,
+        loss_milli: i32,
+        maximum_strength_milli: i32,
+    ) -> Result<(), Error> {
+        self.world.apply_regiment_strength_loss_milli(
+            army_id,
+            regiment_id,
+            loss_milli,
+            maximum_strength_milli,
+        )
+    }
     pub fn create_army_from_categories(
         &mut self,
         owner: EntityId,

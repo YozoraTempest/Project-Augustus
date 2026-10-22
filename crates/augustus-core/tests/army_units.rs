@@ -348,6 +348,73 @@ fn regiment_morale_setter_rejects_unknown_army_or_regiment() {
 }
 
 #[test]
+fn regiment_strength_loss_preserves_wrapping_clamp_and_unknown_state() {
+    let (mut world, country, province) = fixture();
+    world
+        .create_army_with_regiment_states(
+            country,
+            province,
+            "Test",
+            &["infantry".into(), "cavalry".into()],
+            &[
+                RegimentState {
+                    strength_milli: Some(1),
+                    morale_milli: None,
+                    home_province: None,
+                },
+                RegimentState {
+                    strength_milli: Some(800),
+                    morale_milli: None,
+                    home_province: None,
+                },
+            ],
+        )
+        .unwrap();
+    let army_id = world.armies()[0].id;
+    let first = world.armies()[0].regiments[0].id;
+    let second = world.armies()[0].regiments[1].id;
+
+    world
+        .apply_regiment_strength_loss_milli(army_id, first, i32::MIN, 1_000)
+        .unwrap();
+    assert_eq!(world.armies()[0].regiments[0].strength_milli, Some(0));
+
+    world
+        .apply_regiment_strength_loss_milli(army_id, second, -500, 1_000)
+        .unwrap();
+    assert_eq!(world.armies()[0].regiments[1].strength_milli, Some(1_000));
+    world
+        .apply_regiment_strength_loss_milli(army_id, second, 1_001, 1_000)
+        .unwrap();
+    assert_eq!(world.armies()[0].regiments[1].strength_milli, Some(0));
+
+    let saved = world.save("army-units:1").unwrap();
+    let restored = World::restore(&saved, "army-units:1", world.schema()).unwrap();
+    assert_eq!(restored, world);
+
+    let (mut world, country, province) = fixture();
+    world
+        .create_army_with_regiment_states(
+            country,
+            province,
+            "Unknown",
+            &["infantry".into()],
+            &[RegimentState::default()],
+        )
+        .unwrap();
+    assert!(
+        world
+            .apply_regiment_strength_loss_milli(ArmyId(0), RegimentId(0), 1, 1_000)
+            .is_err()
+    );
+    assert!(
+        world
+            .apply_regiment_strength_loss_milli(ArmyId(0), RegimentId(0), 1, -1)
+            .is_err()
+    );
+}
+
+#[test]
 fn category_effect_uses_the_explicit_country_unit_selection() {
     let (mut world, country, province) = fixture();
     set_unit_selection_data(&mut world, country, 3);

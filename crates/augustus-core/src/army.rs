@@ -223,6 +223,35 @@ impl World {
         Ok(())
     }
 
+    pub fn apply_regiment_strength_loss_milli(
+        &mut self,
+        army_id: ArmyId,
+        regiment_id: RegimentId,
+        loss_milli: i32,
+        maximum_strength_milli: i32,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        if maximum_strength_milli < 0 {
+            return Err(Error::Invalid(
+                "regiment maximum strength must not be negative".into(),
+            ));
+        }
+        let regiment = self.armies.regiment_mut(army_id, regiment_id)?;
+        let strength = regiment
+            .strength_milli
+            .ok_or_else(|| Error::Invalid("regiment strength is unknown".into()))?;
+        let strength = i32::try_from(strength)
+            .map_err(|_| Error::Invalid("regiment strength exceeds native range".into()))?;
+        let remaining = strength.wrapping_sub(loss_milli);
+        let remaining = if remaining < 0 {
+            0
+        } else {
+            remaining.min(maximum_strength_milli)
+        };
+        regiment.strength_milli = Some(i64::from(remaining));
+        Ok(())
+    }
+
     pub fn create_army(
         &mut self,
         owner: EntityId,
