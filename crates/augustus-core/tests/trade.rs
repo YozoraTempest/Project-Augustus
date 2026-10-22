@@ -772,6 +772,25 @@ fn trade_outflow_uses_the_incoming_value_pool_and_retention_order() {
 }
 
 #[test]
+fn trade_outflow_reconciles_local_value_inflows_and_pre_settlement_balance() {
+    let result = calculate_vanilla_trade_outflow(VanillaTradeOutflowInput {
+        has_downstream_routes: true,
+        route_weights_milli: vec![1_000],
+        total_effective_amount_milli: 1,
+        node_value_milli: 10_343,
+        base_outgoing_value_milli: 5_945,
+        incoming_transfer_values_milli: vec![2_336, 2_062],
+        retention_milli: 456,
+        additional_outgoing_multiplier_milli: 0,
+    });
+
+    assert!(result.applied);
+    assert_eq!(result.value_pool_milli, Some(10_343));
+    assert_eq!(result.outgoing_amount_milli, 5_626);
+    assert_eq!(10_343 - result.outgoing_amount_milli, 4_717);
+}
+
+#[test]
 fn trade_outflow_honors_native_gates_and_does_not_clamp_retention() {
     let no_positive_route = calculate_vanilla_trade_outflow(VanillaTradeOutflowInput {
         has_downstream_routes: true,
