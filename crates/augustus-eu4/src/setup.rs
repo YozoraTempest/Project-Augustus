@@ -295,6 +295,10 @@ fn properties_except(
 }
 
 impl SetupDraft {
+    pub(super) fn technology_group_names(&self) -> BTreeSet<String> {
+        self.groups.keys().cloned().collect()
+    }
+
     pub(super) fn load(
         root: &impl ContentView,
         files: &[FileEntry],

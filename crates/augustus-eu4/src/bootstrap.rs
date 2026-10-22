@@ -72,6 +72,8 @@ pub struct BootstrapReport {
     pub not_yet_born_people: Vec<String>,
     pub unapplied_diplomacy_fields: BTreeMap<String, usize>,
     pub missing_province_history: Vec<u32>,
+    pub province_discovery_states: usize,
+    pub unresolved_discovery_identifiers: BTreeMap<String, usize>,
     pub unmapped_definition_ids: Vec<u32>,
     pub unknown_map_colors: Vec<[u8; 3]>,
     pub unbound_active_capitals: Vec<String>,
@@ -449,6 +451,11 @@ pub struct VanillaExternalState {
     /// remains content-derived; `None` explicitly records an unowned province.
     #[serde(default)]
     pub province_owners: BTreeMap<u32, Option<String>>,
+    /// Current countries that have discovered each province. An omitted
+    /// province keeps its history-derived state; a present empty set is known
+    /// to be undiscovered by every country in the loaded content.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub province_discovered_by: BTreeMap<u32, BTreeSet<String>>,
     /// Current province trade goods supplied by a save reader. An omitted
     /// province keeps its content-derived good; `None` explicitly clears it.
     #[serde(default)]
@@ -570,6 +577,7 @@ struct LoadOverrides<'a> {
     country_annual_tax_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
     province_owners: Option<&'a BTreeMap<u32, Option<String>>>,
+    province_discovered_by: Option<&'a BTreeMap<u32, BTreeSet<String>>>,
     province_trade_goods: Option<&'a BTreeMap<u32, Option<String>>>,
     province_center_of_trade_levels: Option<&'a BTreeMap<u32, Option<u8>>>,
     province_cultures: Option<&'a BTreeMap<u32, Option<String>>>,
@@ -653,6 +661,8 @@ impl<'a> LoadOverrides<'a> {
             province_annual_tax_milli: (!state.province_annual_tax_milli.is_empty())
                 .then_some(&state.province_annual_tax_milli),
             province_owners: (!state.province_owners.is_empty()).then_some(&state.province_owners),
+            province_discovered_by: (!state.province_discovered_by.is_empty())
+                .then_some(&state.province_discovered_by),
             province_trade_goods: (!state.province_trade_goods.is_empty())
                 .then_some(&state.province_trade_goods),
             province_center_of_trade_levels: (!state.province_center_of_trade_levels.is_empty())
@@ -826,6 +836,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     base.province_annual_tax_milli
         .extend(overlay.province_annual_tax_milli.clone());
     base.province_owners.extend(overlay.province_owners.clone());
+    base.province_discovered_by
+        .extend(overlay.province_discovered_by.clone());
     base.province_trade_goods
         .extend(overlay.province_trade_goods.clone());
     base.province_center_of_trade_levels
@@ -1165,6 +1177,90 @@ fn bind_external_country_metrics(
             .map_err(|e| Error::caused_by("external country metric ceilings", e))?;
     }
     Ok(())
+}
+
+fn bind_province_discoveries(
+    initial: &InitialWorld,
+    history: &BTreeMap<u32, BTreeSet<String>>,
+    saved: Option<&BTreeMap<u32, BTreeSet<String>>>,
+    technology_groups: &BTreeSet<String>,
+    report: &mut BootstrapReport,
+) -> Result<augustus_core::MapKnowledge, Error> {
+    let countries = initial
+        .countries()
+        .iter()
+        .map(|country| {
+            initial
+                .country_entity(&country.id)
+                .expect("registered country")
+        })
+        .collect::<BTreeSet<_>>();
+    let mut countries_by_group = BTreeMap::<String, BTreeSet<augustus_core::EntityId>>::new();
+    for country in initial.countries() {
+        if let Some(group) = &country.technology_group {
+            countries_by_group.entry(group.clone()).or_default().insert(
+                initial
+                    .country_entity(&country.id)
+                    .expect("registered country"),
+            );
+        }
+    }
+
+    let province_ids = history
+        .keys()
+        .chain(saved.into_iter().flat_map(BTreeMap::keys))
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let mut map_knowledge = augustus_core::MapKnowledge::default();
+    for id in province_ids {
+        let province = initial.province_entity(id).ok_or_else(|| {
+            Error::message(
+                "province map knowledge",
+                format!("unknown EU4 discovery province {id}"),
+            )
+        })?;
+        let saved_discoveries = saved.and_then(|values| values.get(&id));
+        let identifiers = saved_discoveries.or_else(|| history.get(&id));
+        let mut discovery = augustus_core::ProvinceDiscovery::default();
+        let mut unresolved_identifier = false;
+        if let Some(identifiers) = identifiers {
+            for identifier in identifiers {
+                if saved_discoveries.is_some() {
+                    if let Some(country) = initial.country_entity(identifier) {
+                        discovery.discovered_by.insert(country);
+                    } else {
+                        unresolved_identifier = true;
+                        *report
+                            .unresolved_discovery_identifiers
+                            .entry(identifier.clone())
+                            .or_default() += 1;
+                    }
+                } else if let Some(country) = initial.country_entity(identifier) {
+                    discovery.discovered_by.insert(country);
+                } else if technology_groups.contains(identifier) {
+                    if let Some(group_countries) = countries_by_group.get(identifier) {
+                        discovery
+                            .discovered_by
+                            .extend(group_countries.iter().copied());
+                    }
+                } else {
+                    unresolved_identifier = true;
+                    *report
+                        .unresolved_discovery_identifiers
+                        .entry(identifier.clone())
+                        .or_default() += 1;
+                }
+            }
+        }
+        if unresolved_identifier {
+            discovery
+                .unresolved_countries
+                .extend(countries.difference(&discovery.discovered_by).copied());
+        }
+        map_knowledge.provinces.insert(province, discovery);
+    }
+    report.province_discovery_states = map_knowledge.provinces.len();
+    Ok(map_knowledge)
 }
 
 fn bind_external_country_statuses(
@@ -1946,6 +2042,8 @@ impl VanillaWorld {
             not_yet_born_people: Vec::new(),
             unapplied_diplomacy_fields: BTreeMap::new(),
             missing_province_history: Vec::new(),
+            province_discovery_states: 0,
+            unresolved_discovery_identifiers: BTreeMap::new(),
             unbound_active_capitals: Vec::new(),
             unmapped_definition_ids: Vec::new(),
             unknown_map_colors: Vec::new(),
@@ -2258,7 +2356,7 @@ impl VanillaWorld {
         let mut liberty_history_unknown = BTreeSet::new();
         let mut liberty_scoped_history_unknown = false;
         let mut province_histories = BTreeSet::new();
-        let mut province_center_of_trade_levels = BTreeMap::new();
+        let mut province_history_state = ProvinceHistoryState::default();
         let mut unresolved_ownership = BTreeSet::new();
         let mut history_groups: BTreeMap<String, Vec<&Path>> = BTreeMap::new();
         for file in files
@@ -2515,7 +2613,9 @@ impl VanillaWorld {
             }
             let doc = root.read_text(&file.relative_path, ENCODING)?;
             let parsed = doc.parse()?;
-            province_center_of_trade_levels.insert(id, Some(0));
+            province_history_state
+                .center_of_trade_levels
+                .insert(id, Some(0));
             province_sources
                 .get_mut(&id)
                 .expect("registered province")
@@ -2591,11 +2691,13 @@ impl VanillaWorld {
                     &mut economy,
                     &mut setup,
                     &mut report,
-                    &mut province_center_of_trade_levels,
+                    &mut province_history_state,
                 )
             })?;
             if unresolved_center_of_trade {
-                province_center_of_trade_levels.insert(id, None);
+                province_history_state
+                    .center_of_trade_levels
+                    .insert(id, None);
             }
         }
         report.country_history_files = country_histories.len();
@@ -2696,7 +2798,9 @@ impl VanillaWorld {
                         format!("external center of trade references unknown province {id}"),
                     ));
                 }
-                province_center_of_trade_levels.insert(id, level);
+                province_history_state
+                    .center_of_trade_levels
+                    .insert(id, level);
             }
         }
         if let Some(cultures) = overrides.country_primary_cultures {
@@ -2790,6 +2894,16 @@ impl VanillaWorld {
             seed,
         )
         .map_err(|e| Error::caused_by(root.path(), e))?;
+        let map_knowledge = bind_province_discoveries(
+            &initial,
+            &province_history_state.discovered_by,
+            overrides.province_discovered_by,
+            &setup.technology_group_names(),
+            &mut report,
+        )?;
+        initial
+            .set_map_knowledge(map_knowledge)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
         if let Some(province_terrains) = province_terrains {
             for (province, terrain) in province_terrains {
                 initial
@@ -2797,7 +2911,7 @@ impl VanillaWorld {
                     .map_err(|e| Error::caused_by(root.path(), e))?;
             }
         }
-        for (&province, &level) in &province_center_of_trade_levels {
+        for (&province, &level) in &province_history_state.center_of_trade_levels {
             initial
                 .set_province_center_of_trade_level(province, level)
                 .map_err(|e| Error::caused_by(root.path(), e))?;
@@ -5343,6 +5457,12 @@ fn nested_center_of_trade(reader: ObjectReader<'_, '_, TextEncoding>, depth: usi
     })
 }
 
+#[derive(Default)]
+struct ProvinceHistoryState {
+    center_of_trade_levels: BTreeMap<u32, Option<u8>>,
+    discovered_by: BTreeMap<u32, BTreeSet<String>>,
+}
+
 fn apply_province(
     parsed: &ParsedText<'_>,
     reader: ObjectReader<'_, '_, TextEncoding>,
@@ -5350,7 +5470,7 @@ fn apply_province(
     economy: &mut EconomyDraft,
     setup: &mut SetupDraft,
     report: &mut BootstrapReport,
-    center_of_trade_levels: &mut BTreeMap<u32, Option<u8>>,
+    history_state: &mut ProvinceHistoryState,
 ) -> Result<(), Error> {
     let handled = setup.province_history(parsed, reader.clone(), province.id, &mut report.setup)?;
     for (key, op, value) in reader.fields() {
@@ -5373,6 +5493,22 @@ fn apply_province(
             continue;
         }
         match name.as_str() {
+            "discovered_by" => {
+                equal(op, &fail)?;
+                let identifier = value
+                    .read_string()
+                    .map_err(|_| fail("expected province discovery country or technology group"))?;
+                if identifier.is_empty() {
+                    return Err(fail(
+                        "expected province discovery country or technology group",
+                    ));
+                }
+                history_state
+                    .discovered_by
+                    .entry(province.id)
+                    .or_default()
+                    .insert(identifier);
+            }
             "center_of_trade" => {
                 equal(op, &fail)?;
                 let text = value
@@ -5383,7 +5519,9 @@ fn apply_province(
                     .ok()
                     .filter(|_| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
                     .ok_or_else(|| fail("expected nonnegative center-of-trade level"))?;
-                center_of_trade_levels.insert(province.id, Some(level));
+                history_state
+                    .center_of_trade_levels
+                    .insert(province.id, Some(level));
             }
             "owner" | "controller" | "culture" | "religion" | "trade_goods" => {
                 equal(op, &fail)?;

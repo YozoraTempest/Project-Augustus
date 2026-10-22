@@ -11,9 +11,10 @@ use augustus_core::{
     Action, COUNTRY_LEDGER_INCOME_GOLD_CATEGORY, COUNTRY_LEDGER_INCOME_PRODUCTION_CATEGORY,
     COUNTRY_LEDGER_INCOME_TAX_CATEGORY, COUNTRY_LEDGER_INCOME_TRADE_CATEGORY,
     COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY, CashflowBreakdown, CountryResources, EntityId,
-    EntityKind, Error, MonthlyEconomy, MonthlyPipeline, MonthlySystem, NationalFocus,
-    ProvinceClass, RulerSkill, Schema, VanillaProductionInput, VanillaProductionInputState,
-    VanillaTradeIncomeInput, VanillaTradeIncomePassInput, World, YearlyPipeline, YearlySystem,
+    EntityKind, Error, MapKnowledge, MonthlyEconomy, MonthlyPipeline, MonthlySystem, NationalFocus,
+    ProvinceClass, ProvinceDiscovery, RulerSkill, Schema, VanillaProductionInput,
+    VanillaProductionInputState, VanillaTradeIncomeInput, VanillaTradeIncomePassInput, World,
+    YearlyPipeline, YearlySystem,
 };
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
@@ -1551,10 +1552,29 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
             .unapplied_country_fields
             .contains_key("set_country_flag")
     );
-    assert_eq!(loaded.report.unapplied_province_fields["discovered_by"], 1);
-    let origin = &loaded.report.unapplied_examples["province:discovered_by"];
-    assert_eq!(origin.line, 16);
-    assert!(origin.path.ends_with("history/provinces/1 - North.txt"));
+    assert!(
+        !loaded
+            .report
+            .unapplied_province_fields
+            .contains_key("discovered_by")
+    );
+    assert!(
+        !loaded
+            .report
+            .unapplied_examples
+            .contains_key("province:discovered_by")
+    );
+    assert_eq!(loaded.report.province_discovery_states, 1);
+    let north = loaded.initial.province_entity(1).unwrap();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .province_discovered_by(north, alpha)
+            .unwrap(),
+        Some(true)
+    );
     assert_eq!(loaded.province_sources[&1][0].line, 2);
     assert_eq!(loaded.province_sources[&1].len(), 2);
 
@@ -1589,6 +1609,17 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
                 .unwrap();
         }
     }
+    native
+        .set_map_knowledge(MapKnowledge {
+            provinces: BTreeMap::from([(
+                north,
+                ProvinceDiscovery {
+                    discovered_by: BTreeSet::from([alpha]),
+                    unresolved_countries: BTreeSet::new(),
+                },
+            )]),
+        })
+        .unwrap();
     native.set_owner(north, beta).unwrap();
     native.set_owner(east, alpha).unwrap();
     native.set_capital(alpha, east).unwrap();

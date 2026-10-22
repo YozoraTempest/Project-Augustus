@@ -42,6 +42,10 @@ pub enum Condition {
         /// None matches either known type; a typed query rejects an unknown type.
         core: Option<crate::CoreType>,
     },
+    ProvinceDiscoveredBy {
+        province: crate::EntityRef,
+        country: crate::EntityRef,
+    },
     ProvinceHasPort,
     ProvinceCenterOfTradeAtLeast {
         target: Target,
@@ -641,6 +645,17 @@ impl Condition {
                     }
                     (Some(actual), Some(expected)) => Ok(actual == *expected),
                 }
+            }
+            Self::ProvinceDiscoveredBy { province, country } => {
+                let (Some(province), Some(country)) = (
+                    province.resolve_in_context(world, context)?,
+                    country.resolve_in_context(world, context)?,
+                ) else {
+                    return Ok(false);
+                };
+                world
+                    .province_discovered_by(province, country)?
+                    .ok_or_else(|| Error::Invalid("province discovery state is unknown".into()))
             }
             Self::ProvinceHasPort => world.province_has_port(current),
             Self::ProvinceCenterOfTradeAtLeast { target, level } => {

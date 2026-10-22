@@ -139,6 +139,7 @@ pub struct World {
     attributes: Attributes,
     pub(crate) administration: Arc<Administration>,
     pub(crate) affiliations: Affiliations,
+    pub(crate) map_knowledge: crate::MapKnowledge,
     pub(crate) school_opinions: crate::SchoolOpinions,
     pub(crate) governments: Governments,
     pub(crate) metrics: crate::Metrics,
@@ -253,6 +254,8 @@ struct Snapshot {
     administration: Administration,
     #[serde(default, skip_serializing_if = "Affiliations::is_empty")]
     affiliations: Affiliations,
+    #[serde(default, skip_serializing_if = "crate::MapKnowledge::is_empty")]
+    map_knowledge: crate::MapKnowledge,
     #[serde(default, skip_serializing_if = "crate::SchoolOpinions::is_empty")]
     school_opinions: crate::SchoolOpinions,
     #[serde(default, skip_serializing_if = "Governments::is_empty")]
@@ -341,6 +344,7 @@ impl World {
             attributes: Attributes::default(),
             administration: Arc::default(),
             affiliations: Affiliations::default(),
+            map_knowledge: crate::MapKnowledge::default(),
             school_opinions: crate::SchoolOpinions::default(),
             governments: Governments::default(),
             metrics: crate::Metrics::default(),
@@ -703,6 +707,32 @@ impl World {
 
     pub fn affiliations(&self) -> &Affiliations {
         &self.affiliations
+    }
+
+    pub fn map_knowledge(&self) -> &crate::MapKnowledge {
+        &self.map_knowledge
+    }
+
+    pub fn province_discovered_by(
+        &self,
+        province: EntityId,
+        country: EntityId,
+    ) -> Result<Option<bool>, Error> {
+        if self.entity(province)?.kind != EntityKind::Province
+            || self.entity(country)?.kind != EntityKind::Country
+        {
+            return Err(Error::Invalid(
+                "map knowledge requires a province and a country".into(),
+            ));
+        }
+        Ok(self.map_knowledge.discovered_by(province, country))
+    }
+
+    pub fn set_map_knowledge(&mut self, map_knowledge: crate::MapKnowledge) -> Result<(), Error> {
+        self.require_running()?;
+        map_knowledge.validate(self)?;
+        self.map_knowledge = map_knowledge;
+        Ok(())
     }
 
     pub fn estates(&self) -> &crate::Estates {
@@ -1669,6 +1699,7 @@ impl World {
             attributes: self.attributes.clone(),
             administration: self.administration.as_ref().clone(),
             affiliations: self.affiliations.clone(),
+            map_knowledge: self.map_knowledge.clone(),
             school_opinions: self.school_opinions.clone(),
             governments: self.governments.clone(),
             metrics: self.metrics.clone(),
@@ -1810,6 +1841,7 @@ impl World {
             attributes: snapshot.attributes,
             administration: Arc::new(snapshot.administration),
             affiliations: snapshot.affiliations,
+            map_knowledge: snapshot.map_knowledge,
             school_opinions: snapshot.school_opinions,
             governments: snapshot.governments,
             metrics: snapshot.metrics,
@@ -1923,6 +1955,7 @@ impl World {
         }
         world.administration.validate(&world)?;
         world.affiliations.validate(&world)?;
+        world.map_knowledge.validate(&world)?;
         world.school_opinions.validate(&world)?;
         world.governments.validate(&world)?;
         world.metrics.validate(&world)?;
@@ -2486,6 +2519,10 @@ pub(crate) fn validate_condition(
         crate::Condition::ProvinceCore {
             province, country, ..
         } => {
+            province.validate()?;
+            country.validate()
+        }
+        crate::Condition::ProvinceDiscoveredBy { province, country } => {
             province.validate()?;
             country.validate()
         }

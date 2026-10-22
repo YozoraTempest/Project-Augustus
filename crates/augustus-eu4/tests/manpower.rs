@@ -272,6 +272,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
                 mercantilism_milli: Some(18_500),
             },
         )]),
+        province_discovered_by: Default::default(),
         production_inputs: BTreeMap::from([(
             2,
             VanillaProductionInputState {

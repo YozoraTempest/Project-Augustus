@@ -3106,6 +3106,10 @@ impl<'a> ScriptCompiler<'a> {
                         core: (field.name == "is_territorial_core").then_some(augustus_core::CoreType::Territorial),
                     }
                 }
+                "has_discovered" => {
+                    let (province, country) = self.core_operands(field, scope)?;
+                    Condition::ProvinceDiscoveredBy { province, country }
+                }
                 "has_casus_belli" => {
                     let (name, target, _) = self.casus_belli_operands(field, scope, false)?;
                     if !self.casus_belli_types[&name].triggered_only {

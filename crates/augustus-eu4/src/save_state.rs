@@ -8,7 +8,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use augustus_core::{CountryResources, IdeaState, NationalFocus, RulerSkill};
-use jomini::{TextToken, binary::TokenResolver, text::ValueReader};
+use jomini::{
+    TextToken,
+    binary::TokenResolver,
+    text::{Operator, ValueReader},
+};
 use serde::Serialize;
 
 use crate::administration_validation::{SaveTokenResolver, read_eu4_save_documents};
@@ -425,6 +429,14 @@ impl VanillaSaveState {
                 ));
             }
             state.province_owners.insert(*province, owner.clone());
+        }
+
+        for (province, discovered_by) in &self.external_state.province_discovered_by {
+            if world.initial.province_entity(*province).is_some() {
+                state
+                    .province_discovered_by
+                    .insert(*province, discovered_by.clone());
+            }
         }
 
         for (province, trade_good) in &self.external_state.province_trade_goods {
@@ -1229,6 +1241,10 @@ fn read_vanilla_save_state_inner(
             ));
         }
         external_state.province_owners.insert(id, owner.clone());
+        if let Some(discovery) = optional_field(&parsed, &province, "discovered_by")? {
+            let tags = saved_discovery_tags(&parsed, id, discovery)?;
+            external_state.province_discovered_by.insert(id, tags);
+        }
         if let Some(culture) = optional_scalar(&parsed, &province, "culture")? {
             external_state.province_cultures.insert(id, Some(culture));
         }
@@ -1623,6 +1639,83 @@ fn optional_object<'a, 'b>(
     optional_field(parsed, reader, name)?
         .map(|value| object(parsed, &value))
         .transpose()
+}
+
+fn saved_discovery_tags(
+    parsed: &ParsedText<'_>,
+    province: u32,
+    value: Field<'_, '_>,
+) -> Result<BTreeSet<String>, Error> {
+    let mut tags = BTreeSet::new();
+    let mut insert = |tag: String| -> Result<(), Error> {
+        if !is_country_tag(&tag) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("province {province} has an invalid saved discovery country"),
+            ));
+        }
+        if !tags.insert(tag) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("province {province} has a duplicate discovery country"),
+            ));
+        }
+        Ok(())
+    };
+
+    match value.token() {
+        TextToken::Array { .. } => {
+            let array = value.read_array().expect("array token");
+            for value in array.values() {
+                let tag = value.read_string().map_err(|_| {
+                    Error::message(
+                        parsed.source(),
+                        format!("province {province} has an invalid saved discovery entry"),
+                    )
+                })?;
+                insert(tag)?;
+            }
+        }
+        TextToken::Object { .. } => {
+            let discovery = value.read_object().expect("object token");
+            for (key, op, value) in discovery.fields() {
+                if op.is_some_and(|operator| operator != Operator::Equal) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("province {province} has an invalid saved discovery entry"),
+                    ));
+                }
+                let tag = key.read_string();
+                if op.is_some() {
+                    let present = value.read_string().map_err(|_| {
+                        Error::message(
+                            parsed.source(),
+                            format!("province {province} has an invalid saved discovery value"),
+                        )
+                    })?;
+                    match present.as_str() {
+                        "yes" => insert(tag)?,
+                        "no" => (),
+                        _ => {
+                            return Err(Error::message(
+                                parsed.source(),
+                                format!("province {province} has an invalid saved discovery value"),
+                            ));
+                        }
+                    }
+                } else {
+                    insert(tag)?;
+                }
+            }
+        }
+        _ => {
+            return Err(Error::message(
+                parsed.source(),
+                format!("province {province} has an invalid saved discovery set"),
+            ));
+        }
+    }
+    Ok(tags)
 }
 
 fn optional_milli(
@@ -2118,6 +2211,7 @@ countries={
 provinces={
 	-1={
 		owner="AAA"
+		discovered_by={AAA=yes BBB=yes}
 		culture=saved_province_culture
 		religion=saved_province_religion
 		trade_goods=cloth
@@ -2135,6 +2229,12 @@ provinces={
 				}
 			}
 		}
+	}
+	-2={
+		discovered_by={}
+	}
+	-3={
+		discovered_by={AAA BBB}
 	}
 }
 "#,
@@ -2286,6 +2386,18 @@ provinces={
         assert_eq!(
             state.external_state.province_owners[&1].as_deref(),
             Some("AAA")
+        );
+        assert_eq!(
+            state.external_state.province_discovered_by[&1],
+            BTreeSet::from(["AAA".into(), "BBB".into()])
+        );
+        assert_eq!(
+            state.external_state.province_discovered_by[&2],
+            BTreeSet::new()
+        );
+        assert_eq!(
+            state.external_state.province_discovered_by[&3],
+            BTreeSet::from(["AAA".into(), "BBB".into()])
         );
         assert_eq!(
             state.external_state.province_cultures[&1].as_deref(),

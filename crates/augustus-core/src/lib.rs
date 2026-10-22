@@ -30,6 +30,7 @@ mod ideas;
 mod initial;
 mod justifications;
 mod ledger;
+mod map_knowledge;
 mod markers;
 mod metrics;
 mod modifiers;
@@ -142,6 +143,7 @@ pub use ledger::{
     CountryLedgerCategory, CountryLedgerMonthlyConsolidation, CountryLedgerPendingFlush,
     country_ledger_expense_key, country_ledger_income_key,
 };
+pub use map_knowledge::{MapKnowledge, ProvinceDiscovery};
 pub use markers::{GlobalMarkers, Markers};
 pub use metrics::{MetricContribution, MetricDefinition, MetricEffect, MetricEvaluation, Metrics};
 pub use modifiers::{ModifierDefinition, ModifierInstance, ModifierRenewal, Modifiers};
