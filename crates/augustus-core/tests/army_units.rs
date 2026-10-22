@@ -4,9 +4,9 @@
 use std::collections::BTreeMap;
 
 use augustus_core::{
-    Action, AffiliationDimension, Affiliations, ArmyId, EntityKind, EntityRef, RegimentId, Schema,
-    ScopeContext, ScopeSelector, Technology, TechnologyLevel, UnitTemplate, UnitTemplateProperty,
-    UnitTemplates, World,
+    Action, AffiliationDimension, Affiliations, ArmyId, EntityKind, EntityRef, RegimentId,
+    RegimentState, Schema, ScopeContext, ScopeSelector, Technology, TechnologyLevel, UnitTemplate,
+    UnitTemplateProperty, UnitTemplates, World,
 };
 
 fn fixture() -> (World, augustus_core::EntityId, augustus_core::EntityId) {
@@ -192,6 +192,83 @@ fn old_snapshots_without_armies_load_and_invalid_army_references_fail() {
     let mut corrupt: serde_json::Value = serde_json::from_str(&saved).unwrap();
     corrupt["armies"]["armies"][0]["location"] = serde_json::json!(u64::MAX);
     assert!(World::restore(&corrupt.to_string(), "army-units:1", world.schema()).is_err());
+}
+
+#[test]
+fn regiment_state_round_trips_and_defaults_when_loading_older_snapshots() {
+    let (mut world, country, province) = fixture();
+    world
+        .create_army_with_regiment_states(
+            country,
+            province,
+            "Test",
+            &["infantry".into()],
+            &[RegimentState {
+                morale_milli: Some(1_234),
+                home_province: Some(province),
+            }],
+        )
+        .unwrap();
+    let saved = world.save("army-units:1").unwrap();
+    let restored = World::restore(&saved, "army-units:1", world.schema()).unwrap();
+    assert_eq!(restored, world);
+    assert_eq!(restored.armies()[0].regiments[0].morale_milli, Some(1_234));
+    assert_eq!(
+        restored.armies()[0].regiments[0].home_province,
+        Some(province)
+    );
+
+    let mut legacy: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    let regiment = legacy["armies"]["armies"][0]["regiments"][0]
+        .as_object_mut()
+        .unwrap();
+    regiment.remove("morale_milli");
+    regiment.remove("home_province");
+    let restored = World::restore(&legacy.to_string(), "army-units:1", world.schema()).unwrap();
+    assert_eq!(restored.armies()[0].regiments[0].morale_milli, None);
+    assert_eq!(restored.armies()[0].regiments[0].home_province, None);
+
+    let mut corrupt: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    corrupt["armies"]["armies"][0]["regiments"][0]["home_province"] = serde_json::json!(u64::MAX);
+    assert!(World::restore(&corrupt.to_string(), "army-units:1", world.schema()).is_err());
+}
+
+#[test]
+fn regiment_state_requires_matching_count_and_valid_morale() {
+    let (mut world, country, province) = fixture();
+    assert!(
+        world
+            .create_army_with_regiment_states(country, province, "Test", &["infantry".into()], &[],)
+            .is_ok()
+    );
+
+    let (mut world, country, province) = fixture();
+    assert!(
+        world
+            .create_army_with_regiment_states(
+                country,
+                province,
+                "Test",
+                &["infantry".into()],
+                &[RegimentState::default(), RegimentState::default()],
+            )
+            .is_err()
+    );
+    assert!(
+        world
+            .create_army_with_regiment_states(
+                country,
+                province,
+                "Test",
+                &["infantry".into()],
+                &[RegimentState {
+                    morale_milli: Some(-1),
+                    home_province: None,
+                }],
+            )
+            .is_err()
+    );
+    assert!(world.armies().is_empty());
 }
 
 #[test]

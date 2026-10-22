@@ -68,7 +68,7 @@ pub use advisors::{AdvisorState, Advisors};
 pub use affiliations::{
     AffiliationAcceptance, AffiliationDimension, AffiliationRelation, Affiliations,
 };
-pub use army::{Army, ArmyId, Regiment, RegimentId};
+pub use army::{Army, ArmyId, Regiment, RegimentId, RegimentState};
 pub use attributes::{
     AffiliationEffect, AttributeAggregate, AttributeBase, AttributeChannel, AttributeContribution,
     AttributeEvaluation, AttributeFormula, AttributeStep, AttributeTerm, Attributes,

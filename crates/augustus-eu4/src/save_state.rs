@@ -18,8 +18,8 @@ use serde::Serialize;
 use crate::administration_validation::{SaveTokenResolver, read_eu4_save_documents};
 use crate::bootstrap::{
     VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalFleet,
-    VanillaExternalNavalUnit, VanillaExternalProvinceDevelopment, VanillaExternalState,
-    VanillaWorld,
+    VanillaExternalNavalUnit, VanillaExternalProvinceDevelopment, VanillaExternalRegimentState,
+    VanillaExternalState, VanillaWorld,
 };
 use crate::{Error, ParsedText, TextEncoding};
 
@@ -1181,12 +1181,13 @@ fn read_vanilla_save_state_inner(
             if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
                 return Err(Error::message(parsed.source(), "invalid saved army block"));
             }
-            let (location, name, regiments) = saved_army(&parsed, &value)?;
+            let (location, name, regiments, regiment_states) = saved_army(&parsed, &value)?;
             external_state.armies.push(VanillaExternalArmy {
                 owner: tag.clone(),
                 location,
                 name,
                 regiments,
+                regiment_states,
             });
             let _ = key;
         }
@@ -1477,11 +1478,12 @@ fn collect_saved_advisors(
 fn saved_army(
     parsed: &ParsedText<'_>,
     value: &Field<'_, '_>,
-) -> Result<(u32, String, Vec<String>), Error> {
+) -> Result<(u32, String, Vec<String>, Vec<VanillaExternalRegimentState>), Error> {
     let army = object(parsed, value)?;
     let mut location = None;
     let mut name = String::new();
     let mut regiments = Vec::new();
+    let mut regiment_states = Vec::new();
     for (key, op, value) in army.fields() {
         let field = key.read_string();
         if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
@@ -1506,10 +1508,7 @@ fn saved_army(
             }
             "name" => name = scalar(parsed, &value)?,
             "regiment" => {
-                let regiment = object(parsed, &value)?;
-                let unit_type = optional_scalar(parsed, &regiment, "type")?.ok_or_else(|| {
-                    Error::message(parsed.source(), "saved regiment is missing its type")
-                })?;
+                let (unit_type, state) = saved_regiment(parsed, &value)?;
                 if unit_type.is_empty() || unit_type.bytes().any(|byte| byte.is_ascii_whitespace())
                 {
                     return Err(Error::message(
@@ -1518,6 +1517,7 @@ fn saved_army(
                     ));
                 }
                 regiments.push(unit_type);
+                regiment_states.push(state);
             }
             _ => {}
         }
@@ -1530,7 +1530,67 @@ fn saved_army(
             "saved army has no regiments",
         ));
     }
-    Ok((location, name, regiments))
+    Ok((location, name, regiments, regiment_states))
+}
+
+fn saved_regiment(
+    parsed: &ParsedText<'_>,
+    value: &Field<'_, '_>,
+) -> Result<(String, VanillaExternalRegimentState), Error> {
+    let regiment = object(parsed, value)?;
+    let mut seen = BTreeSet::new();
+    let mut unit_type = None;
+    let mut state = VanillaExternalRegimentState::default();
+    for (key, op, value) in regiment.fields() {
+        let field = key.read_string();
+        if !matches!(field.as_str(), "type" | "morale" | "home") {
+            continue;
+        }
+        if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("invalid saved regiment field {field}"),
+            ));
+        }
+        if !seen.insert(field.clone()) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("duplicate saved regiment field {field}"),
+            ));
+        }
+        let text = scalar(parsed, &value)?;
+        match field.as_str() {
+            "type" => unit_type = Some(text),
+            "morale" => {
+                let morale = signed_milli(&text).ok_or_else(|| {
+                    Error::message(parsed.source(), "invalid saved regiment morale")
+                })?;
+                if morale < 0 {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "saved regiment morale must not be negative",
+                    ));
+                }
+                state.morale_milli = Some(morale);
+            }
+            "home" => {
+                let province = text
+                    .parse::<u32>()
+                    .map_err(|error| Error::caused_by(parsed.source(), error))?;
+                if province == 0 {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "saved regiment home province must be positive",
+                    ));
+                }
+                state.home_province = Some(province);
+            }
+            _ => unreachable!(),
+        }
+    }
+    let unit_type = unit_type
+        .ok_or_else(|| Error::message(parsed.source(), "saved regiment is missing its type"))?;
+    Ok((unit_type, state))
 }
 
 fn saved_navy(
@@ -2243,6 +2303,66 @@ mod tests {
     }
 
     #[test]
+    fn saved_armies_preserve_regiment_morale_and_home_province() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("armies.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+countries={
+    AAA={
+        army={
+            location=1
+            name="Northern Army"
+            regiment={ type=infantry morale=1.234 home=1 }
+            regiment={ type=cavalry morale=0 home=2 }
+            regiment={ type=artillery }
+        }
+    }
+}
+provinces={}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        let army = &save.external_state.armies[0];
+        assert_eq!(army.owner, "AAA");
+        assert_eq!(army.location, 1);
+        assert_eq!(army.name, "Northern Army");
+        assert_eq!(
+            army.regiments,
+            ["infantry", "cavalry", "artillery"].map(str::to_owned)
+        );
+        assert_eq!(army.regiment_states[0].morale_milli, Some(1_234));
+        assert_eq!(army.regiment_states[0].home_province, Some(1));
+        assert_eq!(army.regiment_states[1].morale_milli, Some(0));
+        assert_eq!(army.regiment_states[1].home_province, Some(2));
+        assert_eq!(army.regiment_states[2].morale_milli, None);
+        assert_eq!(army.regiment_states[2].home_province, None);
+    }
+
+    #[test]
+    fn saved_regiment_state_rejects_invalid_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("invalid-army.eu4");
+        for regiment in [
+            "type=infantry morale=-0.001",
+            "type=infantry morale=invalid",
+            "type=infantry home=0",
+            "type=infantry home=invalid",
+            "type=infantry morale=1 morale=2",
+        ] {
+            let text = format!(
+                "EU4txt\ndate=1444.11.11\ncountries={{ AAA={{ army={{ location=1 regiment={{ {regiment} }} }} }} }}\nprovinces={{}}\n"
+            );
+            std::fs::write(&save_path, text).unwrap();
+            assert!(read_vanilla_save_state(&save_path).is_err(), "{regiment}");
+        }
+    }
+
+    #[test]
     fn saved_country_relation_inputs_filter_targets_overlay_and_restore() {
         let directory = tempfile::tempdir().unwrap();
         let save_path = directory.path().join("relations.eu4");
@@ -2867,6 +2987,31 @@ provinces={
             loaded.initial.province_center_of_trade_level(101).unwrap(),
             Some(3)
         );
+    }
+
+    #[test]
+    #[ignore = "requires EU4_TEST_SAVE with a local EU4 text save"]
+    fn local_eu4_save_preserves_regiment_morale_and_home_province() {
+        let save_path =
+            std::env::var_os("EU4_TEST_SAVE").expect("set EU4_TEST_SAVE to a local EU4 text save");
+        let save = read_vanilla_save_state(save_path).unwrap();
+        assert!(!save.external_state.armies.is_empty());
+        assert!(
+            save.external_state
+                .armies
+                .iter()
+                .all(|army| { army.regiments.len() == army.regiment_states.len() })
+        );
+        assert!(save.external_state.armies.iter().any(|army| {
+            army.regiment_states
+                .iter()
+                .any(|state| state.morale_milli.is_some())
+        }));
+        assert!(save.external_state.armies.iter().any(|army| {
+            army.regiment_states
+                .iter()
+                .any(|state| state.home_province.is_some())
+        }));
     }
 
     #[test]

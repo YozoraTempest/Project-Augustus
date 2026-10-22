@@ -19,7 +19,8 @@ use augustus_core::{
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
     VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalFleet,
-    VanillaExternalNavalUnit, VanillaExternalState, VanillaWorld, read_vanilla_save_state,
+    VanillaExternalNavalUnit, VanillaExternalRegimentState, VanillaExternalState, VanillaWorld,
+    read_vanilla_save_state,
 };
 
 fn fixture() -> PathBuf {
@@ -2181,6 +2182,16 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
         location: 1,
         name: "Northern Army".into(),
         regiments: vec!["infantry".into(), "cavalry".into()],
+        regiment_states: vec![
+            VanillaExternalRegimentState {
+                morale_milli: Some(1_250),
+                home_province: Some(1),
+            },
+            VanillaExternalRegimentState {
+                morale_milli: Some(0),
+                home_province: None,
+            },
+        ],
     });
     external.naval_units.push(VanillaExternalNavalUnit {
         owner: "AAA".into(),
@@ -2192,6 +2203,18 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
         VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &external).unwrap();
     assert_eq!(loaded.initial.armies().len(), 1);
     assert_eq!(loaded.initial.armies()[0].regiments.len(), 2);
+    assert_eq!(
+        loaded.initial.armies()[0].regiments[0].morale_milli,
+        Some(1_250)
+    );
+    assert_eq!(
+        loaded.initial.armies()[0].regiments[0].home_province,
+        loaded.initial.province_entity(1)
+    );
+    assert_eq!(
+        loaded.initial.armies()[0].regiments[1].morale_milli,
+        Some(0)
+    );
     assert_eq!(loaded.initial.naval_units().len(), 1);
     assert_eq!(loaded.initial.fleets().len(), 1);
     assert_eq!(loaded.initial.fleets()[0].ships.len(), 1);
@@ -2203,6 +2226,14 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
     let snapshot = loaded.save().unwrap();
     loaded.restore(&snapshot).unwrap();
     assert_eq!(loaded.initial.armies().len(), 1);
+    assert_eq!(
+        loaded.initial.armies()[0].regiments[0].morale_milli,
+        Some(1_250)
+    );
+    assert_eq!(
+        loaded.initial.armies()[0].regiments[0].home_province,
+        loaded.initial.province_entity(1)
+    );
     assert_eq!(loaded.initial.naval_units().len(), 1);
     assert_eq!(loaded.initial.fleets().len(), 1);
 
@@ -2224,6 +2255,40 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
         Some("Test Navy")
     );
     assert_eq!(grouped.initial.fleets()[0].ships.len(), 2);
+}
+
+#[test]
+fn old_external_army_json_defaults_to_no_regiment_state() {
+    let army: VanillaExternalArmy =
+        serde_json::from_str(r#"{"owner":"AAA","location":1,"regiments":["infantry"]}"#).unwrap();
+    assert!(army.regiment_states.is_empty());
+    assert!(
+        serde_json::to_value(army)
+            .unwrap()
+            .get("regiment_states")
+            .is_none()
+    );
+}
+
+#[test]
+fn external_army_rejects_unknown_regiment_home_province() {
+    let external = VanillaExternalState {
+        armies: vec![VanillaExternalArmy {
+            owner: "AAA".into(),
+            location: 1,
+            name: String::new(),
+            regiments: vec!["infantry".into()],
+            regiment_states: vec![VanillaExternalRegimentState {
+                morale_milli: Some(1_000),
+                home_province: Some(u32::MAX),
+            }],
+        }],
+        ..Default::default()
+    };
+    let error = VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &external)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown regiment home province"), "{error}");
 }
 
 #[test]

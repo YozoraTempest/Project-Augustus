@@ -743,6 +743,17 @@ impl InitialWorld {
     ) -> Result<crate::ArmyId, Error> {
         self.world.create_army(owner, location, name, unit_types)
     }
+    pub fn create_army_with_regiment_states(
+        &mut self,
+        owner: EntityId,
+        location: EntityId,
+        name: &str,
+        unit_types: &[String],
+        states: &[crate::RegimentState],
+    ) -> Result<crate::ArmyId, Error> {
+        self.world
+            .create_army_with_regiment_states(owner, location, name, unit_types, states)
+    }
     pub fn armies(&self) -> &[crate::Army] {
         self.world.armies()
     }

@@ -232,7 +232,7 @@ pub struct VanillaContentProductionGoodsSizeInput {
 
 /// A starting land stack translated by an external simulator or save reader.
 /// The EU4 compatibility boundary resolves the country tag and province ID;
-/// the shared core stores only the resulting regiment types.
+/// the shared core stores regiment types and any supplied current state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VanillaExternalArmy {
@@ -241,6 +241,21 @@ pub struct VanillaExternalArmy {
     #[serde(default)]
     pub name: String,
     pub regiments: Vec<String>,
+    /// Optional current state aligned with `regiments` by index. An empty
+    /// vector preserves compatibility with older external army snapshots.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub regiment_states: Vec<VanillaExternalRegimentState>,
+}
+
+/// Current state translated for a regiment from a save reader or simulator.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalRegimentState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub morale_milli: Option<i64>,
+    /// EU4 province ID; the compatibility layer resolves it to a core entity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_province: Option<u32>,
 }
 
 /// A starting naval unit translated by an external simulator or save reader.
@@ -941,8 +956,43 @@ fn bind_external_units(
                     format!("unknown army location {}", army.location),
                 )
             })?;
+            if !army.regiment_states.is_empty()
+                && army.regiment_states.len() != army.regiments.len()
+            {
+                return Err(Error::message(
+                    "external armies",
+                    "army regiment state count does not match regiment count",
+                ));
+            }
+            let states = army
+                .regiment_states
+                .iter()
+                .map(|state| {
+                    let home_province = state
+                        .home_province
+                        .map(|province| {
+                            initial.province_entity(province).ok_or_else(|| {
+                                Error::message(
+                                    "external armies",
+                                    format!("unknown regiment home province {province}"),
+                                )
+                            })
+                        })
+                        .transpose()?;
+                    Ok(augustus_core::RegimentState {
+                        morale_milli: state.morale_milli,
+                        home_province,
+                    })
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
             initial
-                .create_army(owner, location, &army.name, &army.regiments)
+                .create_army_with_regiment_states(
+                    owner,
+                    location,
+                    &army.name,
+                    &army.regiments,
+                    &states,
+                )
                 .map_err(|error| Error::caused_by("external armies", error))?;
         }
     }
