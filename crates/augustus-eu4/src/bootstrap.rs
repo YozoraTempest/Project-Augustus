@@ -252,6 +252,8 @@ pub struct VanillaExternalArmy {
 #[serde(deny_unknown_fields)]
 pub struct VanillaExternalRegimentState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strength_milli: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub morale_milli: Option<i64>,
     /// EU4 province ID; the compatibility layer resolves it to a core entity.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -980,6 +982,7 @@ fn bind_external_units(
                         })
                         .transpose()?;
                     Ok(augustus_core::RegimentState {
+                        strength_milli: state.strength_milli,
                         morale_milli: state.morale_milli,
                         home_province,
                     })

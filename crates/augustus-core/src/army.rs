@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{EntityId, EntityKind, Error, World};
 
+const INITIAL_REGIMENT_STRENGTH_MILLI: i64 = 1_000;
+const INITIAL_REGIMENT_MORALE_MILLI: i64 = 1_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ArmyId(pub u64);
 
@@ -18,6 +21,8 @@ pub struct Regiment {
     pub id: RegimentId,
     pub unit_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strength_milli: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub morale_milli: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home_province: Option<EntityId>,
@@ -25,6 +30,7 @@ pub struct Regiment {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct RegimentState {
+    pub strength_milli: Option<i64>,
     pub morale_milli: Option<i64>,
     pub home_province: Option<EntityId>,
 }
@@ -80,19 +86,21 @@ impl Armies {
         location: EntityId,
         name: &str,
         unit_types: &[String],
-        states: &[RegimentState],
+        states: Option<&[RegimentState]>,
     ) -> Result<ArmyId, Error> {
         Self::validate_regiment_types(unit_types)?;
-        if !states.is_empty() && states.len() != unit_types.len() {
+        if states.is_some_and(|states| !states.is_empty() && states.len() != unit_types.len()) {
             return Err(Error::Invalid(
                 "army regiment state count does not match regiment count".into(),
             ));
         }
-        if states
-            .iter()
-            .any(|state| state.morale_milli.is_some_and(|morale| morale < 0))
+        if let Some(states) = states
+            && states.iter().any(|state| {
+                state.strength_milli.is_some_and(|strength| strength < 0)
+                    || state.morale_milli.is_some_and(|morale| morale < 0)
+            })
         {
-            return Err(Error::Invalid("invalid regiment morale".into()));
+            return Err(Error::Invalid("invalid regiment strength or morale".into()));
         }
 
         let id = ArmyId(self.next_army_id);
@@ -104,11 +112,25 @@ impl Armies {
         let regiments = unit_types
             .iter()
             .enumerate()
-            .map(|(offset, unit_type)| Regiment {
-                id: RegimentId(self.next_regiment_id + offset as u64),
-                unit_type: unit_type.clone(),
-                morale_milli: states.get(offset).and_then(|state| state.morale_milli),
-                home_province: states.get(offset).and_then(|state| state.home_province),
+            .map(|(offset, unit_type)| {
+                // Only native construction supplies defaults; external state may stay unknown.
+                let state = states.and_then(|states| states.get(offset));
+                let has_external_state = states.is_some();
+                Regiment {
+                    id: RegimentId(self.next_regiment_id + offset as u64),
+                    unit_type: unit_type.clone(),
+                    strength_milli: if has_external_state {
+                        state.and_then(|state| state.strength_milli)
+                    } else {
+                        Some(INITIAL_REGIMENT_STRENGTH_MILLI)
+                    },
+                    morale_milli: if has_external_state {
+                        state.and_then(|state| state.morale_milli)
+                    } else {
+                        Some(INITIAL_REGIMENT_MORALE_MILLI)
+                    },
+                    home_province: state.and_then(|state| state.home_province),
+                }
             })
             .collect();
 
@@ -148,8 +170,10 @@ impl Armies {
                     return Err(Error::Invalid("invalid regiment identifier".into()));
                 }
                 Self::validate_regiment_types(std::slice::from_ref(&regiment.unit_type))?;
-                if regiment.morale_milli.is_some_and(|morale| morale < 0) {
-                    return Err(Error::Invalid("invalid regiment morale".into()));
+                if regiment.strength_milli.is_some_and(|strength| strength < 0)
+                    || regiment.morale_milli.is_some_and(|morale| morale < 0)
+                {
+                    return Err(Error::Invalid("invalid regiment strength or morale".into()));
                 }
                 if let Some(home) = regiment.home_province
                     && entities
@@ -178,7 +202,7 @@ impl World {
         name: &str,
         unit_types: &[String],
     ) -> Result<ArmyId, Error> {
-        self.create_army_with_regiment_states(owner, location, name, unit_types, &[])
+        self.create_army_internal(owner, location, name, unit_types, None)
     }
 
     pub fn create_army_with_regiment_states(
@@ -189,6 +213,17 @@ impl World {
         unit_types: &[String],
         states: &[RegimentState],
     ) -> Result<ArmyId, Error> {
+        self.create_army_internal(owner, location, name, unit_types, Some(states))
+    }
+
+    fn create_army_internal(
+        &mut self,
+        owner: EntityId,
+        location: EntityId,
+        name: &str,
+        unit_types: &[String],
+        states: Option<&[RegimentState]>,
+    ) -> Result<ArmyId, Error> {
         self.require_running()?;
         if self.entity(owner)?.kind != EntityKind::Country {
             return Err(Error::Invalid("army owner must be a country".into()));
@@ -196,13 +231,15 @@ impl World {
         if self.entity(location)?.kind != EntityKind::Province {
             return Err(Error::Invalid("army location must be a province".into()));
         }
-        for state in states {
-            if let Some(home) = state.home_province
-                && self.entity(home)?.kind != EntityKind::Province
-            {
-                return Err(Error::Invalid(
-                    "regiment home province must be a province".into(),
-                ));
+        if let Some(states) = states {
+            for state in states {
+                if let Some(home) = state.home_province
+                    && self.entity(home)?.kind != EntityKind::Province
+                {
+                    return Err(Error::Invalid(
+                        "regiment home province must be a province".into(),
+                    ));
+                }
             }
         }
         self.armies

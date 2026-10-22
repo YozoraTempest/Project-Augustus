@@ -2335,6 +2335,7 @@ provinces={}
             army.regiments,
             ["infantry", "cavalry", "artillery"].map(str::to_owned)
         );
+        assert_eq!(army.regiment_states[0].strength_milli, None);
         assert_eq!(army.regiment_states[0].morale_milli, Some(1_234));
         assert_eq!(army.regiment_states[0].home_province, Some(1));
         assert_eq!(army.regiment_states[1].morale_milli, Some(0));

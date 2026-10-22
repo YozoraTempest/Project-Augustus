@@ -2184,10 +2184,12 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
         regiments: vec!["infantry".into(), "cavalry".into()],
         regiment_states: vec![
             VanillaExternalRegimentState {
+                strength_milli: Some(800),
                 morale_milli: Some(1_250),
                 home_province: Some(1),
             },
             VanillaExternalRegimentState {
+                strength_milli: None,
                 morale_milli: Some(0),
                 home_province: None,
             },
@@ -2204,6 +2206,10 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
     assert_eq!(loaded.initial.armies().len(), 1);
     assert_eq!(loaded.initial.armies()[0].regiments.len(), 2);
     assert_eq!(
+        loaded.initial.armies()[0].regiments[0].strength_milli,
+        Some(800)
+    );
+    assert_eq!(
         loaded.initial.armies()[0].regiments[0].morale_milli,
         Some(1_250)
     );
@@ -2215,6 +2221,7 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
         loaded.initial.armies()[0].regiments[1].morale_milli,
         Some(0)
     );
+    assert_eq!(loaded.initial.armies()[0].regiments[1].strength_milli, None);
     assert_eq!(loaded.initial.naval_units().len(), 1);
     assert_eq!(loaded.initial.fleets().len(), 1);
     assert_eq!(loaded.initial.fleets()[0].ships.len(), 1);
@@ -2226,6 +2233,10 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
     let snapshot = loaded.save().unwrap();
     loaded.restore(&snapshot).unwrap();
     assert_eq!(loaded.initial.armies().len(), 1);
+    assert_eq!(
+        loaded.initial.armies()[0].regiments[0].strength_milli,
+        Some(800)
+    );
     assert_eq!(
         loaded.initial.armies()[0].regiments[0].morale_milli,
         Some(1_250)
@@ -2268,6 +2279,17 @@ fn old_external_army_json_defaults_to_no_regiment_state() {
             .get("regiment_states")
             .is_none()
     );
+
+    let army: VanillaExternalArmy =
+        serde_json::from_str(r#"{"owner":"AAA","location":1,"regiments":["infantry"]}"#).unwrap();
+    let external = VanillaExternalState {
+        armies: vec![army],
+        ..Default::default()
+    };
+    let loaded =
+        VanillaWorld::load_with_external_state(fixture(), "1444.11.11", &external).unwrap();
+    assert_eq!(loaded.initial.armies()[0].regiments[0].strength_milli, None);
+    assert_eq!(loaded.initial.armies()[0].regiments[0].morale_milli, None);
 }
 
 #[test]
@@ -2279,6 +2301,7 @@ fn external_army_rejects_unknown_regiment_home_province() {
             name: String::new(),
             regiments: vec!["infantry".into()],
             regiment_states: vec![VanillaExternalRegimentState {
+                strength_milli: None,
                 morale_milli: Some(1_000),
                 home_province: Some(u32::MAX),
             }],
