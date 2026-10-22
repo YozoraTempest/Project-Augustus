@@ -87,12 +87,7 @@ impl AdministrationDraft {
             insert_geographic_scope(&mut scopes, &mut ambiguous, name, provinces);
         }
         for (name, provinces) in &geography.continents {
-            insert_geographic_scope(
-                &mut scopes,
-                &mut ambiguous,
-                name,
-                provinces.to_vec(),
-            );
+            insert_geographic_scope(&mut scopes, &mut ambiguous, name, provinces.to_vec());
         }
 
         scopes
