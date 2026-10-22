@@ -319,6 +319,11 @@ pub type VanillaExternalCountryMarkers = BTreeMap<String, Option<BTreeSet<String
 /// keeps one status unresolved.
 pub type VanillaExternalCountryStatuses = BTreeMap<String, BTreeMap<String, Option<bool>>>;
 
+/// Current bilateral attitude and trust values supplied by a save reader or
+/// another compatibility provider, keyed by owner and target country tags.
+pub type VanillaExternalCountryRelationStates =
+    BTreeMap<String, BTreeMap<String, augustus_core::CountryRelationState>>;
+
 /// Current province development values translated from an EU4 save or another
 /// compatibility provider, in thousandths. Omitted values remain
 /// content-derived.
@@ -508,6 +513,10 @@ pub struct VanillaExternalState {
     /// reader. Omitted statuses remain at their content-derived state.
     #[serde(default)]
     pub country_statuses: VanillaExternalCountryStatuses,
+    /// Current bilateral relation inputs imported from a save. Missing
+    /// targets remain unresolved; this does not recalculate AI attitudes.
+    #[serde(default)]
+    pub country_relation_states: VanillaExternalCountryRelationStates,
     #[serde(default)]
     pub estate_loyalty_targets: BTreeMap<String, BTreeMap<String, Option<i64>>>,
     #[serde(default)]
@@ -591,6 +600,7 @@ struct LoadOverrides<'a> {
     estate_states: Option<&'a VanillaExternalEstateStates>,
     country_markers: Option<&'a VanillaExternalCountryMarkers>,
     country_statuses: Option<&'a VanillaExternalCountryStatuses>,
+    country_relation_states: Option<&'a VanillaExternalCountryRelationStates>,
     estate_loyalty_targets: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_monthly_cashflows_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     country_monthly_cashflow_breakdowns: Option<&'a BTreeMap<String, CashflowBreakdown>>,
@@ -687,6 +697,8 @@ impl<'a> LoadOverrides<'a> {
             country_markers: (!state.country_markers.is_empty()).then_some(&state.country_markers),
             country_statuses: (!state.country_statuses.is_empty())
                 .then_some(&state.country_statuses),
+            country_relation_states: (!state.country_relation_states.is_empty())
+                .then_some(&state.country_relation_states),
             estate_loyalty_targets: (!state.estate_loyalty_targets.is_empty())
                 .then_some(&state.estate_loyalty_targets),
             country_monthly_cashflows_milli: (!state.country_monthly_cashflows_milli.is_empty())
@@ -735,6 +747,24 @@ fn overlay_estate_states(
             }
             if values.active_influences.is_some() {
                 current.active_influences = values.active_influences.clone();
+            }
+        }
+    }
+}
+
+fn overlay_country_relation_states(
+    base: &mut VanillaExternalCountryRelationStates,
+    overlay: &VanillaExternalCountryRelationStates,
+) {
+    for (owner, relations) in overlay {
+        let destination = base.entry(owner.clone()).or_default();
+        for (target, values) in relations {
+            let current = destination.entry(target.clone()).or_default();
+            if values.attitude.is_some() {
+                current.attitude.clone_from(&values.attitude);
+            }
+            if values.trust_value.is_some() {
+                current.trust_value = values.trust_value;
             }
         }
     }
@@ -862,6 +892,10 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     overlay_estate_states(&mut base.estate_states, &overlay.estate_states);
     base.country_markers.extend(overlay.country_markers.clone());
     overlay_nested_map(&mut base.country_statuses, &overlay.country_statuses);
+    overlay_country_relation_states(
+        &mut base.country_relation_states,
+        &overlay.country_relation_states,
+    );
     overlay_nested_map(
         &mut base.estate_loyalty_targets,
         &overlay.estate_loyalty_targets,
@@ -1292,6 +1326,43 @@ fn bind_external_country_statuses(
     initial
         .set_politics(politics)
         .map_err(|e| Error::caused_by("external country statuses", e))
+}
+
+fn bind_external_country_relation_states(
+    initial: &mut InitialWorld,
+    values: Option<&VanillaExternalCountryRelationStates>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut states: BTreeMap<
+        augustus_core::EntityId,
+        BTreeMap<augustus_core::EntityId, augustus_core::CountryRelationState>,
+    > = BTreeMap::new();
+    for (owner, relations) in values {
+        let owner_entity = initial.country_entity(owner).ok_or_else(|| {
+            Error::message(
+                "external country relations",
+                format!("unknown relation owner {owner}"),
+            )
+        })?;
+        for (target, values) in relations {
+            let target_entity = initial.country_entity(target).ok_or_else(|| {
+                Error::message(
+                    "external country relations",
+                    format!("unknown relation target {target}"),
+                )
+            })?;
+            states
+                .entry(owner_entity)
+                .or_default()
+                .entry(target_entity)
+                .or_insert_with(|| values.clone());
+        }
+    }
+    initial
+        .set_country_relation_states(states)
+        .map_err(|e| Error::caused_by("external country relations", e))
 }
 
 fn bind_external_country_variables(
@@ -3330,6 +3401,7 @@ impl VanillaWorld {
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         bind_external_country_statuses(&mut initial, overrides.country_statuses)?;
+        bind_external_country_relation_states(&mut initial, overrides.country_relation_states)?;
         bind_external_national_focus(&mut initial, overrides.country_national_focus)?;
         bind_external_advisors(
             &mut initial,
@@ -3791,6 +3863,7 @@ impl VanillaWorld {
             bind_external_province_in_empire(&mut initial, overrides.province_in_empire)?;
         }
         bind_external_country_statuses(&mut initial, overrides.country_statuses)?;
+        bind_external_country_relation_states(&mut initial, overrides.country_relation_states)?;
         bind_external_country_markers(&mut initial, overrides.country_markers)?;
         bind_external_estate_privileges(&mut initial, overrides.estate_privileges)?;
         bind_external_estate_states(&mut initial, overrides.estate_states)?;

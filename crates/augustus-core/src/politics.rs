@@ -75,6 +75,21 @@ pub struct PersonState {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct CountryRelationState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attitude: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_value: Option<i64>,
+}
+
+impl CountryRelationState {
+    pub fn is_empty(&self) -> bool {
+        self.attitude.is_none() && self.trust_value.is_none()
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CountryPolitics {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub national_focus: Option<NationalFocus>,

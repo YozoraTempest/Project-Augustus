@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use augustus_core::{CountryResources, IdeaState, NationalFocus, RulerSkill};
+use augustus_core::{CountryRelationState, CountryResources, IdeaState, NationalFocus, RulerSkill};
 use jomini::{
     TextToken,
     binary::TokenResolver,
@@ -164,6 +164,18 @@ impl VanillaSaveState {
                 state
                     .country_resources
                     .insert((*country).into(), resources.clone());
+            }
+            if let Some(relations) = self.external_state.country_relation_states.get(*country) {
+                let filtered = relations
+                    .iter()
+                    .filter(|(target, _)| countries.contains(target.as_str()))
+                    .map(|(target, values)| (target.clone(), values.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                if !filtered.is_empty() {
+                    state
+                        .country_relation_states
+                        .insert((*country).into(), filtered);
+                }
             }
             if let Some(focus) = self.external_state.country_national_focus.get(*country) {
                 state
@@ -804,6 +816,12 @@ fn read_vanilla_save_state_inner(
             continue;
         }
         let country = object(&parsed, &value)?;
+        let relation_states = saved_country_relation_states(&parsed, &country, &tag)?;
+        if !relation_states.is_empty() {
+            external_state
+                .country_relation_states
+                .insert(tag.clone(), relation_states);
+        }
         let resources = CountryResources {
             treasury_milli: optional_milli(&parsed, &country, "treasury")?,
             manpower_milli: optional_milli(&parsed, &country, "manpower")?,
@@ -1617,6 +1635,113 @@ fn scalar(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<String, Erro
         .map_err(|error| Error::caused_by(parsed.source(), error))
 }
 
+fn saved_country_relation_states(
+    parsed: &ParsedText<'_>,
+    country: &Object<'_, '_>,
+    owner: &str,
+) -> Result<BTreeMap<String, CountryRelationState>, Error> {
+    let mut states: BTreeMap<String, CountryRelationState> = BTreeMap::new();
+    for (key, operator, value) in country.fields() {
+        if key.read_string() != "active_relations" {
+            continue;
+        }
+        if operator.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {owner} has an invalid active-relations block"),
+            ));
+        }
+        let relations = object(parsed, &value)?;
+        for (target_key, operator, value) in relations.fields() {
+            if operator.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("country {owner} has an invalid active relation"),
+                ));
+            }
+            let target = target_key.read_string();
+            if !is_country_tag(&target) {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("country {owner} has an invalid relation target {target}"),
+                ));
+            }
+            let relation = object(parsed, &value)?;
+            let mut current = CountryRelationState::default();
+            let mut seen = BTreeSet::new();
+            for (field_key, operator, value) in relation.fields() {
+                let field = field_key.read_string();
+                if !matches!(field.as_str(), "attitude" | "trust_value") {
+                    continue;
+                }
+                if operator.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {owner} relation to {target} has invalid {field}"),
+                    ));
+                }
+                if !seen.insert(field.clone()) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {owner} relation to {target} duplicates {field}"),
+                    ));
+                }
+                let raw = scalar(parsed, &value)?;
+                match field.as_str() {
+                    "attitude" if !raw.is_empty() => current.attitude = Some(raw),
+                    "attitude" => {
+                        return Err(Error::message(
+                            parsed.source(),
+                            format!("country {owner} relation to {target} has empty attitude"),
+                        ));
+                    }
+                    "trust_value" => {
+                        current.trust_value = Some(raw.parse::<i64>().map_err(|error| {
+                            Error::message(
+                                parsed.source(),
+                                format!(
+                                    "country {owner} relation to {target} has invalid trust value: {error}"
+                                ),
+                            )
+                        })?);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            if current.is_empty() {
+                continue;
+            }
+            let saved = states.entry(target.clone()).or_default();
+            if let Some(attitude) = current.attitude {
+                if saved
+                    .attitude
+                    .as_ref()
+                    .is_some_and(|existing| existing != &attitude)
+                {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {owner} has conflicting attitudes for {target}"),
+                    ));
+                }
+                saved.attitude.get_or_insert(attitude);
+            }
+            if let Some(trust_value) = current.trust_value {
+                if saved
+                    .trust_value
+                    .is_some_and(|existing| existing != trust_value)
+                {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {owner} has conflicting trust values for {target}"),
+                    ));
+                }
+                saved.trust_value.get_or_insert(trust_value);
+            }
+        }
+    }
+    Ok(states)
+}
+
 fn object<'a, 'b>(parsed: &ParsedText<'_>, value: &Field<'a, 'b>) -> Result<Object<'a, 'b>, Error> {
     if !matches!(value.token(), TextToken::Object { mixed: false, .. })
         && !(matches!(value.token(), TextToken::Array { mixed: false, .. })
@@ -2013,8 +2138,10 @@ mod tests {
         read_vanilla_save_state_with_token_map,
     };
     use crate::{
-        ContentRoot, ContentSet, ContentSource, VanillaExternalProvinceDevelopment, VanillaWorld,
+        ContentRoot, ContentSet, ContentSource, VanillaExternalProvinceDevelopment,
+        VanillaExternalState, VanillaWorld,
     };
+    use augustus_core::CountryRelationState;
     use jomini::{
         binary::{Token, TokenResolver},
         common::Date,
@@ -2113,6 +2240,84 @@ mod tests {
         )
         .unwrap();
         path
+    }
+
+    #[test]
+    fn saved_country_relation_inputs_filter_targets_overlay_and_restore() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("relations.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+player=AAA
+countries={
+    AAA={
+        active_relations={
+            BBB={ attitude=attitude_probe trust_value=85 }
+            ZZZ={ attitude=attitude_unknown_target trust_value=12 }
+        }
+    }
+    BBB={}
+}
+provinces={}
+"#,
+        )
+        .unwrap();
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        let parsed = &save.external_state.country_relation_states["AAA"];
+        assert_eq!(parsed["BBB"].attitude.as_deref(), Some("attitude_probe"));
+        assert_eq!(parsed["BBB"].trust_value, Some(85));
+        assert!(parsed.contains_key("ZZZ"));
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let filtered = save.state_for_world(&baseline).unwrap();
+        assert!(filtered.country_relation_states["AAA"].contains_key("BBB"));
+        assert!(!filtered.country_relation_states["AAA"].contains_key("ZZZ"));
+
+        let overlay = VanillaExternalState {
+            country_relation_states: BTreeMap::from([(
+                "AAA".into(),
+                BTreeMap::from([(
+                    "BBB".into(),
+                    CountryRelationState {
+                        attitude: None,
+                        trust_value: Some(42),
+                    },
+                )]),
+            )]),
+            ..Default::default()
+        };
+        let mut loaded = VanillaWorld::load_from_content_with_save_state_and_external_state(
+            &content,
+            &save,
+            Some(&overlay),
+        )
+        .unwrap();
+        let owner = loaded.initial.country_entity("AAA").unwrap();
+        let target = loaded.initial.country_entity("BBB").unwrap();
+        let state = loaded
+            .initial
+            .world()
+            .country_relation_state(owner, target)
+            .unwrap();
+        assert_eq!(state.attitude.as_deref(), Some("attitude_probe"));
+        assert_eq!(state.trust_value, Some(42));
+
+        let snapshot = loaded.save().unwrap();
+        loaded.restore(&snapshot).unwrap();
+        let state = loaded
+            .initial
+            .world()
+            .country_relation_state(owner, target)
+            .unwrap();
+        assert_eq!(state.attitude.as_deref(), Some("attitude_probe"));
+        assert_eq!(state.trust_value, Some(42));
     }
 
     #[test]

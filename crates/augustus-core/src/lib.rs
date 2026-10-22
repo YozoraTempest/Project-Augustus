@@ -152,8 +152,8 @@ pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId};
 pub use objectives::{ObjectiveGroup, Objectives};
 pub use plan::{Action, Condition, Plan, SchoolOpinionTarget, Target};
 pub use politics::{
-    CountryPolitics, DiplomaticKind, DiplomaticRelation, NationalFocus, PersonState, Politics,
-    RulerSkill, RulerSkillBounds,
+    CountryPolitics, CountryRelationState, DiplomaticKind, DiplomaticRelation, NationalFocus,
+    PersonState, Politics, RulerSkill, RulerSkillBounds,
 };
 pub use production::{
     MonthlyProduction, ProductionCountryAccount, ProductionProvinceAccount, ProductionSettlement,

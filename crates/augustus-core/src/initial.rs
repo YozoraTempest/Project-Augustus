@@ -279,6 +279,13 @@ impl InitialWorld {
         self.world.set_politics(politics)
     }
 
+    pub fn set_country_relation_states(
+        &mut self,
+        states: BTreeMap<EntityId, BTreeMap<EntityId, crate::CountryRelationState>>,
+    ) -> Result<(), Error> {
+        self.world.set_country_relation_states(states)
+    }
+
     pub fn set_advisors(&mut self, advisors: crate::Advisors) -> Result<(), Error> {
         self.world.set_advisors(advisors)
     }

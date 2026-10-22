@@ -12,10 +12,10 @@ use serde::{Deserialize, Serialize};
 use crate::rng::{Eu4Rng, RandomSource};
 use crate::{
     Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryLedger,
-    CountryResource, CountryResources, DailySystem, Economy, Error, Governments, Ideas, Modifiers,
-    MonthlySystem, MonthlyTax, Plan, Politics, Target, Taxation, Technology, TradeNodeRuntimeState,
-    VanillaTradeDistributionResult, VanillaTradeNodePassInput, VanillaTradeNodePassResult,
-    WorldDate, YearlySystem, calculate_vanilla_trade_node_pass,
+    CountryRelationState, CountryResource, CountryResources, DailySystem, Economy, Error,
+    Governments, Ideas, Modifiers, MonthlySystem, MonthlyTax, Plan, Politics, Target, Taxation,
+    Technology, TradeNodeRuntimeState, VanillaTradeDistributionResult, VanillaTradeNodePassInput,
+    VanillaTradeNodePassResult, WorldDate, YearlySystem, calculate_vanilla_trade_node_pass,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -104,6 +104,7 @@ pub struct World {
     pub(crate) event_catalog: crate::EventCatalog,
     pub(crate) event_queue: crate::event_choices::EventQueue,
     pub(crate) politics: Politics,
+    country_relation_states: BTreeMap<EntityId, BTreeMap<EntityId, CountryRelationState>>,
     pub(crate) advisors: Advisors,
     pub(crate) truces: crate::Truces,
     pub(crate) truce_expirations: crate::truces::TruceExpirations,
@@ -186,6 +187,8 @@ struct Snapshot {
     eu4_event_seed: Option<u32>,
     #[serde(default, skip_serializing_if = "Politics::is_empty")]
     politics: Politics,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    country_relation_states: BTreeMap<EntityId, BTreeMap<EntityId, CountryRelationState>>,
     #[serde(default, skip_serializing_if = "Advisors::is_empty")]
     advisors: Advisors,
     #[serde(default, skip_serializing_if = "crate::Truces::is_empty")]
@@ -309,6 +312,7 @@ impl World {
             event_catalog: crate::EventCatalog::default(),
             event_queue: crate::event_choices::EventQueue::default(),
             politics: Politics::default(),
+            country_relation_states: BTreeMap::new(),
             advisors: Advisors::default(),
             truces: crate::Truces::default(),
             truce_expirations: Default::default(),
@@ -1267,6 +1271,48 @@ impl World {
             .ok_or_else(|| Error::Invalid(format!("unknown entity {}", id.0)))
     }
 
+    pub fn country_relation_state(
+        &self,
+        owner: EntityId,
+        target: EntityId,
+    ) -> Option<&CountryRelationState> {
+        self.country_relation_states.get(&owner)?.get(&target)
+    }
+
+    pub(crate) fn set_country_relation_states(
+        &mut self,
+        states: BTreeMap<EntityId, BTreeMap<EntityId, CountryRelationState>>,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        self.validate_country_relation_states(&states)?;
+        self.country_relation_states = states;
+        Ok(())
+    }
+
+    fn validate_country_relation_states(
+        &self,
+        states: &BTreeMap<EntityId, BTreeMap<EntityId, CountryRelationState>>,
+    ) -> Result<(), Error> {
+        for (&owner, relations) in states {
+            if self.entity(owner)?.kind != EntityKind::Country {
+                return Err(Error::Invalid(
+                    "country relation owner must be a country".into(),
+                ));
+            }
+            for (&target, relation) in relations {
+                if self.entity(target)?.kind != EntityKind::Country {
+                    return Err(Error::Invalid(
+                        "country relation target must be a country".into(),
+                    ));
+                }
+                if relation.is_empty() || relation.attitude.as_ref().is_some_and(String::is_empty) {
+                    return Err(Error::Invalid("invalid country relation state".into()));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn province_has_port(&self, province: EntityId) -> Result<bool, Error> {
         let entity = self.entity(province)?;
         if entity.kind != EntityKind::Province {
@@ -1715,6 +1761,7 @@ impl World {
             eu4_random,
             eu4_event_seed: self.eu4_event_seed,
             politics: self.politics.clone(),
+            country_relation_states: self.country_relation_states.clone(),
             advisors: self.advisors.clone(),
             truces: self.truces.clone(),
             subjects: self.subjects.clone(),
@@ -1858,6 +1905,7 @@ impl World {
             eu4_random,
             eu4_event_seed: snapshot.eu4_event_seed,
             politics: snapshot.politics,
+            country_relation_states: snapshot.country_relation_states,
             advisors: snapshot.advisors,
             truces: snapshot.truces,
             truce_expirations: Default::default(),
@@ -1979,6 +2027,7 @@ impl World {
             }
         }
         world.politics.validate(&world)?;
+        world.validate_country_relation_states(&world.country_relation_states)?;
         world.advisors.validate(&world)?;
         world.subjects.validate(&world.politics)?;
         world.subjects.validate_counts(&world)?;
@@ -2769,5 +2818,48 @@ pub(crate) fn validate_condition(
             subjects,
         ),
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod country_relation_state_tests {
+    use super::{EntityKind, World};
+    use crate::{CountryRelationState, Schema};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn country_relation_state_round_trips_through_snapshot() {
+        let schema = Schema::new(std::iter::empty::<String>()).unwrap();
+        let mut world = World::new(schema.clone());
+        let owner = world.add_entity("AAA", EntityKind::Country);
+        let target = world.add_entity("BBB", EntityKind::Country);
+        let state = CountryRelationState {
+            attitude: Some("attitude_probe".into()),
+            trust_value: Some(85),
+        };
+
+        world
+            .set_country_relation_states(BTreeMap::from([(
+                owner,
+                BTreeMap::from([(target, state.clone())]),
+            )]))
+            .unwrap();
+        let snapshot = world.save("content").unwrap();
+        let restored = World::restore(&snapshot, "content", &schema).unwrap();
+
+        assert_eq!(restored.country_relation_state(owner, target), Some(&state));
+    }
+
+    #[test]
+    fn country_relation_state_snapshot_field_defaults_for_older_saves() {
+        let schema = Schema::new(std::iter::empty::<String>()).unwrap();
+        let mut world = World::new(schema.clone());
+        let owner = world.add_entity("AAA", EntityKind::Country);
+        let target = world.add_entity("BBB", EntityKind::Country);
+        let snapshot = world.save("content").unwrap();
+
+        assert!(!snapshot.contains("country_relation_states"));
+        let restored = World::restore(&snapshot, "content", &schema).unwrap();
+        assert_eq!(restored.country_relation_state(owner, target), None);
     }
 }
