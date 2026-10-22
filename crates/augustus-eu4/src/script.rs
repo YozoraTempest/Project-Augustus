@@ -1995,12 +1995,38 @@ impl<'a> ScriptCompiler<'a> {
                     });
                 }
                 name if matches!(name, "infantry" | "cavalry" | "artillery") => {
-                    if scope != EntityKind::Province {
-                        return Err(field.error("land unit creation requires province scope"));
-                    }
+                    let (owner, location) = match scope {
+                        EntityKind::Province => (
+                            self.unit_owner_reference(field)?,
+                            augustus_core::EntityRef::Relative(Target::Current),
+                        ),
+                        EntityKind::Country
+                            if self.previous_scope_kind == Some(EntityKind::Province) =>
+                        {
+                            (
+                                self.unit_owner_reference(field)?,
+                                augustus_core::EntityRef::Previous,
+                            )
+                        }
+                        EntityKind::Country => {
+                            let province = script_integer(field, "unit province identifier")?;
+                            if province <= 0 {
+                                return Err(field.error(
+                                    "country-scoped land unit creation requires a positive province identifier",
+                                ));
+                            }
+                            (
+                                augustus_core::EntityRef::Relative(Target::Current),
+                                augustus_core::EntityRef::Selected(ScopeSelector::Named {
+                                    kind: EntityKind::Province,
+                                    name: province.to_string(),
+                                }),
+                            )
+                        }
+                    };
                     plan.push(Action::CreateArmyFromCategories {
-                        owner: self.unit_owner_reference(field)?,
-                        location: augustus_core::EntityRef::Relative(Target::Current),
+                        owner,
+                        location,
                         name: String::new(),
                         categories: vec![name.into()],
                     });

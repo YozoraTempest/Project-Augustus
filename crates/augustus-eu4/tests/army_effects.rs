@@ -135,13 +135,64 @@ fn province_land_unit_effects_create_country_specific_regiments() {
 }
 
 #[test]
-fn land_unit_effect_rejects_non_province_scope() {
+fn country_scoped_land_unit_effect_uses_explicit_province_id() {
     let schema = Schema::new(std::iter::empty::<String>()).unwrap();
-    assert!(
-        ScriptCompiler::new(&schema, &ScriptLibrary::new(), true)
-            .compile(&document("infantry=ROOT"), EntityKind::Country)
-            .is_err()
+    let compiled = ScriptCompiler::new(&schema, &ScriptLibrary::new(), true)
+        .compile(&document("infantry=1.5"), EntityKind::Country)
+        .unwrap();
+    let mut world = World::new(schema);
+    let country = world.add_entity("SWE", EntityKind::Country);
+    let province = world.add_entity("1", EntityKind::Province);
+    configure_units(&mut world, country);
+
+    world
+        .execute_in_context(ScopeContext::new(country), &compiled.plan)
+        .unwrap();
+
+    assert_eq!(world.armies().len(), 1);
+    assert_eq!(world.armies()[0].owner, country);
+    assert_eq!(world.armies()[0].location, province);
+    assert_eq!(
+        world.armies()[0].regiments[0].unit_type,
+        "western_medieval_infantry"
     );
+}
+
+#[test]
+fn country_scoped_land_unit_effect_keeps_previous_province_context() {
+    let schema = Schema::new(std::iter::empty::<String>()).unwrap();
+    let compiled = ScriptCompiler::new(&schema, &ScriptLibrary::new(), true)
+        .compile(&document("1={SWE={infantry=ROOT}}"), EntityKind::Country)
+        .unwrap();
+    let mut world = World::new(schema);
+    let country = world.add_entity("AAA", EntityKind::Country);
+    world.add_entity("SWE", EntityKind::Country);
+    let province = world.add_entity("1", EntityKind::Province);
+    configure_units(&mut world, country);
+
+    world
+        .execute_in_context(ScopeContext::new(country), &compiled.plan)
+        .unwrap();
+
+    assert_eq!(world.armies().len(), 1);
+    assert_eq!(world.armies()[0].owner, country);
+    assert_eq!(world.armies()[0].location, province);
+    assert_eq!(
+        world.armies()[0].regiments[0].unit_type,
+        "western_medieval_infantry"
+    );
+}
+
+#[test]
+fn country_scoped_land_unit_effect_requires_positive_literal_province_id() {
+    let schema = Schema::new(std::iter::empty::<String>()).unwrap();
+    for effect in ["infantry=ROOT", "infantry=0", "infantry=-1"] {
+        assert!(
+            ScriptCompiler::new(&schema, &ScriptLibrary::new(), true)
+                .compile(&document(effect), EntityKind::Country)
+                .is_err()
+        );
+    }
 }
 
 #[test]
