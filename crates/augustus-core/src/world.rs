@@ -1279,6 +1279,19 @@ impl World {
         self.country_relation_states.get(&owner)?.get(&target)
     }
 
+    /// Iterates known bilateral relation state in owner and target order.
+    pub fn country_relation_states(
+        &self,
+    ) -> impl Iterator<Item = (EntityId, EntityId, &CountryRelationState)> + '_ {
+        self.country_relation_states
+            .iter()
+            .flat_map(|(&owner, targets)| {
+                targets
+                    .iter()
+                    .map(move |(&target, state)| (owner, target, state))
+            })
+    }
+
     pub(crate) fn set_country_relation_states(
         &mut self,
         states: BTreeMap<EntityId, BTreeMap<EntityId, CountryRelationState>>,

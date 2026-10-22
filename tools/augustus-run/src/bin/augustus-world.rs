@@ -423,6 +423,22 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 )
             })
             .collect::<BTreeMap<_, _>>();
+        output["country_relation_states"] = serde_json::to_value(
+            loaded
+                .initial
+                .world()
+                .country_relation_states()
+                .filter(|(_, _, state)| !state.is_empty())
+                .map(|(owner, target, state)| {
+                    serde_json::json!({
+                        "owner": country_tags.get(&owner).expect("registered relation owner"),
+                        "target": country_tags.get(&target).expect("registered relation target"),
+                        "attitude": state.attitude.as_deref(),
+                        "trust_value": state.trust_value,
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )?;
         let calendar = loaded
             .initial
             .world()

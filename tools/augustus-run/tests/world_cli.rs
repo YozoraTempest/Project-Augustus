@@ -225,6 +225,51 @@ fn diplomacy_query_reports_active_historical_truces() {
 }
 
 #[test]
+fn diplomacy_query_reports_saved_country_relation_state() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let external_state = temp.path().join("relation-state.json");
+    fs::write(
+        &external_state,
+        serde_json::json!({
+            "country_relation_states": {
+                "AAA": {
+                    "BBB": { "attitude": "probe_attitude", "trust_value": 42 }
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external_state)
+        .arg("--diplomacy")
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        value["country_relation_states"],
+        serde_json::json!([{
+            "owner": "AAA",
+            "target": "BBB",
+            "attitude": "probe_attitude",
+            "trust_value": 42
+        }])
+    );
+}
+
+#[test]
 fn world_cli_reports_delayed_startup_tasks_until_they_run() {
     let temp = tempfile::tempdir().unwrap();
     let fixture = temp.path().join("world");
