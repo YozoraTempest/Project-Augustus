@@ -757,6 +757,15 @@ impl InitialWorld {
     pub fn armies(&self) -> &[crate::Army] {
         self.world.armies()
     }
+    pub fn set_regiment_morale_milli(
+        &mut self,
+        army_id: crate::ArmyId,
+        regiment_id: crate::RegimentId,
+        morale_milli: i32,
+    ) -> Result<(), Error> {
+        self.world
+            .set_regiment_morale_milli(army_id, regiment_id, morale_milli)
+    }
     pub fn create_army_from_categories(
         &mut self,
         owner: EntityId,

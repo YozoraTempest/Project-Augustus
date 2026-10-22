@@ -188,11 +188,39 @@ impl Armies {
         }
         Ok(())
     }
+
+    fn regiment_mut(
+        &mut self,
+        army_id: ArmyId,
+        regiment_id: RegimentId,
+    ) -> Result<&mut Regiment, Error> {
+        let army = self
+            .armies
+            .iter_mut()
+            .find(|army| army.id == army_id)
+            .ok_or_else(|| Error::Invalid("unknown army identifier".into()))?;
+        army.regiments
+            .iter_mut()
+            .find(|regiment| regiment.id == regiment_id)
+            .ok_or_else(|| Error::Invalid("unknown regiment identifier".into()))
+    }
 }
 
 impl World {
     pub fn armies(&self) -> &[Army] {
         &self.armies.armies
+    }
+
+    pub fn set_regiment_morale_milli(
+        &mut self,
+        army_id: ArmyId,
+        regiment_id: RegimentId,
+        morale_milli: i32,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        let regiment = self.armies.regiment_mut(army_id, regiment_id)?;
+        regiment.morale_milli = Some(i64::from(morale_milli.max(0)));
+        Ok(())
     }
 
     pub fn create_army(

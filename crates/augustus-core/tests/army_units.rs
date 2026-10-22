@@ -296,6 +296,58 @@ fn regiment_state_requires_matching_count_and_nonnegative_values() {
 }
 
 #[test]
+fn regiment_morale_setter_clamps_below_zero_without_an_upper_cap() {
+    let (mut world, country, province) = fixture();
+    world
+        .create_army_with_regiment_states(
+            country,
+            province,
+            "Test",
+            &["infantry".into()],
+            &[RegimentState::default()],
+        )
+        .unwrap();
+    let army_id = world.armies()[0].id;
+    let regiment_id = world.armies()[0].regiments[0].id;
+    assert_eq!(world.armies()[0].regiments[0].morale_milli, None);
+
+    world
+        .set_regiment_morale_milli(army_id, regiment_id, i32::MIN)
+        .unwrap();
+    assert_eq!(world.armies()[0].regiments[0].morale_milli, Some(0));
+
+    world
+        .set_regiment_morale_milli(army_id, regiment_id, i32::MAX)
+        .unwrap();
+    assert_eq!(
+        world.armies()[0].regiments[0].morale_milli,
+        Some(i64::from(i32::MAX))
+    );
+
+    let saved = world.save("army-units:1").unwrap();
+    let restored = World::restore(&saved, "army-units:1", world.schema()).unwrap();
+    assert_eq!(restored, world);
+}
+
+#[test]
+fn regiment_morale_setter_rejects_unknown_army_or_regiment() {
+    let (mut world, country, province) = fixture();
+    world
+        .create_army(country, province, "Test", &["infantry".into()])
+        .unwrap();
+    assert!(
+        world
+            .set_regiment_morale_milli(ArmyId(99), RegimentId(0), 500)
+            .is_err()
+    );
+    assert!(
+        world
+            .set_regiment_morale_milli(ArmyId(0), RegimentId(99), 500)
+            .is_err()
+    );
+}
+
+#[test]
 fn category_effect_uses_the_explicit_country_unit_selection() {
     let (mut world, country, province) = fixture();
     set_unit_selection_data(&mut world, country, 3);
