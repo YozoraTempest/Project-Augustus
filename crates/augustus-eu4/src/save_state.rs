@@ -1543,7 +1543,7 @@ fn saved_regiment(
     let mut state = VanillaExternalRegimentState::default();
     for (key, op, value) in regiment.fields() {
         let field = key.read_string();
-        if !matches!(field.as_str(), "type" | "morale" | "home") {
+        if !matches!(field.as_str(), "type" | "strength" | "morale" | "home") {
             continue;
         }
         if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
@@ -1561,6 +1561,18 @@ fn saved_regiment(
         let text = scalar(parsed, &value)?;
         match field.as_str() {
             "type" => unit_type = Some(text),
+            "strength" => {
+                let strength = signed_milli(&text).ok_or_else(|| {
+                    Error::message(parsed.source(), "invalid saved regiment strength")
+                })?;
+                if strength < 0 {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "saved regiment strength must not be negative",
+                    ));
+                }
+                state.strength_milli = Some(strength);
+            }
             "morale" => {
                 let morale = signed_milli(&text).ok_or_else(|| {
                     Error::message(parsed.source(), "invalid saved regiment morale")
@@ -2303,7 +2315,7 @@ mod tests {
     }
 
     #[test]
-    fn saved_armies_preserve_regiment_morale_and_home_province() {
+    fn saved_armies_preserve_regiment_strength_morale_and_home_province() {
         let directory = tempfile::tempdir().unwrap();
         let save_path = directory.path().join("armies.eu4");
         std::fs::write(
@@ -2315,8 +2327,8 @@ countries={
         army={
             location=1
             name="Northern Army"
-            regiment={ type=infantry morale=1.234 home=1 }
-            regiment={ type=cavalry morale=0 home=2 }
+            regiment={ type=infantry strength=0.569 morale=1.234 home=1 }
+            regiment={ type=cavalry strength=0 morale=0 home=2 }
             regiment={ type=artillery }
         }
     }
@@ -2335,11 +2347,13 @@ provinces={}
             army.regiments,
             ["infantry", "cavalry", "artillery"].map(str::to_owned)
         );
-        assert_eq!(army.regiment_states[0].strength_milli, None);
+        assert_eq!(army.regiment_states[0].strength_milli, Some(569));
         assert_eq!(army.regiment_states[0].morale_milli, Some(1_234));
         assert_eq!(army.regiment_states[0].home_province, Some(1));
+        assert_eq!(army.regiment_states[1].strength_milli, Some(0));
         assert_eq!(army.regiment_states[1].morale_milli, Some(0));
         assert_eq!(army.regiment_states[1].home_province, Some(2));
+        assert_eq!(army.regiment_states[2].strength_milli, None);
         assert_eq!(army.regiment_states[2].morale_milli, None);
         assert_eq!(army.regiment_states[2].home_province, None);
     }
@@ -2349,6 +2363,10 @@ provinces={}
         let directory = tempfile::tempdir().unwrap();
         let save_path = directory.path().join("invalid-army.eu4");
         for regiment in [
+            "type=infantry strength=-0.001",
+            "type=infantry strength=invalid",
+            "type=infantry strength=0.1234",
+            "type=infantry strength=1 strength=2",
             "type=infantry morale=-0.001",
             "type=infantry morale=invalid",
             "type=infantry home=0",
