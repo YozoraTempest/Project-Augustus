@@ -96,6 +96,7 @@ pub struct World {
     pub(crate) naval_units: crate::naval::NavalUnits,
     pub(crate) fleets: crate::naval::Fleets,
     pub(crate) ownership: Arc<crate::ownership::OwnershipIndex>,
+    pub(crate) province_connectivity: Option<crate::ProvinceConnectivity>,
     pub(crate) entity_names: BTreeMap<String, Vec<EntityId>>,
     day: u64,
     next_sequence: u64,
@@ -165,6 +166,8 @@ struct Snapshot {
     content: String,
     schema: Schema,
     entities: Vec<Entity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    province_connectivity: Option<crate::ProvinceConnectivity>,
     #[serde(default, skip_serializing_if = "crate::army::Armies::is_empty")]
     armies: crate::army::Armies,
     #[serde(default, skip_serializing_if = "crate::naval::NavalUnits::is_empty")]
@@ -304,6 +307,7 @@ impl World {
             naval_units: crate::naval::NavalUnits::default(),
             fleets: crate::naval::Fleets::default(),
             ownership: Arc::default(),
+            province_connectivity: None,
             entity_names: BTreeMap::new(),
             day: 0,
             next_sequence: 0,
@@ -1761,6 +1765,7 @@ impl World {
             content: content.into(),
             schema: self.schema.clone(),
             entities: self.entities.clone(),
+            province_connectivity: self.province_connectivity.clone(),
             armies: self.armies.clone(),
             naval_units: self.naval_units.clone(),
             fleets: self.fleets.clone(),
@@ -1901,6 +1906,7 @@ impl World {
         let mut world = Self {
             schema: snapshot.schema,
             entities: snapshot.entities,
+            province_connectivity: snapshot.province_connectivity,
             armies: snapshot.armies,
             naval_units: snapshot.naval_units,
             fleets: snapshot.fleets,
@@ -2038,6 +2044,9 @@ impl World {
             {
                 return Err(Error::Invalid("invalid saved capital".into()));
             }
+        }
+        if let Some(connectivity) = &world.province_connectivity {
+            connectivity.validate(&world)?;
         }
         world.politics.validate(&world)?;
         world.validate_country_relation_states(&world.country_relation_states)?;

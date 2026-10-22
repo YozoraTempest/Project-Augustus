@@ -3141,6 +3141,21 @@ impl VanillaWorld {
                 .mark_target_absent(entity, augustus_core::Target::Owner)
                 .map_err(|e| Error::caused_by(root.path(), e))?;
         }
+        let province_entities = initial
+            .provinces()
+            .iter()
+            .filter_map(|province| {
+                initial
+                    .province_entity(province.id)
+                    .map(|entity| (province.id, entity))
+            })
+            .collect();
+        let connectivity = province_topology
+            .to_core(&province_entities)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        initial
+            .set_province_connectivity(connectivity)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
         initial
             .set_markers(markers.bind(&initial))
             .map_err(|e| Error::caused_by(root.path(), e))?;
@@ -3379,8 +3394,7 @@ impl VanillaWorld {
         for (entity, values) in prestige.entities {
             metrics.entities.entry(entity).or_default().extend(values);
         }
-        let navy_tradition =
-            crate::navy_tradition::metrics(&initial, &attribute_draft, &province_topology);
+        let navy_tradition = crate::navy_tradition::metrics(&initial, &attribute_draft);
         metrics.definitions.extend(navy_tradition.definitions);
         for (entity, values) in navy_tradition.entities {
             metrics.entities.entry(entity).or_default().extend(values);

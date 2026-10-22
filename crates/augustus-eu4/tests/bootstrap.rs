@@ -2063,6 +2063,16 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
         native.affiliations(),
         "affiliation state differs"
     );
+    native
+        .set_province_connectivity(
+            loaded
+                .initial
+                .world()
+                .province_connectivity()
+                .unwrap()
+                .clone(),
+        )
+        .unwrap();
     assert_eq!(loaded.initial.world(), &native);
     let earlier = VanillaWorld::load(fixture(), "1435.1.1").unwrap();
     assert_eq!(

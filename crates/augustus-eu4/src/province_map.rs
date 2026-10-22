@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
-use augustus_core::{ProvinceClass, ProvinceState};
+use augustus_core::{EntityId, ProvinceClass, ProvinceConnectivity, ProvinceState};
 
 use crate::{Error, TextDocument};
 
@@ -88,54 +88,32 @@ impl ProvinceTopology {
         Ok(())
     }
 
-    pub(crate) fn capital_area_port_count(
+    pub(crate) fn to_core(
         &self,
-        provinces: &BTreeMap<u32, &ProvinceState>,
-        known_unowned: &BTreeSet<u32>,
-        owner: &str,
-        capital: u32,
-    ) -> Option<usize> {
-        let capital_state = provinces.get(&capital)?;
-        if capital_state.class != ProvinceClass::Land
-            || capital_state.owner.as_deref() != Some(owner)
-        {
-            return None;
-        }
-
-        let mut pending = VecDeque::from([capital]);
-        let mut visited = BTreeSet::new();
-        let mut port_count = 0;
-        while let Some(province_id) = pending.pop_front() {
-            if !visited.insert(province_id) {
-                continue;
-            }
-            let province = provinces.get(&province_id)?;
-            if self.uncertain_adjacency.contains(&province_id) {
-                return None;
-            }
-            match province.has_port {
-                Some(true) => port_count += 1,
-                Some(false) => {}
-                None => return None,
-            }
-            if let Some(adjacent) = self.adjacent.get(&province_id) {
-                for &adjacent_id in adjacent {
-                    let adjacent_province = provinces.get(&adjacent_id)?;
-                    if adjacent_province.class != ProvinceClass::Land {
-                        continue;
-                    }
-                    match adjacent_province.owner.as_deref() {
-                        Some(adjacent_owner) if adjacent_owner == owner => {
-                            pending.push_back(adjacent_id);
-                        }
-                        Some(_) => {}
-                        None if known_unowned.contains(&adjacent_id) => {}
-                        None => return None,
-                    }
+        province_entities: &BTreeMap<u32, EntityId>,
+    ) -> Result<ProvinceConnectivity, Error> {
+        let province_entity = |province: u32| {
+            province_entities.get(&province).copied().ok_or_else(|| {
+                Error::message(
+                    "province topology",
+                    format!("connectivity references unknown province {province}"),
+                )
+            })
+        };
+        let mut edges = Vec::new();
+        for (&left, neighbors) in &self.adjacent {
+            for &right in neighbors {
+                if left < right {
+                    edges.push((province_entity(left)?, province_entity(right)?));
                 }
             }
         }
-        Some(port_count)
+        let uncertain_adjacency = self
+            .uncertain_adjacency
+            .iter()
+            .map(|&province| province_entity(province))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ProvinceConnectivity::new(edges, uncertain_adjacency))
     }
 }
 
@@ -241,6 +219,7 @@ pub(crate) fn derive(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use augustus_core::{EntityKind, Schema, Target, World};
 
     const LAND: [u8; 3] = [1, 0, 0];
     const SEA: [u8; 3] = [2, 0, 0];
@@ -298,13 +277,70 @@ mod tests {
         (pixels, ids_by_color, provinces)
     }
 
-    fn province_references(
+    fn area_port_count(
+        topology: &ProvinceTopology,
         provinces: &BTreeMap<u32, ProvinceState>,
-    ) -> BTreeMap<u32, &ProvinceState> {
-        provinces
+        known_unowned: &BTreeSet<u32>,
+        owner: &str,
+        capital: u32,
+    ) -> Option<usize> {
+        let capital_state = provinces.get(&capital)?;
+        if capital_state.class != ProvinceClass::Land
+            || capital_state.owner.as_deref() != Some(owner)
+        {
+            return None;
+        }
+
+        let mut world = World::new(Schema::new(["base"]).ok()?);
+        let owner_tags: BTreeSet<_> = provinces
+            .values()
+            .filter_map(|province| province.owner.clone())
+            .collect();
+        let owner_entities: BTreeMap<_, _> = owner_tags
+            .into_iter()
+            .map(|tag| {
+                let entity = world.add_entity(tag.clone(), EntityKind::Country);
+                (tag, entity)
+            })
+            .collect();
+        let province_entities: BTreeMap<_, _> = provinces
+            .keys()
+            .map(|&id| {
+                let entity = world.add_entity(id.to_string(), EntityKind::Province);
+                (id, entity)
+            })
+            .collect();
+        for (&id, province) in provinces {
+            let entity = province_entities[&id];
+            if let Some(owner) = &province.owner {
+                world.set_owner(entity, owner_entities[owner]).ok()?;
+            } else if province.class != ProvinceClass::Land || known_unowned.contains(&id) {
+                world.mark_target_absent(entity, Target::Owner).ok()?;
+            }
+        }
+        world
+            .set_province_connectivity(topology.to_core(&province_entities).ok()?)
+            .ok()?;
+        let owner_area = world
+            .province_owner_area(province_entities[&capital])
+            .ok()??;
+        let province_ids: BTreeMap<_, _> = province_entities
             .iter()
-            .map(|(&id, province)| (id, province))
-            .collect()
+            .map(|(&id, &entity)| (entity, id))
+            .collect();
+        let mut count = 0;
+        for entity in owner_area {
+            let province = provinces.get(&province_ids[&entity])?;
+            if province.class != ProvinceClass::Land {
+                continue;
+            }
+            match province.has_port {
+                Some(true) => count += 1,
+                Some(false) => {}
+                None => return None,
+            }
+        }
+        Some(count)
     }
 
     #[test]
@@ -333,12 +369,7 @@ mod tests {
         let result = derive(&pixels, &ids_by_color, &provinces, &BTreeSet::new());
         assert_eq!(result.port_presence[&1], Some(true));
         assert_eq!(
-            result.topology.capital_area_port_count(
-                &province_references(&provinces),
-                &BTreeSet::new(),
-                "AAA",
-                1,
-            ),
+            area_port_count(&result.topology, &provinces, &BTreeSet::new(), "AAA", 1),
             Some(1)
         );
     }
@@ -352,23 +383,13 @@ mod tests {
         provinces.get_mut(&5).unwrap().has_port = Some(false);
         let result = derive(&pixels, &ids_by_color, &provinces, &BTreeSet::new());
         assert_eq!(
-            result.topology.capital_area_port_count(
-                &province_references(&provinces),
-                &BTreeSet::new(),
-                "AAA",
-                1,
-            ),
+            area_port_count(&result.topology, &provinces, &BTreeSet::new(), "AAA", 1),
             Some(1)
         );
 
         provinces.get_mut(&5).unwrap().owner = Some("BBB".into());
         assert_eq!(
-            result.topology.capital_area_port_count(
-                &province_references(&provinces),
-                &BTreeSet::new(),
-                "AAA",
-                1,
-            ),
+            area_port_count(&result.topology, &provinces, &BTreeSet::new(), "AAA", 1),
             Some(1)
         );
     }
@@ -380,21 +401,11 @@ mod tests {
         provinces.get_mut(&1).unwrap().has_port = Some(false);
         let result = derive(&pixels, &ids_by_color, &provinces, &BTreeSet::new());
         assert_eq!(
-            result.topology.capital_area_port_count(
-                &province_references(&provinces),
-                &BTreeSet::new(),
-                "AAA",
-                1,
-            ),
+            area_port_count(&result.topology, &provinces, &BTreeSet::new(), "AAA", 1),
             None
         );
         assert_eq!(
-            result.topology.capital_area_port_count(
-                &province_references(&provinces),
-                &[5].into(),
-                "AAA",
-                1,
-            ),
+            area_port_count(&result.topology, &provinces, &[5].into(), "AAA", 1),
             Some(0)
         );
     }
@@ -409,12 +420,7 @@ mod tests {
         provinces.get_mut(&5).unwrap().has_port = Some(true);
         let mut result = derive(&pixels, &ids_by_color, &provinces, &BTreeSet::new());
         assert_eq!(
-            result.topology.capital_area_port_count(
-                &province_references(&provinces),
-                &BTreeSet::new(),
-                "AAA",
-                1,
-            ),
+            area_port_count(&result.topology, &provinces, &BTreeSet::new(), "AAA", 1),
             Some(0)
         );
         let adjacency = TextDocument::from_bytes(
@@ -427,12 +433,7 @@ mod tests {
             .add_special_adjacencies(&adjacency, &provinces)
             .unwrap();
         assert_eq!(
-            result.topology.capital_area_port_count(
-                &province_references(&provinces),
-                &BTreeSet::new(),
-                "AAA",
-                1,
-            ),
+            area_port_count(&result.topology, &provinces, &BTreeSet::new(), "AAA", 1),
             Some(1)
         );
     }
@@ -447,12 +448,7 @@ mod tests {
         provinces.get_mut(&5).unwrap().has_port = Some(true);
         let mut result = derive(&pixels, &ids_by_color, &provinces, &BTreeSet::new());
         assert_eq!(
-            result.topology.capital_area_port_count(
-                &province_references(&provinces),
-                &BTreeSet::new(),
-                "AAA",
-                1,
-            ),
+            area_port_count(&result.topology, &provinces, &BTreeSet::new(), "AAA", 1),
             Some(0)
         );
         let adjacency = TextDocument::from_bytes(
@@ -465,12 +461,7 @@ mod tests {
             .add_special_adjacencies(&adjacency, &provinces)
             .unwrap();
         assert_eq!(
-            result.topology.capital_area_port_count(
-                &province_references(&provinces),
-                &BTreeSet::new(),
-                "AAA",
-                1,
-            ),
+            area_port_count(&result.topology, &provinces, &BTreeSet::new(), "AAA", 1),
             Some(1)
         );
     }
@@ -483,12 +474,7 @@ mod tests {
         provinces.get_mut(&1).unwrap().has_port = Some(false);
         let result = derive(&pixels, &ids_by_color, &provinces, &BTreeSet::new());
         assert_eq!(
-            result.topology.capital_area_port_count(
-                &province_references(&provinces),
-                &BTreeSet::new(),
-                "AAA",
-                1,
-            ),
+            area_port_count(&result.topology, &provinces, &BTreeSet::new(), "AAA", 1),
             None
         );
     }

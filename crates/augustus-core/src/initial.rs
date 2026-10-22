@@ -279,6 +279,13 @@ impl InitialWorld {
         self.world.set_politics(politics)
     }
 
+    pub fn set_province_connectivity(
+        &mut self,
+        connectivity: crate::ProvinceConnectivity,
+    ) -> Result<(), Error> {
+        self.world.set_province_connectivity(connectivity)
+    }
+
     pub fn set_country_relation_states(
         &mut self,
         states: BTreeMap<EntityId, BTreeMap<EntityId, crate::CountryRelationState>>,

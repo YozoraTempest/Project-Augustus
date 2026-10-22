@@ -4,30 +4,18 @@
 use crate::attributes::AttributeDraft;
 use augustus_core::{
     AccrualRule, AttributeBase, AttributeChannel, AttributeFormula, AttributeTerm, Attributes,
-    EntityKind, InitialWorld, MetricDefinition, Metrics, MonthlyAccruals, NumericSlot, Target,
+    EntityKind, InitialWorld, MetricDefinition, Metrics, MonthlyAccruals, NumericSlot,
+    ProvinceClass, Target,
 };
 
-pub(super) fn metrics(
-    initial: &InitialWorld,
-    attributes: &AttributeDraft,
-    topology: &crate::province_map::ProvinceTopology,
-) -> Metrics {
-    let provinces: std::collections::BTreeMap<_, _> = initial
-        .provinces()
-        .iter()
-        .map(|province| (province.id, province))
-        .collect();
-    let known_unowned: std::collections::BTreeSet<_> = initial
+pub(super) fn metrics(initial: &InitialWorld, attributes: &AttributeDraft) -> Metrics {
+    let provinces_by_entity: std::collections::BTreeMap<_, _> = initial
         .provinces()
         .iter()
         .filter_map(|province| {
-            let entity = initial.province_entity(province.id)?;
-            let known_absent = initial
-                .world()
-                .known_absent_targets()
-                .get(&entity)
-                .is_some_and(|targets| targets.contains(&augustus_core::Target::Owner));
-            (province.owner.is_none() && known_absent).then_some(province.id)
+            initial
+                .province_entity(province.id)
+                .map(|entity| (entity, province))
         })
         .collect();
 
@@ -56,12 +44,21 @@ pub(super) fn metrics(
                     .and_then(|entity| initial.world().owned_provinces(entity).ok())
                     .map(|provinces| provinces.len());
                 let capital_area_ports = initial.bound_capital(&country.id).and_then(|capital| {
-                    topology.capital_area_port_count(
-                        &provinces,
-                        &known_unowned,
-                        &country.id,
-                        capital,
-                    )
+                    let capital = initial.province_entity(capital)?;
+                    let owner_area = initial.world().province_owner_area(capital).ok()??;
+                    let mut count = 0;
+                    for entity in owner_area {
+                        let province = provinces_by_entity.get(&entity)?;
+                        if province.class != ProvinceClass::Land {
+                            continue;
+                        }
+                        match province.has_port {
+                            Some(true) => count += 1,
+                            Some(false) => {}
+                            None => return None,
+                        }
+                    }
+                    Some(count)
                 });
                 // These two inputs remain unknown until their original sources are confirmed.
                 let value = initial_value(owned_count, capital_area_ports, None, None);
