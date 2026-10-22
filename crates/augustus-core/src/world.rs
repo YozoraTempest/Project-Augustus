@@ -730,19 +730,21 @@ impl World {
                 let runtime_update = (
                     local_value,
                     i64::from(result.outflow.outgoing_amount_milli),
+                    i64::from(result.outflow.distribution_amount_milli),
                     i64::from(result.retention.retention.retention_milli),
                 );
                 let distribution = result.distribution.clone();
                 results.push(result);
                 Ok((destinations, distribution, runtime_update))
             },
-            |world, source_node, (local_value, outgoing, retention)| {
+            |world, source_node, (local_value, outgoing, value_added_outgoing, retention)| {
                 let state = world
                     .trade_node_runtime_states
                     .entry(source_node.to_owned())
                     .or_default();
                 state.local_value_milli = Some(local_value);
                 state.outgoing_milli = Some(outgoing);
+                state.value_added_outgoing_milli = Some(value_added_outgoing);
                 state.retention_milli = Some(retention);
             },
         )?;

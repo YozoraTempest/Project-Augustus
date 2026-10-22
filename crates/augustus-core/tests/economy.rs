@@ -508,11 +508,108 @@ fn vanilla_trade_node_passes_persist_researched_wien_state_in_caller_order() {
         .unwrap();
     assert_eq!(wien.local_value_milli, Some(5_945));
     assert_eq!(wien.outgoing_milli, Some(5_626));
+    assert_eq!(wien.value_added_outgoing_milli, Some(5_626));
     assert_eq!(wien.retention_milli, Some(456));
 
     let restored = World::restore(
         &runtime_world.save("wien-trade-node-state").unwrap(),
         "wien-trade-node-state",
+        runtime_world.schema(),
+    )
+    .unwrap();
+    assert_eq!(restored, runtime_world);
+}
+
+#[test]
+fn vanilla_trade_node_persists_value_added_outgoing_separately_from_outgoing() {
+    let mut runtime_world = world();
+    runtime_world.set_economy(economy()).unwrap();
+    runtime_world
+        .set_trade_node_route_orders(&trade_node_route_orders())
+        .unwrap();
+    runtime_world
+        .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
+            ("river".into(), Some(10_000)),
+            ("harbor".into(), Some(5_000)),
+        ]))
+        .unwrap();
+
+    let passes = runtime_world
+        .run_vanilla_trade_node_passes_in_order(&["river".into()], |world, source_node| {
+            Ok(VanillaTradeNodePassInput {
+                source_value_milli: world
+                    .trade_node_current_value_milli(source_node)
+                    .flatten()
+                    .unwrap() as i32,
+                retention: VanillaTradeRetentionPassInput {
+                    participants: vec![
+                        VanillaTradeRetentionParticipantInput {
+                            reference_valid: true,
+                            participation_balance_milli: 1,
+                            effective_amount_milli: 456,
+                            country_flags: VanillaTradeCountryFlags {
+                                special_country: true,
+                                ae: false,
+                                ac: false,
+                                ad: false,
+                            },
+                            cached_route_eligible: false,
+                        },
+                        VanillaTradeRetentionParticipantInput {
+                            reference_valid: true,
+                            participation_balance_milli: 1,
+                            effective_amount_milli: 544,
+                            country_flags: VanillaTradeCountryFlags {
+                                special_country: false,
+                                ae: true,
+                                ac: true,
+                                ad: false,
+                            },
+                            cached_route_eligible: true,
+                        },
+                    ],
+                },
+                route_weights: VanillaTradeRouteWeightPassInput {
+                    contributions: vec![VanillaTradeRouteWeightContributionInput {
+                        selected_route_id: 0,
+                        effective_amount_milli: 544,
+                        steering_modifier_milli: 0,
+                    }],
+                    marked_routes: vec![true],
+                },
+                has_downstream_routes: true,
+                node_value_milli: 1_000,
+                base_outgoing_value_milli: 1_000,
+                incoming_transfer_values_milli: Vec::new(),
+                additional_outgoing_multiplier_milli: 100,
+                routes: vec![VanillaTradeNodeRouteInput {
+                    route_id: 0,
+                    candidates: Vec::new(),
+                }],
+            })
+        })
+        .unwrap();
+
+    assert_eq!(passes[0].outflow.outgoing_amount_milli, 544);
+    assert_eq!(passes[0].outflow.distribution_amount_milli, 644);
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("river"),
+        Some(Some(9_456))
+    );
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("harbor"),
+        Some(Some(5_644))
+    );
+    let river = runtime_world
+        .trade_node_runtime_state("river")
+        .flatten()
+        .unwrap();
+    assert_eq!(river.outgoing_milli, Some(544));
+    assert_eq!(river.value_added_outgoing_milli, Some(644));
+
+    let restored = World::restore(
+        &runtime_world.save("value-added-trade-state").unwrap(),
+        "value-added-trade-state",
         runtime_world.schema(),
     )
     .unwrap();
