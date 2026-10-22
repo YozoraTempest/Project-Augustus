@@ -217,6 +217,28 @@ fn nested_elector_effects_in_country_history_leave_the_status_unknown() {
 }
 
 #[test]
+fn conflicting_country_histories_do_not_select_an_elector_status() {
+    let temp = copy_fixture();
+    let country_history = temp.path().join("history/countries/AAA - Alpha.txt");
+    let existing = fs::read_to_string(&country_history).unwrap();
+    fs::write(&country_history, format!("{existing}\nelector = yes\n")).unwrap();
+    write(
+        temp.path(),
+        "history/countries/AAA - Alternate.txt",
+        "elector = no\n",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().politics().status(alpha, "elector"),
+        None
+    );
+    assert_eq!(loaded.report.ambiguous_country_histories["AAA"].len(), 2);
+    assert!(loaded.report.ideas.unknown_statuses["AAA"].contains("elector"));
+}
+
+#[test]
 fn elector_status_rejects_invalid_history_values_and_non_country_queries() {
     let temp = copy_fixture();
     let country_history = temp.path().join("history/countries/AAA - Alpha.txt");
