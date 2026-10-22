@@ -292,7 +292,7 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 事件调用支持匹配当前类型的 `country_event = { id = ... days = ... }` 和 `province_event = { id = ... days = ... }`。`days` 只接受非负整数；负值、小数、随机延迟及其他参数会被拒绝。原生条件调用使用 `TryEvent`，延迟执行使用 `Schedule`。已绑定的无条件调用可以编译成直接执行计划。
 
-事件 `trigger` 支持已有的常量、变量、国库和无参数脚本条件，以及国家作用域的 `is_emperor`、`is_emperor_of_china`；职位条件读取当前持有人。`tag`／`TAG` 比较当前国家的字面标识，要求三位大写字母或数字；动态 `ROOT`、`FROM`、`PREV` 标识及国家标签变更尚未支持。`is_year` 表示当前年份大于或等于给定正整数，要求场景已提供日历。原生条件分别使用 `EntityNamed`、`YearAtLeast`。
+事件 `trigger` 支持已有的常量、变量、国库和无参数脚本条件，以及国家作用域的 `is_emperor`、`is_emperor_of_china` 和 `is_elector`；职位条件读取当前持有人。`is_elector = yes/no` 依据所选开局日期前的国家历史，缺失声明或可能被未执行嵌套效果改变时保持未知；战役中的选举及资格变化尚未接入。`tag`／`TAG` 比较当前国家的字面标识，要求三位大写字母或数字；动态 `ROOT`、`FROM`、`PREV` 标识及国家标签变更尚未支持。`is_year` 表示当前年份大于或等于给定正整数，要求场景已提供日历。原生条件分别使用 `EntityNamed`、`YearAtLeast`。
 
 `religion = 字面宗教标识`、`religion_group = 字面分组标识` 支持国家和省份作用域，分别编译为核心 `AffiliationMember`、`AffiliationGroup`。查询从当前 `affiliations` 读取成员及其分组，不使用接受政策，也不缓存开局值。未知归属或分组会报错，不能通过取反变成已确定的真值。国家标签、省份编号、作用域引用、次要宗教、dominant 等特殊值和动态表达式尚未支持。自制场景、原生写法和交叉读档命令见 [宗教归属条件演示](../examples/affiliation-conditions/README.md)。
 

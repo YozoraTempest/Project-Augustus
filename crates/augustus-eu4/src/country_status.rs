@@ -40,6 +40,7 @@ struct WarHistory {
 #[derive(Default)]
 struct History {
     revolution_target: bool,
+    elector: Option<bool>,
     uncertain: BTreeSet<String>,
 }
 
@@ -124,26 +125,44 @@ impl CountryStatusDraft {
                 continue;
             }
             let at = parsed.field_location(&key);
-            if name == "revolution_target" {
-                let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
-                equal(op, &fail)?;
-                history.revolution_target = flag(
-                    &value
-                        .read_string()
-                        .map_err(|_| fail("expected revolution target flag"))?,
-                )
-                .ok_or_else(|| fail("expected yes or no"))?;
-                history.uncertain.remove("revolution_target");
-                report.status_sources.insert(
-                    format!("country:{tag}:revolution_target"),
-                    source(parsed, at),
-                );
-            } else {
-                if let Some(status) = creation_status(&name) {
-                    self.pending_origins.insert(status.into());
+            let fail = |m: &str| Error::message(parsed.source(), m).with_location(at);
+            match name.as_str() {
+                "elector" => {
+                    equal(op, &fail)?;
+                    history.elector = Some(
+                        flag(
+                            &value
+                                .read_string()
+                                .map_err(|_| fail("expected elector flag"))?,
+                        )
+                        .ok_or_else(|| fail("expected yes or no"))?,
+                    );
+                    history.uncertain.remove("elector");
+                    report
+                        .status_sources
+                        .insert(format!("country:{tag}:elector"), source(parsed, at));
                 }
-                if let Ok(children) = value.read_object() {
-                    scan(children, history, &mut self.pending_origins, 0)?;
+                "revolution_target" => {
+                    equal(op, &fail)?;
+                    history.revolution_target = flag(
+                        &value
+                            .read_string()
+                            .map_err(|_| fail("expected revolution target flag"))?,
+                    )
+                    .ok_or_else(|| fail("expected yes or no"))?;
+                    history.uncertain.remove("revolution_target");
+                    report.status_sources.insert(
+                        format!("country:{tag}:revolution_target"),
+                        source(parsed, at),
+                    );
+                }
+                _ => {
+                    if let Some(status) = creation_status(&name) {
+                        self.pending_origins.insert(status.into());
+                    }
+                    if let Ok(children) = value.read_object() {
+                        scan(children, history, &mut self.pending_origins, 0)?;
+                    }
                 }
             }
         }
@@ -205,6 +224,10 @@ impl CountryStatusDraft {
                 targets.push(country.id.clone());
             }
             statuses.insert("revolution_target".into(), target);
+            let elector = history
+                .filter(|history| !history.uncertain.contains("elector"))
+                .and_then(|history| history.elector);
+            statuses.insert("elector".into(), elector);
             let at_war = active_wars
                 .as_ref()
                 .map(|participants| participants.contains(&country.id));
@@ -388,12 +411,16 @@ fn scan(
         ));
     }
     for (key, _, value) in reader.fields() {
-        if let Some(status) = creation_status(&key.read_string()) {
+        let name = key.read_string();
+        if let Some(status) = creation_status(&name) {
             origins.insert(status.into());
         }
-        if key.read_string() == "revolution_target" {
+        if name == "revolution_target" {
             history.uncertain.insert("revolution_target".into());
             origins.insert("revolution_target".into());
+        }
+        if name == "elector" {
+            history.uncertain.insert("elector".into());
         }
         if let Ok(children) = value.read_object() {
             scan(children, history, origins, depth + 1)?;

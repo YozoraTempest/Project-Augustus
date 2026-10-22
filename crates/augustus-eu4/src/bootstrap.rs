@@ -5561,6 +5561,7 @@ fn apply_country(
             | "religious_school"
             | "add_government_reform"
             | "remove_government_reform"
+            | "elector"
             | "revolution_target" => (),
             "add_truce_with" => {
                 equal(op, &fail)?;

@@ -3260,6 +3260,20 @@ impl<'a> ScriptCompiler<'a> {
                     };
                     if boolean(field)? { condition } else { Condition::Not(Box::new(condition)) }
                 }
+                "is_elector" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("elector conditions require country scope"));
+                    }
+                    let condition = Condition::PoliticalStatus {
+                        target: Target::Current,
+                        name: "elector".into(),
+                    };
+                    if boolean(field)? {
+                        condition
+                    } else {
+                        Condition::Not(Box::new(condition))
+                    }
+                }
                 "has_religious_school" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("religious school conditions require country scope"));

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_core::DiplomaticKind;
-use augustus_eu4::VanillaWorld;
+use augustus_core::{Action, Condition, DiplomaticKind, EntityKind, Schema};
+use augustus_eu4::{ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding, VanillaWorld};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -26,6 +26,41 @@ fn copy_fixture() -> tempfile::TempDir {
         }
     }
     temp
+}
+
+fn write(root: &Path, relative_path: &str, text: &str) {
+    let path = root.join(relative_path);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, text).unwrap();
+}
+
+fn has_idea_group(world: &VanillaWorld, country: &str, group: &str) -> bool {
+    world
+        .country(country)
+        .unwrap()
+        .ideas
+        .and_then(|ideas| ideas.groups.as_ref())
+        .is_some_and(|groups| groups.contains_key(group))
+}
+
+fn elector_condition(script: &str, optimise: bool) -> Condition {
+    let source = format!("if={{limit={{{script}}} log=elector_condition_matched}}");
+    let document = TextDocument::from_bytes(
+        "self-authored-elector-condition.txt",
+        source.into_bytes(),
+        TextEncoding::Utf8,
+    );
+    let compiled = ScriptCompiler::new(
+        &Schema::new([] as [&str; 0]).unwrap(),
+        &ScriptLibrary::new(),
+        optimise,
+    )
+    .compile(&document, EntityKind::Country)
+    .unwrap();
+    match compiled.plan.as_slice() {
+        [Action::If { condition, .. }] => condition.clone(),
+        _ => panic!("expected one conditional action"),
+    }
 }
 
 #[test]
@@ -97,6 +132,119 @@ fn start_is_included_end_is_excluded_and_future_history_is_not_scheduled() {
     let emperor = opening.initial.world().politics().offices["imperial_emperor"];
     assert_eq!(opening.initial.world().entity(emperor).unwrap().name, "AAA");
     assert_eq!(opening.initial.world().pending_tasks(), 0);
+}
+
+#[test]
+fn elector_history_and_queries_follow_the_selected_date_and_preserve_unknowns() {
+    let temp = copy_fixture();
+    let country_history = temp.path().join("history/countries/AAA - Alpha.txt");
+    let existing = fs::read_to_string(&country_history).unwrap();
+    fs::write(
+        &country_history,
+        format!("{existing}\nelector = yes\n1450.1.1 = {{ elector = no }}\n"),
+    )
+    .unwrap();
+    write(
+        temp.path(),
+        "common/ideas/elector.txt",
+        "elector_ideas={free=yes trigger={is_elector=yes} one={}}",
+    );
+
+    let opening = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let alpha = opening.initial.country_entity("AAA").unwrap();
+    let beta = opening.initial.country_entity("BBB").unwrap();
+    let world = opening.initial.world();
+    assert_eq!(world.politics().status(alpha, "elector"), Some(true));
+    assert_eq!(world.politics().status(beta, "elector"), None);
+    assert!(
+        !opening
+            .report
+            .unapplied_country_fields
+            .contains_key("elector")
+    );
+    assert!(opening.report.ideas.unknown_statuses["BBB"].contains("elector"));
+    assert!(has_idea_group(&opening, "AAA", "elector_ideas"));
+    assert!(!has_idea_group(&opening, "BBB", "elector_ideas"));
+
+    for optimise in [false, true] {
+        let yes = elector_condition("is_elector=yes", optimise);
+        let no = elector_condition("is_elector=no", optimise);
+        assert!(yes.evaluate(world, alpha).unwrap());
+        assert!(!no.evaluate(world, alpha).unwrap());
+        assert!(yes.evaluate(world, beta).is_err());
+        assert!(no.evaluate(world, beta).is_err());
+    }
+
+    let later = VanillaWorld::load(temp.path(), "1450.1.1").unwrap();
+    assert_eq!(
+        later
+            .initial
+            .world()
+            .politics()
+            .status(later.initial.country_entity("AAA").unwrap(), "elector"),
+        Some(false)
+    );
+    assert!(!later.report.ideas.unknown_statuses["AAA"].contains("elector"));
+    assert!(!has_idea_group(&later, "AAA", "elector_ideas"));
+    let no = elector_condition("is_elector=no", false);
+    assert!(
+        no.evaluate(
+            later.initial.world(),
+            later.initial.country_entity("AAA").unwrap()
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+fn nested_elector_effects_in_country_history_leave_the_status_unknown() {
+    let temp = copy_fixture();
+    let country_history = temp.path().join("history/countries/AAA - Alpha.txt");
+    let existing = fs::read_to_string(&country_history).unwrap();
+    fs::write(
+        &country_history,
+        format!("{existing}\nelector = yes\nif = {{ limit = {{ always = yes }} elector = no }}\n"),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        loaded.initial.world().politics().status(alpha, "elector"),
+        None
+    );
+    assert!(loaded.report.ideas.unknown_statuses["AAA"].contains("elector"));
+}
+
+#[test]
+fn elector_status_rejects_invalid_history_values_and_non_country_queries() {
+    let temp = copy_fixture();
+    let country_history = temp.path().join("history/countries/AAA - Alpha.txt");
+    let existing = fs::read_to_string(&country_history).unwrap();
+    fs::write(&country_history, format!("{existing}\nelector = maybe\n")).unwrap();
+    let error = VanillaWorld::load(temp.path(), "1444.11.11")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("expected yes or no"), "{error}");
+    assert!(error.contains("AAA - Alpha.txt"), "{error}");
+
+    let source = TextDocument::from_bytes(
+        "self-authored-elector-condition.txt",
+        b"if={limit={is_elector=maybe} log=invalid}".to_vec(),
+        TextEncoding::Utf8,
+    );
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let library = ScriptLibrary::new();
+    assert!(
+        ScriptCompiler::new(&schema, &library, false)
+            .compile(&source, EntityKind::Country)
+            .is_err()
+    );
+    assert!(
+        ScriptCompiler::new(&schema, &library, false)
+            .compile(&source, EntityKind::Province)
+            .is_err()
+    );
 }
 
 #[test]
