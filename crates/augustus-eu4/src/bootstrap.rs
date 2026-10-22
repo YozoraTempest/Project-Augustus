@@ -3378,7 +3378,7 @@ impl VanillaWorld {
             report.setup.truce_months,
             &mut report,
         )?;
-        let external_privileges =
+        let mut needed_privileges =
             overrides
                 .estate_privileges
                 .map_or_else(BTreeSet::new, |values| {
@@ -3390,6 +3390,7 @@ impl VanillaWorld {
                         .cloned()
                         .collect()
                 });
+        needed_privileges.extend(estates.history_privilege_ids());
         let startup = crate::estates::EstateStartup::load(
             &root,
             &files,
@@ -3430,7 +3431,7 @@ impl VanillaWorld {
                 .groups
                 .clone(),
             casus_belli.types,
-            external_privileges,
+            needed_privileges,
             &mut report.estates,
         )?;
         report.casus_belli = casus_belli.report;
@@ -3794,6 +3795,7 @@ impl VanillaWorld {
         bind_external_estate_privileges(&mut initial, overrides.estate_privileges)?;
         bind_external_estate_states(&mut initial, overrides.estate_states)?;
         startup.resolve_external_privilege_validity(&mut initial, overrides.estate_privileges)?;
+        startup.resolve_current_privilege_validity(&mut initial)?;
         report.missions.known_countries = initial.world().objectives().entities.len();
         report.missions.unresolved.retain(|tag, _| {
             !initial

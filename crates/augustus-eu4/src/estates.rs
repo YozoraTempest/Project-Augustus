@@ -674,6 +674,13 @@ impl EstateDraft {
         Ok(handled)
     }
 
+    pub(super) fn history_privilege_ids(&self) -> BTreeSet<String> {
+        self.histories
+            .values()
+            .flat_map(|history| history.privileges.iter().cloned())
+            .collect()
+    }
+
     pub(super) fn bind(
         mut self,
         initial: &InitialWorld,

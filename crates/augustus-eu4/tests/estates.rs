@@ -228,6 +228,65 @@ provinces={
 }
 
 #[test]
+fn history_privilege_validity_resolves_only_after_its_condition_is_true() {
+    for (grant_permission, expected_resolved) in [(true, true), (false, false)] {
+        let temp = startup_fixture();
+        append(
+            temp.path(),
+            "history/countries/AAA - Alpha.txt",
+            "set_estate_privilege = charter",
+        );
+        write(
+            temp.path(),
+            "common/estate_privileges/test.txt",
+            r#"
+            charter = {
+                benefits = { global_tax_modifier = 0.1 }
+                is_valid = { has_country_flag = permission_flag }
+                on_granted = { set_country_flag = grant_callback_ran }
+            }
+        "#,
+        );
+        let on_startup = if grant_permission {
+            "on_startup = { if = { limit = { tag = AAA } set_country_flag = permission_flag } }"
+        } else {
+            "on_startup = {}"
+        };
+        write(temp.path(), "common/on_actions/test.txt", on_startup);
+
+        let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+        let country = loaded.initial.country_entity("AAA").unwrap();
+        let resolved = loaded
+            .initial
+            .world()
+            .estates()
+            .resolved_privilege_effects
+            .get(&country)
+            .and_then(|privileges| privileges.get("charter"))
+            .is_some_and(|effects| effects.contains("is_valid"));
+        assert_eq!(resolved, expected_resolved);
+        assert!(
+            !loaded
+                .country("AAA")
+                .unwrap()
+                .flags
+                .as_ref()
+                .is_some_and(|flags| flags.contains_key("grant_callback_ran")),
+            "validity checks must not replay grant callbacks"
+        );
+
+        let unresolved = loaded
+            .country("AAA")
+            .unwrap()
+            .declared_estate_effects
+            .unresolved
+            .iter()
+            .any(|reason| reason.ends_with(":unexecuted:is_valid"));
+        assert_eq!(unresolved, !expected_resolved);
+    }
+}
+
+#[test]
 fn external_valid_privilege_keeps_default_loyalty_when_save_has_no_scalar() {
     let temp = startup_fixture();
     write(temp.path(), "common/on_actions/test.txt", "on_startup={}");
@@ -3147,7 +3206,7 @@ fn conditional_properties_and_unexecuted_callbacks_preserve_missing_sources() {
             .iter()
             .any(|r| r.ends_with(":on_granted"))
     );
-    assert!(effects.unresolved.iter().any(|r| r.ends_with(":is_valid")));
+    assert!(!effects.unresolved.iter().any(|r| r.ends_with(":is_valid")));
     assert_eq!(loaded.report.estates.ambiguous_properties.len(), 1);
 }
 

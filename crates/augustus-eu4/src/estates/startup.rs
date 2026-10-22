@@ -610,53 +610,102 @@ impl EstateStartup {
                     continue;
                 }
                 for privilege in selected {
-                    let Some(callback) = self.callbacks.get(privilege) else {
-                        continue;
-                    };
-                    let needs_resolution = initial
-                        .world()
-                        .estates()
-                        .privileges
-                        .get(privilege)
-                        .is_some_and(|definition| {
-                            definition.effect.unresolved_effects.contains("is_valid")
-                        });
-                    if !needs_resolution {
-                        continue;
-                    }
-                    let mut reasons = BTreeSet::new();
-                    let lookup = |id: &str| {
-                        initial
-                            .world()
-                            .estates()
-                            .countries
-                            .get(&entity)
-                            .and_then(|states| states.get(id))
-                            .and_then(|state| state.active)
-                    };
-                    let valid = callback.valid.evaluate_with_root(
+                    self.resolve_privilege_validity(
                         initial,
                         tag,
-                        &mut reasons,
-                        None,
-                        Some(&lookup),
                         entity,
-                    );
-                    if valid == Some(true) {
-                        initial
-                            .execute(
-                                entity,
-                                &[Action::ResolveEstatePrivilegeEffect {
-                                    privilege: privilege.clone(),
-                                    effect: "is_valid".into(),
-                                }],
-                            )
-                            .map_err(|error| {
-                                Error::caused_by("external estate privileges", error)
-                            })?;
+                        privilege,
+                        "external estate privileges",
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn resolve_current_privilege_validity(
+        &self,
+        initial: &mut InitialWorld,
+    ) -> Result<(), Error> {
+        let mut selected = Vec::new();
+        for country in initial.countries() {
+            let tag = country.id.clone();
+            let entity = initial.country_entity(&tag).expect("registered country");
+            if let Some(estates) = initial.world().estates().countries.get(&entity) {
+                for state in estates.values().filter(|state| state.active == Some(true)) {
+                    if let Some(privileges) = &state.privileges {
+                        selected.extend(
+                            privileges
+                                .iter()
+                                .cloned()
+                                .map(|privilege| (tag.clone(), entity, privilege)),
+                        );
                     }
                 }
             }
+        }
+
+        for (tag, entity, privilege) in selected {
+            self.resolve_privilege_validity(
+                initial,
+                &tag,
+                entity,
+                &privilege,
+                "estate privileges",
+            )?;
+        }
+        Ok(())
+    }
+
+    fn resolve_privilege_validity(
+        &self,
+        initial: &mut InitialWorld,
+        tag: &str,
+        entity: augustus_core::EntityId,
+        privilege: &str,
+        source: &str,
+    ) -> Result<(), Error> {
+        let Some(callback) = self.callbacks.get(privilege) else {
+            return Ok(());
+        };
+        let needs_resolution = initial
+            .world()
+            .estates()
+            .privileges
+            .get(privilege)
+            .is_some_and(|definition| definition.effect.unresolved_effects.contains("is_valid"));
+        if !needs_resolution {
+            return Ok(());
+        }
+
+        let mut reasons = BTreeSet::new();
+        let lookup = |id: &str| {
+            initial
+                .world()
+                .estates()
+                .countries
+                .get(&entity)
+                .and_then(|states| states.get(id))
+                .and_then(|state| state.active)
+        };
+        let valid = callback.valid.evaluate_with_root(
+            initial,
+            tag,
+            &mut reasons,
+            None,
+            Some(&lookup),
+            entity,
+        );
+        if valid == Some(true) {
+            initial
+                .execute(
+                    entity,
+                    &[Action::ResolveEstatePrivilegeEffect {
+                        privilege: privilege.into(),
+                        effect: "is_valid".into(),
+                    }],
+                )
+                .map_err(|error| Error::caused_by(source, error))?;
         }
         Ok(())
     }
@@ -676,7 +725,7 @@ impl EstateStartup {
         geographic_scopes: BTreeMap<String, Vec<u32>>,
         religious_school_groups: BTreeMap<String, Option<String>>,
         casus_belli_types: BTreeMap<String, crate::CasusBelliType>,
-        external_privileges: BTreeSet<String>,
+        needed_privileges: BTreeSet<String>,
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
         let age_rules = crate::country_conditions::AgeRules::load(root, files)?;
@@ -690,7 +739,7 @@ impl EstateStartup {
             effect_index: BTreeMap::new(),
             triggers: super::library(root, files, report)?,
             visiting: Vec::new(),
-            needed_privileges: external_privileges,
+            needed_privileges,
             startup_metadata: false,
             mission_ids: crate::missions::identifiers(root, files)?,
             modifier_ids,
