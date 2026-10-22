@@ -2160,6 +2160,17 @@ fn invalid_relationships_and_used_colors_fail_world_construction() {
 }
 
 #[test]
+fn external_army_bundles_without_regiment_names_remain_readable() {
+    let army: VanillaExternalArmy = serde_json::from_str(
+        r#"{"owner":"AAA","location":1,"name":"Army","regiments":["infantry"],"regiment_states":[{"strength_milli":800,"morale_milli":1250,"home_province":1}]}"#,
+    )
+    .unwrap();
+
+    assert_eq!(army.regiment_states[0].name, None);
+    assert_eq!(army.regiment_states[0].strength_milli, Some(800));
+}
+
+#[test]
 fn external_starting_units_are_bound_before_startup_and_saved() {
     let baseline = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
     let port = baseline
@@ -2184,11 +2195,13 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
         regiments: vec!["infantry".into(), "cavalry".into()],
         regiment_states: vec![
             VanillaExternalRegimentState {
+                name: Some("1st Infantry".into()),
                 strength_milli: Some(800),
                 morale_milli: Some(1_250),
                 home_province: Some(1),
             },
             VanillaExternalRegimentState {
+                name: None,
                 strength_milli: None,
                 morale_milli: Some(0),
                 home_province: None,
@@ -2210,6 +2223,10 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
         Some(800)
     );
     assert_eq!(
+        loaded.initial.armies()[0].regiments[0].name.as_deref(),
+        Some("1st Infantry")
+    );
+    assert_eq!(
         loaded.initial.armies()[0].regiments[0].morale_milli,
         Some(1_250)
     );
@@ -2222,6 +2239,7 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
         Some(0)
     );
     assert_eq!(loaded.initial.armies()[0].regiments[1].strength_milli, None);
+    assert_eq!(loaded.initial.armies()[0].regiments[1].name, None);
     assert_eq!(loaded.initial.naval_units().len(), 1);
     assert_eq!(loaded.initial.fleets().len(), 1);
     assert_eq!(loaded.initial.fleets()[0].ships.len(), 1);
@@ -2236,6 +2254,10 @@ fn external_starting_units_are_bound_before_startup_and_saved() {
     assert_eq!(
         loaded.initial.armies()[0].regiments[0].strength_milli,
         Some(800)
+    );
+    assert_eq!(
+        loaded.initial.armies()[0].regiments[0].name.as_deref(),
+        Some("1st Infantry")
     );
     assert_eq!(
         loaded.initial.armies()[0].regiments[0].morale_milli,
@@ -2301,6 +2323,7 @@ fn external_army_rejects_unknown_regiment_home_province() {
             name: String::new(),
             regiments: vec!["infantry".into()],
             regiment_states: vec![VanillaExternalRegimentState {
+                name: None,
                 strength_milli: None,
                 morale_milli: Some(1_000),
                 home_province: Some(u32::MAX),

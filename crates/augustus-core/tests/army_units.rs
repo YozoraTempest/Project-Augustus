@@ -149,6 +149,7 @@ fn army_action_builds_a_stack_of_regiments_and_round_trips() {
     );
     assert_eq!(world.armies()[0].regiments[0].strength_milli, Some(1_000));
     assert_eq!(world.armies()[0].regiments[0].morale_milli, Some(1_000));
+    assert_eq!(world.armies()[0].regiments[0].name, None);
 
     let saved = world.save("army-units:1").unwrap();
     let restored = World::restore(&saved, "army-units:1", world.schema()).unwrap();
@@ -206,6 +207,7 @@ fn regiment_state_round_trips_and_defaults_when_loading_older_snapshots() {
             "Test",
             &["infantry".into()],
             &[RegimentState {
+                name: Some("First Regiment".into()),
                 strength_milli: None,
                 morale_milli: Some(1_234),
                 home_province: Some(province),
@@ -218,6 +220,10 @@ fn regiment_state_round_trips_and_defaults_when_loading_older_snapshots() {
     assert_eq!(restored.armies()[0].regiments[0].strength_milli, None);
     assert_eq!(restored.armies()[0].regiments[0].morale_milli, Some(1_234));
     assert_eq!(
+        restored.armies()[0].regiments[0].name.as_deref(),
+        Some("First Regiment")
+    );
+    assert_eq!(
         restored.armies()[0].regiments[0].home_province,
         Some(province)
     );
@@ -228,10 +234,12 @@ fn regiment_state_round_trips_and_defaults_when_loading_older_snapshots() {
         .unwrap();
     regiment.remove("strength_milli");
     regiment.remove("morale_milli");
+    regiment.remove("name");
     regiment.remove("home_province");
     let restored = World::restore(&legacy.to_string(), "army-units:1", world.schema()).unwrap();
     assert_eq!(restored.armies()[0].regiments[0].strength_milli, None);
     assert_eq!(restored.armies()[0].regiments[0].morale_milli, None);
+    assert_eq!(restored.armies()[0].regiments[0].name, None);
     assert_eq!(restored.armies()[0].regiments[0].home_province, None);
 
     let mut corrupt: serde_json::Value = serde_json::from_str(&saved).unwrap();
@@ -270,6 +278,7 @@ fn regiment_state_requires_matching_count_and_nonnegative_values() {
                 "Test",
                 &["infantry".into()],
                 &[RegimentState {
+                    name: None,
                     strength_milli: None,
                     morale_milli: Some(-1),
                     home_province: None,
@@ -285,6 +294,7 @@ fn regiment_state_requires_matching_count_and_nonnegative_values() {
                 "Test",
                 &["infantry".into()],
                 &[RegimentState {
+                    name: None,
                     strength_milli: Some(-1),
                     morale_milli: None,
                     home_province: None,
@@ -358,11 +368,13 @@ fn regiment_strength_loss_preserves_wrapping_clamp_and_unknown_state() {
             &["infantry".into(), "cavalry".into()],
             &[
                 RegimentState {
+                    name: None,
                     strength_milli: Some(1),
                     morale_milli: None,
                     home_province: None,
                 },
                 RegimentState {
+                    name: None,
                     strength_milli: Some(800),
                     morale_milli: None,
                     home_province: None,

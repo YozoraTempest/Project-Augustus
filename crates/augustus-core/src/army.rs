@@ -21,6 +21,8 @@ pub struct Regiment {
     pub id: RegimentId,
     pub unit_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strength_milli: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub morale_milli: Option<i64>,
@@ -28,8 +30,10 @@ pub struct Regiment {
     pub home_province: Option<EntityId>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct RegimentState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub strength_milli: Option<i64>,
     pub morale_milli: Option<i64>,
     pub home_province: Option<EntityId>,
@@ -119,6 +123,7 @@ impl Armies {
                 Regiment {
                     id: RegimentId(self.next_regiment_id + offset as u64),
                     unit_type: unit_type.clone(),
+                    name: state.and_then(|state| state.name.clone()),
                     strength_milli: if has_external_state {
                         state.and_then(|state| state.strength_milli)
                     } else {

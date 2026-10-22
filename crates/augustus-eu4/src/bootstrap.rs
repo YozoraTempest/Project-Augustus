@@ -252,6 +252,8 @@ pub struct VanillaExternalArmy {
 #[serde(deny_unknown_fields)]
 pub struct VanillaExternalRegimentState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strength_milli: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub morale_milli: Option<i64>,
@@ -982,6 +984,7 @@ fn bind_external_units(
                         })
                         .transpose()?;
                     Ok(augustus_core::RegimentState {
+                        name: state.name.clone(),
                         strength_milli: state.strength_milli,
                         morale_milli: state.morale_milli,
                         home_province,
