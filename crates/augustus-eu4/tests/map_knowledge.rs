@@ -295,3 +295,90 @@ fn discover_province_effect_handles_literal_and_previous_scope_targets() {
             .contains("previous province scope")
     );
 }
+
+#[test]
+fn discover_country_effect_resolves_literal_root_previous_and_event_target_countries() {
+    let fixture = fixture();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    let beta = loaded.initial.country_entity("BBB").unwrap();
+    let east = loaded.initial.province_entity(2).unwrap();
+    let third = loaded.initial.province_entity(3).unwrap();
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let library = ScriptLibrary::new();
+    let compile = |name: &str, source: &str, scope| {
+        ScriptCompiler::new(&schema, &library, true).compile(
+            &TextDocument::from_bytes(name, source.as_bytes().to_vec(), TextEncoding::Utf8),
+            scope,
+        )
+    };
+
+    let literal = compile(
+        "literal-discover-country.txt",
+        "discover_country = BBB",
+        EntityKind::Province,
+    )
+    .unwrap();
+    let root = compile(
+        "root-discover-country.txt",
+        "3 = { discover_country = ROOT }",
+        EntityKind::Country,
+    )
+    .unwrap();
+    let previous = compile(
+        "previous-discover-country.txt",
+        "2 = { discover_country = PREV }",
+        EntityKind::Country,
+    )
+    .unwrap();
+    let event_target = ScriptCompiler::new(&schema, &library, true)
+        .with_global_scope_types([("observer".into(), EntityKind::Country)].into())
+        .compile(
+            &TextDocument::from_bytes(
+                "event-target-discover-country.txt",
+                b"BBB = { save_global_event_target_as = observer } 3 = { discover_country = event_target:observer }".to_vec(),
+                TextEncoding::Utf8,
+            ),
+            EntityKind::Country,
+        )
+        .unwrap();
+    let mut world = loaded.initial.world().clone();
+
+    world.execute(beta, &previous.plan).unwrap();
+    world.execute(alpha, &root.plan).unwrap();
+    world.execute(east, &literal.plan).unwrap();
+    world.execute(alpha, &event_target.plan).unwrap();
+
+    assert_eq!(
+        world.province_discovered_by(east, beta).unwrap(),
+        Some(true)
+    );
+    assert_eq!(
+        world.province_discovered_by(third, alpha).unwrap(),
+        Some(true)
+    );
+    assert_eq!(
+        world.province_discovered_by(third, beta).unwrap(),
+        Some(true)
+    );
+
+    let wrong_scope = compile(
+        "wrong-discover-country-scope.txt",
+        "discover_country = BBB",
+        EntityKind::Country,
+    )
+    .unwrap_err();
+    assert!(wrong_scope.to_string().contains("requires province scope"));
+
+    let invalid_previous = compile(
+        "invalid-discover-country-prev.txt",
+        "discover_country = PREV",
+        EntityKind::Province,
+    )
+    .unwrap_err();
+    assert!(
+        invalid_previous
+            .to_string()
+            .contains("previous country scope")
+    );
+}

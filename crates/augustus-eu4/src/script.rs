@@ -952,6 +952,20 @@ impl<'a> ScriptCompiler<'a> {
         Ok(augustus_core::EntityRef::Selected(selector))
     }
 
+    fn discovery_country_reference(
+        &self,
+        field: &Field,
+    ) -> Result<augustus_core::EntityRef, Error> {
+        if field.scalar()?.eq_ignore_ascii_case("PREV") {
+            if self.previous_scope_kind != Some(EntityKind::Country) {
+                return Err(field.error("discover_country PREV requires a previous country scope"));
+            }
+            Ok(augustus_core::EntityRef::Previous)
+        } else {
+            self.typed_country_reference(field)
+        }
+    }
+
     fn casus_belli_operands(
         &mut self,
         field: &Field,
@@ -1953,6 +1967,16 @@ impl<'a> ScriptCompiler<'a> {
                     plan.push(Action::SetProvinceDiscovery {
                         province: self.discovery_province_reference(field)?,
                         country: augustus_core::EntityRef::Relative(Target::Current),
+                        discovered: true,
+                    });
+                }
+                "discover_country" => {
+                    if scope != EntityKind::Province {
+                        return Err(field.error("discover_country requires province scope"));
+                    }
+                    plan.push(Action::SetProvinceDiscovery {
+                        province: augustus_core::EntityRef::Relative(Target::Current),
+                        country: self.discovery_country_reference(field)?,
                         discovered: true,
                     });
                 }
