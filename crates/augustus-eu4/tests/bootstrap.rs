@@ -18,9 +18,9 @@ use augustus_core::{
 };
 use augustus_eu4::{
     ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
-    VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalFleet,
-    VanillaExternalNavalUnit, VanillaExternalRegimentState, VanillaExternalShipState,
-    VanillaExternalState, VanillaWorld, read_vanilla_save_state,
+    VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalEu4RandomState,
+    VanillaExternalFleet, VanillaExternalNavalUnit, VanillaExternalRegimentState,
+    VanillaExternalShipState, VanillaExternalState, VanillaWorld, read_vanilla_save_state,
 };
 
 fn fixture() -> PathBuf {
@@ -1035,6 +1035,26 @@ fn loader_distinguishes_an_explicit_zero_seed_from_runtime_clock_mode() {
         0
     );
     assert_eq!(fixed_zero.initial.world().eu4_random_state().unwrap().0, 0);
+}
+
+#[test]
+fn saved_eu4_random_state_replaces_the_new_world_seed_and_count() {
+    let fixture = copy_fixture();
+    let external = VanillaExternalState {
+        eu4_random_state: Some(VanillaExternalEu4RandomState {
+            seed: 8_351_375,
+            count: 1_001,
+        }),
+        ..Default::default()
+    };
+    let loaded =
+        VanillaWorld::load_with_external_state(fixture.path(), "1444.11.11", &external).unwrap();
+
+    assert_eq!(
+        loaded.initial.world().eu4_random_state(),
+        Some((8_351_375, 1_001, 377))
+    );
+    assert_eq!(loaded.initial.world().eu4_event_seed(), Some(8_351_375));
 }
 
 #[test]

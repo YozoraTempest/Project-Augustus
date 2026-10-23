@@ -402,6 +402,14 @@ pub struct VanillaExternalPerson {
 pub type VanillaExternalCountryPersons =
     BTreeMap<String, BTreeMap<String, Option<VanillaExternalPerson>>>;
 
+/// Current EU4 random stream position translated from a save or provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalEu4RandomState {
+    pub seed: u32,
+    pub count: u32,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VanillaExternalState {
@@ -420,6 +428,9 @@ pub struct VanillaExternalState {
     /// roles keep their content-derived state; a present `None` clears a role.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub country_persons: VanillaExternalCountryPersons,
+    /// Saved EU4 seed and draw count, restored before startup effects execute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eu4_random_state: Option<VanillaExternalEu4RandomState>,
     /// Current administrative, diplomatic, and military levels supplied by a
     /// save reader. Omitted branches keep the content-derived level.
     #[serde(default)]
@@ -618,6 +629,7 @@ struct LoadOverrides<'a> {
     country_national_focus: Option<&'a BTreeMap<String, augustus_core::NationalFocus>>,
     country_capitals: Option<&'a BTreeMap<String, Option<u32>>>,
     country_persons: Option<&'a VanillaExternalCountryPersons>,
+    eu4_random_state: Option<VanillaExternalEu4RandomState>,
     country_technology_levels: Option<&'a BTreeMap<String, BTreeMap<String, u16>>>,
     country_technology_groups: Option<&'a BTreeMap<String, Option<String>>>,
     country_unit_types: Option<&'a BTreeMap<String, Option<String>>>,
@@ -680,6 +692,7 @@ impl<'a> LoadOverrides<'a> {
             country_capitals: (!state.country_capitals.is_empty())
                 .then_some(&state.country_capitals),
             country_persons: (!state.country_persons.is_empty()).then_some(&state.country_persons),
+            eu4_random_state: state.eu4_random_state,
             country_technology_levels: (!state.country_technology_levels.is_empty())
                 .then_some(&state.country_technology_levels),
             country_technology_groups: (!state.country_technology_groups.is_empty())
@@ -875,6 +888,9 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     base.country_capitals
         .extend(overlay.country_capitals.clone());
     overlay_nested_map(&mut base.country_persons, &overlay.country_persons);
+    if overlay.eu4_random_state.is_some() {
+        base.eu4_random_state = overlay.eu4_random_state;
+    }
     overlay_nested_map(
         &mut base.country_technology_levels,
         &overlay.country_technology_levels,
@@ -3223,6 +3239,9 @@ impl VanillaWorld {
                 .map_err(|e| Error::caused_by(root.path(), e))?;
         }
         initial.set_eu4_event_seed(fixed_seed);
+        if let Some(random_state) = overrides.eu4_random_state {
+            initial.set_eu4_random_state(random_state.seed, random_state.count);
+        }
         initial
             .set_calendar(Calendar {
                 start: report.start_date,

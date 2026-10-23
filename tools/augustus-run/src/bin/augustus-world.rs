@@ -31,7 +31,7 @@ struct Cli {
     /// With --eu4-save, fields in this bundle supplement the translated save state.
     #[arg(long, value_name = "FILE")]
     external_state: Option<PathBuf>,
-    /// EU4 save whose supported state is translated before startup. Use --eu4-token-map for EU4bin.
+    /// EU4 save whose supported state and random stream are restored before startup. Use --eu4-token-map for EU4bin.
     #[arg(
         long = "eu4-save",
         value_name = "FILE",
@@ -46,7 +46,7 @@ struct Cli {
     export_external_state: Option<PathBuf>,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
-    /// Explicit EU4 command-line seed; omitted seeds use the runtime clock for local AI event choices.
+    /// Explicit seed for a new world; EU4 saves carry their own random state.
     #[arg(long, value_parser = parse_eu4_seed, allow_negative_numbers = true)]
     seed: Option<u32>,
     /// Advance calendar days and execute selected monthly and yearly systems.

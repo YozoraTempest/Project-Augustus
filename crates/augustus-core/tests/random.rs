@@ -1,4 +1,4 @@
-use augustus_core::{Schema, World};
+use augustus_core::{InitialWorld, Schema, World};
 
 #[test]
 fn eu4_world_snapshot_restores_seed_and_stream_position() {
@@ -47,6 +47,18 @@ fn eu4_world_rebuilds_a_saved_seed_and_count() {
     assert_eq!(world.eu4_random_state(), Some((8_351_375, 1_001, 377)));
     assert_eq!(world.draw_random_u32(), 312_438_070);
     assert_eq!(world.eu4_random_state(), Some((8_351_375, 1_002, 378)));
+}
+
+#[test]
+fn initial_world_can_restore_a_saved_eu4_random_state() {
+    let mut initial = InitialWorld::new(Vec::new(), Vec::new()).unwrap();
+    initial.set_eu4_random_state(8_351_375, 1_001);
+
+    assert_eq!(
+        initial.world().eu4_random_state(),
+        Some((8_351_375, 1_001, 377))
+    );
+    assert_eq!(initial.world().eu4_event_seed(), Some(8_351_375));
 }
 
 #[test]

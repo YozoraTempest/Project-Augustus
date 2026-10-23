@@ -94,6 +94,8 @@ godot --path godot -- --game-root "/path/to/Europa Universalis IV" --date 1444.1
 
 ## 日期、月结与存档
 
+`--eu4-save` 会恢复存档中的 `multiplayer_random_seed` 和 `multiplayer_random_count`，并在启动脚本运行前重建随机流。它与 `--seed` 互斥；新开局使用 `--seed` 指定种子。
+
 载入后默认暂停。可以点击“推进一天”“至下月”，或点击“运行”连续推进、“暂停”停止。“保存”“读取”使用 Godot 用户数据目录中的 `augustus-world.json`，不修改原版安装或原版存档。保存会替换这个项目存档；读取后保持暂停。
 
 命令行可以推进日期，在中途保存并继续：

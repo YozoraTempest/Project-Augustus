@@ -275,6 +275,11 @@ impl InitialWorld {
         self.world.set_eu4_event_seed(seed);
     }
 
+    pub fn set_eu4_random_state(&mut self, seed: u32, count: u32) {
+        self.world.eu4_random = Some(crate::rng::Eu4Rng::from_saved_count(seed, count));
+        self.world.eu4_event_seed = Some(seed);
+    }
+
     pub fn set_politics(&mut self, politics: Politics) -> Result<(), Error> {
         self.world.set_politics(politics)
     }

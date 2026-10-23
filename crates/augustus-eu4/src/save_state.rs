@@ -18,9 +18,10 @@ use serde::Serialize;
 
 use crate::administration_validation::{SaveTokenResolver, read_eu4_save_documents};
 use crate::bootstrap::{
-    VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalFleet,
-    VanillaExternalNavalUnit, VanillaExternalPerson, VanillaExternalProvinceDevelopment,
-    VanillaExternalRegimentState, VanillaExternalShipState, VanillaExternalState, VanillaWorld,
+    VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState,
+    VanillaExternalEu4RandomState, VanillaExternalFleet, VanillaExternalNavalUnit,
+    VanillaExternalPerson, VanillaExternalProvinceDevelopment, VanillaExternalRegimentState,
+    VanillaExternalShipState, VanillaExternalState, VanillaWorld,
 };
 use crate::{Error, ParsedText, TextEncoding};
 
@@ -139,7 +140,10 @@ impl VanillaSaveState {
         &self,
         world: &VanillaWorld,
     ) -> Result<(BTreeSet<String>, VanillaExternalState), Error> {
-        let mut state = VanillaExternalState::default();
+        let mut state = VanillaExternalState {
+            eu4_random_state: self.external_state.eu4_random_state,
+            ..Default::default()
+        };
         let countries: BTreeSet<_> = world
             .initial
             .countries()
@@ -787,6 +791,7 @@ fn read_vanilla_save_state_inner(
     let current_date =
         date_key(&date).ok_or_else(|| Error::message(parsed.source(), "invalid save date"))?;
     let save_date = Date::parse(&date).map_err(|error| Error::caused_by(parsed.source(), error))?;
+    let eu4_random_state = saved_eu4_random_state(&parsed, &root)?;
     let player = match optional_scalar(&parsed, &root, "player")? {
         Some(player) => Some(player),
         None => metadata
@@ -835,7 +840,10 @@ fn read_vanilla_save_state_inner(
         ));
     }
 
-    let mut external_state = VanillaExternalState::default();
+    let mut external_state = VanillaExternalState {
+        eu4_random_state,
+        ..Default::default()
+    };
     if let Some(emperor) = saved_emperor {
         external_state
             .political_office_holders
@@ -1886,6 +1894,29 @@ fn scalar(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<String, Erro
         .map_err(|error| Error::caused_by(parsed.source(), error))
 }
 
+fn saved_eu4_random_state(
+    parsed: &ParsedText<'_>,
+    root: &Object<'_, '_>,
+) -> Result<Option<VanillaExternalEu4RandomState>, Error> {
+    let seed = optional_scalar(parsed, root, "multiplayer_random_seed")?;
+    let count = optional_scalar(parsed, root, "multiplayer_random_count")?;
+    match (seed, count) {
+        (Some(seed), Some(count)) => Ok(Some(VanillaExternalEu4RandomState {
+            seed: seed
+                .parse()
+                .map_err(|error| Error::caused_by(parsed.source(), error))?,
+            count: count
+                .parse()
+                .map_err(|error| Error::caused_by(parsed.source(), error))?,
+        })),
+        (None, None) => Ok(None),
+        _ => Err(Error::message(
+            parsed.source(),
+            "saved EU4 random state requires both multiplayer_random_seed and multiplayer_random_count",
+        )),
+    }
+}
+
 fn saved_person_id(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<SavedPersonId, Error> {
     let person = object(parsed, value)?;
     let id = optional_field(parsed, &person, "id")?
@@ -2566,8 +2597,8 @@ mod tests {
         read_vanilla_save_state_with_token_map,
     };
     use crate::{
-        ContentRoot, ContentSet, ContentSource, VanillaExternalProvinceDevelopment,
-        VanillaExternalState, VanillaWorld,
+        ContentRoot, ContentSet, ContentSource, VanillaExternalEu4RandomState,
+        VanillaExternalProvinceDevelopment, VanillaExternalState, VanillaWorld,
     };
     use augustus_core::CountryRelationState;
     use jomini::{
@@ -2838,6 +2869,40 @@ provinces={}
         );
         assert!(save.external_state.country_persons["BBB"]["heir"].is_none());
         assert!(save.external_state.country_persons["BBB"]["consort"].is_none());
+    }
+
+    #[test]
+    fn saved_eu4_random_state_reads_seed_and_draw_count() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("random.eu4");
+        std::fs::write(
+            &save_path,
+            "EU4txt\ndate=1444.11.11\nmultiplayer_random_seed=8351375\nmultiplayer_random_count=341520\ncountries={}\nprovinces={}\n",
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert_eq!(
+            save.external_state.eu4_random_state,
+            Some(VanillaExternalEu4RandomState {
+                seed: 8_351_375,
+                count: 341_520,
+            })
+        );
+    }
+
+    #[test]
+    fn partial_saved_eu4_random_state_is_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("partial-random.eu4");
+        std::fs::write(
+            &save_path,
+            "EU4txt\ndate=1444.11.11\nmultiplayer_random_seed=8351375\ncountries={}\nprovinces={}\n",
+        )
+        .unwrap();
+
+        let error = read_vanilla_save_state(&save_path).unwrap_err();
+        assert!(error.to_string().contains("requires both"));
     }
 
     #[test]
