@@ -16,6 +16,7 @@ mod cashflows;
 mod completions;
 mod control;
 mod convergence;
+mod country_values;
 mod daily;
 mod economy;
 mod estate_actions;
@@ -84,6 +85,7 @@ pub use control::CountryController;
 pub use convergence::{
     ConvergenceAccount, ConvergenceRule, ConvergenceSettlement, MonthlyConvergence,
 };
+pub use country_values::{CountryValueIndexEntry, CountryValueTable};
 pub use daily::{
     DailyEventCandidate, DailyEventCountry, DailyEventGroup, DailyEventGroupMode, DailyEventRules,
     DailyEventSchedule, DailySystem, ScheduledDailyEventCountry, ScheduledDailyEventGroup,
