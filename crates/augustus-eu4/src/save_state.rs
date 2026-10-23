@@ -11,6 +11,7 @@ use augustus_core::{CountryRelationState, CountryResources, IdeaState, NationalF
 use jomini::{
     TextToken,
     binary::TokenResolver,
+    common::Date,
     text::{Operator, ValueReader},
 };
 use serde::Serialize;
@@ -18,13 +19,14 @@ use serde::Serialize;
 use crate::administration_validation::{SaveTokenResolver, read_eu4_save_documents};
 use crate::bootstrap::{
     VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalFleet,
-    VanillaExternalNavalUnit, VanillaExternalProvinceDevelopment, VanillaExternalRegimentState,
-    VanillaExternalShipState, VanillaExternalState, VanillaWorld,
+    VanillaExternalNavalUnit, VanillaExternalPerson, VanillaExternalProvinceDevelopment,
+    VanillaExternalRegimentState, VanillaExternalShipState, VanillaExternalState, VanillaWorld,
 };
 use crate::{Error, ParsedText, TextEncoding};
 
 type Object<'a, 'b> = jomini::text::ObjectReader<'a, 'b, TextEncoding>;
 type Field<'a, 'b> = ValueReader<'a, 'b, TextEncoding>;
+type SavedPersonId = (String, String);
 
 /// State translated from a player-provided EU4 save.
 ///
@@ -181,6 +183,34 @@ impl VanillaSaveState {
                 state
                     .country_national_focus
                     .insert((*country).into(), *focus);
+            }
+            if let Some(persons) = self.external_state.country_persons.get(*country) {
+                let mut filtered = BTreeMap::new();
+                for (role, person) in persons {
+                    if !matches!(role.as_str(), "ruler" | "heir" | "consort") {
+                        return Err(Error::message(
+                            "save state",
+                            format!(
+                                "country {country} has an unsupported saved person role {role}"
+                            ),
+                        ));
+                    }
+                    if let Some(person) = person
+                        && let Some(origin) = &person.country_of_origin
+                        && !countries.contains(origin.as_str())
+                    {
+                        return Err(Error::message(
+                            "save state",
+                            format!(
+                                "country {country} {role} references unknown origin country {origin}"
+                            ),
+                        ));
+                    }
+                    filtered.insert(role.clone(), person.clone());
+                }
+                if !filtered.is_empty() {
+                    state.country_persons.insert((*country).into(), filtered);
+                }
             }
             if let Some(capital) = self.external_state.country_capitals.get(*country).copied()
                 && (capital.is_none()
@@ -756,6 +786,7 @@ fn read_vanilla_save_state_inner(
     };
     let current_date =
         date_key(&date).ok_or_else(|| Error::message(parsed.source(), "invalid save date"))?;
+    let save_date = Date::parse(&date).map_err(|error| Error::caused_by(parsed.source(), error))?;
     let player = match optional_scalar(&parsed, &root, "player")? {
         Some(player) => Some(player),
         None => metadata
@@ -876,6 +907,10 @@ fn read_vanilla_save_state_inner(
             continue;
         }
         let country = object(&parsed, &value)?;
+        let persons = saved_country_persons(&parsed, &country, &save_date)?;
+        if !persons.is_empty() {
+            external_state.country_persons.insert(tag.clone(), persons);
+        }
         if let Some(electors) = &saved_electors {
             external_state
                 .country_statuses
@@ -1851,6 +1886,159 @@ fn scalar(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<String, Erro
         .map_err(|error| Error::caused_by(parsed.source(), error))
 }
 
+fn saved_person_id(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<SavedPersonId, Error> {
+    let person = object(parsed, value)?;
+    let id = optional_field(parsed, &person, "id")?
+        .ok_or_else(|| Error::message(parsed.source(), "saved person has no identifier"))?;
+    let (id, kind) = if matches!(id.token(), TextToken::Object { .. }) {
+        let identifier = object(parsed, &id)?;
+        let id = optional_scalar(parsed, &identifier, "id")?
+            .ok_or_else(|| Error::message(parsed.source(), "saved person id has no value"))?;
+        let kind = optional_scalar(parsed, &identifier, "type")?
+            .ok_or_else(|| Error::message(parsed.source(), "saved person id has no type"))?;
+        (id, kind)
+    } else {
+        let id = scalar(parsed, &id)?;
+        let kind = optional_scalar(parsed, &person, "type")?
+            .ok_or_else(|| Error::message(parsed.source(), "saved person has no id type"))?;
+        (id, kind)
+    };
+    if id.is_empty() || kind.is_empty() {
+        return Err(Error::message(
+            parsed.source(),
+            "saved person has an empty id",
+        ));
+    }
+    Ok((id, kind))
+}
+
+fn saved_person_role(name: &str) -> Option<&'static str> {
+    match name {
+        "monarch" => Some("ruler"),
+        "heir" => Some("heir"),
+        "queen" | "monarch_consort" => Some("consort"),
+        _ => None,
+    }
+}
+
+const CURRENT_SAVED_PERSON_ROLES: [&str; 3] = ["ruler", "heir", "consort"];
+
+fn saved_country_person_roles(
+    references: &BTreeMap<String, SavedPersonId>,
+    saved_people: &BTreeMap<SavedPersonId, VanillaExternalPerson>,
+) -> BTreeMap<String, Option<VanillaExternalPerson>> {
+    CURRENT_SAVED_PERSON_ROLES
+        .into_iter()
+        .map(|role| {
+            let person = references.get(role).map(|id| {
+                saved_people
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_else(|| VanillaExternalPerson {
+                        state: augustus_core::PersonState::default(),
+                        country_of_origin: None,
+                    })
+            });
+            (role.to_owned(), person)
+        })
+        .collect()
+}
+
+fn saved_country_persons(
+    parsed: &ParsedText<'_>,
+    country: &Object<'_, '_>,
+    save_date: &Date,
+) -> Result<BTreeMap<String, Option<VanillaExternalPerson>>, Error> {
+    let mut references = BTreeMap::new();
+    for (field, role) in [
+        ("monarch", "ruler"),
+        ("heir", "heir"),
+        ("queen", "consort"),
+        ("monarch_consort", "consort"),
+    ] {
+        for (key, op, value) in country
+            .fields()
+            .filter(|(key, _, _)| key.read_string() == field)
+        {
+            if op.is_some_and(|operator| operator != Operator::Equal) {
+                return Err(Error::message(
+                    parsed.source(),
+                    "invalid saved current person reference",
+                )
+                .with_location(parsed.field_location(&key)));
+            }
+            let id = saved_person_id(parsed, &value)?;
+            if let Some(previous) = references.insert(role.to_owned(), id.clone())
+                && previous != id
+            {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("country has conflicting saved {role} references"),
+                ));
+            }
+        }
+    }
+    if references.is_empty() {
+        return Ok(saved_country_person_roles(&references, &BTreeMap::new()));
+    }
+
+    let Some(history) = optional_object(parsed, country, "history")? else {
+        return Ok(saved_country_person_roles(&references, &BTreeMap::new()));
+    };
+
+    let wanted: BTreeSet<_> = references.values().cloned().collect();
+    let mut history_blocks = vec![(None, history.clone())];
+    for (key, op, value) in history.fields() {
+        let name = key.read_string();
+        if !crate::bootstrap::dated_name(&name) {
+            continue;
+        }
+        if op.is_some_and(|operator| operator != Operator::Equal) {
+            return Err(
+                Error::message(parsed.source(), "invalid saved country history date")
+                    .with_location(parsed.field_location(&key)),
+            );
+        }
+        let date = Date::parse(&name).map_err(|error| Error::caused_by(parsed.source(), error))?;
+        if &date <= save_date {
+            history_blocks.push((Some(date), object(parsed, &value)?));
+        }
+    }
+    history_blocks.sort_by_key(|(date, _)| *date);
+
+    let mut saved_people = BTreeMap::new();
+    for (_, block) in history_blocks {
+        for (key, op, value) in block.fields() {
+            let name = key.read_string();
+            let Some(role) = saved_person_role(&name) else {
+                continue;
+            };
+            if op.is_some_and(|operator| operator != Operator::Equal) {
+                return Err(
+                    Error::message(parsed.source(), "invalid saved person history")
+                        .with_location(parsed.field_location(&key)),
+                );
+            }
+            let id = saved_person_id(parsed, &value)?;
+            if !wanted.contains(&id) {
+                continue;
+            }
+            let location = parsed.field_location(&key);
+            let draft = crate::politics::saved_person(parsed, value, role, location)?;
+            let (state, country_of_origin) = draft.into_saved_parts();
+            saved_people.insert(
+                id,
+                VanillaExternalPerson {
+                    state,
+                    country_of_origin,
+                },
+            );
+        }
+    }
+
+    Ok(saved_country_person_roles(&references, &saved_people))
+}
+
 fn saved_country_relation_states(
     parsed: &ParsedText<'_>,
     country: &Object<'_, '_>,
@@ -2589,6 +2777,67 @@ provinces={}
                 .political_office_holders
                 .contains_key("imperial_emperor")
         );
+    }
+
+    #[test]
+    fn saved_current_person_references_resolve_from_dated_country_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("people.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1445.1.1
+countries={
+    AAA={
+        monarch={id=7457 type=48}
+        heir={id=7458 type=48}
+        queen={id=7459 type=48}
+        history={
+            1444.11.11={
+                monarch={id={id=7457 type=48} name="Saved Ruler" ADM=4 DIP=5 MIL=6 birth_date=1420.1.1}
+                heir={id={id=7458 type=48} name="Saved Heir" ADM=2 DIP=3 MIL=4 birth_date=1430.1.1 claim=0.750}
+                queen={id={id=7459 type=48} name="Saved Consort" birth_date=1425.1.1 country_of_origin=BBB}
+            }
+            1445.2.1={
+                monarch={id={id=7457 type=48} name="Future Ruler" ADM=6 DIP=6 MIL=6 birth_date=1420.1.1}
+            }
+        }
+    }
+    BBB={ monarch={id=9999 type=48} }
+}
+provinces={}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        let people = &save.external_state.country_persons["AAA"];
+        let ruler = people["ruler"].as_ref().unwrap();
+        assert_eq!(ruler.state.name.as_deref(), Some("Saved Ruler"));
+        assert_eq!(
+            (
+                ruler.state.administration,
+                ruler.state.diplomacy,
+                ruler.state.military
+            ),
+            (Some(4), Some(5), Some(6))
+        );
+        let heir = people["heir"].as_ref().unwrap();
+        assert_eq!(heir.state.name.as_deref(), Some("Saved Heir"));
+        assert_eq!(heir.state.claim_milli, Some(750));
+        let consort = people["consort"].as_ref().unwrap();
+        assert_eq!(consort.state.name.as_deref(), Some("Saved Consort"));
+        assert_eq!(consort.country_of_origin.as_deref(), Some("BBB"));
+
+        assert_eq!(
+            save.external_state.country_persons["BBB"]["ruler"]
+                .as_ref()
+                .unwrap()
+                .state,
+            augustus_core::PersonState::default()
+        );
+        assert!(save.external_state.country_persons["BBB"]["heir"].is_none());
+        assert!(save.external_state.country_persons["BBB"]["consort"].is_none());
     }
 
     #[test]

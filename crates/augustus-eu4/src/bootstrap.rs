@@ -390,6 +390,18 @@ pub struct VanillaWorld {
 /// EU4 tags and province identifiers stay at the compatibility boundary. The
 /// shared core receives only the already translated numeric state and keeps
 /// omitted values unresolved.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaExternalPerson {
+    pub state: augustus_core::PersonState,
+    /// EU4 country tag for a person's origin, resolved to an entity when bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country_of_origin: Option<String>,
+}
+
+pub type VanillaExternalCountryPersons =
+    BTreeMap<String, BTreeMap<String, Option<VanillaExternalPerson>>>;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VanillaExternalState {
@@ -404,6 +416,10 @@ pub struct VanillaExternalState {
     /// records a country with no capital; an omitted country keeps history.
     #[serde(default)]
     pub country_capitals: BTreeMap<String, Option<u32>>,
+    /// Current ruler, heir, or consort supplied by a save reader. Missing
+    /// roles keep their content-derived state; a present `None` clears a role.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub country_persons: VanillaExternalCountryPersons,
     /// Current administrative, diplomatic, and military levels supplied by a
     /// save reader. Omitted branches keep the content-derived level.
     #[serde(default)]
@@ -601,6 +617,7 @@ struct LoadOverrides<'a> {
     country_metric_values: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_national_focus: Option<&'a BTreeMap<String, augustus_core::NationalFocus>>,
     country_capitals: Option<&'a BTreeMap<String, Option<u32>>>,
+    country_persons: Option<&'a VanillaExternalCountryPersons>,
     country_technology_levels: Option<&'a BTreeMap<String, BTreeMap<String, u16>>>,
     country_technology_groups: Option<&'a BTreeMap<String, Option<String>>>,
     country_unit_types: Option<&'a BTreeMap<String, Option<String>>>,
@@ -662,6 +679,7 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_national_focus),
             country_capitals: (!state.country_capitals.is_empty())
                 .then_some(&state.country_capitals),
+            country_persons: (!state.country_persons.is_empty()).then_some(&state.country_persons),
             country_technology_levels: (!state.country_technology_levels.is_empty())
                 .then_some(&state.country_technology_levels),
             country_technology_groups: (!state.country_technology_groups.is_empty())
@@ -856,6 +874,7 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.country_national_focus.clone());
     base.country_capitals
         .extend(overlay.country_capitals.clone());
+    overlay_nested_map(&mut base.country_persons, &overlay.country_persons);
     overlay_nested_map(
         &mut base.country_technology_levels,
         &overlay.country_technology_levels,
@@ -1573,6 +1592,57 @@ fn bind_external_national_focus(
     initial
         .set_politics(politics)
         .map_err(|e| Error::caused_by("external national focus", e))
+}
+
+fn bind_external_country_persons(
+    initial: &mut InitialWorld,
+    values: Option<&VanillaExternalCountryPersons>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut politics = initial.world().politics().clone();
+    for (country, persons) in values {
+        let entity = initial.country_entity(country).ok_or_else(|| {
+            Error::message(
+                "external country persons",
+                format!("unknown country {country}"),
+            )
+        })?;
+        let state = politics.countries.entry(entity).or_default();
+        for (role, person) in persons {
+            let destination = match role.as_str() {
+                "ruler" => &mut state.ruler,
+                "heir" => &mut state.heir,
+                "consort" => &mut state.consort,
+                _ => {
+                    return Err(Error::message(
+                        "external country persons",
+                        format!("unknown person role {role} for {country}"),
+                    ));
+                }
+            };
+            *destination = person
+                .as_ref()
+                .map(|external_person| {
+                    let mut person = external_person.state.clone();
+                    if let Some(origin) = &external_person.country_of_origin {
+                        let origin_entity = initial.country_entity(origin).ok_or_else(|| {
+                            Error::message(
+                                "external country persons",
+                                format!("unknown origin country {origin} for {country} {role}"),
+                            )
+                        })?;
+                        person.country_of_origin = Some(origin_entity);
+                    }
+                    Ok(person)
+                })
+                .transpose()?;
+        }
+    }
+    initial
+        .set_politics(politics)
+        .map_err(|error| Error::caused_by("external country persons", error))
 }
 
 fn bind_external_trade_good_prices(
@@ -3579,6 +3649,7 @@ impl VanillaWorld {
         initial
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        bind_external_country_persons(&mut initial, overrides.country_persons)?;
         bind_external_political_office_holders(&mut initial, overrides.political_office_holders)?;
         bind_external_country_statuses(&mut initial, overrides.country_statuses)?;
         bind_external_country_relation_states(&mut initial, overrides.country_relation_states)?;
@@ -4042,6 +4113,7 @@ impl VanillaWorld {
             )?;
             bind_external_province_in_empire(&mut initial, overrides.province_in_empire)?;
         }
+        bind_external_country_persons(&mut initial, overrides.country_persons)?;
         bind_external_political_office_holders(&mut initial, overrides.political_office_holders)?;
         bind_external_country_statuses(&mut initial, overrides.country_statuses)?;
         bind_external_country_relation_states(&mut initial, overrides.country_relation_states)?;

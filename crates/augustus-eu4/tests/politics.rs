@@ -310,6 +310,119 @@ provinces={}
 }
 
 #[test]
+fn saved_current_people_override_content_history_and_resolve_country_origins() {
+    let temp = copy_fixture();
+    let save_directory = tempfile::tempdir().unwrap();
+    let save_path = save_directory.path().join("people.eu4");
+    fs::write(
+        &save_path,
+        r#"EU4txt
+date=1445.1.1
+countries={
+    AAA={
+        monarch={id=7457 type=48}
+        heir={id=7458 type=48}
+        queen={id=7459 type=48}
+        history={
+            1444.11.11={
+                monarch={id={id=7457 type=48} name="Saved Ruler" ADM=4 DIP=5 MIL=6 birth_date=1420.1.1}
+                heir={id={id=7458 type=48} name="Saved Heir" ADM=2 DIP=3 MIL=4 birth_date=1430.1.1}
+                queen={id={id=7459 type=48} name="Saved Consort" birth_date=1425.1.1 country_of_origin=BBB}
+            }
+        }
+    }
+    BBB={ monarch={id=9999 type=48} }
+}
+provinces={}
+"#,
+    )
+    .unwrap();
+
+    let save = read_vanilla_save_state(&save_path).unwrap();
+    let content = VanillaWorld::load(temp.path(), &save.date).unwrap();
+    let external_state = save.state_for_world(&content).unwrap();
+    let loaded =
+        VanillaWorld::load_with_external_state(temp.path(), &save.date, &external_state).unwrap();
+    let world = loaded.initial.world();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    let beta = loaded.initial.country_entity("BBB").unwrap();
+    let politics = &world.politics().countries;
+
+    let ruler = politics[&alpha].ruler.as_ref().unwrap();
+    assert_eq!(ruler.name.as_deref(), Some("Saved Ruler"));
+    assert_eq!(
+        (ruler.administration, ruler.diplomacy, ruler.military),
+        (Some(4), Some(5), Some(6))
+    );
+    assert_eq!(
+        politics[&alpha].heir.as_ref().unwrap().name.as_deref(),
+        Some("Saved Heir")
+    );
+    assert_eq!(
+        politics[&alpha].consort.as_ref().unwrap().country_of_origin,
+        Some(beta)
+    );
+    assert_eq!(
+        politics[&beta].ruler,
+        Some(augustus_core::PersonState::default())
+    );
+}
+
+#[test]
+fn missing_saved_current_people_clear_content_history() {
+    let temp = copy_fixture();
+    let save_directory = tempfile::tempdir().unwrap();
+    let save_path = save_directory.path().join("people.eu4");
+    fs::write(
+        &save_path,
+        r#"EU4txt
+date=1444.11.11
+countries={
+    AAA={
+        monarch={id=7457 type=48}
+        history={
+            1444.11.11={
+                monarch={id={id=7457 type=48} name="Saved Ruler" ADM=4 DIP=5 MIL=6 birth_date=1420.1.1}
+            }
+        }
+    }
+}
+provinces={}
+"#,
+    )
+    .unwrap();
+
+    let save = read_vanilla_save_state(&save_path).unwrap();
+    let content = VanillaWorld::load(temp.path(), &save.date).unwrap();
+    let alpha = content.initial.country_entity("AAA").unwrap();
+    assert!(
+        content.initial.world().politics().countries[&alpha]
+            .heir
+            .is_some()
+    );
+    assert!(
+        content.initial.world().politics().countries[&alpha]
+            .consort
+            .is_some()
+    );
+
+    let external_state = save.state_for_world(&content).unwrap();
+    assert!(external_state.country_persons["AAA"]["heir"].is_none());
+    assert!(external_state.country_persons["AAA"]["consort"].is_none());
+    let loaded =
+        VanillaWorld::load_with_external_state(temp.path(), &save.date, &external_state).unwrap();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    let politics = &loaded.initial.world().politics().countries[&alpha];
+
+    assert_eq!(
+        politics.ruler.as_ref().unwrap().name.as_deref(),
+        Some("Saved Ruler")
+    );
+    assert!(politics.heir.is_none());
+    assert!(politics.consort.is_none());
+}
+
+#[test]
 fn nested_elector_effects_in_country_history_leave_the_status_unknown() {
     let temp = copy_fixture();
     let country_history = temp.path().join("history/countries/AAA - Alpha.txt");

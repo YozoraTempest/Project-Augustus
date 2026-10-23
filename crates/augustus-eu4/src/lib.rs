@@ -109,11 +109,11 @@ pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView,
     VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
     VanillaContentProductionValueInput, VanillaExternalAdvisor, VanillaExternalArmy,
-    VanillaExternalCountryMarkers, VanillaExternalCountryStatuses, VanillaExternalEstateState,
-    VanillaExternalEstateStates, VanillaExternalFleet, VanillaExternalNavalUnit,
-    VanillaExternalProductionInput, VanillaExternalProvinceDevelopment,
-    VanillaExternalRegimentState, VanillaExternalShipState, VanillaExternalState,
-    VanillaProvinceProductionBaseValueInput, VanillaWorld,
+    VanillaExternalCountryMarkers, VanillaExternalCountryPersons, VanillaExternalCountryStatuses,
+    VanillaExternalEstateState, VanillaExternalEstateStates, VanillaExternalFleet,
+    VanillaExternalNavalUnit, VanillaExternalPerson, VanillaExternalProductionInput,
+    VanillaExternalProvinceDevelopment, VanillaExternalRegimentState, VanillaExternalShipState,
+    VanillaExternalState, VanillaProvinceProductionBaseValueInput, VanillaWorld,
 };
 pub use casus_belli::{CasusBelliReport, CasusBelliType, CasusBelliTypes};
 pub use content::{ContentRoot, ContentView, FileEntry};

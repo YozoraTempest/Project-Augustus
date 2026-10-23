@@ -23,6 +23,12 @@ pub(super) struct PersonDraft {
     source: Option<LoadedSource>,
 }
 
+impl PersonDraft {
+    pub(super) fn into_saved_parts(self) -> (PersonState, Option<String>) {
+        (self.state, self.origin)
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct CountryDraft {
     pub national_focus: Option<augustus_core::NationalFocus>,
@@ -123,6 +129,25 @@ pub(super) fn person(
     location: SourceLocation,
     report: &mut BootstrapReport,
 ) -> Result<PersonDraft, Error> {
+    parse_person(parsed, value, kind, location, Some(report))
+}
+
+pub(super) fn saved_person(
+    parsed: &ParsedText<'_>,
+    value: ValueReader<'_, '_, TextEncoding>,
+    kind: &str,
+    location: SourceLocation,
+) -> Result<PersonDraft, Error> {
+    parse_person(parsed, value, kind, location, None)
+}
+
+fn parse_person(
+    parsed: &ParsedText<'_>,
+    value: ValueReader<'_, '_, TextEncoding>,
+    kind: &str,
+    location: SourceLocation,
+    mut report: Option<&mut BootstrapReport>,
+) -> Result<PersonDraft, Error> {
     let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
     let reader = value
         .read_object()
@@ -162,7 +187,9 @@ pub(super) fn person(
                 | "regent"
                 | "block_disinherit"
         ) {
-            unknown(parsed, format!("{kind}.{name}"), location, report, false);
+            if let Some(report) = report.as_deref_mut() {
+                unknown(parsed, format!("{kind}.{name}"), location, report, false);
+            }
             continue;
         }
         equal(op, &fail)?;
