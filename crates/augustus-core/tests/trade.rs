@@ -8,17 +8,19 @@ use augustus_core::{
     VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput,
     VanillaTradeIncomePassInput, VanillaTradeNodePassInput, VanillaTradeNodeRouteInput,
     VanillaTradeOutflowInput, VanillaTradePowerAmountInput, VanillaTradePowerModifierInput,
-    VanillaTradePropagationInput, VanillaTradeRetentionInput,
-    VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
-    VanillaTradeRetentionPoolsInput, VanillaTradeRouteWeightContributionInput,
-    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightPassInput,
-    VanillaTradeSteeringEligibilityInput, VanillaTradeSteeringModifierInput,
-    calculate_vanilla_trade_caravan, calculate_vanilla_trade_country_power_share,
-    calculate_vanilla_trade_distribution, calculate_vanilla_trade_income,
-    calculate_vanilla_trade_income_pass, calculate_vanilla_trade_node_pass,
-    calculate_vanilla_trade_outflow, calculate_vanilla_trade_power_amount,
-    calculate_vanilla_trade_power_modifier, calculate_vanilla_trade_propagation,
-    calculate_vanilla_trade_retention, calculate_vanilla_trade_retention_from_pools,
+    VanillaTradePropagationInput, VanillaTradeRetentionContributionRowInput,
+    VanillaTradeRetentionInput, VanillaTradeRetentionParticipantInput,
+    VanillaTradeRetentionPassInput, VanillaTradeRetentionPoolsInput,
+    VanillaTradeRetentionSequenceEntryInput, VanillaTradeRetentionSourcesInput,
+    VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightInput,
+    VanillaTradeRouteWeightPassInput, VanillaTradeSteeringEligibilityInput,
+    VanillaTradeSteeringModifierInput, calculate_vanilla_trade_caravan,
+    calculate_vanilla_trade_country_power_share, calculate_vanilla_trade_distribution,
+    calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
+    calculate_vanilla_trade_node_pass, calculate_vanilla_trade_outflow,
+    calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
+    calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
+    calculate_vanilla_trade_retention_from_pools, calculate_vanilla_trade_retention_from_sources,
     calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weight_pass,
     calculate_vanilla_trade_route_weights, calculate_vanilla_trade_steering_modifier,
     is_vanilla_trade_collector, is_vanilla_trade_steering_eligible,
@@ -681,6 +683,80 @@ fn trade_retention_pass_aggregates_only_valid_participating_records() {
     assert_eq!(result.transferred_amount_milli, 800);
     assert_eq!(result.retention.transfer_ratio_milli, 400);
     assert_eq!(result.retention.retention_milli, 600);
+}
+
+#[test]
+fn retention_sources_scale_transfer_rows_and_keep_the_other_pool_separate() {
+    let result =
+        calculate_vanilla_trade_retention_from_sources(VanillaTradeRetentionSourcesInput {
+            transfer_rows: vec![
+                VanillaTradeRetentionContributionRowInput {
+                    reference_valid: true,
+                    transfer_eligible: true,
+                    contribution_base_milli: 100,
+                    contribution_limit_milli: 80,
+                    contribution_scale_milli: 500,
+                    previous_amount_milli: 10,
+                    current_amount_milli: 20,
+                },
+                VanillaTradeRetentionContributionRowInput {
+                    reference_valid: true,
+                    transfer_eligible: true,
+                    contribution_base_milli: 100,
+                    contribution_limit_milli: 20,
+                    contribution_scale_milli: 1_000,
+                    previous_amount_milli: 0,
+                    current_amount_milli: 3,
+                },
+                VanillaTradeRetentionContributionRowInput {
+                    reference_valid: true,
+                    transfer_eligible: true,
+                    contribution_base_milli: 10,
+                    contribution_limit_milli: 10,
+                    contribution_scale_milli: 1_000,
+                    previous_amount_milli: 5,
+                    current_amount_milli: -5,
+                },
+                VanillaTradeRetentionContributionRowInput {
+                    reference_valid: false,
+                    transfer_eligible: true,
+                    contribution_base_milli: 1_000,
+                    contribution_limit_milli: 1_000,
+                    contribution_scale_milli: 1_000,
+                    previous_amount_milli: 0,
+                    current_amount_milli: 1,
+                },
+                VanillaTradeRetentionContributionRowInput {
+                    reference_valid: true,
+                    transfer_eligible: false,
+                    contribution_base_milli: 1_000,
+                    contribution_limit_milli: 1_000,
+                    contribution_scale_milli: 1_000,
+                    previous_amount_milli: 0,
+                    current_amount_milli: 1,
+                },
+            ],
+            other_pool_entries: vec![
+                VanillaTradeRetentionSequenceEntryInput {
+                    included_in_other_pool: true,
+                    amount_milli: 900,
+                },
+                VanillaTradeRetentionSequenceEntryInput {
+                    included_in_other_pool: false,
+                    amount_milli: 10_000,
+                },
+                VanillaTradeRetentionSequenceEntryInput {
+                    included_in_other_pool: true,
+                    amount_milli: 32,
+                },
+            ],
+        });
+
+    assert_eq!(result.transfer_amount_milli, 83);
+    assert_eq!(result.other_pool_amount_milli, 932);
+    assert_eq!(result.total_amount_milli, 1_015);
+    assert_eq!(result.retention.transfer_ratio_milli, 81);
+    assert_eq!(result.retention.retention_milli, 919);
 }
 
 #[test]

@@ -7,11 +7,14 @@ use augustus_core::{
     VanillaGoldProductionInput, VanillaModifierAggregationInput, VanillaProductionBaseValueInput,
     VanillaProductionInput, VanillaProductionResult, VanillaTradeCountryFlags,
     VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput, VanillaTradeGoodPriceInput,
-    VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, VanillaTradeNodePassInput,
-    VanillaTradeNodeRouteInput, VanillaTradeRetentionParticipantInput,
-    VanillaTradeRetentionPassInput, VanillaTradeRouteWeightContributionInput,
-    VanillaTradeRouteWeightPassInput, World, aggregate_vanilla_modifier_contributions,
-    calculate_trade_production, calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
+    VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput,
+    VanillaTradeNodePassFromRetentionSourcesInput, VanillaTradeNodePassInput,
+    VanillaTradeNodeRouteInput, VanillaTradeRetentionContributionRowInput,
+    VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
+    VanillaTradeRetentionSequenceEntryInput, VanillaTradeRetentionSourcesInput,
+    VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightPassInput, World,
+    aggregate_vanilla_modifier_contributions, calculate_trade_production,
+    calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
     calculate_vanilla_gold_production, calculate_vanilla_production,
     calculate_vanilla_production_base_value, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
@@ -514,6 +517,135 @@ fn vanilla_trade_node_passes_persist_researched_wien_state_in_caller_order() {
     let restored = World::restore(
         &runtime_world.save("wien-trade-node-state").unwrap(),
         "wien-trade-node-state",
+        runtime_world.schema(),
+    )
+    .unwrap();
+    assert_eq!(restored, runtime_world);
+}
+
+#[test]
+fn vanilla_trade_node_passes_from_retention_sources_update_nodes_in_order() {
+    let mut runtime_world = world();
+    runtime_world.set_economy(economy()).unwrap();
+    runtime_world
+        .set_trade_node_route_orders(&trade_node_route_orders())
+        .unwrap();
+    runtime_world
+        .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
+            ("river".into(), Some(10_343)),
+            ("harbor".into(), Some(0)),
+        ]))
+        .unwrap();
+
+    let order = ["river".to_owned(), "harbor".to_owned()];
+    let mut visited = Vec::new();
+    let passes = runtime_world
+        .run_vanilla_trade_node_passes_with_retention_sources_in_order(
+            &order,
+            |world, source_node| {
+                visited.push(source_node.to_owned());
+                let source_value = world
+                    .trade_node_current_value_milli(source_node)
+                    .flatten()
+                    .unwrap() as i32;
+                if source_node == "river" {
+                    Ok(VanillaTradeNodePassFromRetentionSourcesInput {
+                        source_value_milli: source_value,
+                        retention_sources: VanillaTradeRetentionSourcesInput {
+                            transfer_rows: vec![
+                                VanillaTradeRetentionContributionRowInput {
+                                    reference_valid: true,
+                                    transfer_eligible: true,
+                                    contribution_base_milli: 100,
+                                    contribution_limit_milli: 80,
+                                    contribution_scale_milli: 500,
+                                    previous_amount_milli: 10,
+                                    current_amount_milli: 20,
+                                },
+                                VanillaTradeRetentionContributionRowInput {
+                                    reference_valid: true,
+                                    transfer_eligible: true,
+                                    contribution_base_milli: 100,
+                                    contribution_limit_milli: 20,
+                                    contribution_scale_milli: 1_000,
+                                    previous_amount_milli: 0,
+                                    current_amount_milli: 3,
+                                },
+                            ],
+                            other_pool_entries: vec![
+                                VanillaTradeRetentionSequenceEntryInput {
+                                    included_in_other_pool: true,
+                                    amount_milli: 900,
+                                },
+                                VanillaTradeRetentionSequenceEntryInput {
+                                    included_in_other_pool: true,
+                                    amount_milli: 32,
+                                },
+                            ],
+                        },
+                        route_weights: VanillaTradeRouteWeightPassInput {
+                            contributions: vec![VanillaTradeRouteWeightContributionInput {
+                                selected_route_id: 0,
+                                effective_amount_milli: 1,
+                                steering_modifier_milli: 0,
+                            }],
+                            marked_routes: vec![true],
+                        },
+                        has_downstream_routes: true,
+                        node_value_milli: 10_343,
+                        base_outgoing_value_milli: 5_945,
+                        incoming_transfer_values_milli: vec![2_336, 2_062],
+                        additional_outgoing_multiplier_milli: 0,
+                        routes: vec![VanillaTradeNodeRouteInput {
+                            route_id: 0,
+                            candidates: Vec::new(),
+                        }],
+                    })
+                } else {
+                    assert_eq!(source_value, 837);
+                    Ok(VanillaTradeNodePassFromRetentionSourcesInput {
+                        source_value_milli: source_value,
+                        retention_sources: VanillaTradeRetentionSourcesInput {
+                            transfer_rows: Vec::new(),
+                            other_pool_entries: Vec::new(),
+                        },
+                        route_weights: VanillaTradeRouteWeightPassInput {
+                            contributions: Vec::new(),
+                            marked_routes: Vec::new(),
+                        },
+                        has_downstream_routes: false,
+                        node_value_milli: 0,
+                        base_outgoing_value_milli: 0,
+                        incoming_transfer_values_milli: Vec::new(),
+                        additional_outgoing_multiplier_milli: 0,
+                        routes: Vec::new(),
+                    })
+                }
+            },
+        )
+        .unwrap();
+
+    assert_eq!(visited, ["river", "harbor"]);
+    assert_eq!(passes[0].retention.transfer_amount_milli, 83);
+    assert_eq!(passes[0].retention.other_pool_amount_milli, 932);
+    assert_eq!(passes[0].retention.retention.retention_milli, 919);
+    assert_eq!(passes[0].outflow.outgoing_amount_milli, 837);
+    assert_eq!(
+        runtime_world.trade_node_current_value_milli("harbor"),
+        Some(Some(837))
+    );
+    assert_eq!(
+        runtime_world
+            .trade_node_runtime_state("river")
+            .flatten()
+            .unwrap()
+            .retention_milli,
+        Some(919)
+    );
+
+    let restored = World::restore(
+        &runtime_world.save("retention-source-trade-state").unwrap(),
+        "retention-source-trade-state",
         runtime_world.schema(),
     )
     .unwrap();

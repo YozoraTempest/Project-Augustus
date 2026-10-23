@@ -566,6 +566,107 @@ pub fn calculate_vanilla_trade_retention_pass(
     }
 }
 
+/// A normalized contribution row used to build the transfer pool.
+///
+/// The compatibility layer resolves the row's reference and transfer
+/// eligibility. The core applies the verified fixed-point contribution and
+/// limit order to the supplied row values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeRetentionContributionRowInput {
+    pub reference_valid: bool,
+    pub transfer_eligible: bool,
+    pub contribution_base_milli: i32,
+    pub contribution_limit_milli: i32,
+    pub contribution_scale_milli: i32,
+    pub previous_amount_milli: i32,
+    pub current_amount_milli: i32,
+}
+
+/// One compatibility-filtered value from the node's other-pool sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeRetentionSequenceEntryInput {
+    pub included_in_other_pool: bool,
+    pub amount_milli: i32,
+}
+
+/// Source rows for the two independently accumulated retention pools.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeRetentionSourcesInput {
+    pub transfer_rows: Vec<VanillaTradeRetentionContributionRowInput>,
+    pub other_pool_entries: Vec<VanillaTradeRetentionSequenceEntryInput>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaTradeRetentionSourcesResult {
+    pub transfer_amount_milli: i32,
+    pub other_pool_amount_milli: i32,
+    pub total_amount_milli: i32,
+    pub retention: VanillaTradeRetentionResult,
+}
+
+/// Accumulates the verified transfer rows and the separate node sequence.
+///
+/// Each transfer row first computes the signed delta, skips a zero active
+/// amount, scales and clamps its contribution, then adds the delta. Both pools
+/// use native signed 32-bit wrapping accumulation before the retention ratio.
+pub fn calculate_vanilla_trade_retention_from_sources(
+    input: VanillaTradeRetentionSourcesInput,
+) -> VanillaTradeRetentionSourcesResult {
+    let transfer_amount = input
+        .transfer_rows
+        .into_iter()
+        .filter_map(vanilla_trade_retention_row_amount)
+        .fold(0_i32, i32::wrapping_add);
+    let other_pool_amount = input
+        .other_pool_entries
+        .into_iter()
+        .filter(|entry| entry.included_in_other_pool)
+        .map(|entry| entry.amount_milli)
+        .fold(0_i32, i32::wrapping_add);
+    let total_amount = transfer_amount.wrapping_add(other_pool_amount);
+    let retention = calculate_vanilla_trade_retention_from_pools(VanillaTradeRetentionPoolsInput {
+        transferred_amount_milli: transfer_amount,
+        other_amount_milli: other_pool_amount,
+    });
+
+    VanillaTradeRetentionSourcesResult {
+        transfer_amount_milli: transfer_amount,
+        other_pool_amount_milli: other_pool_amount,
+        total_amount_milli: total_amount,
+        retention,
+    }
+}
+
+fn vanilla_trade_retention_row_amount(
+    row: VanillaTradeRetentionContributionRowInput,
+) -> Option<i32> {
+    if !row.reference_valid || !row.transfer_eligible {
+        return None;
+    }
+
+    let delta = row
+        .current_amount_milli
+        .wrapping_sub(row.previous_amount_milli);
+    if row.contribution_limit_milli.wrapping_add(delta) == 0 {
+        return None;
+    }
+
+    let scaled = ((i64::from(row.contribution_base_milli)
+        * i64::from(row.contribution_scale_milli))
+        / 1_000) as i32;
+    let contribution = if scaled < 0 {
+        0
+    } else if scaled > row.contribution_limit_milli {
+        row.contribution_limit_milli
+    } else {
+        scaled
+    };
+    Some(delta.wrapping_add(contribution))
+}
+
 /// Inputs for one country's fixed-point share of collected trade power.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -820,30 +921,68 @@ pub struct VanillaTradeNodePassResult {
     pub distribution: VanillaTradeDistributionResult,
 }
 
-/// Runs the verified retention, route-weight, outflow, and distribution stages.
-///
-/// Record and route-state production stays in the compatibility layer. This
-/// function preserves the native phase order and feeds each stage's result to
-/// the next one without changing the input route declaration order.
-pub fn calculate_vanilla_trade_node_pass(
-    input: VanillaTradeNodePassInput,
-) -> Result<VanillaTradeNodePassResult, Error> {
+/// Node-pass inputs using row-level retention sources.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeNodePassFromRetentionSourcesInput {
+    pub source_value_milli: i32,
+    pub retention_sources: VanillaTradeRetentionSourcesInput,
+    pub route_weights: VanillaTradeRouteWeightPassInput,
+    pub has_downstream_routes: bool,
+    pub node_value_milli: i32,
+    pub base_outgoing_value_milli: i32,
+    pub incoming_transfer_values_milli: Vec<i32>,
+    pub additional_outgoing_multiplier_milli: i32,
+    pub routes: Vec<VanillaTradeNodeRouteInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VanillaTradeNodePassFromRetentionSourcesResult {
+    pub retention: VanillaTradeRetentionSourcesResult,
+    pub route_weights: VanillaTradeRouteWeightPassResult,
+    pub outflow: VanillaTradeOutflowResult,
+    pub route_ids: Vec<i16>,
+    pub distribution: VanillaTradeDistributionResult,
+}
+
+struct VanillaTradeNodePassCalculation {
+    source_value_milli: i32,
+    total_effective_amount_milli: i32,
+    retention_milli: i32,
+    route_weights: VanillaTradeRouteWeightPassInput,
+    has_downstream_routes: bool,
+    node_value_milli: i32,
+    base_outgoing_value_milli: i32,
+    incoming_transfer_values_milli: Vec<i32>,
+    additional_outgoing_multiplier_milli: i32,
+    routes: Vec<VanillaTradeNodeRouteInput>,
+}
+
+struct VanillaTradeNodePassStages {
+    route_weights: VanillaTradeRouteWeightPassResult,
+    outflow: VanillaTradeOutflowResult,
+    route_ids: Vec<i16>,
+    distribution: VanillaTradeDistributionResult,
+}
+
+fn calculate_vanilla_trade_node_pass_stages(
+    input: VanillaTradeNodePassCalculation,
+) -> Result<VanillaTradeNodePassStages, Error> {
     if input.routes.len() != input.route_weights.marked_routes.len() {
         return Err(Error::Invalid(
             "trade node routes and route markers must have equal lengths".into(),
         ));
     }
 
-    let retention = calculate_vanilla_trade_retention_pass(input.retention);
     let route_weights = calculate_vanilla_trade_route_weight_pass(input.route_weights)?;
     let outflow = calculate_vanilla_trade_outflow(VanillaTradeOutflowInput {
         has_downstream_routes: input.has_downstream_routes,
         route_weights_milli: route_weights.weights_milli.clone(),
-        total_effective_amount_milli: retention.total_amount_milli,
+        total_effective_amount_milli: input.total_effective_amount_milli,
         node_value_milli: input.node_value_milli,
         base_outgoing_value_milli: input.base_outgoing_value_milli,
         incoming_transfer_values_milli: input.incoming_transfer_values_milli,
-        retention_milli: retention.retention.retention_milli,
+        retention_milli: input.retention_milli,
         additional_outgoing_multiplier_milli: input.additional_outgoing_multiplier_milli,
     });
     let route_ids = input.routes.iter().map(|route| route.route_id).collect();
@@ -866,12 +1005,69 @@ pub fn calculate_vanilla_trade_node_pass(
         routes,
     });
 
-    Ok(VanillaTradeNodePassResult {
-        retention,
+    Ok(VanillaTradeNodePassStages {
         route_weights,
         outflow,
         route_ids,
         distribution,
+    })
+}
+
+/// Runs the verified retention, route-weight, outflow, and distribution stages.
+///
+/// Record and route-state production stays in the compatibility layer. This
+/// function preserves the native phase order and feeds each stage's result to
+/// the next one without changing the input route declaration order.
+pub fn calculate_vanilla_trade_node_pass(
+    input: VanillaTradeNodePassInput,
+) -> Result<VanillaTradeNodePassResult, Error> {
+    let retention = calculate_vanilla_trade_retention_pass(input.retention);
+    let stages = calculate_vanilla_trade_node_pass_stages(VanillaTradeNodePassCalculation {
+        source_value_milli: input.source_value_milli,
+        total_effective_amount_milli: retention.total_amount_milli,
+        retention_milli: retention.retention.retention_milli,
+        route_weights: input.route_weights,
+        has_downstream_routes: input.has_downstream_routes,
+        node_value_milli: input.node_value_milli,
+        base_outgoing_value_milli: input.base_outgoing_value_milli,
+        incoming_transfer_values_milli: input.incoming_transfer_values_milli,
+        additional_outgoing_multiplier_milli: input.additional_outgoing_multiplier_milli,
+        routes: input.routes,
+    })?;
+
+    Ok(VanillaTradeNodePassResult {
+        retention,
+        route_weights: stages.route_weights,
+        outflow: stages.outflow,
+        route_ids: stages.route_ids,
+        distribution: stages.distribution,
+    })
+}
+
+/// Runs the trade-node stages with retention from normalized source rows.
+pub fn calculate_vanilla_trade_node_pass_from_retention_sources(
+    input: VanillaTradeNodePassFromRetentionSourcesInput,
+) -> Result<VanillaTradeNodePassFromRetentionSourcesResult, Error> {
+    let retention = calculate_vanilla_trade_retention_from_sources(input.retention_sources);
+    let stages = calculate_vanilla_trade_node_pass_stages(VanillaTradeNodePassCalculation {
+        source_value_milli: input.source_value_milli,
+        total_effective_amount_milli: retention.total_amount_milli,
+        retention_milli: retention.retention.retention_milli,
+        route_weights: input.route_weights,
+        has_downstream_routes: input.has_downstream_routes,
+        node_value_milli: input.node_value_milli,
+        base_outgoing_value_milli: input.base_outgoing_value_milli,
+        incoming_transfer_values_milli: input.incoming_transfer_values_milli,
+        additional_outgoing_multiplier_milli: input.additional_outgoing_multiplier_milli,
+        routes: input.routes,
+    })?;
+
+    Ok(VanillaTradeNodePassFromRetentionSourcesResult {
+        retention,
+        route_weights: stages.route_weights,
+        outflow: stages.outflow,
+        route_ids: stages.route_ids,
+        distribution: stages.distribution,
     })
 }
 

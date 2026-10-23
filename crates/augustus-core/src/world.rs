@@ -14,8 +14,10 @@ use crate::{
     Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryLedger,
     CountryRelationState, CountryResource, CountryResources, DailySystem, Economy, Error,
     Governments, Ideas, Modifiers, MonthlySystem, MonthlyTax, Plan, Politics, Target, Taxation,
-    Technology, TradeNodeRuntimeState, VanillaTradeDistributionResult, VanillaTradeNodePassInput,
-    VanillaTradeNodePassResult, WorldDate, YearlySystem, calculate_vanilla_trade_node_pass,
+    Technology, TradeNodeRuntimeState, VanillaTradeDistributionResult,
+    VanillaTradeNodePassFromRetentionSourcesInput, VanillaTradeNodePassFromRetentionSourcesResult,
+    VanillaTradeNodePassInput, VanillaTradeNodePassResult, WorldDate, YearlySystem,
+    calculate_vanilla_trade_node_pass, calculate_vanilla_trade_node_pass_from_retention_sources,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -697,11 +699,81 @@ impl World {
         ordered_nodes: &[String],
         mut build_input: impl FnMut(&Self, &str) -> Result<VanillaTradeNodePassInput, Error>,
     ) -> Result<Vec<VanillaTradeNodePassResult>, Error> {
+        self.run_vanilla_trade_node_passes_with(ordered_nodes, |world, source_node| {
+            let input = build_input(world, source_node)?;
+            let route_count = input.routes.len();
+            let local_value = i64::from(input.base_outgoing_value_milli);
+            let result = calculate_vanilla_trade_node_pass(input)?;
+            let runtime_update = (
+                local_value,
+                i64::from(result.outflow.outgoing_amount_milli),
+                i64::from(result.outflow.distribution_amount_milli),
+                i64::from(result.retention.retention.retention_milli),
+            );
+            Ok((
+                route_count,
+                result.distribution.clone(),
+                result,
+                runtime_update,
+            ))
+        })
+    }
+
+    /// Runs trade-node passes when retention sources are supplied as rows.
+    ///
+    /// The input builder resolves row membership from the current
+    /// compatibility state. Each node sees runtime writes from earlier nodes.
+    pub fn run_vanilla_trade_node_passes_with_retention_sources_in_order(
+        &mut self,
+        ordered_nodes: &[String],
+        mut build_input: impl FnMut(
+            &Self,
+            &str,
+        )
+            -> Result<VanillaTradeNodePassFromRetentionSourcesInput, Error>,
+    ) -> Result<Vec<VanillaTradeNodePassFromRetentionSourcesResult>, Error> {
+        self.run_vanilla_trade_node_passes_with(ordered_nodes, |world, source_node| {
+            let input = build_input(world, source_node)?;
+            let route_count = input.routes.len();
+            let local_value = i64::from(input.base_outgoing_value_milli);
+            let result = calculate_vanilla_trade_node_pass_from_retention_sources(input)?;
+            let runtime_update = (
+                local_value,
+                i64::from(result.outflow.outgoing_amount_milli),
+                i64::from(result.outflow.distribution_amount_milli),
+                i64::from(result.retention.retention.retention_milli),
+            );
+            Ok((
+                route_count,
+                result.distribution.clone(),
+                result,
+                runtime_update,
+            ))
+        })
+    }
+
+    fn run_vanilla_trade_node_passes_with<R>(
+        &mut self,
+        ordered_nodes: &[String],
+        mut calculate: impl FnMut(
+            &Self,
+            &str,
+        ) -> Result<
+            (
+                usize,
+                VanillaTradeDistributionResult,
+                R,
+                (i64, i64, i64, i64),
+            ),
+            Error,
+        >,
+    ) -> Result<Vec<R>, Error> {
         let mut results = Vec::with_capacity(ordered_nodes.len());
         self.run_vanilla_trade_node_distributions_with_updates_in_order(
             ordered_nodes,
             |world, source_node| {
-                let input = build_input(world, source_node)?;
+                let (route_count, distribution, result, runtime_update) =
+                    calculate(world, source_node)?;
                 let destinations = match world.trade_node_route_order(source_node) {
                     Some(Some(routes)) => routes.to_vec(),
                     Some(None)
@@ -719,21 +791,11 @@ impl World {
                         ));
                     }
                 };
-                if input.routes.len() != destinations.len() {
+                if route_count != destinations.len() {
                     return Err(Error::Invalid(
                         "trade node pass routes do not match content route count".into(),
                     ));
                 }
-
-                let local_value = i64::from(input.base_outgoing_value_milli);
-                let result = calculate_vanilla_trade_node_pass(input)?;
-                let runtime_update = (
-                    local_value,
-                    i64::from(result.outflow.outgoing_amount_milli),
-                    i64::from(result.outflow.distribution_amount_milli),
-                    i64::from(result.retention.retention.retention_milli),
-                );
-                let distribution = result.distribution.clone();
                 results.push(result);
                 Ok((destinations, distribution, runtime_update))
             },
