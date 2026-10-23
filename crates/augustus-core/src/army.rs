@@ -10,6 +10,65 @@ use crate::{EntityId, EntityKind, Error, World};
 const INITIAL_REGIMENT_STRENGTH_MILLI: i64 = 1_000;
 const INITIAL_REGIMENT_MORALE_MILLI: i64 = 1_000;
 
+/// Inputs for the verified EU4 unit-production quantity stage.
+///
+/// The compatibility layer resolves the category, cap switch, category
+/// maximum, existing regiments, and queued regiments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaUnitProductionQuantityInput {
+    pub effect_amount_milli: i32,
+    pub quantity_modifier_milli: i32,
+    pub category: i32,
+    pub category_cap_enabled: bool,
+    pub maximum_units: i32,
+    pub existing_units: u16,
+    pub pending_units: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaUnitProductionQuantityResult {
+    pub scaled_effect_amount_milli: i32,
+    pub uncapped_quantity: i32,
+    pub remaining_cap: Option<i32>,
+    pub quantity: Option<i32>,
+}
+
+/// Calculates the production quantity and the verified category-cap gate.
+///
+/// The signed 64-bit product is divided by 1000, narrowed to 32 bits, divided
+/// by 1000 again, and raised to at least one. Categories 2 through 22 apply
+/// the native cap only when its input flag is enabled.
+pub fn calculate_vanilla_unit_production_quantity(
+    input: VanillaUnitProductionQuantityInput,
+) -> VanillaUnitProductionQuantityResult {
+    let product = i64::from(input.effect_amount_milli) * i64::from(input.quantity_modifier_milli);
+    let scaled_effect_amount_milli = (product / 1_000) as i32;
+    let uncapped_quantity = (scaled_effect_amount_milli / 1_000).max(1);
+    let remaining_cap = if input.category_cap_enabled && (2..=22).contains(&input.category) {
+        Some(
+            input
+                .maximum_units
+                .wrapping_sub(i32::from(input.existing_units))
+                .wrapping_sub(input.pending_units as i32),
+        )
+    } else {
+        None
+    };
+    let quantity = match remaining_cap {
+        Some(cap) if cap < 1 => None,
+        Some(cap) => Some(uncapped_quantity.min(cap)),
+        None => Some(uncapped_quantity),
+    };
+
+    VanillaUnitProductionQuantityResult {
+        scaled_effect_amount_milli,
+        uncapped_quantity,
+        remaining_cap,
+        quantity,
+    }
+}
+
 /// Inputs for the verified morale stage used while completing a unit.
 ///
 /// The compatibility layer resolves the country's two morale bases, the

@@ -73,7 +73,9 @@ pub use affiliations::{
 };
 pub use army::{
     Army, ArmyId, Regiment, RegimentId, RegimentState, VanillaConstructionMoraleInput,
-    VanillaConstructionMoraleResult, calculate_vanilla_construction_morale,
+    VanillaConstructionMoraleResult, VanillaUnitProductionQuantityInput,
+    VanillaUnitProductionQuantityResult, calculate_vanilla_construction_morale,
+    calculate_vanilla_unit_production_quantity,
 };
 pub use attributes::{
     AffiliationEffect, AttributeAggregate, AttributeBase, AttributeChannel, AttributeContribution,

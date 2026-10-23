@@ -96,7 +96,8 @@ pub use augustus_core::{
     VanillaTradeRouteWeightPassInput, VanillaTradeRouteWeightPassResult,
     VanillaTradeRouteWeightResult, VanillaTradeRouteWeightSourceRowInput,
     VanillaTradeSteeringEligibilityInput, VanillaTradeSteeringModifierInput,
-    VanillaTradeSteeringModifierResult, aggregate_vanilla_modifier_contributions,
+    VanillaTradeSteeringModifierResult, VanillaUnitProductionQuantityInput,
+    VanillaUnitProductionQuantityResult, aggregate_vanilla_modifier_contributions,
     calculate_vanilla_construction_morale, calculate_vanilla_derived_modifier,
     calculate_vanilla_estate_influence_scale, calculate_vanilla_gold_base,
     calculate_vanilla_gold_production, calculate_vanilla_gold_production_for_country,
@@ -111,9 +112,10 @@ pub use augustus_core::{
     calculate_vanilla_trade_retention_from_pools, calculate_vanilla_trade_retention_from_sources,
     calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weight_pass,
     calculate_vanilla_trade_route_weight_pass_from_rows, calculate_vanilla_trade_route_weights,
-    calculate_vanilla_trade_steering_modifier, country_ledger_expense_key,
-    country_ledger_income_key, is_vanilla_trade_collector, is_vanilla_trade_steering_eligible,
-    select_vanilla_trade_distribution_candidates, sort_vanilla_trade_candidates,
+    calculate_vanilla_trade_steering_modifier, calculate_vanilla_unit_production_quantity,
+    country_ledger_expense_key, country_ledger_income_key, is_vanilla_trade_collector,
+    is_vanilla_trade_steering_eligible, select_vanilla_trade_distribution_candidates,
+    sort_vanilla_trade_candidates,
 };
 pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView,

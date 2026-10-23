@@ -6,8 +6,95 @@ use std::collections::BTreeMap;
 use augustus_core::{
     Action, AffiliationDimension, Affiliations, ArmyId, EntityKind, EntityRef, RegimentId,
     RegimentState, Schema, ScopeContext, ScopeSelector, Technology, TechnologyLevel, UnitTemplate,
-    UnitTemplateProperty, UnitTemplates, World,
+    UnitTemplateProperty, UnitTemplates, VanillaUnitProductionQuantityInput, World,
+    calculate_vanilla_unit_production_quantity,
 };
+
+#[test]
+fn unit_production_quantity_preserves_two_stage_truncation_and_narrowing() {
+    let truncated =
+        calculate_vanilla_unit_production_quantity(VanillaUnitProductionQuantityInput {
+            effect_amount_milli: 1_999,
+            quantity_modifier_milli: 1_001,
+            category: 1,
+            category_cap_enabled: false,
+            maximum_units: 0,
+            existing_units: 0,
+            pending_units: 0,
+        });
+    assert_eq!(truncated.scaled_effect_amount_milli, 2_000);
+    assert_eq!(truncated.uncapped_quantity, 2);
+    assert_eq!(truncated.remaining_cap, None);
+    assert_eq!(truncated.quantity, Some(2));
+
+    let narrowed = calculate_vanilla_unit_production_quantity(VanillaUnitProductionQuantityInput {
+        effect_amount_milli: i32::MAX,
+        quantity_modifier_milli: 2_000,
+        category: 1,
+        category_cap_enabled: false,
+        maximum_units: 0,
+        existing_units: 0,
+        pending_units: 0,
+    });
+    assert_eq!(narrowed.scaled_effect_amount_milli, -2);
+    assert_eq!(narrowed.uncapped_quantity, 1);
+    assert_eq!(narrowed.quantity, Some(1));
+
+    let negative = calculate_vanilla_unit_production_quantity(VanillaUnitProductionQuantityInput {
+        effect_amount_milli: -1_999,
+        quantity_modifier_milli: 1_000,
+        category: 1,
+        category_cap_enabled: false,
+        maximum_units: 0,
+        existing_units: 0,
+        pending_units: 0,
+    });
+    assert_eq!(negative.scaled_effect_amount_milli, -1_999);
+    assert_eq!(negative.uncapped_quantity, 1);
+    assert_eq!(negative.quantity, Some(1));
+}
+
+#[test]
+fn unit_production_quantity_applies_category_cap_after_minimum() {
+    let capped = calculate_vanilla_unit_production_quantity(VanillaUnitProductionQuantityInput {
+        effect_amount_milli: 100_000,
+        quantity_modifier_milli: 1_000,
+        category: 2,
+        category_cap_enabled: true,
+        maximum_units: 30,
+        existing_units: 22,
+        pending_units: 5,
+    });
+    assert_eq!(capped.uncapped_quantity, 100);
+    assert_eq!(capped.remaining_cap, Some(3));
+    assert_eq!(capped.quantity, Some(3));
+
+    let exhausted =
+        calculate_vanilla_unit_production_quantity(VanillaUnitProductionQuantityInput {
+            effect_amount_milli: 8_000,
+            quantity_modifier_milli: 1_000,
+            category: 22,
+            category_cap_enabled: true,
+            maximum_units: 20,
+            existing_units: 15,
+            pending_units: 7,
+        });
+    assert_eq!(exhausted.remaining_cap, Some(-2));
+    assert_eq!(exhausted.quantity, None);
+
+    let uncapped_category =
+        calculate_vanilla_unit_production_quantity(VanillaUnitProductionQuantityInput {
+            effect_amount_milli: 8_000,
+            quantity_modifier_milli: 1_000,
+            category: 23,
+            category_cap_enabled: true,
+            maximum_units: 1,
+            existing_units: 1,
+            pending_units: 10,
+        });
+    assert_eq!(uncapped_category.remaining_cap, None);
+    assert_eq!(uncapped_category.quantity, Some(8));
+}
 
 fn fixture() -> (World, augustus_core::EntityId, augustus_core::EntityId) {
     let mut world = World::new(Schema::new(std::iter::empty::<String>()).unwrap());
