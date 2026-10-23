@@ -7,10 +7,10 @@ use std::{
 };
 
 use augustus_core::{
-    Calendar, CashflowBreakdown, CountryLedger, CountryResources, CountryState, EntityKind,
-    InitialWorld, MonthlyExternalCashflows, MonthlyProduction, ProvinceClass, ProvinceState,
-    Taxation, TechnologyProperty, VanillaGoldBaseInput, VanillaGoldBaseResult,
-    VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
+    Action, Calendar, CashflowBreakdown, CountryLedger, CountryResources, CountryState, EntityKind,
+    InitialWorld, MonthlyExternalCashflows, MonthlyProduction, NumericOperation, NumericSlot,
+    ProvinceClass, ProvinceState, Target, Taxation, TechnologyProperty, VanillaGoldBaseInput,
+    VanillaGoldBaseResult, VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
     VanillaGoldProductionInputState, VanillaGoldProductionResult, VanillaProductionBaseValueInput,
     VanillaProductionBaseValueResult, VanillaProductionInput, VanillaTradeGoodPriceInput,
     VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, WorldDate,
@@ -47,6 +47,13 @@ pub struct LoadedSource {
     pub path: PathBuf,
     pub line: usize,
     pub column: usize,
+}
+
+#[derive(Debug, Clone)]
+struct HistoricalPrestigeDelta {
+    country: String,
+    value_milli: i64,
+    source: LoadedSource,
 }
 
 #[derive(Debug, Serialize)]
@@ -2678,6 +2685,7 @@ impl VanillaWorld {
         )?;
         let mut country_histories = BTreeSet::new();
         let mut historical_truce_grants = Vec::new();
+        let mut historical_prestige_deltas = Vec::new();
         let mut country_metric_history_unknown = BTreeSet::new();
         let mut country_metric_scoped_history_unknown = false;
         let mut liberty_history_unknown = BTreeSet::new();
@@ -2906,6 +2914,7 @@ impl VanillaWorld {
                     CountryHistoryContext {
                         date: crate::politics::label(history_date.unwrap_or(date)),
                         historical_truce_grants: &mut historical_truce_grants,
+                        historical_prestige_deltas: &mut historical_prestige_deltas,
                         setup: &mut setup,
                         subsystem_handled: &subsystem_handled,
                         report: &mut report,
@@ -3562,6 +3571,11 @@ impl VanillaWorld {
             &mut initial,
             overrides.country_metric_values,
             overrides.country_metric_ceilings,
+        )?;
+        apply_historical_prestige_deltas(
+            &mut initial,
+            &historical_prestige_deltas,
+            overrides.country_metric_values,
         )?;
         if let Some(resources) = overrides.country_resources {
             let bound = resources
@@ -5654,6 +5668,7 @@ fn unapplied(
 struct CountryHistoryContext<'a> {
     date: WorldDate,
     historical_truce_grants: &'a mut Vec<crate::truces::HistoricalTruceGrant>,
+    historical_prestige_deltas: &'a mut Vec<HistoricalPrestigeDelta>,
     setup: &'a mut SetupDraft,
     subsystem_handled: &'a BTreeSet<String>,
     report: &'a mut BootstrapReport,
@@ -5669,6 +5684,7 @@ fn apply_country(
     let CountryHistoryContext {
         date,
         historical_truce_grants,
+        historical_prestige_deltas,
         setup,
         subsystem_handled,
         report,
@@ -5719,6 +5735,27 @@ fn apply_country(
                     source: source(parsed, location),
                 });
             }
+            "add_prestige" => {
+                equal(op, &fail)?;
+                let text = value
+                    .read_string()
+                    .map_err(|_| fail("expected historical prestige value"))?;
+                let value_milli = crate::setup::micros(&text)
+                    .map(|value| value / 1_000)
+                    .ok_or_else(|| {
+                        fail("prestige requires a literal decimal with at most six fractional digits")
+                    })?;
+                let source = source(parsed, location);
+                report
+                    .setup
+                    .history_sources
+                    .insert(format!("country:{}:prestige", country.id), source.clone());
+                historical_prestige_deltas.push(HistoricalPrestigeDelta {
+                    country: country.id.clone(),
+                    value_milli,
+                    source,
+                });
+            }
             "monarch" | "heir" | "queen" | "monarch_consort" => {
                 equal(op, &fail)?;
                 let person = politics::person(parsed, value, &name, location, report)?;
@@ -5767,6 +5804,44 @@ fn apply_country(
                 unapplied(parsed, name, location, true, report);
             }
         }
+    }
+    Ok(())
+}
+
+fn apply_historical_prestige_deltas(
+    initial: &mut InitialWorld,
+    deltas: &[HistoricalPrestigeDelta],
+    external_values: Option<&BTreeMap<String, BTreeMap<String, Option<i64>>>>,
+) -> Result<(), Error> {
+    for delta in deltas {
+        if external_values
+            .and_then(|values| values.get(&delta.country))
+            .is_some_and(|values| values.contains_key("prestige"))
+        {
+            continue;
+        }
+        let location = SourceLocation {
+            line: delta.source.line,
+            column: delta.source.column,
+        };
+        let entity = initial.country_entity(&delta.country).ok_or_else(|| {
+            Error::message(
+                &delta.source.path,
+                "prestige history references unknown country",
+            )
+            .with_location(location)
+        })?;
+        initial
+            .execute(
+                entity,
+                &[Action::UpdateNumeric {
+                    target: Target::Current,
+                    slot: NumericSlot::Metric("prestige".into()),
+                    operation: NumericOperation::Add,
+                    value: delta.value_milli,
+                }],
+            )
+            .map_err(|error| Error::caused_by(&delta.source.path, error).with_location(location))?;
     }
     Ok(())
 }

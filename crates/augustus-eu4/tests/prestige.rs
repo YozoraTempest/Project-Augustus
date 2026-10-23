@@ -198,6 +198,87 @@ fn original_entry_keeps_unknown_initial_prestige_and_tracks_startup_changes() {
 }
 
 #[test]
+fn direct_country_history_prestige_keeps_unknown_base_and_respects_saved_values() {
+    use augustus_eu4::VanillaWorld;
+    use std::{collections::BTreeMap, fs, path::Path};
+
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let root = tempfile::tempdir().unwrap();
+    for entry in walkdir::WalkDir::new(source.clone()) {
+        let entry = entry.unwrap();
+        let target = root
+            .path()
+            .join(entry.path().strip_prefix(&source).unwrap());
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(target).unwrap();
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
+    let history = root.path().join("history/countries/AAA - Alpha.txt");
+    let existing = fs::read_to_string(&history).unwrap();
+    fs::write(
+        &history,
+        format!(
+            "add_prestige=1.25\n1440.1.1={{add_prestige=-0.5}}\n1500.1.1={{add_prestige=9}}\n{existing}"
+        ),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    let aaa = loaded.initial.country_entity("AAA").unwrap();
+    let prestige = NumericSlot::Metric("prestige".into());
+    assert!(
+        loaded
+            .initial
+            .world()
+            .numeric_value(aaa, &prestige)
+            .is_err()
+    );
+    assert_eq!(
+        loaded.initial.world().unbased_numeric_delta(aaa, &prestige),
+        Some(750)
+    );
+    assert!(
+        !loaded
+            .report
+            .unapplied_country_fields
+            .contains_key("add_prestige")
+    );
+    assert!(
+        loaded
+            .report
+            .setup
+            .history_sources
+            .contains_key("country:AAA:prestige")
+    );
+
+    let saved_values = BTreeMap::from([(
+        "AAA".into(),
+        BTreeMap::from([("prestige".into(), Some(5_000))]),
+    )]);
+    let restored =
+        VanillaWorld::load_with_country_metric_values(root.path(), "1444.11.11", &saved_values)
+            .unwrap();
+    let aaa = restored.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        restored
+            .initial
+            .world()
+            .numeric_value(aaa, &prestige)
+            .unwrap(),
+        5_000
+    );
+    assert_eq!(
+        restored
+            .initial
+            .world()
+            .unbased_numeric_delta(aaa, &prestige),
+        None
+    );
+}
+
+#[test]
 fn external_country_metric_values_bind_atomically_and_restore_as_state() {
     use augustus_eu4::VanillaWorld;
     use std::{collections::BTreeMap, fs, path::Path};
