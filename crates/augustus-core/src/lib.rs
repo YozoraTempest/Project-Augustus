@@ -13,6 +13,7 @@ mod army;
 mod attributes;
 mod calendar;
 mod cashflows;
+mod company_units;
 mod completions;
 mod control;
 mod convergence;
@@ -85,6 +86,10 @@ pub use attributes::{
 pub use calendar::Calendar;
 pub use cashflows::{
     CashflowAccount, CashflowBreakdown, CashflowSettlement, MonthlyExternalCashflows,
+};
+pub use company_units::{
+    VanillaCompanyCompositionDefinition, VanillaCompanyCompositionInput,
+    VanillaCompanyCompositionResult, calculate_vanilla_company_composition,
 };
 pub use completions::Completions;
 pub use control::CountryController;
