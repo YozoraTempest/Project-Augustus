@@ -720,6 +720,30 @@ pub struct VanillaTradeRouteWeightPassInput {
     pub marked_routes: Vec<bool>,
 }
 
+/// One node-country row used to select trade-route weight contributions.
+///
+/// The compatibility layer resolves the row values, route, and cached route
+/// bit. The core applies the positive participation-delta gate and the shared
+/// country steering-eligibility rule before accumulating the contribution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeRouteWeightSourceRowInput {
+    pub participation_balance_milli: i32,
+    pub previous_amount_milli: i32,
+    pub current_amount_milli: i32,
+    pub steering_eligibility: VanillaTradeSteeringEligibilityInput,
+    pub selected_route_id: i16,
+    pub steering_modifier_milli: i32,
+}
+
+/// Candidate rows and route markers for the complete route-weight pass.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeRouteWeightPassFromRowsInput {
+    pub rows: Vec<VanillaTradeRouteWeightSourceRowInput>,
+    pub marked_routes: Vec<bool>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VanillaTradeRouteWeightResult {
     pub total_milli: i32,
@@ -818,6 +842,37 @@ pub fn calculate_vanilla_trade_route_weight_pass(
         route_contributions_milli: contributions_milli,
         total_milli: normalized.total_milli,
         weights_milli: normalized.weights_milli,
+    })
+}
+
+/// Selects eligible country rows before accumulating and normalizing weights.
+///
+/// The participation gate uses signed 32-bit wrapping for `balance + current -
+/// previous`. Collection and cached route eligibility are resolved by the
+/// same core predicate used by retention.
+pub fn calculate_vanilla_trade_route_weight_pass_from_rows(
+    input: VanillaTradeRouteWeightPassFromRowsInput,
+) -> Result<VanillaTradeRouteWeightPassResult, Error> {
+    let contributions = input
+        .rows
+        .into_iter()
+        .filter(|row| {
+            row.participation_balance_milli.wrapping_add(
+                row.current_amount_milli
+                    .wrapping_sub(row.previous_amount_milli),
+            ) > 0
+        })
+        .filter(|row| is_vanilla_trade_steering_eligible(row.steering_eligibility))
+        .map(|row| VanillaTradeRouteWeightContributionInput {
+            selected_route_id: row.selected_route_id,
+            effective_amount_milli: row.steering_eligibility.effective_amount_milli,
+            steering_modifier_milli: row.steering_modifier_milli,
+        })
+        .collect();
+
+    calculate_vanilla_trade_route_weight_pass(VanillaTradeRouteWeightPassInput {
+        contributions,
+        marked_routes: input.marked_routes,
     })
 }
 
@@ -927,7 +982,7 @@ pub struct VanillaTradeNodePassResult {
 pub struct VanillaTradeNodePassFromRetentionSourcesInput {
     pub source_value_milli: i32,
     pub retention_sources: VanillaTradeRetentionSourcesInput,
-    pub route_weights: VanillaTradeRouteWeightPassInput,
+    pub route_weight_rows: VanillaTradeRouteWeightPassFromRowsInput,
     pub has_downstream_routes: bool,
     pub node_value_milli: i32,
     pub base_outgoing_value_milli: i32,
@@ -949,7 +1004,7 @@ struct VanillaTradeNodePassCalculation {
     source_value_milli: i32,
     total_effective_amount_milli: i32,
     retention_milli: i32,
-    route_weights: VanillaTradeRouteWeightPassInput,
+    route_weights: VanillaTradeRouteWeightPassResult,
     has_downstream_routes: bool,
     node_value_milli: i32,
     base_outgoing_value_milli: i32,
@@ -968,13 +1023,13 @@ struct VanillaTradeNodePassStages {
 fn calculate_vanilla_trade_node_pass_stages(
     input: VanillaTradeNodePassCalculation,
 ) -> Result<VanillaTradeNodePassStages, Error> {
-    if input.routes.len() != input.route_weights.marked_routes.len() {
+    if input.routes.len() != input.route_weights.weights_milli.len() {
         return Err(Error::Invalid(
             "trade node routes and route markers must have equal lengths".into(),
         ));
     }
 
-    let route_weights = calculate_vanilla_trade_route_weight_pass(input.route_weights)?;
+    let route_weights = input.route_weights;
     let outflow = calculate_vanilla_trade_outflow(VanillaTradeOutflowInput {
         has_downstream_routes: input.has_downstream_routes,
         route_weights_milli: route_weights.weights_milli.clone(),
@@ -1022,11 +1077,17 @@ pub fn calculate_vanilla_trade_node_pass(
     input: VanillaTradeNodePassInput,
 ) -> Result<VanillaTradeNodePassResult, Error> {
     let retention = calculate_vanilla_trade_retention_pass(input.retention);
+    if input.routes.len() != input.route_weights.marked_routes.len() {
+        return Err(Error::Invalid(
+            "trade node routes and route markers must have equal lengths".into(),
+        ));
+    }
+    let route_weights = calculate_vanilla_trade_route_weight_pass(input.route_weights)?;
     let stages = calculate_vanilla_trade_node_pass_stages(VanillaTradeNodePassCalculation {
         source_value_milli: input.source_value_milli,
         total_effective_amount_milli: retention.total_amount_milli,
         retention_milli: retention.retention.retention_milli,
-        route_weights: input.route_weights,
+        route_weights,
         has_downstream_routes: input.has_downstream_routes,
         node_value_milli: input.node_value_milli,
         base_outgoing_value_milli: input.base_outgoing_value_milli,
@@ -1049,11 +1110,18 @@ pub fn calculate_vanilla_trade_node_pass_from_retention_sources(
     input: VanillaTradeNodePassFromRetentionSourcesInput,
 ) -> Result<VanillaTradeNodePassFromRetentionSourcesResult, Error> {
     let retention = calculate_vanilla_trade_retention_from_sources(input.retention_sources);
+    if input.routes.len() != input.route_weight_rows.marked_routes.len() {
+        return Err(Error::Invalid(
+            "trade node routes and route markers must have equal lengths".into(),
+        ));
+    }
+    let route_weights =
+        calculate_vanilla_trade_route_weight_pass_from_rows(input.route_weight_rows)?;
     let stages = calculate_vanilla_trade_node_pass_stages(VanillaTradeNodePassCalculation {
         source_value_milli: input.source_value_milli,
         total_effective_amount_milli: retention.total_amount_milli,
         retention_milli: retention.retention.retention_milli,
-        route_weights: input.route_weights,
+        route_weights,
         has_downstream_routes: input.has_downstream_routes,
         node_value_milli: input.node_value_milli,
         base_outgoing_value_milli: input.base_outgoing_value_milli,

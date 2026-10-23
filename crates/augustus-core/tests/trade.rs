@@ -13,7 +13,8 @@ use augustus_core::{
     VanillaTradeRetentionPassInput, VanillaTradeRetentionPoolsInput,
     VanillaTradeRetentionSequenceEntryInput, VanillaTradeRetentionSourcesInput,
     VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightInput,
-    VanillaTradeRouteWeightPassInput, VanillaTradeSteeringEligibilityInput,
+    VanillaTradeRouteWeightPassFromRowsInput, VanillaTradeRouteWeightPassInput,
+    VanillaTradeRouteWeightSourceRowInput, VanillaTradeSteeringEligibilityInput,
     VanillaTradeSteeringModifierInput, calculate_vanilla_trade_caravan,
     calculate_vanilla_trade_country_power_share, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
@@ -22,9 +23,10 @@ use augustus_core::{
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
     calculate_vanilla_trade_retention_from_pools, calculate_vanilla_trade_retention_from_sources,
     calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weight_pass,
-    calculate_vanilla_trade_route_weights, calculate_vanilla_trade_steering_modifier,
-    is_vanilla_trade_collector, is_vanilla_trade_steering_eligible,
-    select_vanilla_trade_distribution_candidates, sort_vanilla_trade_candidates,
+    calculate_vanilla_trade_route_weight_pass_from_rows, calculate_vanilla_trade_route_weights,
+    calculate_vanilla_trade_steering_modifier, is_vanilla_trade_collector,
+    is_vanilla_trade_steering_eligible, select_vanilla_trade_distribution_candidates,
+    sort_vanilla_trade_candidates,
 };
 
 #[test]
@@ -911,6 +913,149 @@ fn trade_route_weight_pass_applies_modifiers_and_maps_routes_past_the_table_to_z
     assert_eq!(result.route_contributions_milli, [1_500, 0, 300]);
     assert_eq!(result.total_milli, 1_800);
     assert_eq!(result.weights_milli, [833, 0, 166]);
+}
+
+#[test]
+fn trade_route_weight_pass_from_rows_applies_participation_and_steering_gates() {
+    let row = |participation_balance_milli,
+               previous_amount_milli,
+               current_amount_milli,
+               country_flags,
+               effective_amount_milli,
+               cached_route_eligible,
+               selected_route_id,
+               steering_modifier_milli| {
+        VanillaTradeRouteWeightSourceRowInput {
+            participation_balance_milli,
+            previous_amount_milli,
+            current_amount_milli,
+            steering_eligibility: VanillaTradeSteeringEligibilityInput {
+                country_flags,
+                effective_amount_milli,
+                cached_route_eligible,
+            },
+            selected_route_id,
+            steering_modifier_milli,
+        }
+    };
+
+    let result = calculate_vanilla_trade_route_weight_pass_from_rows(
+        VanillaTradeRouteWeightPassFromRowsInput {
+            rows: vec![
+                row(
+                    10,
+                    0,
+                    5,
+                    VanillaTradeCountryFlags {
+                        special_country: false,
+                        ae: true,
+                        ac: true,
+                        ad: false,
+                    },
+                    400,
+                    true,
+                    0,
+                    250,
+                ),
+                row(
+                    10,
+                    0,
+                    5,
+                    VanillaTradeCountryFlags {
+                        special_country: true,
+                        ae: false,
+                        ac: false,
+                        ad: false,
+                    },
+                    1_000,
+                    true,
+                    0,
+                    0,
+                ),
+                row(
+                    10,
+                    0,
+                    5,
+                    VanillaTradeCountryFlags {
+                        special_country: false,
+                        ae: false,
+                        ac: false,
+                        ad: false,
+                    },
+                    1_000,
+                    false,
+                    0,
+                    0,
+                ),
+                row(
+                    10,
+                    0,
+                    5,
+                    VanillaTradeCountryFlags {
+                        special_country: false,
+                        ae: false,
+                        ac: false,
+                        ad: false,
+                    },
+                    0,
+                    true,
+                    0,
+                    0,
+                ),
+                row(
+                    10,
+                    0,
+                    -10,
+                    VanillaTradeCountryFlags {
+                        special_country: false,
+                        ae: true,
+                        ac: true,
+                        ad: false,
+                    },
+                    700,
+                    true,
+                    0,
+                    0,
+                ),
+                row(
+                    10,
+                    0,
+                    5,
+                    VanillaTradeCountryFlags {
+                        special_country: false,
+                        ae: true,
+                        ac: true,
+                        ad: false,
+                    },
+                    600,
+                    true,
+                    1,
+                    0,
+                ),
+                row(
+                    1,
+                    0,
+                    i32::MAX,
+                    VanillaTradeCountryFlags {
+                        special_country: false,
+                        ae: true,
+                        ac: true,
+                        ad: false,
+                    },
+                    500,
+                    true,
+                    1,
+                    0,
+                ),
+            ],
+            marked_routes: vec![true, true],
+        },
+    )
+    .unwrap();
+
+    assert_eq!(result.route_contributions_milli, [500, 600]);
+    assert_eq!(result.total_milli, 1_100);
+    assert_eq!(result.weights_milli, [454, 545]);
 }
 
 #[test]

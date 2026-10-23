@@ -12,9 +12,10 @@ use augustus_core::{
     VanillaTradeNodeRouteInput, VanillaTradeRetentionContributionRowInput,
     VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
     VanillaTradeRetentionSequenceEntryInput, VanillaTradeRetentionSourcesInput,
-    VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightPassInput, World,
-    aggregate_vanilla_modifier_contributions, calculate_trade_production,
-    calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
+    VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightPassFromRowsInput,
+    VanillaTradeRouteWeightPassInput, VanillaTradeRouteWeightSourceRowInput,
+    VanillaTradeSteeringEligibilityInput, World, aggregate_vanilla_modifier_contributions,
+    calculate_trade_production, calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
     calculate_vanilla_gold_production, calculate_vanilla_production,
     calculate_vanilla_production_base_value, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
@@ -583,10 +584,22 @@ fn vanilla_trade_node_passes_from_retention_sources_update_nodes_in_order() {
                                 },
                             ],
                         },
-                        route_weights: VanillaTradeRouteWeightPassInput {
-                            contributions: vec![VanillaTradeRouteWeightContributionInput {
+                        route_weight_rows: VanillaTradeRouteWeightPassFromRowsInput {
+                            rows: vec![VanillaTradeRouteWeightSourceRowInput {
+                                participation_balance_milli: 1,
+                                previous_amount_milli: 0,
+                                current_amount_milli: 0,
+                                steering_eligibility: VanillaTradeSteeringEligibilityInput {
+                                    country_flags: VanillaTradeCountryFlags {
+                                        special_country: false,
+                                        ae: true,
+                                        ac: true,
+                                        ad: false,
+                                    },
+                                    effective_amount_milli: 1,
+                                    cached_route_eligible: true,
+                                },
                                 selected_route_id: 0,
-                                effective_amount_milli: 1,
                                 steering_modifier_milli: 0,
                             }],
                             marked_routes: vec![true],
@@ -609,8 +622,8 @@ fn vanilla_trade_node_passes_from_retention_sources_update_nodes_in_order() {
                             transfer_rows: Vec::new(),
                             other_pool_entries: Vec::new(),
                         },
-                        route_weights: VanillaTradeRouteWeightPassInput {
-                            contributions: Vec::new(),
+                        route_weight_rows: VanillaTradeRouteWeightPassFromRowsInput {
+                            rows: Vec::new(),
                             marked_routes: Vec::new(),
                         },
                         has_downstream_routes: false,
@@ -878,10 +891,22 @@ fn vanilla_trade_node_passes_from_retention_sources_roll_back_on_late_failure() 
                         amount_milli: 900,
                     }],
                 },
-                route_weights: VanillaTradeRouteWeightPassInput {
-                    contributions: vec![VanillaTradeRouteWeightContributionInput {
+                route_weight_rows: VanillaTradeRouteWeightPassFromRowsInput {
+                    rows: vec![VanillaTradeRouteWeightSourceRowInput {
+                        participation_balance_milli: 1,
+                        previous_amount_milli: 0,
+                        current_amount_milli: 0,
+                        steering_eligibility: VanillaTradeSteeringEligibilityInput {
+                            country_flags: VanillaTradeCountryFlags {
+                                special_country: false,
+                                ae: true,
+                                ac: true,
+                                ad: false,
+                            },
+                            effective_amount_milli: 1_000,
+                            cached_route_eligible: true,
+                        },
                         selected_route_id: 0,
-                        effective_amount_milli: 1_000,
                         steering_modifier_milli: 0,
                     }],
                     marked_routes: vec![true],
