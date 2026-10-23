@@ -32,6 +32,19 @@ fn mod_source(root: &Path) -> ContentSource {
     ContentSource::mod_directory(root, TextEncoding::Utf8).unwrap()
 }
 
+#[cfg(windows)]
+fn extended_path(path: &Path) -> PathBuf {
+    let path = path.to_str().unwrap();
+    if path.starts_with(r"\\?\") {
+        return PathBuf::from(path);
+    }
+    if let Some(unc) = path.strip_prefix(r"\\") {
+        PathBuf::from(format!(r"\\?\UNC\{unc}"))
+    } else {
+        PathBuf::from(format!(r"\\?\{path}"))
+    }
+}
+
 #[test]
 fn dependencies_and_source_priority_choose_the_first_matching_file() {
     let fixture = tempfile::tempdir().unwrap();
@@ -808,6 +821,30 @@ fn declaration_shape_errors_include_the_actual_file_and_field_location() {
             fs::canonicalize(vanilla.join("common/scripted_triggers/sample.txt")).unwrap()
         );
     }
+}
+
+#[cfg(windows)]
+#[test]
+fn content_root_reads_a_root_beyond_legacy_max_path() {
+    use std::os::windows::ffi::OsStrExt;
+
+    let fixture = tempfile::tempdir().unwrap();
+    let mut root = directory(fixture.path(), "base");
+    let segment = "segment-12345678901234567890123456789012345678";
+    while root.as_os_str().encode_wide().count() <= 270 {
+        root.push(segment);
+        fs::create_dir(extended_path(&root)).unwrap();
+    }
+    assert!(root.as_os_str().encode_wide().count() > 260);
+
+    write(&root, "common/buildings/example.txt", "example={ value=1 }");
+    let content = ContentRoot::open(&root).unwrap();
+    let files = content.files().unwrap();
+    assert_eq!(files.len(), 1);
+    let document = content
+        .read_text(&files[0].relative_path, TextEncoding::Utf8)
+        .unwrap();
+    assert!(document.parse().is_ok());
 }
 
 #[cfg(unix)]
