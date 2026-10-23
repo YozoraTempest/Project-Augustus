@@ -241,6 +241,48 @@ fn launcher_mod_content_path(config_path: &Path, declared_path: &str) -> Option<
     fs::canonicalize(path).ok()
 }
 
+fn read_launcher_mod_selection(config_path: &Path) -> Result<LauncherModSelection, Error> {
+    let bytes = fs::read(config_path).map_err(|cause| Error::caused_by(config_path, cause))?;
+    serde_json::from_slice(&bytes).map_err(|cause| Error::caused_by(config_path, cause))
+}
+
+fn discover_launcher_mod_directories(
+    sources: &mut Vec<ContentSource>,
+    config_path: &Path,
+    selection: &LauncherModSelection,
+    descriptor_encoding: TextEncoding,
+) -> Result<(), Error> {
+    for enabled_mod in &selection.enabled_mods {
+        let Some(descriptor_path) = launcher_mod_descriptor_path(config_path, enabled_mod) else {
+            continue;
+        };
+        let bytes = fs::read(&descriptor_path)
+            .map_err(|cause| Error::caused_by(&descriptor_path, cause))?;
+        let document =
+            TextDocument::from_bytes(descriptor_path.clone(), bytes, descriptor_encoding);
+        let parsed = document.parse()?;
+        let descriptor = ModDescriptor::parse(&parsed)?;
+        let Some(content_path) = descriptor
+            .path
+            .as_deref()
+            .and_then(|declared| launcher_mod_content_path(config_path, declared))
+        else {
+            continue;
+        };
+        if sources
+            .iter()
+            .any(|source| source.role == ContentRole::Mod && source.path() == content_path)
+        {
+            continue;
+        }
+        sources.push(ContentSource::mod_directory(
+            content_path,
+            descriptor_encoding,
+        )?);
+    }
+    Ok(())
+}
+
 /// One physical file, including candidates that no longer contribute content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileOrigin {
@@ -356,7 +398,7 @@ impl ContentSet {
         Ok(Self { sources, files })
     }
 
-    /// Resolves the base game, locally installed DLC, and explicitly supplied directory Mods.
+    /// Resolves base content, installed DLC, supplied Mods, and selected launcher Mod directories.
     pub fn from_installation(
         game_root: impl AsRef<Path>,
         mod_directories: &[PathBuf],
@@ -375,7 +417,14 @@ impl ContentSet {
         }
         match launcher_config {
             Some(path) => {
-                Self::resolve_with_launcher_config_and_encoding(sources, path, descriptor_encoding)
+                let selection = read_launcher_mod_selection(path)?;
+                discover_launcher_mod_directories(
+                    &mut sources,
+                    path,
+                    &selection,
+                    descriptor_encoding,
+                )?;
+                Self::resolve_with_launcher_selection(sources, path, selection, descriptor_encoding)
             }
             None => Self::resolve(sources),
         }
@@ -399,9 +448,16 @@ impl ContentSet {
         config_path: &Path,
         descriptor_encoding: TextEncoding,
     ) -> Result<Self, Error> {
-        let bytes = fs::read(config_path).map_err(|cause| Error::caused_by(config_path, cause))?;
-        let selection: LauncherModSelection =
-            serde_json::from_slice(&bytes).map_err(|cause| Error::caused_by(config_path, cause))?;
+        let selection = read_launcher_mod_selection(config_path)?;
+        Self::resolve_with_launcher_selection(sources, config_path, selection, descriptor_encoding)
+    }
+
+    fn resolve_with_launcher_selection(
+        sources: Vec<ContentSource>,
+        config_path: &Path,
+        selection: LauncherModSelection,
+        descriptor_encoding: TextEncoding,
+    ) -> Result<Self, Error> {
         let mut selected_mods = BTreeSet::new();
         for enabled_mod in selection.enabled_mods {
             let name_matches = sources

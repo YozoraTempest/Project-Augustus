@@ -674,6 +674,82 @@ fn installation_resolver_matches_launcher_mod_paths_to_supplied_directories() {
 }
 
 #[test]
+fn installation_resolver_discovers_launcher_mod_directories_and_keeps_overlay_rules() {
+    let fixture = tempfile::tempdir().unwrap();
+    let vanilla = directory(fixture.path(), "base");
+    let user = directory(fixture.path(), "user");
+    let dependency = directory(fixture.path(), "dependency");
+    let selected = directory(fixture.path(), "selected-mod");
+    write(&dependency, "descriptor.mod", "name=Pack");
+    write(
+        &selected,
+        "descriptor.mod",
+        "name=Patch dependencies={ Pack } replace_path=events",
+    );
+
+    write(&vanilla, "common/defines/example.txt", "from_base = true");
+    write(
+        &dependency,
+        "common/defines/example.txt",
+        "from_pack = true",
+    );
+    write(&selected, "common/defines/example.txt", "from_patch = true");
+    write(&user, "common/defines/example.txt", "from_user = true");
+    write(&vanilla, "events/base.txt", "base_event = true");
+    write(&dependency, "events/pack.txt", "pack_event = true");
+    write(&user, "events/user.txt", "user_event = true");
+
+    let selected_path = selected.to_string_lossy().replace('\\', "/");
+    write(
+        &user,
+        "mod/patch.mod",
+        format!("name=Patch path=\"{selected_path}\""),
+    );
+    let config = user.join("dlc_load.json");
+    fs::write(&config, r#"{"enabled_mods":["Pack","mod/patch.mod"]}"#).unwrap();
+
+    let content = ContentSet::from_installation(
+        &vanilla,
+        &[dependency],
+        Some(&user),
+        Some(&config),
+        TextEncoding::Utf8,
+    )
+    .unwrap();
+
+    assert_eq!(
+        content
+            .sources()
+            .iter()
+            .map(ContentSource::name)
+            .collect::<Vec<_>>(),
+        ["EU4 user directory", "Patch", "Pack", "EU4 base"]
+    );
+    assert_eq!(
+        content
+            .read_text("common/defines/example.txt", TextEncoding::Utf8)
+            .unwrap()
+            .parse()
+            .unwrap()
+            .root_fields()[0]
+            .name,
+        "from_user"
+    );
+
+    let replaced = content.trace("events/pack.txt").unwrap().unwrap();
+    assert!(replaced.effective().is_none());
+    assert_eq!(
+        replaced.candidates[0].suppressed_by,
+        Some(Suppression::DirectoryReplacement {
+            by_source: 1,
+            replace_path: "events".into(),
+        })
+    );
+    let user_file = content.trace("events/user.txt").unwrap().unwrap();
+    assert_eq!(user_file.effective().unwrap().source_index, 0);
+}
+
+#[test]
 fn invalid_replace_paths_report_the_descriptor_and_queries_cannot_traverse() {
     let fixture = tempfile::tempdir().unwrap();
     let vanilla = directory(fixture.path(), "base");

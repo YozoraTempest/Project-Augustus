@@ -92,7 +92,7 @@ struct SourcesArgs {
     /// EU4 user directory mounted above mods and base game content.
     #[arg(long, value_name = "DIRECTORY")]
     user_directory: Option<PathBuf>,
-    /// EU4 launcher dlc_load.json; filters the supplied Mod directories by descriptor name.
+    /// EU4 launcher dlc_load.json; selects supplied Mods and discovers selected .mod directories.
     #[arg(long, value_name = "FILE")]
     launcher_config: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = EncodingArg::Utf8)]

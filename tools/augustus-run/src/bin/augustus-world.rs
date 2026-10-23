@@ -24,7 +24,7 @@ struct Cli {
     /// EU4 user directory mounted above Mods and base game content.
     #[arg(long, value_name = "DIRECTORY")]
     user_directory: Option<PathBuf>,
-    /// EU4 launcher dlc_load.json; matches supplied Mod directories to its .mod descriptors.
+    /// EU4 launcher dlc_load.json; selects supplied Mods and discovers selected .mod directories.
     #[arg(long, value_name = "FILE")]
     launcher_config: Option<PathBuf>,
     /// JSON state bundle supplied by another simulation or an external save reader.
