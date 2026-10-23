@@ -87,6 +87,44 @@ fn trade_income_matches_the_observed_hab_wien_integer_stages() {
 }
 
 #[test]
+fn wien_retention_share_and_income_match_the_observed_integer_stages() {
+    let retention = calculate_vanilla_trade_retention(VanillaTradeRetentionInput {
+        total_amount_milli: 749_231,
+        transferred_amount_milli: 359_580,
+    });
+    assert_eq!(retention.transfer_ratio_milli, 479);
+    assert_eq!(retention.retention_milli, 521);
+
+    // The capture observed one row at 119273 out of a 389651 denominator.
+    // The second contribution is the residual aggregate, not an observed row.
+    let share = calculate_vanilla_trade_route_weights(VanillaTradeRouteWeightInput {
+        contributions_milli: vec![119_273, 389_651 - 119_273],
+        marked_routes: vec![true, true],
+    })
+    .unwrap();
+    assert_eq!(share.total_milli, 389_651);
+    assert_eq!(share.weights_milli, [306, 693]);
+    assert_eq!(share.weights_milli.iter().sum::<i32>(), 999);
+
+    let income = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
+        node_value_milli: 5_390,
+        country_record_value_milli: i64::from(share.weights_milli[0]),
+        base_context_modifier_milli: 0,
+        selected_context_modifier_milli: 70,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: 0,
+    })
+    .unwrap();
+    assert_eq!(income.stage_one_product, 1_649_340);
+    assert_eq!(income.stage_one_milli, 1_649);
+    assert_eq!(income.effective_multiplier_milli, 1_070);
+    assert_eq!(income.stage_two_product, 1_764_430);
+    assert_eq!(income.trade_income_milli, 1_764);
+}
+
+#[test]
 fn trade_income_clamps_context_before_bonus_and_truncates_signed_stages() {
     let upper = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
         node_value_milli: 1,
