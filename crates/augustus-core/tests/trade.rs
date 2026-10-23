@@ -3,16 +3,17 @@
 
 use augustus_core::{
     VanillaTradeAttachedModifierGroup, VanillaTradeCandidate, VanillaTradeCaravanInput,
-    VanillaTradeCountryFlags, VanillaTradeDistributionCandidate,
-    VanillaTradeDistributionCandidateInput, VanillaTradeDistributionInput,
-    VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput, VanillaTradeIncomePassInput,
-    VanillaTradeNodePassInput, VanillaTradeNodeRouteInput, VanillaTradeOutflowInput,
-    VanillaTradePowerAmountInput, VanillaTradePowerModifierInput, VanillaTradePropagationInput,
-    VanillaTradeRetentionInput, VanillaTradeRetentionParticipantInput,
-    VanillaTradeRetentionPassInput, VanillaTradeRouteWeightContributionInput,
-    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightPassInput,
-    VanillaTradeSteeringEligibilityInput, VanillaTradeSteeringModifierInput,
-    calculate_vanilla_trade_caravan, calculate_vanilla_trade_distribution,
+    VanillaTradeCountryFlags, VanillaTradeCountryPowerShareInput,
+    VanillaTradeDistributionCandidate, VanillaTradeDistributionCandidateInput,
+    VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput,
+    VanillaTradeIncomePassInput, VanillaTradeNodePassInput, VanillaTradeNodeRouteInput,
+    VanillaTradeOutflowInput, VanillaTradePowerAmountInput, VanillaTradePowerModifierInput,
+    VanillaTradePropagationInput, VanillaTradeRetentionInput,
+    VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
+    VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightInput,
+    VanillaTradeRouteWeightPassInput, VanillaTradeSteeringEligibilityInput,
+    VanillaTradeSteeringModifierInput, calculate_vanilla_trade_caravan,
+    calculate_vanilla_trade_country_power_share, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
     calculate_vanilla_trade_node_pass, calculate_vanilla_trade_outflow,
     calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
@@ -95,20 +96,15 @@ fn wien_retention_share_and_income_match_the_observed_integer_stages() {
     assert_eq!(retention.transfer_ratio_milli, 479);
     assert_eq!(retention.retention_milli, 521);
 
-    // The capture observed one row at 119273 out of a 389651 denominator.
-    // The second contribution is the residual aggregate, not an observed row.
-    let share = calculate_vanilla_trade_route_weights(VanillaTradeRouteWeightInput {
-        contributions_milli: vec![119_273, 389_651 - 119_273],
-        marked_routes: vec![true, true],
-    })
-    .unwrap();
-    assert_eq!(share.total_milli, 389_651);
-    assert_eq!(share.weights_milli, [306, 693]);
-    assert_eq!(share.weights_milli.iter().sum::<i32>(), 999);
+    let share = calculate_vanilla_trade_country_power_share(VanillaTradeCountryPowerShareInput {
+        effective_amount_milli: 119_273,
+        collected_total_milli: 389_651,
+    });
+    assert_eq!(share, 306);
 
     let income = calculate_vanilla_trade_income(VanillaTradeIncomeInput {
         node_value_milli: 5_390,
-        country_record_value_milli: i64::from(share.weights_milli[0]),
+        country_record_value_milli: i64::from(share),
         base_context_modifier_milli: 0,
         selected_context_modifier_milli: 70,
         virtual_context_modifier_milli: None,
@@ -122,6 +118,31 @@ fn wien_retention_share_and_income_match_the_observed_integer_stages() {
     assert_eq!(income.effective_multiplier_milli, 1_070);
     assert_eq!(income.stage_two_product, 1_764_430);
     assert_eq!(income.trade_income_milli, 1_764);
+}
+
+#[test]
+fn trade_country_power_share_keeps_the_zero_sentinel_and_signed_truncation() {
+    assert_eq!(
+        calculate_vanilla_trade_country_power_share(VanillaTradeCountryPowerShareInput {
+            effective_amount_milli: 12_345,
+            collected_total_milli: 0,
+        }),
+        -1
+    );
+    assert_eq!(
+        calculate_vanilla_trade_country_power_share(VanillaTradeCountryPowerShareInput {
+            effective_amount_milli: -1,
+            collected_total_milli: 3_000,
+        }),
+        0
+    );
+    assert_eq!(
+        calculate_vanilla_trade_country_power_share(VanillaTradeCountryPowerShareInput {
+            effective_amount_milli: 1_200,
+            collected_total_milli: 500,
+        }),
+        2_400
+    );
 }
 
 #[test]

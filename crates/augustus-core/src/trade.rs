@@ -544,6 +544,31 @@ pub fn calculate_vanilla_trade_retention_pass(
     }
 }
 
+/// Inputs for one country's fixed-point share of collected trade power.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeCountryPowerShareInput {
+    /// Effective amount after the compatibility layer applies native caps.
+    pub effective_amount_milli: i32,
+    pub collected_total_milli: i32,
+}
+
+/// Calculates one country row's share in thousandths.
+///
+/// The native stage divides the effective row amount by total collected power,
+/// multiplying by 1000 before truncating toward zero. A zero total uses the
+/// observed `-1` sentinel; results are not clamped to a percentage range.
+pub fn calculate_vanilla_trade_country_power_share(
+    input: VanillaTradeCountryPowerShareInput,
+) -> i32 {
+    if input.collected_total_milli == 0 {
+        -1
+    } else {
+        (i64::from(input.effective_amount_milli) * 1_000 / i64::from(input.collected_total_milli))
+            as i32
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VanillaTradeRouteWeightInput {
