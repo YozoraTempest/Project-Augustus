@@ -10,14 +10,15 @@ use augustus_core::{
     VanillaTradeOutflowInput, VanillaTradePowerAmountInput, VanillaTradePowerModifierInput,
     VanillaTradePropagationInput, VanillaTradeRetentionInput,
     VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
-    VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightInput,
-    VanillaTradeRouteWeightPassInput, VanillaTradeSteeringEligibilityInput,
-    VanillaTradeSteeringModifierInput, calculate_vanilla_trade_caravan,
-    calculate_vanilla_trade_country_power_share, calculate_vanilla_trade_distribution,
-    calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
-    calculate_vanilla_trade_node_pass, calculate_vanilla_trade_outflow,
-    calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
-    calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
+    VanillaTradeRetentionPoolsInput, VanillaTradeRouteWeightContributionInput,
+    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightPassInput,
+    VanillaTradeSteeringEligibilityInput, VanillaTradeSteeringModifierInput,
+    calculate_vanilla_trade_caravan, calculate_vanilla_trade_country_power_share,
+    calculate_vanilla_trade_distribution, calculate_vanilla_trade_income,
+    calculate_vanilla_trade_income_pass, calculate_vanilla_trade_node_pass,
+    calculate_vanilla_trade_outflow, calculate_vanilla_trade_power_amount,
+    calculate_vanilla_trade_power_modifier, calculate_vanilla_trade_propagation,
+    calculate_vanilla_trade_retention, calculate_vanilla_trade_retention_from_pools,
     calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weight_pass,
     calculate_vanilla_trade_route_weights, calculate_vanilla_trade_steering_modifier,
     is_vanilla_trade_collector, is_vanilla_trade_steering_eligible,
@@ -89,9 +90,9 @@ fn trade_income_matches_the_observed_hab_wien_integer_stages() {
 
 #[test]
 fn wien_retention_share_and_income_match_the_observed_integer_stages() {
-    let retention = calculate_vanilla_trade_retention(VanillaTradeRetentionInput {
-        total_amount_milli: 749_231,
+    let retention = calculate_vanilla_trade_retention_from_pools(VanillaTradeRetentionPoolsInput {
         transferred_amount_milli: 359_580,
+        other_amount_milli: 389_651,
     });
     assert_eq!(retention.transfer_ratio_milli, 479);
     assert_eq!(retention.retention_milli, 521);
@@ -118,6 +119,33 @@ fn wien_retention_share_and_income_match_the_observed_integer_stages() {
     assert_eq!(income.effective_multiplier_milli, 1_070);
     assert_eq!(income.stage_two_product, 1_764_430);
     assert_eq!(income.trade_income_milli, 1_764);
+}
+
+#[test]
+fn trade_retention_from_pools_preserves_native_sentinels_and_wrapping_sum() {
+    let no_transfer =
+        calculate_vanilla_trade_retention_from_pools(VanillaTradeRetentionPoolsInput {
+            transferred_amount_milli: 0,
+            other_amount_milli: 0,
+        });
+    assert_eq!(no_transfer.transfer_ratio_milli, 0);
+    assert_eq!(no_transfer.retention_milli, 1_000);
+
+    let zero_denominator =
+        calculate_vanilla_trade_retention_from_pools(VanillaTradeRetentionPoolsInput {
+            transferred_amount_milli: 5,
+            other_amount_milli: -5,
+        });
+    assert_eq!(zero_denominator.transfer_ratio_milli, -1);
+    assert_eq!(zero_denominator.retention_milli, 1_001);
+
+    let wrapped_denominator =
+        calculate_vanilla_trade_retention_from_pools(VanillaTradeRetentionPoolsInput {
+            transferred_amount_milli: i32::MAX,
+            other_amount_milli: 1,
+        });
+    assert_eq!(wrapped_denominator.transfer_ratio_milli, -999);
+    assert_eq!(wrapped_denominator.retention_milli, 1_999);
 }
 
 #[test]

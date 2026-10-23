@@ -183,7 +183,8 @@ pub use trade::{
     VanillaTradePowerAmountInput, VanillaTradePowerAmountResult, VanillaTradePowerModifierInput,
     VanillaTradePowerModifierResult, VanillaTradePropagationInput, VanillaTradePropagationResult,
     VanillaTradeRetentionInput, VanillaTradeRetentionParticipantInput,
-    VanillaTradeRetentionPassInput, VanillaTradeRetentionPassResult, VanillaTradeRetentionResult,
+    VanillaTradeRetentionPassInput, VanillaTradeRetentionPassResult,
+    VanillaTradeRetentionPoolsInput, VanillaTradeRetentionResult,
     VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightInput,
     VanillaTradeRouteWeightPassInput, VanillaTradeRouteWeightPassResult,
     VanillaTradeRouteWeightResult, VanillaTradeSteeringEligibilityInput,
@@ -193,11 +194,11 @@ pub use trade::{
     calculate_vanilla_trade_income_pass, calculate_vanilla_trade_node_pass,
     calculate_vanilla_trade_outflow, calculate_vanilla_trade_power_amount,
     calculate_vanilla_trade_power_modifier, calculate_vanilla_trade_propagation,
-    calculate_vanilla_trade_retention, calculate_vanilla_trade_retention_pass,
-    calculate_vanilla_trade_route_weight_pass, calculate_vanilla_trade_route_weights,
-    calculate_vanilla_trade_steering_modifier, is_vanilla_trade_collector,
-    is_vanilla_trade_steering_eligible, select_vanilla_trade_distribution_candidates,
-    sort_vanilla_trade_candidates,
+    calculate_vanilla_trade_retention, calculate_vanilla_trade_retention_from_pools,
+    calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weight_pass,
+    calculate_vanilla_trade_route_weights, calculate_vanilla_trade_steering_modifier,
+    is_vanilla_trade_collector, is_vanilla_trade_steering_eligible,
+    select_vanilla_trade_distribution_candidates, sort_vanilla_trade_candidates,
 };
 pub use truces::{Truce, Truces};
 pub use unit_templates::{UnitTemplate, UnitTemplateProperty, UnitTemplates};

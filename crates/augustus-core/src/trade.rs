@@ -398,6 +398,13 @@ pub struct VanillaTradeRetentionInput {
     pub transferred_amount_milli: i32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeRetentionPoolsInput {
+    pub transferred_amount_milli: i32,
+    pub other_amount_milli: i32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VanillaTradeRetentionResult {
     pub transfer_ratio_milli: i32,
@@ -425,6 +432,22 @@ pub fn calculate_vanilla_trade_retention(
         transfer_ratio_milli: transfer_ratio,
         retention_milli: 1_000_i32.wrapping_sub(transfer_ratio),
     }
+}
+
+/// Calculates retention directly from the two native accumulator outputs.
+///
+/// Their denominator is added in 32-bit storage before the fixed-point ratio
+/// is evaluated. The other pool remains an explicit input; this stage does not
+/// infer which country rows produce it.
+pub fn calculate_vanilla_trade_retention_from_pools(
+    input: VanillaTradeRetentionPoolsInput,
+) -> VanillaTradeRetentionResult {
+    calculate_vanilla_trade_retention(VanillaTradeRetentionInput {
+        total_amount_milli: input
+            .transferred_amount_milli
+            .wrapping_add(input.other_amount_milli),
+        transferred_amount_milli: input.transferred_amount_milli,
+    })
 }
 
 /// Normalized country-state flags used by EU4's trade collection rules.
@@ -510,7 +533,6 @@ pub struct VanillaTradeRetentionPassResult {
 pub fn calculate_vanilla_trade_retention_pass(
     input: VanillaTradeRetentionPassInput,
 ) -> VanillaTradeRetentionPassResult {
-    let mut total_amount = 0_i32;
     let mut collected_amount = 0_i32;
     let mut transferred_amount = 0_i32;
 
@@ -521,7 +543,6 @@ pub fn calculate_vanilla_trade_retention_pass(
 
         if is_vanilla_trade_collector(participant.country_flags) {
             collected_amount = collected_amount.wrapping_add(participant.effective_amount_milli);
-            total_amount = total_amount.wrapping_add(participant.effective_amount_milli);
         } else if is_vanilla_trade_steering_eligible(VanillaTradeSteeringEligibilityInput {
             country_flags: participant.country_flags,
             effective_amount_milli: participant.effective_amount_milli,
@@ -529,17 +550,18 @@ pub fn calculate_vanilla_trade_retention_pass(
         }) {
             transferred_amount =
                 transferred_amount.wrapping_add(participant.effective_amount_milli);
-            total_amount = total_amount.wrapping_add(participant.effective_amount_milli);
         }
     }
+
+    let total_amount = transferred_amount.wrapping_add(collected_amount);
 
     VanillaTradeRetentionPassResult {
         total_amount_milli: total_amount,
         collected_amount_milli: collected_amount,
         transferred_amount_milli: transferred_amount,
-        retention: calculate_vanilla_trade_retention(VanillaTradeRetentionInput {
-            total_amount_milli: total_amount,
+        retention: calculate_vanilla_trade_retention_from_pools(VanillaTradeRetentionPoolsInput {
             transferred_amount_milli: transferred_amount,
+            other_amount_milli: collected_amount,
         }),
     }
 }
