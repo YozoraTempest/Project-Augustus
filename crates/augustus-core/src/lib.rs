@@ -38,6 +38,7 @@ mod modifiers;
 mod named_values;
 mod naval;
 mod objectives;
+mod owner_area_adjacencies;
 mod ownership;
 mod plan;
 mod politics;
@@ -153,6 +154,7 @@ pub use modifiers::{ModifierDefinition, ModifierInstance, ModifierRenewal, Modif
 pub use named_values::{NamedValues, NumericComparison, NumericOperation, NumericSlot};
 pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId, NavalUnitState};
 pub use objectives::{ObjectiveGroup, Objectives};
+pub use owner_area_adjacencies::{OwnerAreaAdjacencyCounts, OwnerAreaAdjacencyEntry};
 pub use plan::{Action, Condition, Plan, SchoolOpinionTarget, Target};
 pub use politics::{
     CountryPolitics, CountryRelationState, DiplomaticKind, DiplomaticRelation, NationalFocus,
