@@ -830,6 +830,80 @@ fn vanilla_trade_node_sequence_rolls_back_when_a_later_node_fails() {
 }
 
 #[test]
+fn vanilla_trade_node_passes_from_retention_sources_roll_back_on_late_failure() {
+    let mut runtime_world = world();
+    runtime_world.set_economy(economy()).unwrap();
+    runtime_world
+        .set_trade_node_route_orders(&trade_node_route_orders())
+        .unwrap();
+    runtime_world
+        .set_trade_node_current_values_milli(&std::collections::BTreeMap::from([
+            ("river".into(), Some(10_000)),
+            ("harbor".into(), Some(5_000)),
+        ]))
+        .unwrap();
+
+    let before = runtime_world.clone();
+    let order = ["river".to_owned(), "harbor".to_owned()];
+    let result = runtime_world.run_vanilla_trade_node_passes_with_retention_sources_in_order(
+        &order,
+        |world, source_node| {
+            if source_node == "harbor" {
+                assert!(
+                    world
+                        .trade_node_runtime_state("river")
+                        .flatten()
+                        .is_some_and(|state| state.outgoing_milli.is_some())
+                );
+                return Err(Error::Invalid("forced later node failure".into()));
+            }
+
+            Ok(VanillaTradeNodePassFromRetentionSourcesInput {
+                source_value_milli: world
+                    .trade_node_current_value_milli(source_node)
+                    .flatten()
+                    .unwrap() as i32,
+                retention_sources: VanillaTradeRetentionSourcesInput {
+                    transfer_rows: vec![VanillaTradeRetentionContributionRowInput {
+                        reference_valid: true,
+                        transfer_eligible: true,
+                        contribution_base_milli: 100,
+                        contribution_limit_milli: 80,
+                        contribution_scale_milli: 500,
+                        previous_amount_milli: 10,
+                        current_amount_milli: 20,
+                    }],
+                    other_pool_entries: vec![VanillaTradeRetentionSequenceEntryInput {
+                        included_in_other_pool: true,
+                        amount_milli: 900,
+                    }],
+                },
+                route_weights: VanillaTradeRouteWeightPassInput {
+                    contributions: vec![VanillaTradeRouteWeightContributionInput {
+                        selected_route_id: 0,
+                        effective_amount_milli: 1_000,
+                        steering_modifier_milli: 0,
+                    }],
+                    marked_routes: vec![true],
+                },
+                has_downstream_routes: true,
+                node_value_milli: 1_000,
+                base_outgoing_value_milli: 1_000,
+                incoming_transfer_values_milli: Vec::new(),
+                additional_outgoing_multiplier_milli: 0,
+                routes: vec![VanillaTradeNodeRouteInput {
+                    route_id: 0,
+                    candidates: Vec::new(),
+                }],
+            })
+        },
+    );
+
+    assert!(matches!(result, Err(Error::Invalid(_))));
+    assert_eq!(runtime_world, before);
+}
+
+#[test]
 fn invalid_economic_references_and_graphs_fail_atomically() {
     let mut world = world();
     world.set_economy(economy()).unwrap();

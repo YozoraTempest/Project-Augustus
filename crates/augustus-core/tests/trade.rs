@@ -760,6 +760,38 @@ fn retention_sources_scale_transfer_rows_and_keep_the_other_pool_separate() {
 }
 
 #[test]
+fn retention_source_rows_preserve_native_i32_wraparound() {
+    let result =
+        calculate_vanilla_trade_retention_from_sources(VanillaTradeRetentionSourcesInput {
+            transfer_rows: vec![VanillaTradeRetentionContributionRowInput {
+                reference_valid: true,
+                transfer_eligible: true,
+                contribution_base_milli: 1,
+                contribution_limit_milli: 1,
+                contribution_scale_milli: 1_000,
+                previous_amount_milli: 0,
+                current_amount_milli: i32::MAX,
+            }],
+            other_pool_entries: vec![
+                VanillaTradeRetentionSequenceEntryInput {
+                    included_in_other_pool: true,
+                    amount_milli: i32::MAX,
+                },
+                VanillaTradeRetentionSequenceEntryInput {
+                    included_in_other_pool: true,
+                    amount_milli: 1,
+                },
+            ],
+        });
+
+    assert_eq!(result.transfer_amount_milli, i32::MIN);
+    assert_eq!(result.other_pool_amount_milli, i32::MIN);
+    assert_eq!(result.total_amount_milli, 0);
+    assert_eq!(result.retention.transfer_ratio_milli, -1);
+    assert_eq!(result.retention.retention_milli, 1_001);
+}
+
+#[test]
 fn trade_retention_pass_preserves_the_native_zero_total_sentinel() {
     let result = calculate_vanilla_trade_retention_pass(VanillaTradeRetentionPassInput {
         participants: vec![
