@@ -207,6 +207,53 @@ fn replacement_keeps_higher_priority_files_and_cuts_lower_priority_sources() {
 }
 
 #[test]
+fn directory_replacement_does_not_cover_a_sibling_file() {
+    let fixture = tempfile::tempdir().unwrap();
+    let vanilla = directory(fixture.path(), "base");
+    let replacer = directory(fixture.path(), "replacer");
+    let lower = directory(fixture.path(), "lower");
+    write(&vanilla, "descriptor.mod", "");
+    write(&vanilla, "common/defines.lua", "base_defines = true");
+    write(&vanilla, "common/defines/base.txt", "base={}");
+    write(
+        &replacer,
+        "descriptor.mod",
+        r#"name="A Replacer" replace_path="common/defines""#,
+    );
+    write(&replacer, "common/defines/replacer.txt", "replacer={}");
+    write(&lower, "descriptor.mod", "name=\"B Lower\"");
+    write(&lower, "common/defines/lower.txt", "lower={}");
+
+    let content = ContentSet::resolve(vec![
+        base(&vanilla),
+        mod_source(&replacer),
+        mod_source(&lower),
+    ])
+    .unwrap();
+
+    let sibling = content.trace("common/defines.lua").unwrap().unwrap();
+    assert_eq!(sibling.effective().unwrap().source_index, 2);
+    assert!(sibling.candidates[0].suppressed_by.is_none());
+
+    let replaced = content.trace("common/defines/lower.txt").unwrap().unwrap();
+    assert!(matches!(
+        replaced.candidates[0].suppressed_by,
+        Some(Suppression::DirectoryReplacement { by_source: 0, .. })
+    ));
+    assert!(replaced.effective().is_none());
+    assert_eq!(
+        content
+            .trace("common/defines/replacer.txt")
+            .unwrap()
+            .unwrap()
+            .effective()
+            .unwrap()
+            .source_index,
+        0
+    );
+}
+
+#[test]
 fn replacement_normalizes_windows_separators_before_cutting_lower_sources() {
     let fixture = tempfile::tempdir().unwrap();
     let vanilla = directory(fixture.path(), "base");
