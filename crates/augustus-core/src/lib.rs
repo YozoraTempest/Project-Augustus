@@ -162,8 +162,8 @@ pub use objectives::{ObjectiveGroup, Objectives};
 pub use owner_area_adjacencies::{OwnerAreaAdjacencyCounts, OwnerAreaAdjacencyEntry};
 pub use plan::{Action, Condition, Plan, SchoolOpinionTarget, Target};
 pub use politics::{
-    CountryPolitics, CountryRelationState, DiplomaticKind, DiplomaticRelation, NationalFocus,
-    PersonState, Politics, RulerSkill, RulerSkillBounds,
+    CountryAttitudeUpdate, CountryPolitics, CountryRelationState, DiplomaticKind,
+    DiplomaticRelation, NationalFocus, PersonState, Politics, RulerSkill, RulerSkillBounds,
 };
 pub use production::{
     MonthlyProduction, ProductionCountryAccount, ProductionProvinceAccount, ProductionSettlement,

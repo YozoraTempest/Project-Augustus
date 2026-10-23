@@ -82,6 +82,15 @@ pub struct CountryRelationState {
     pub trust_value: Option<i64>,
 }
 
+/// An already-selected AI attitude to commit to a bilateral country relation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CountryAttitudeUpdate {
+    pub owner: EntityId,
+    pub target: EntityId,
+    pub attitude: String,
+}
+
 impl CountryRelationState {
     pub fn is_empty(&self) -> bool {
         self.attitude.is_none() && self.trust_value.is_none()

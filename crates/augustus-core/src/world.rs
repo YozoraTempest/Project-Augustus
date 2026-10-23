@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::rng::{Eu4Rng, RandomSource};
 use crate::{
-    Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryLedger,
-    CountryRelationState, CountryResource, CountryResources, DailySystem, Economy, Error,
-    Governments, Ideas, Modifiers, MonthlySystem, MonthlyTax, Plan, Politics, Target, Taxation,
-    Technology, TradeNodeRuntimeState, VanillaTradeDistributionResult,
+    Action, Administration, Advisors, Affiliations, Attributes, Calendar, CountryAttitudeUpdate,
+    CountryLedger, CountryRelationState, CountryResource, CountryResources, DailySystem, Economy,
+    Error, Governments, Ideas, Modifiers, MonthlySystem, MonthlyTax, Plan, Politics, Target,
+    Taxation, Technology, TradeNodeRuntimeState, VanillaTradeDistributionResult,
     VanillaTradeNodePassFromRetentionSourcesInput, VanillaTradeNodePassFromRetentionSourcesResult,
     VanillaTradeNodePassInput, VanillaTradeNodePassResult, WorldDate, YearlySystem,
     calculate_vanilla_trade_node_pass, calculate_vanilla_trade_node_pass_from_retention_sources,
@@ -1398,6 +1398,39 @@ impl World {
                     .iter()
                     .map(move |(&target, state)| (owner, target, state))
             })
+    }
+
+    /// Applies preselected AI attitudes, preserving other known relation values.
+    pub fn apply_country_attitude_updates(
+        &mut self,
+        updates: &[CountryAttitudeUpdate],
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        for update in updates {
+            if update.attitude.is_empty() {
+                return Err(Error::Invalid("country attitude must not be empty".into()));
+            }
+            if self.entity(update.owner)?.kind != EntityKind::Country {
+                return Err(Error::Invalid(
+                    "country attitude owner must be a country".into(),
+                ));
+            }
+            if self.entity(update.target)?.kind != EntityKind::Country {
+                return Err(Error::Invalid(
+                    "country attitude target must be a country".into(),
+                ));
+            }
+        }
+
+        for update in updates {
+            self.country_relation_states
+                .entry(update.owner)
+                .or_default()
+                .entry(update.target)
+                .or_default()
+                .attitude = Some(update.attitude.clone());
+        }
+        Ok(())
     }
 
     pub(crate) fn set_country_relation_states(
@@ -2950,7 +2983,7 @@ pub(crate) fn validate_condition(
 #[cfg(test)]
 mod country_relation_state_tests {
     use super::{EntityKind, World};
-    use crate::{CountryRelationState, Schema};
+    use crate::{CountryAttitudeUpdate, CountryRelationState, Schema};
     use std::collections::BTreeMap;
 
     #[test]
@@ -2987,5 +3020,94 @@ mod country_relation_state_tests {
         assert!(!snapshot.contains("country_relation_states"));
         let restored = World::restore(&snapshot, "content", &schema).unwrap();
         assert_eq!(restored.country_relation_state(owner, target), None);
+    }
+
+    #[test]
+    fn selected_attitude_updates_preserve_trust_and_apply_in_order() {
+        let schema = Schema::new(std::iter::empty::<String>()).unwrap();
+        let mut world = World::new(schema);
+        let owner = world.add_entity("AAA", EntityKind::Country);
+        let target = world.add_entity("BBB", EntityKind::Country);
+        world
+            .set_country_relation_states(BTreeMap::from([(
+                owner,
+                BTreeMap::from([(
+                    target,
+                    CountryRelationState {
+                        attitude: Some("old_attitude".into()),
+                        trust_value: Some(85),
+                    },
+                )]),
+            )]))
+            .unwrap();
+
+        world
+            .apply_country_attitude_updates(&[
+                CountryAttitudeUpdate {
+                    owner,
+                    target,
+                    attitude: "disloyal".into(),
+                },
+                CountryAttitudeUpdate {
+                    owner,
+                    target,
+                    attitude: "rebellious".into(),
+                },
+            ])
+            .unwrap();
+
+        assert_eq!(
+            world.country_relation_state(owner, target),
+            Some(&CountryRelationState {
+                attitude: Some("rebellious".into()),
+                trust_value: Some(85),
+            })
+        );
+    }
+
+    #[test]
+    fn invalid_attitude_batch_does_not_partially_update_relations() {
+        let schema = Schema::new(std::iter::empty::<String>()).unwrap();
+        let mut world = World::new(schema);
+        let owner = world.add_entity("AAA", EntityKind::Country);
+        let target = world.add_entity("BBB", EntityKind::Country);
+        let province = world.add_entity("1", EntityKind::Province);
+        world
+            .set_country_relation_states(BTreeMap::from([(
+                owner,
+                BTreeMap::from([(
+                    target,
+                    CountryRelationState {
+                        attitude: Some("old_attitude".into()),
+                        trust_value: Some(85),
+                    },
+                )]),
+            )]))
+            .unwrap();
+
+        assert!(
+            world
+                .apply_country_attitude_updates(&[
+                    CountryAttitudeUpdate {
+                        owner,
+                        target,
+                        attitude: "friendly".into(),
+                    },
+                    CountryAttitudeUpdate {
+                        owner,
+                        target: province,
+                        attitude: "neutral".into(),
+                    },
+                ])
+                .is_err()
+        );
+
+        assert_eq!(
+            world.country_relation_state(owner, target),
+            Some(&CountryRelationState {
+                attitude: Some("old_attitude".into()),
+                trust_value: Some(85),
+            })
+        );
     }
 }
