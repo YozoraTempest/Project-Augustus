@@ -10,6 +10,61 @@ use crate::{EntityId, EntityKind, Error, World};
 const INITIAL_REGIMENT_STRENGTH_MILLI: i64 = 1_000;
 const INITIAL_REGIMENT_MORALE_MILLI: i64 = 1_000;
 
+/// Inputs for the verified morale stage used while completing a unit.
+///
+/// The compatibility layer resolves the country's two morale bases, the
+/// unit-specific base selector, the global factor, and the special-owner
+/// override condition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaConstructionMoraleInput {
+    pub regular_base_morale_milli: i32,
+    pub alternate_base_morale_milli: i32,
+    pub alternate_base_selected: bool,
+    pub construction_factor_milli: i32,
+    pub override_with_regular_base: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaConstructionMoraleResult {
+    pub selected_base_morale_milli: i32,
+    pub capped_factor_milli: i32,
+    pub scaled_morale_milli: i32,
+    pub morale_milli: i32,
+}
+
+/// Calculates the verified unit-construction morale stage.
+///
+/// The factor has an upper bound of 1000 and no lower bound. Multiplication
+/// uses signed 64-bit intermediates, division truncates toward zero, and the
+/// narrowed result is clamped at zero. The special-owner override selects the
+/// regular base directly after the scaled value has been calculated.
+pub fn calculate_vanilla_construction_morale(
+    input: VanillaConstructionMoraleInput,
+) -> VanillaConstructionMoraleResult {
+    let selected_base_morale_milli = if input.alternate_base_selected {
+        input.alternate_base_morale_milli
+    } else {
+        input.regular_base_morale_milli
+    };
+    let capped_factor_milli = input.construction_factor_milli.min(1_000);
+    let scaled_morale_milli =
+        ((i64::from(selected_base_morale_milli) * i64::from(capped_factor_milli) / 1_000) as i32)
+            .max(0);
+    let morale_milli = if input.override_with_regular_base {
+        input.regular_base_morale_milli.max(0)
+    } else {
+        scaled_morale_milli
+    };
+
+    VanillaConstructionMoraleResult {
+        selected_base_morale_milli,
+        capped_factor_milli,
+        scaled_morale_milli,
+        morale_milli,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ArmyId(pub u64);
 
