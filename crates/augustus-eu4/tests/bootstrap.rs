@@ -17,10 +17,11 @@ use augustus_core::{
     YearlyPipeline, YearlySystem,
 };
 use augustus_eu4::{
-    ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaExternalAdvisor,
-    VanillaExternalArmy, VanillaExternalEstateState, VanillaExternalEu4RandomState,
-    VanillaExternalFleet, VanillaExternalNavalUnit, VanillaExternalRegimentState,
-    VanillaExternalShipState, VanillaExternalState, VanillaWorld, read_vanilla_save_state,
+    ContentRoot, ContentSet, ContentSource, CountryTagSlotKind, TextEncoding,
+    VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState,
+    VanillaExternalEu4RandomState, VanillaExternalFleet, VanillaExternalNavalUnit,
+    VanillaExternalRegimentState, VanillaExternalShipState, VanillaExternalState, VanillaWorld,
+    read_vanilla_save_state,
 };
 
 fn fixture() -> PathBuf {
@@ -1157,6 +1158,22 @@ fn startup_ai_seed_uses_country_tag_registration_order() {
             1,
         )
         .unwrap();
+        let registry = &loaded.country_tag_registry;
+        let expected_content_order = country_tags
+            .lines()
+            .filter_map(|line| line.split('=').next())
+            .map(str::trim)
+            .collect::<Vec<_>>();
+        assert_eq!(loaded.report.country_tag_slots, 408);
+        assert_eq!(loaded.report.generated_country_tag_slots, 405);
+        assert_eq!(registry.slots()[0].tag, "---");
+        assert_eq!(registry.slots()[1].tag, expected_content_order[0]);
+        assert_eq!(registry.slots()[2].tag, expected_content_order[1]);
+        assert_eq!(
+            registry.slot("C00").unwrap().kind,
+            CountryTagSlotKind::Generated
+        );
+        assert!(loaded.initial.country_entity("C00").is_none());
         loaded.advance(1).unwrap();
         loaded
             .initial

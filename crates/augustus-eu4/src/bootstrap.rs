@@ -57,6 +57,8 @@ pub struct BootstrapReport {
     pub map_width: u32,
     pub map_height: u32,
     pub countries: usize,
+    pub country_tag_slots: usize,
+    pub generated_country_tag_slots: usize,
     pub active_countries: usize,
     pub provinces: usize,
     pub country_history_files: usize,
@@ -379,6 +381,7 @@ pub struct VanillaExternalProvinceDevelopment {
 pub struct VanillaWorld {
     pub initial: InitialWorld,
     pub report: BootstrapReport,
+    pub country_tag_registry: crate::CountryTagRegistry,
     pub province_bitmap: PathBuf,
     pub country_sources: BTreeMap<String, Vec<LoadedSource>>,
     pub province_sources: BTreeMap<u32, Vec<LoadedSource>>,
@@ -2349,6 +2352,8 @@ impl VanillaWorld {
             map_width: width,
             map_height: height,
             countries: 0,
+            country_tag_slots: 0,
+            generated_country_tag_slots: 0,
             active_countries: 0,
             provinces: 0,
             country_history_files: 0,
@@ -3216,6 +3221,10 @@ impl VanillaWorld {
             seed,
         )
         .map_err(|e| Error::caused_by(root.path(), e))?;
+        let country_tag_registry = crate::country_tags::build_registry(&country_order)
+            .map_err(|e| Error::caused_by(root.path(), e))?;
+        report.country_tag_slots = country_tag_registry.slots().len();
+        report.generated_country_tag_slots = country_tag_registry.generated_count();
         let map_knowledge = bind_province_discoveries(
             &initial,
             &province_history_state.discovered_by,
@@ -4250,6 +4259,7 @@ impl VanillaWorld {
         Ok(Self {
             initial,
             report,
+            country_tag_registry,
             province_bitmap: bitmap.source().into(),
             country_sources,
             province_sources,

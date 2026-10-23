@@ -16,6 +16,7 @@ mod country_conditions;
 mod country_markers;
 mod country_metrics;
 mod country_status;
+mod country_tags;
 mod defines;
 pub use defines::{DefineDifficulty, DefineValue, Defines, EvaluatedDefine};
 mod definitions;
@@ -131,6 +132,7 @@ pub use bootstrap::{
 };
 pub use casus_belli::{CasusBelliReport, CasusBelliType, CasusBelliTypes};
 pub use content::{ContentRoot, ContentView, FileEntry};
+pub use country_tags::{CountryTagRegistry, CountryTagSlot, CountryTagSlotKind};
 pub use definitions::{DefinitionIndex, DefinitionKind, DefinitionOrigin};
 pub use descriptor::ModDescriptor;
 pub use diagnostic::{Error, SourceLocation};
