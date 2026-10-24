@@ -305,6 +305,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         province_development: Default::default(),
         province_is_city: Default::default(),
         province_in_empire: Default::default(),
+        province_mothball_status: Default::default(),
         province_raw_autonomy_milli: Default::default(),
         estate_privileges: BTreeMap::from([(
             "AAA".into(),

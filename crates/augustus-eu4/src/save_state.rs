@@ -642,6 +642,12 @@ impl VanillaSaveState {
             }
         }
 
+        for (province, value) in &self.external_state.province_mothball_status {
+            if world.initial.province_entity(*province).is_some() {
+                state.province_mothball_status.insert(*province, *value);
+            }
+        }
+
         let players = self
             .players
             .iter()
@@ -1428,6 +1434,26 @@ fn read_vanilla_save_state_inner(
             ));
         }
         external_state.province_owners.insert(id, owner.clone());
+        let mothball_status = optional_scalar(&parsed, &province, "mothball_status")?
+            .map(|value| {
+                value
+                    .parse::<u8>()
+                    .ok()
+                    .filter(|_| {
+                        !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
+                    })
+                    .ok_or_else(|| {
+                        Error::message(
+                            parsed.source(),
+                            format!("province {id} has an invalid mothball status"),
+                        )
+                    })
+            })
+            .transpose()?
+            .unwrap_or(1);
+        external_state
+            .province_mothball_status
+            .insert(id, mothball_status);
         let mut saved_cores = Vec::new();
         let mut seen_cores = BTreeSet::new();
         if let Some(cores) = optional_field(&parsed, &province, "cores")? {
@@ -3798,8 +3824,17 @@ provinces={
         base_tax=12.345
         base_production=7.890
         base_manpower=4.250
+        mothball_status=0
     }
     -2={
+        owner="AAA"
+        mothball_status=1
+    }
+    -3={
+        owner="AAA"
+        mothball_status=2
+    }
+    -4={
         owner="AAA"
     }
     -999={
@@ -3807,6 +3842,7 @@ provinces={
         base_tax=99.000
         base_production=88.000
         base_manpower=77.000
+        mothball_status=2
     }
 }
 "#,
@@ -3827,6 +3863,11 @@ provinces={
             Some(4_250)
         );
         assert!(save.external_state.province_development.contains_key(&999));
+        assert_eq!(save.external_state.province_mothball_status[&1], 0);
+        assert_eq!(save.external_state.province_mothball_status[&2], 1);
+        assert_eq!(save.external_state.province_mothball_status[&3], 2);
+        assert_eq!(save.external_state.province_mothball_status[&4], 1);
+        assert_eq!(save.external_state.province_mothball_status[&999], 2);
         assert_eq!(
             save.external_state.province_controllers[&1].as_deref(),
             Some("AAA")
@@ -3851,6 +3892,7 @@ provinces={
         )])
         .unwrap();
         let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        assert_eq!(baseline.province_mothball_status(1), Some(1));
         let baseline_tax = baseline.initial.province(1).unwrap().tax_milli;
         assert_ne!(baseline_tax, Some(12_345));
         assert_eq!(
@@ -3868,9 +3910,17 @@ provinces={
         assert_eq!(filtered.province_center_of_trade_levels[&1], Some(3));
         assert_eq!(filtered.province_center_of_trade_levels[&2], Some(0));
         assert!(!filtered.province_center_of_trade_levels.contains_key(&999));
+        assert_eq!(filtered.province_mothball_status[&1], 0);
+        assert_eq!(filtered.province_mothball_status[&2], 1);
+        assert_eq!(filtered.province_mothball_status[&3], 2);
+        assert!(!filtered.province_mothball_status.contains_key(&999));
 
         let loaded =
             crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        assert_eq!(loaded.province_mothball_status(1), Some(0));
+        assert_eq!(loaded.province_mothball_status(2), Some(1));
+        assert_eq!(loaded.province_mothball_status(3), Some(2));
+        assert_eq!(loaded.province_mothball_status(999), None);
         let province = loaded.initial.province(1).unwrap();
         assert_eq!(province.tax_milli, Some(12_345));
         assert_eq!(province.production_milli, Some(7_890));

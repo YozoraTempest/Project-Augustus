@@ -440,6 +440,7 @@ pub struct VanillaWorld {
     pub province_bitmap: PathBuf,
     pub country_sources: BTreeMap<String, Vec<LoadedSource>>,
     pub province_sources: BTreeMap<u32, Vec<LoadedSource>>,
+    province_mothball_status: BTreeMap<u32, u8>,
     state_maintenance_development_scale_milli: Option<i32>,
     event_texts: BTreeMap<String, crate::EventText>,
     monthly_event_rules: Option<MonthlyEventRules>,
@@ -684,6 +685,10 @@ pub struct VanillaExternalState {
     /// remains unknown; `Some(false)` records explicit absence.
     #[serde(default)]
     pub province_in_empire: BTreeMap<u32, Option<bool>>,
+    /// Raw EU4 province `mothball_status` bytes. New provinces default to 1;
+    /// EU4 saves omit that default and retain other values verbatim.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub province_mothball_status: BTreeMap<u32, u8>,
     /// Current raw province autonomy supplied by a save reader, in EU4's
     /// thousandths. The core stores the same value in millionths and applies
     /// monthly autonomy rules from that state on the next month boundary.
@@ -796,6 +801,7 @@ struct LoadOverrides<'a> {
     province_development: Option<&'a BTreeMap<u32, VanillaExternalProvinceDevelopment>>,
     province_is_city: Option<&'a BTreeMap<u32, Option<bool>>>,
     province_in_empire: Option<&'a BTreeMap<u32, Option<bool>>>,
+    province_mothball_status: Option<&'a BTreeMap<u32, u8>>,
     province_raw_autonomy_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
     estate_privileges: Option<&'a VanillaExternalEstatePrivileges>,
     estate_states: Option<&'a VanillaExternalEstateStates>,
@@ -896,6 +902,8 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.province_is_city),
             province_in_empire: (!state.province_in_empire.is_empty())
                 .then_some(&state.province_in_empire),
+            province_mothball_status: (!state.province_mothball_status.is_empty())
+                .then_some(&state.province_mothball_status),
             province_raw_autonomy_milli: (!state.province_raw_autonomy_milli.is_empty())
                 .then_some(&state.province_raw_autonomy_milli),
             estate_privileges: (!state.estate_privileges.is_empty())
@@ -1102,6 +1110,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.province_is_city.clone());
     base.province_in_empire
         .extend(overlay.province_in_empire.clone());
+    base.province_mothball_status
+        .extend(overlay.province_mothball_status.clone());
     base.province_raw_autonomy_milli
         .extend(overlay.province_raw_autonomy_milli.clone());
     overlay_nested_map(&mut base.estate_privileges, &overlay.estate_privileges);
@@ -4535,6 +4545,18 @@ impl VanillaWorld {
             .map(|byte| format!("{byte:02x}"))
             .collect();
         let content = format!("augustus-vanilla-calendar-tax:1:sha256:{fingerprint}");
+        let mut province_mothball_status = initial
+            .provinces()
+            .iter()
+            .map(|province| (province.id, 1))
+            .collect::<BTreeMap<_, _>>();
+        if let Some(saved_statuses) = overrides.province_mothball_status {
+            for (&province, &status) in saved_statuses {
+                if initial.province_entity(province).is_some() {
+                    province_mothball_status.insert(province, status);
+                }
+            }
+        }
         Ok(Self {
             initial,
             report,
@@ -4542,6 +4564,7 @@ impl VanillaWorld {
             province_bitmap: bitmap.source().into(),
             country_sources,
             province_sources,
+            province_mothball_status,
             state_maintenance_development_scale_milli,
             event_texts,
             monthly_event_rules,
@@ -4554,6 +4577,12 @@ impl VanillaWorld {
 
     pub fn event_text(&self, event: &str) -> Option<&crate::EventText> {
         self.event_texts.get(event)
+    }
+
+    /// Returns the raw EU4 province `mothball_status` byte without assigning
+    /// unverified game rules to its non-default values.
+    pub fn province_mothball_status(&self, province: u32) -> Option<u8> {
+        self.province_mothball_status.get(&province).copied()
     }
 
     pub fn advance(&mut self, days: u64) -> Result<(), augustus_core::Error> {
