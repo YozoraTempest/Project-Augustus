@@ -200,6 +200,20 @@ pub struct VanillaProvinceStateMaintenanceInput {
     pub caller_extra_modifier_milli: i32,
 }
 
+/// Fort-maintenance inputs resolved by a compatibility provider, excluding
+/// the local fort level, which is read from loaded province buildings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaFortMaintenanceContextInput {
+    pub base_cost_milli: i32,
+    pub country_modifier_milli: i32,
+    pub province_modifier_milli: i32,
+    pub conversion_factor_micros: i32,
+    pub relationship_modifier_milli: i32,
+    pub apply_relationship_modifier: bool,
+    pub halve_for_special_case: bool,
+}
+
 /// Resolved state-maintenance context using the development factor loaded from EU4 content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5504,6 +5518,111 @@ impl VanillaWorld {
             }
         }
         self.set_country_monthly_cashflow_breakdowns(breakdowns)
+    }
+
+    /// Finds owner-held fort buildings and derives their local multiplier from
+    /// the loaded building definition before replacing category 8.
+    ///
+    /// Each map entry must cover every fort province owned by that country.
+    /// Modifier sources and special-case conditions remain explicit inputs;
+    /// unknown building state or incomplete coverage is an error.
+    pub fn set_vanilla_fort_maintenance_expense_categories_from_buildings(
+        &mut self,
+        contexts: BTreeMap<String, BTreeMap<u32, VanillaFortMaintenanceContextInput>>,
+    ) -> Result<(), augustus_core::Error> {
+        if contexts.is_empty() {
+            return Ok(());
+        }
+
+        let resolved = {
+            let world = self.initial.world();
+            let economy = world.economy();
+            let mut resolved = BTreeMap::new();
+
+            for (country, mut province_contexts) in contexts {
+                let country_entity = self.ledger_country_entity(&country)?;
+                let mut province_inputs = BTreeMap::new();
+
+                for province in self.initial.provinces() {
+                    let province_entity = self
+                        .initial
+                        .province_entity(province.id)
+                        .expect("registered province");
+                    if world.entity(province_entity)?.owner != Some(country_entity) {
+                        continue;
+                    }
+
+                    let state = economy.provinces.get(&province_entity).ok_or_else(|| {
+                        augustus_core::Error::Invalid(format!(
+                            "fort-maintenance building state is unknown for owned province {}",
+                            province.id
+                        ))
+                    })?;
+                    let mut fort_level_milli = None;
+                    for building_name in &state.buildings {
+                        let definition = economy.buildings.get(building_name).ok_or_else(|| {
+                            augustus_core::Error::Invalid(format!(
+                                "unknown building {building_name} in province {}",
+                                province.id
+                            ))
+                        })?;
+                        if definition.role != augustus_core::BuildingRole::Fortification {
+                            continue;
+                        }
+
+                        let level = definition.fort_level_milli.ok_or_else(|| {
+                            augustus_core::Error::Invalid(format!(
+                                "fortification building {building_name} has no loaded fort level"
+                            ))
+                        })?;
+                        if level <= 0 {
+                            return Err(augustus_core::Error::Invalid(format!(
+                                "fortification building {building_name} has a nonpositive fort level"
+                            )));
+                        }
+                        if fort_level_milli.replace(level).is_some() {
+                            return Err(augustus_core::Error::Invalid(format!(
+                                "province {} has multiple fortification buildings",
+                                province.id
+                            )));
+                        }
+                    }
+
+                    if let Some(fort_level_milli) = fort_level_milli {
+                        let context = province_contexts.remove(&province.id).ok_or_else(|| {
+                            augustus_core::Error::Invalid(format!(
+                                "missing fort-maintenance context for province {}",
+                                province.id
+                            ))
+                        })?;
+                        province_inputs.insert(
+                            province.id,
+                            augustus_core::VanillaFortMaintenanceInput {
+                                base_cost_milli: context.base_cost_milli,
+                                country_modifier_milli: context.country_modifier_milli,
+                                province_modifier_milli: context.province_modifier_milli,
+                                conversion_factor_micros: context.conversion_factor_micros,
+                                local_multiplier_milli: i32::try_from(fort_level_milli)
+                                    .map_err(|_| augustus_core::Error::Overflow)?,
+                                relationship_modifier_milli: context.relationship_modifier_milli,
+                                apply_relationship_modifier: context.apply_relationship_modifier,
+                                halve_for_special_case: context.halve_for_special_case,
+                            },
+                        );
+                    }
+                }
+
+                if let Some(province) = province_contexts.keys().next() {
+                    return Err(augustus_core::Error::Invalid(format!(
+                        "fort-maintenance context references a non-fort or non-owned province {province}"
+                    )));
+                }
+                resolved.insert(country, province_inputs);
+            }
+            resolved
+        };
+
+        self.set_vanilla_fort_maintenance_expense_categories(resolved)
     }
 
     /// Refreshes verified monthly monarch-power income from a compatibility

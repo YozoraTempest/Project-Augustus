@@ -135,8 +135,8 @@ pub use bootstrap::{
     VanillaExternalEstateStates, VanillaExternalEu4RandomState, VanillaExternalFleet,
     VanillaExternalNavalUnit, VanillaExternalPerson, VanillaExternalProductionInput,
     VanillaExternalProvinceDevelopment, VanillaExternalRegimentState, VanillaExternalShipState,
-    VanillaExternalState, VanillaProvinceProductionBaseValueInput,
-    VanillaProvinceStateMaintenanceInput, VanillaWorld,
+    VanillaExternalState, VanillaFortMaintenanceContextInput,
+    VanillaProvinceProductionBaseValueInput, VanillaProvinceStateMaintenanceInput, VanillaWorld,
 };
 pub use casus_belli::{CasusBelliReport, CasusBelliType, CasusBelliTypes};
 pub use content::{ContentRoot, ContentView, FileEntry};
