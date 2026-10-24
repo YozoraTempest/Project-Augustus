@@ -499,6 +499,28 @@ impl VanillaSaveState {
             state.province_owners.insert(*province, owner.clone());
         }
 
+        for (province, buildings) in &self.external_state.province_buildings {
+            if world.initial.province_entity(*province).is_none() {
+                continue;
+            }
+            if let Some(building) = buildings.iter().find(|name| {
+                !world
+                    .initial
+                    .world()
+                    .economy()
+                    .buildings
+                    .contains_key(*name)
+            }) {
+                return Err(Error::message(
+                    "save state",
+                    format!("province {province} references unknown saved building {building}"),
+                ));
+            }
+            state
+                .province_buildings
+                .insert(*province, buildings.clone());
+        }
+
         for (province, discovered_by) in &self.external_state.province_discovered_by {
             if world.initial.province_entity(*province).is_some() {
                 state
@@ -1377,6 +1399,40 @@ fn read_vanilla_save_state_inner(
             ));
         }
         external_state.province_owners.insert(id, owner.clone());
+        let mut saved_buildings = BTreeSet::new();
+        if let Some(buildings) = optional_object(&parsed, &province, "buildings")? {
+            let mut seen = BTreeSet::new();
+            for (key, op, value) in buildings.fields() {
+                if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("province {id} has an invalid saved building entry"),
+                    ));
+                }
+                let name = key.read_string();
+                if name.is_empty() || !seen.insert(name.clone()) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("province {id} has an invalid or duplicate saved building"),
+                    ));
+                }
+                match scalar(&parsed, &value)?.as_str() {
+                    "yes" => {
+                        saved_buildings.insert(name);
+                    }
+                    "no" => {}
+                    _ => {
+                        return Err(Error::message(
+                            parsed.source(),
+                            format!("province {id} has a non-boolean saved building entry"),
+                        ));
+                    }
+                }
+            }
+        }
+        external_state
+            .province_buildings
+            .insert(id, saved_buildings);
         if let Some(discovery) = optional_field(&parsed, &province, "discovered_by")? {
             let tags = saved_discovery_tags(&parsed, id, discovery)?;
             external_state.province_discovered_by.insert(id, tags);
@@ -4150,6 +4206,95 @@ provinces={
     }
 
     #[test]
+    fn saved_province_buildings_replace_content_state_and_validate_definitions() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("province-buildings.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+countries={ AAA={ human=yes } }
+provinces={
+    -1={ owner="AAA" buildings={ test_market=yes test_fort=no } }
+    -2={ owner="AAA" buildings={} }
+    -3={ owner="AAA" }
+    -999={ buildings={ missing_building=yes } }
+}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert_eq!(
+            save.external_state.province_buildings[&1],
+            BTreeSet::from(["test_market".into()])
+        );
+        assert!(save.external_state.province_buildings[&2].is_empty());
+        assert!(save.external_state.province_buildings[&3].is_empty());
+        assert!(save.external_state.province_buildings[&999].contains("missing_building"));
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let filtered = save.state_for_world(&baseline).unwrap();
+        assert_eq!(
+            filtered.province_buildings[&1],
+            BTreeSet::from(["test_market".into()])
+        );
+        assert!(filtered.province_buildings[&2].is_empty());
+        assert!(filtered.province_buildings[&3].is_empty());
+        assert!(!filtered.province_buildings.contains_key(&999));
+
+        let loaded =
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        let market_province = loaded.initial.province_entity(1).unwrap();
+        let empty_province = loaded.initial.province_entity(2).unwrap();
+        let omitted_buildings_province = loaded.initial.province_entity(3).unwrap();
+        assert_eq!(
+            loaded.initial.world().economy().provinces[&market_province].buildings,
+            BTreeSet::from(["test_market".into()])
+        );
+        assert!(
+            loaded.initial.world().economy().provinces[&empty_province]
+                .buildings
+                .is_empty()
+        );
+        assert!(
+            loaded.initial.world().economy().provinces[&omitted_buildings_province]
+                .buildings
+                .is_empty()
+        );
+        let world = loaded.initial.world();
+        let tax = world
+            .attributes()
+            .evaluate(world, market_province, "tax_basis")
+            .unwrap();
+        assert!(tax.steps[0].contributions.iter().any(|contribution| {
+            contribution.source == "building:test_market"
+                && contribution.property == "local_tax_modifier"
+        }));
+
+        let snapshot = loaded.save().unwrap();
+        let mut resumed =
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        resumed.restore(&snapshot).unwrap();
+        assert_eq!(
+            resumed.initial.world().economy().provinces[&market_province].buildings,
+            BTreeSet::from(["test_market".into()])
+        );
+
+        let mut invalid = save.clone();
+        invalid
+            .external_state
+            .province_buildings
+            .insert(1, BTreeSet::from(["missing_building".into()]));
+        assert!(invalid.state_for_world(&baseline).is_err());
+    }
+
+    #[test]
     fn saved_trade_node_currents_bind_to_known_nodes_and_survive_restore() {
         let directory = tempfile::tempdir().unwrap();
         let save_path = directory.path().join("trade-node-values.eu4");
@@ -4304,6 +4449,22 @@ trade={
                 base_manpower_milli: Some(3_000),
             }
         );
+    }
+
+    #[test]
+    fn empty_saved_building_overlay_clears_the_existing_province_set() {
+        let mut base = crate::VanillaExternalState {
+            province_buildings: BTreeMap::from([(1, BTreeSet::from(["test_fort".into()]))]),
+            ..Default::default()
+        };
+        let overlay = crate::VanillaExternalState {
+            province_buildings: BTreeMap::from([(1, BTreeSet::new())]),
+            ..Default::default()
+        };
+
+        base.apply_overlay(&overlay);
+
+        assert!(base.province_buildings[&1].is_empty());
     }
 
     #[test]

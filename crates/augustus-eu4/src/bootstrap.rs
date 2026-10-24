@@ -549,6 +549,11 @@ pub struct VanillaExternalState {
     /// remains content-derived; `None` explicitly records an unowned province.
     #[serde(default)]
     pub province_owners: BTreeMap<u32, Option<String>>,
+    /// Current completed province buildings supplied by a save reader. An
+    /// omitted province keeps its content-derived set; a save reader supplies
+    /// an empty set when its province block omits the building subobject.
+    #[serde(default)]
+    pub province_buildings: BTreeMap<u32, BTreeSet<String>>,
     /// Current countries that have discovered each province. An omitted
     /// province keeps its history-derived state; a present empty set is known
     /// to be undiscovered by every country in the loaded content.
@@ -685,6 +690,7 @@ struct LoadOverrides<'a> {
     country_annual_tax_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
     province_owners: Option<&'a BTreeMap<u32, Option<String>>>,
+    province_buildings: Option<&'a BTreeMap<u32, BTreeSet<String>>>,
     province_discovered_by: Option<&'a BTreeMap<u32, BTreeSet<String>>>,
     province_trade_goods: Option<&'a BTreeMap<u32, Option<String>>>,
     province_center_of_trade_levels: Option<&'a BTreeMap<u32, Option<u8>>>,
@@ -773,6 +779,8 @@ impl<'a> LoadOverrides<'a> {
             province_annual_tax_milli: (!state.province_annual_tax_milli.is_empty())
                 .then_some(&state.province_annual_tax_milli),
             province_owners: (!state.province_owners.is_empty()).then_some(&state.province_owners),
+            province_buildings: (!state.province_buildings.is_empty())
+                .then_some(&state.province_buildings),
             province_discovered_by: (!state.province_discovered_by.is_empty())
                 .then_some(&state.province_discovered_by),
             province_trade_goods: (!state.province_trade_goods.is_empty())
@@ -974,6 +982,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     base.province_annual_tax_milli
         .extend(overlay.province_annual_tax_milli.clone());
     base.province_owners.extend(overlay.province_owners.clone());
+    base.province_buildings
+        .extend(overlay.province_buildings.clone());
     base.province_discovered_by
         .extend(overlay.province_discovered_by.clone());
     base.province_trade_goods
@@ -1712,6 +1722,41 @@ fn bind_external_trade_good_prices(
     initial
         .set_economy(economy)
         .map_err(|e| Error::caused_by("external trade-good prices", e))
+}
+
+fn bind_external_province_buildings(
+    initial: &mut InitialWorld,
+    values: Option<&BTreeMap<u32, BTreeSet<String>>>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut economy = initial.world().economy().clone();
+    for (province, buildings) in values {
+        let entity = initial.province_entity(*province).ok_or_else(|| {
+            Error::message(
+                "external province buildings",
+                format!("unknown province {province}"),
+            )
+        })?;
+        for building in buildings {
+            if !economy.buildings.contains_key(building) {
+                return Err(Error::message(
+                    "external province buildings",
+                    format!("province {province} references unknown building {building}"),
+                ));
+            }
+        }
+        economy
+            .provinces
+            .entry(entity)
+            .or_default()
+            .buildings
+            .clone_from(buildings);
+    }
+    initial
+        .set_economy(economy)
+        .map_err(|error| Error::caused_by("external province buildings", error))
 }
 
 fn bind_external_production_value_inputs(
@@ -3378,6 +3423,7 @@ impl VanillaWorld {
         initial
             .set_economy(economy)
             .map_err(|e| Error::caused_by(root.path(), e))?;
+        bind_external_province_buildings(&mut initial, overrides.province_buildings)?;
         initial
             .set_trade_node_route_orders(&trade_node_route_orders)
             .map_err(|e| Error::caused_by(root.path(), e))?;

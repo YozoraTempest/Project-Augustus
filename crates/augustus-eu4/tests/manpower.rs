@@ -295,6 +295,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         country_annual_tax_milli: Default::default(),
         province_annual_tax_milli: Default::default(),
         province_owners: Default::default(),
+        province_buildings: Default::default(),
         province_trade_goods: Default::default(),
         province_center_of_trade_levels: Default::default(),
         province_cultures: Default::default(),
