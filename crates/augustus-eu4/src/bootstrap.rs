@@ -441,6 +441,7 @@ pub struct VanillaWorld {
     pub province_sources: BTreeMap<u32, Vec<LoadedSource>>,
     state_maintenance_development_scale_milli: Option<i32>,
     event_texts: BTreeMap<String, crate::EventText>,
+    yearly_event_rules: Option<augustus_core::YearlyEventRules>,
     content: String,
 }
 
@@ -4318,6 +4319,12 @@ impl VanillaWorld {
             &country_order,
             clock_origin,
         )?;
+        let yearly_event_rules = startup.yearly_event_rules(&initial, &country_order)?;
+        if let Some(system) = &yearly_event_rules {
+            initial
+                .select_yearly_system(system)
+                .map_err(|error| Error::caused_by(root.path(), error))?;
+        }
         if !report.estates.pending_startup_effects.is_empty() {
             bind_external_country_metrics(
                 &mut initial,
@@ -4435,6 +4442,10 @@ impl VanillaWorld {
                 );
             }
         }
+        if let Some(rules) = &yearly_event_rules {
+            digest.update(b"\0yearly-event-rules\0");
+            digest.update(serde_json::to_vec(rules).map_err(|e| Error::caused_by(root.path(), e))?);
+        }
         let fingerprint: String = digest
             .finalize()
             .iter()
@@ -4450,6 +4461,7 @@ impl VanillaWorld {
             province_sources,
             state_maintenance_development_scale_milli,
             event_texts,
+            yearly_event_rules,
             content,
         })
     }
@@ -4459,7 +4471,27 @@ impl VanillaWorld {
     }
 
     pub fn advance(&mut self, days: u64) -> Result<(), augustus_core::Error> {
-        self.initial.advance(days)
+        self.advance_with_compat_systems(days, None, None, None)
+    }
+
+    fn advance_with_compat_systems(
+        &mut self,
+        days: u64,
+        daily: Option<&dyn augustus_core::DailySystem>,
+        monthly: Option<&dyn augustus_core::MonthlySystem>,
+        yearly: Option<&dyn augustus_core::YearlySystem>,
+    ) -> Result<(), augustus_core::Error> {
+        let selected_yearly_event_rules = self
+            .yearly_event_rules
+            .as_ref()
+            .filter(|rules| self.initial.yearly_system_id() == Some(rules.id.as_str()))
+            .map(|rules| rules as &dyn augustus_core::YearlySystem);
+        self.initial.advance_with_systems_and_yearly(
+            days,
+            daily,
+            monthly,
+            yearly.or(selected_yearly_event_rules),
+        )
     }
 
     pub fn select_daily_system(
@@ -4493,7 +4525,7 @@ impl VanillaWorld {
         days: u64,
         system: &dyn augustus_core::DailySystem,
     ) -> Result<(), augustus_core::Error> {
-        self.initial.advance_with_daily_system(days, system)
+        self.advance_with_compat_systems(days, Some(system), None, None)
     }
 
     pub fn advance_with_yearly_system(
@@ -4501,7 +4533,7 @@ impl VanillaWorld {
         days: u64,
         system: &dyn augustus_core::YearlySystem,
     ) -> Result<(), augustus_core::Error> {
-        self.initial.advance_with_yearly_system(days, system)
+        self.advance_with_compat_systems(days, None, None, Some(system))
     }
 
     pub fn advance_with_systems(
@@ -4510,7 +4542,7 @@ impl VanillaWorld {
         daily: Option<&dyn augustus_core::DailySystem>,
         monthly: Option<&dyn augustus_core::MonthlySystem>,
     ) -> Result<(), augustus_core::Error> {
-        self.initial.advance_with_systems(days, daily, monthly)
+        self.advance_with_compat_systems(days, daily, monthly, None)
     }
 
     pub fn advance_with_systems_and_yearly(
@@ -4520,8 +4552,7 @@ impl VanillaWorld {
         monthly: Option<&dyn augustus_core::MonthlySystem>,
         yearly: Option<&dyn augustus_core::YearlySystem>,
     ) -> Result<(), augustus_core::Error> {
-        self.initial
-            .advance_with_systems_and_yearly(days, daily, monthly, yearly)
+        self.advance_with_compat_systems(days, daily, monthly, yearly)
     }
 
     pub fn save(&self) -> Result<String, augustus_core::Error> {

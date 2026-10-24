@@ -8,7 +8,11 @@ use crate::country_conditions::ConditionCompileOptions;
 use crate::localisation::{EventTextKeys, load_event_texts};
 use crate::setup::{PropertyDiagnostics, block, micros};
 use crate::{ContentView, Error, FileEntry, LoadedSource, ParsedText, TextDocument};
-use augustus_core::{Action, EntityKind, EventCatalog, InitialWorld, Schema, ScopeSelector};
+use augustus_core::{
+    Action, DailyEventCountry, DailyEventGroup, EntityKind, EventCatalog, InitialWorld, Schema,
+    ScopeSelector, YearlyEventRules,
+};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -65,6 +69,7 @@ pub(crate) struct EstateStartup {
     steps: Vec<Step>,
     callbacks: BTreeMap<String, Callback>,
     events: EventCatalog,
+    yearly_events: Vec<String>,
     pub(crate) event_texts: BTreeMap<String, crate::EventText>,
 }
 
@@ -529,6 +534,7 @@ impl EstateStartup {
         if self.steps.is_empty()
             && self.callbacks.is_empty()
             && self.events.definitions().is_empty()
+            && self.yearly_events.is_empty()
         {
             return Ok(None);
         }
@@ -543,6 +549,7 @@ impl EstateStartup {
             self.events.option_weights(),
             self.events.locations(),
             self.events.unavailable_options(),
+            &self.yearly_events,
         ))?;
         fn remove_diagnostics(value: &mut serde_json::Value) {
             match value {
@@ -773,6 +780,8 @@ impl EstateStartup {
             compiler.effects.push(Arc::new(document));
         }
         let mut steps = Vec::new();
+        let mut yearly_events = Vec::new();
+        let mut yearly_pulse_supported = true;
         for file in files
             .iter()
             .filter(|f| direct_txt(&f.relative_path, "common/on_actions"))
@@ -820,6 +829,53 @@ impl EstateStartup {
                 steps.extend(compiler.effects(&parsed, block(&value, &fail)?, report, 0, false)?);
                 compiler.startup_metadata = false;
             }
+            for (key, op, value) in parsed
+                .reader()
+                .fields()
+                .filter(|(key, _, _)| key.read_string() == "on_yearly_pulse")
+            {
+                let at = parsed.field_location(&key);
+                let fail =
+                    |message: &str| Error::message(parsed.source(), message).with_location(at);
+                equal(op, &fail)?;
+                let body = block(&value, &fail)?;
+                let mut seen_events = false;
+                for (key, op, value) in body.fields() {
+                    let name = key.read_string();
+                    let location = parsed.field_location(&key);
+                    if name != "events" {
+                        let unsupported = format!("on_yearly_pulse:{name}");
+                        *report
+                            .unsupported_fields
+                            .entry(unsupported.clone())
+                            .or_default() += 1;
+                        report
+                            .unsupported_examples
+                            .entry(unsupported)
+                            .or_insert_with(|| source(&parsed, location));
+                        yearly_pulse_supported = false;
+                        continue;
+                    }
+                    equal(op, &fail)?;
+                    if seen_events {
+                        return Err(fail("duplicate yearly pulse event list"));
+                    }
+                    seen_events = true;
+                    let events = value
+                        .read_array()
+                        .map_err(|_| fail("expected yearly pulse event id list"))?
+                        .values()
+                        .map(|value| value.read_string().map_err(|_| fail("expected event id")))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if events.iter().any(String::is_empty) {
+                        return Err(fail("empty yearly pulse event id"));
+                    }
+                    yearly_events.extend(events);
+                }
+            }
+        }
+        if !yearly_pulse_supported {
+            yearly_events.clear();
         }
         let mut callbacks = BTreeMap::new();
         let mut handled = BTreeSet::new();
@@ -922,34 +978,115 @@ impl EstateStartup {
             collect_references(&callback.granted, &mut references);
             collect_references(&callback.revoked, &mut references);
         }
-        let (events, event_text_keys) =
-            match load_events(root, files, references, &compiler, report) {
-                Ok(events) => events,
-                Err(error) => {
-                    let at = error
-                        .location()
-                        .unwrap_or(crate::SourceLocation { line: 1, column: 1 });
-                    steps.insert(
-                        0,
-                        Step::Pending(
-                            format!("uncompiled_startup_event:{error}"),
-                            LoadedSource {
-                                path: error.path().into(),
+        let startup_references = references.clone();
+        references.extend(yearly_events.iter().cloned());
+        let report_before_yearly_compile = (
+            report.unsupported_fields.clone(),
+            report.unsupported_examples.clone(),
+            report.startup_script_ignored_definitions.clone(),
+        );
+        let loaded_events = match load_events(root, files, references, &compiler, report) {
+            Ok(events) => Ok(events),
+            Err(yearly_error) if !yearly_events.is_empty() => {
+                report.unsupported_fields = report_before_yearly_compile.0;
+                report.unsupported_examples = report_before_yearly_compile.1;
+                report.startup_script_ignored_definitions = report_before_yearly_compile.2;
+                match load_events(root, files, startup_references, &compiler, report) {
+                    Ok(events) => {
+                        let issue = format!("yearly_event_compile:{yearly_error}");
+                        let at = yearly_error
+                            .location()
+                            .unwrap_or(crate::SourceLocation { line: 1, column: 1 });
+                        *report.unsupported_fields.entry(issue.clone()).or_default() += 1;
+                        report
+                            .unsupported_examples
+                            .entry(issue)
+                            .or_insert(LoadedSource {
+                                path: yearly_error.path().into(),
                                 line: at.line,
                                 column: at.column,
-                            },
-                        ),
-                    );
-                    (EventCatalog::default(), BTreeMap::new())
+                            });
+                        yearly_events.clear();
+                        Ok(events)
+                    }
+                    Err(startup_error) => Err(startup_error),
                 }
-            };
+            }
+            Err(error) => Err(error),
+        };
+        let (events, event_text_keys) = match loaded_events {
+            Ok(events) => events,
+            Err(error) => {
+                let at = error
+                    .location()
+                    .unwrap_or(crate::SourceLocation { line: 1, column: 1 });
+                steps.insert(
+                    0,
+                    Step::Pending(
+                        format!("uncompiled_startup_event:{error}"),
+                        LoadedSource {
+                            path: error.path().into(),
+                            line: at.line,
+                            column: at.column,
+                        },
+                    ),
+                );
+                (EventCatalog::default(), BTreeMap::new())
+            }
+        };
         let event_texts = load_event_texts(root, files, &event_text_keys);
         Ok(Self {
             steps,
             callbacks,
             events,
+            yearly_events,
             event_texts,
         })
+    }
+
+    pub(crate) fn yearly_event_rules(
+        &self,
+        initial: &InitialWorld,
+        country_order: &[String],
+    ) -> Result<Option<YearlyEventRules>, Error> {
+        if self.yearly_events.is_empty() {
+            return Ok(None);
+        }
+        let catalog = initial.world().event_catalog();
+        if self
+            .yearly_events
+            .iter()
+            .any(|event| !catalog.definitions().contains_key(event))
+        {
+            return Ok(None);
+        }
+
+        let group = DailyEventGroup::all(self.yearly_events.iter().cloned());
+        let countries = country_order
+            .iter()
+            .filter_map(|tag| {
+                initial
+                    .country_entity(tag)
+                    .map(|country| DailyEventCountry {
+                        country,
+                        groups: vec![group.clone()],
+                    })
+            })
+            .collect::<Vec<_>>();
+        if countries.is_empty() {
+            return Ok(None);
+        }
+
+        let identity = serde_json::to_vec(&self.yearly_events)
+            .map_err(|error| Error::caused_by("on_yearly_pulse", error))?;
+        let fingerprint: String = Sha256::digest(identity)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        let id = format!("eu4-on-yearly-pulse:1:{fingerprint}");
+        YearlyEventRules::new(id, countries)
+            .map(Some)
+            .map_err(|error| Error::caused_by("on_yearly_pulse", error))
     }
 
     pub(crate) fn run(
@@ -960,7 +1097,7 @@ impl EstateStartup {
         clock_origin: std::time::Instant,
     ) -> Result<(), Error> {
         let mut candidate = initial.clone();
-        if self.steps.is_empty() {
+        if self.steps.is_empty() && self.events.definitions().is_empty() {
             *initial = candidate;
             return Ok(());
         }

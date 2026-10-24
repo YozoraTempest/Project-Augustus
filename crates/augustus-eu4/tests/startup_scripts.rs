@@ -45,6 +45,36 @@ fn fixture() -> tempfile::TempDir {
     temp
 }
 
+fn write_yearly_pulse_content(root: &Path) {
+    write(
+        root,
+        "common/on_actions/yearly.txt",
+        "on_yearly_pulse={events={yearly.first yearly.second}}",
+    );
+    write(
+        root,
+        "events/yearly.txt",
+        r#"
+country_event = {
+    id = yearly.first
+    is_triggered_only = yes
+    fire_only_once = yes
+    trigger = { tag = AAA }
+    immediate = { log = yearly_first }
+    option = { name = yearly_first_a }
+}
+country_event = {
+    id = yearly.second
+    is_triggered_only = yes
+    fire_only_once = yes
+    trigger = { tag = AAA }
+    immediate = { log = yearly_second }
+    option = { name = yearly_second_a }
+}
+"#,
+    );
+}
+
 #[test]
 fn startup_core_effects_share_administrative_state_views_and_atomic_rollback() {
     use augustus_core::CoreType;
@@ -902,5 +932,126 @@ fn a_global_flag_written_by_history_remains_unknown() {
             .global_markers()
             .values
             .contains_key("history_marker")
+    );
+}
+
+#[test]
+fn yearly_pulse_events_run_on_year_boundary_and_survive_restore() {
+    let temp = fixture();
+    write_yearly_pulse_content(temp.path());
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let system_id = loaded
+        .initial
+        .world()
+        .yearly_system_id()
+        .expect("yearly pulse selects a system")
+        .to_owned();
+    let world = loaded.initial.world();
+    let day = world.day();
+    let next_year = world.calendar().unwrap().next_year(day).unwrap();
+    let until_year_boundary = next_year - day;
+
+    loaded.advance(until_year_boundary - 1).unwrap();
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .any(|event| matches!(event.2.as_str(), "yearly_first" | "yearly_second"))
+    );
+
+    loaded.advance(1).unwrap();
+    let yearly_pending = loaded
+        .initial
+        .world()
+        .pending_events()
+        .iter()
+        .filter(|event| event.event.starts_with("yearly."))
+        .map(|event| event.event.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(yearly_pending, ["yearly.first", "yearly.second"]);
+
+    let snapshot = loaded.save().unwrap();
+    loaded.restore(&snapshot).unwrap();
+    assert_eq!(
+        loaded.initial.world().yearly_system_id(),
+        Some(system_id.as_str())
+    );
+    let until_next_year = {
+        let world = loaded.initial.world();
+        world.calendar().unwrap().next_year(world.day()).unwrap() - world.day()
+    };
+    loaded.advance(until_next_year).unwrap();
+    let events = loaded.initial.world().events();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.2 == "yearly_first")
+            .count(),
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.2 == "yearly_second")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn unsupported_yearly_pulse_fields_disable_partial_event_dispatch() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/yearly.txt",
+        "on_yearly_pulse={events={yearly.first} random_events={100=yearly.first}}",
+    );
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(loaded.initial.world().yearly_system_id(), None);
+    assert_eq!(
+        loaded
+            .report
+            .estates
+            .unsupported_fields
+            .get("on_yearly_pulse:random_events"),
+        Some(&1)
+    );
+}
+
+#[test]
+fn unsupported_yearly_event_does_not_discard_startup_event_content() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/yearly.txt",
+        "on_yearly_pulse={events={yearly.bad}}",
+    );
+    write(
+        temp.path(),
+        "events/yearly_bad.txt",
+        "country_event={id=yearly.bad is_triggered_only=yes trigger={unsupported_trigger=yes} option={name=yearly_bad_a}}",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert!(loaded.report.estates.startup_unresolved.is_empty());
+    assert_eq!(loaded.initial.world().yearly_system_id(), None);
+    assert!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .any(|event| event.2 == "startup")
+    );
+    assert!(
+        loaded
+            .report
+            .estates
+            .unsupported_fields
+            .keys()
+            .any(|key| key.starts_with("yearly_event_compile:")
+                && key.contains("unsupported trigger unsupported_trigger"))
     );
 }
