@@ -159,12 +159,28 @@ pub struct Politics {
 
 impl Politics {
     pub fn status(&self, entity: EntityId, name: &str) -> Option<bool> {
-        self.countries
-            .get(&entity)?
-            .statuses
-            .get(name)
-            .copied()
-            .flatten()
+        let country = self.countries.get(&entity)?;
+        if let Some(rival_tag) = name.strip_prefix("is_rival:") {
+            if rival_tag.is_empty() {
+                return None;
+            }
+            // A missing target entry means no only after the save marks the list complete.
+            if country
+                .statuses
+                .get("rivals_initialized")
+                .copied()
+                .flatten()
+                != Some(true)
+            {
+                return None;
+            }
+            return match country.statuses.get(name) {
+                Some(Some(value)) => Some(*value),
+                Some(None) => None,
+                None => Some(false),
+            };
+        }
+        country.statuses.get(name).copied().flatten()
     }
     pub fn is_empty(&self) -> bool {
         self.ruler_skill_bounds.is_none()

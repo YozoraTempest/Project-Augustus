@@ -976,6 +976,13 @@ fn read_vanilla_save_state_inner(
                 .country_relation_states
                 .insert(tag.clone(), relation_states);
         }
+        if let Some(rival_statuses) = saved_country_rival_statuses(&parsed, &country, &tag)? {
+            external_state
+                .country_statuses
+                .entry(tag.clone())
+                .or_default()
+                .extend(rival_statuses);
+        }
         let resources = CountryResources {
             treasury_milli: optional_milli(&parsed, &country, "treasury")?,
             manpower_milli: optional_milli(&parsed, &country, "manpower")?,
@@ -2311,6 +2318,94 @@ fn saved_country_relation_states(
     Ok(states)
 }
 
+fn saved_country_rival_statuses(
+    parsed: &ParsedText<'_>,
+    country: &Object<'_, '_>,
+    owner: &str,
+) -> Result<Option<BTreeMap<String, Option<bool>>>, Error> {
+    let mut initialized = None;
+    for (_key, operator, value) in country
+        .fields()
+        .filter(|(key, _, _)| key.read_string() == "initialized_rivals")
+    {
+        if initialized.is_some()
+            || operator.is_some_and(|operator| operator != jomini::text::Operator::Equal)
+        {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {owner} has an invalid initialized-rivals field"),
+            ));
+        }
+        initialized = Some(match scalar(parsed, &value)?.as_str() {
+            "yes" => true,
+            "no" => false,
+            _ => {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("country {owner} has an invalid initialized-rivals flag"),
+                ));
+            }
+        });
+    }
+    if initialized != Some(true) {
+        return Ok(None);
+    }
+    let mut rivals = BTreeSet::new();
+    for (_key, operator, value) in country
+        .fields()
+        .filter(|(key, _, _)| key.read_string() == "rival")
+    {
+        if operator.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {owner} has an invalid rival entry"),
+            ));
+        }
+        let entry = object(parsed, &value)?;
+        let mut target = None;
+        for (field, operator, value) in entry.fields() {
+            if field.read_string() != "country" {
+                continue;
+            }
+            if target.is_some()
+                || operator.is_some_and(|operator| operator != jomini::text::Operator::Equal)
+            {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("country {owner} has an invalid rival target"),
+                ));
+            }
+            let name = scalar(parsed, &value)?;
+            if !is_country_tag(&name) {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("country {owner} has an invalid rival tag {name}"),
+                ));
+            }
+            target = Some(name);
+        }
+        let target = target.ok_or_else(|| {
+            Error::message(
+                parsed.source(),
+                format!("country {owner} has a rival entry without a country"),
+            )
+        })?;
+        if !rivals.insert(target.clone()) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {owner} duplicates rival {target}"),
+            ));
+        }
+    }
+    let mut statuses = BTreeMap::from([("rivals_initialized".into(), Some(true))]);
+    statuses.extend(
+        rivals
+            .into_iter()
+            .map(|rival| (format!("is_rival:{rival}"), Some(true))),
+    );
+    Ok(Some(statuses))
+}
+
 fn object<'a, 'b>(parsed: &ParsedText<'_>, value: &Field<'a, 'b>) -> Result<Object<'a, 'b>, Error> {
     if !matches!(value.token(), TextToken::Object { mixed: false, .. })
         && !(matches!(value.token(), TextToken::Array { mixed: false, .. })
@@ -3124,12 +3219,16 @@ date=1444.11.11
 player=AAA
 countries={
     AAA={
+        initialized_rivals=yes
+        rival={ country="BBB" date=1444.11.11 }
+        rival={ country="ZZZ" date=1444.11.11 }
         active_relations={
             BBB={ attitude=attitude_probe trust_value=85 }
             ZZZ={ attitude=attitude_unknown_target trust_value=12 }
         }
     }
-    BBB={}
+    BBB={ initialized_rivals=yes }
+    CCC={ initialized_rivals=no }
 }
 provinces={}
 "#,
@@ -3140,6 +3239,15 @@ provinces={}
         assert_eq!(parsed["BBB"].attitude.as_deref(), Some("attitude_probe"));
         assert_eq!(parsed["BBB"].trust_value, Some(85));
         assert!(parsed.contains_key("ZZZ"));
+        let saved_rivals = &save.external_state.country_statuses["AAA"];
+        assert_eq!(saved_rivals["rivals_initialized"], Some(true));
+        assert_eq!(saved_rivals["is_rival:BBB"], Some(true));
+        assert_eq!(saved_rivals["is_rival:ZZZ"], Some(true));
+        assert_eq!(
+            save.external_state.country_statuses["BBB"]["rivals_initialized"],
+            Some(true)
+        );
+        assert!(!save.external_state.country_statuses.contains_key("CCC"));
 
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
         let content = ContentSet::resolve(vec![ContentSource::base(
@@ -3150,6 +3258,16 @@ provinces={}
         let filtered = save.state_for_world(&baseline).unwrap();
         assert!(filtered.country_relation_states["AAA"].contains_key("BBB"));
         assert!(!filtered.country_relation_states["AAA"].contains_key("ZZZ"));
+        assert_eq!(
+            filtered.country_statuses["AAA"]["rivals_initialized"],
+            Some(true)
+        );
+        assert_eq!(filtered.country_statuses["AAA"]["is_rival:BBB"], Some(true));
+        assert_eq!(filtered.country_statuses["AAA"]["is_rival:ZZZ"], Some(true));
+        assert_eq!(
+            filtered.country_statuses["BBB"]["rivals_initialized"],
+            Some(true)
+        );
 
         let overlay = VanillaExternalState {
             country_relation_states: BTreeMap::from([(
@@ -3179,6 +3297,30 @@ provinces={}
             .unwrap();
         assert_eq!(state.attitude.as_deref(), Some("attitude_probe"));
         assert_eq!(state.trust_value, Some(42));
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .politics()
+                .status(owner, "is_rival:BBB"),
+            Some(true)
+        );
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .politics()
+                .status(owner, "is_rival:ZZZ"),
+            Some(true)
+        );
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .politics()
+                .status(target, "is_rival:AAA"),
+            Some(false)
+        );
 
         let snapshot = loaded.save().unwrap();
         loaded.restore(&snapshot).unwrap();
@@ -3189,6 +3331,30 @@ provinces={}
             .unwrap();
         assert_eq!(state.attitude.as_deref(), Some("attitude_probe"));
         assert_eq!(state.trust_value, Some(42));
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .politics()
+                .status(owner, "is_rival:BBB"),
+            Some(true)
+        );
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .politics()
+                .status(owner, "is_rival:ZZZ"),
+            Some(true)
+        );
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .politics()
+                .status(target, "is_rival:AAA"),
+            Some(false)
+        );
     }
 
     #[test]

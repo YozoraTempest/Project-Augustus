@@ -3046,6 +3046,17 @@ impl<'a> ScriptCompiler<'a> {
                     if scope != EntityKind::Country { return Err(field.error("truce query requires country scope")); }
                     Condition::TruceWith { first: augustus_core::EntityRef::Relative(Target::Current), second:self.typed_country_reference(field)? }
                 }
+                "is_rival" => {
+                    if scope != EntityKind::Country { return Err(field.error("rival query requires country scope")); }
+                    let tag = field.scalar()?;
+                    if !country_identifier(tag) {
+                        return Err(field.error("is_rival requires a literal three-character country identifier"));
+                    }
+                    Condition::PoliticalStatus {
+                        target: Target::Current,
+                        name: format!("is_rival:{tag}"),
+                    }
+                }
                 "manpower" => {
                     if scope != EntityKind::Country { return Err(field.error("manpower query requires country scope")); }
                     Condition::NumericCompare {
