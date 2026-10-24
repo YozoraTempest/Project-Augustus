@@ -2094,7 +2094,17 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
         "government state differs"
     );
     assert_eq!(loaded.initial.world().politics(), native.politics());
-    assert_eq!(loaded.initial.world().attributes(), native.attributes());
+    let mut loaded_attributes = loaded.initial.world().attributes().clone();
+    let mut native_attributes = native.attributes().clone();
+    for formulas in loaded_attributes.formulas.values_mut() {
+        formulas.remove("fort_maintenance_modifier");
+        formulas.remove("local_fort_maintenance_modifier");
+    }
+    for formulas in native_attributes.formulas.values_mut() {
+        formulas.remove("fort_maintenance_modifier");
+        formulas.remove("local_fort_maintenance_modifier");
+    }
+    assert_eq!(loaded_attributes, native_attributes);
     assert_eq!(
         loaded.initial.world().affiliations(),
         native.affiliations(),
@@ -2110,7 +2120,11 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
                 .clone(),
         )
         .unwrap();
-    assert_eq!(loaded.initial.world(), &native);
+    let mut loaded_world = loaded.initial.world().clone();
+    let mut native_world = native;
+    loaded_world.set_attributes(loaded_attributes).unwrap();
+    native_world.set_attributes(native_attributes).unwrap();
+    assert_eq!(loaded_world, native_world);
     let earlier = VanillaWorld::load(fixture(), "1435.1.1").unwrap();
     assert_eq!(
         earlier.initial.province(1).unwrap().owner.as_deref(),

@@ -22,15 +22,18 @@ const ATTRIBUTE_ONE_MICROS: i64 = 1_000_000;
 const AUTONOMY_MONTHLY_SCALE_MICROS: i64 = 10_000;
 // One game autonomy tick is 0.001 percentage points, or 10 ratio millionths.
 const AUTONOMY_MONTHLY_QUANTUM_MICROS: i64 = 10;
-pub(super) const ATTRIBUTE_NAMES: [&str; 5] = [
+pub(super) const ATTRIBUTE_NAMES: [&str; 6] = [
     "development",
     "tax_basis",
     "manpower_contribution",
     "tax_after_autonomy",
     "manpower_after_autonomy",
+    "local_fort_maintenance_modifier",
 ];
 pub(super) const COUNTRY_ANNUAL_TAX: &str = "country_annual_tax";
 pub(super) const COUNTRY_TRADE_STEERING: &str = "country_trade_steering";
+const COUNTRY_FORT_MAINTENANCE: &str = "fort_maintenance_modifier";
+const PROVINCE_FORT_MAINTENANCE: &str = "local_fort_maintenance_modifier";
 
 const GLOBAL_TAX_INCOME: &str = "global_tax_income";
 
@@ -120,7 +123,50 @@ fn used_property(name: &str) -> bool {
             | "local_autonomy"
             | "global_autonomy"
             | "trade_steering"
+            | "fort_maintenance_modifier"
+            | "local_fort_maintenance_modifier"
     )
+}
+
+fn country_modifier_formula(property: &str, unresolved_reason: &str) -> AttributeFormula {
+    AttributeFormula {
+        base: AttributeBase::Constant { micros: 0 },
+        channels: vec![AttributeChannel {
+            flat: vec![
+                AttributeTerm::Modifiers {
+                    target: Target::Current,
+                    property: property.into(),
+                },
+                AttributeTerm::Government {
+                    target: Target::Current,
+                    property: property.into(),
+                },
+                AttributeTerm::AffiliationModifiers {
+                    dimension: "religion".into(),
+                    target: Target::Current,
+                    scope: "country".into(),
+                    property: property.into(),
+                },
+                AttributeTerm::Ideas {
+                    target: Target::Current,
+                    property: property.into(),
+                },
+                AttributeTerm::Estates {
+                    target: Target::Current,
+                    property: property.into(),
+                },
+                AttributeTerm::Metrics {
+                    target: Target::Current,
+                    property: property.into(),
+                },
+            ],
+            rates: Vec::new(),
+        }],
+        minimum_micros: None,
+        maximum_micros: None,
+        result_quantum_micros: None,
+        unresolved: BTreeSet::from([unresolved_reason.into()]),
+    }
 }
 
 impl AttributeDraft {
@@ -655,6 +701,81 @@ impl AttributeDraft {
                 formulas.insert(derived.into(), after_autonomy);
                 formulas.insert(name.into(), formula);
             }
+            let mut local_fort_unresolved = BTreeSet::from([
+                "local_fort_maintenance_modifier:remaining_sources_not_bound".into(),
+            ]);
+            let mut local_fort_channel = AttributeChannel {
+                flat: vec![
+                    AttributeTerm::Administration {
+                        mapping: "province_status".into(),
+                        property: PROVINCE_FORT_MAINTENANCE.into(),
+                    },
+                    AttributeTerm::Modifiers {
+                        target: Target::Current,
+                        property: PROVINCE_FORT_MAINTENANCE.into(),
+                    },
+                    AttributeTerm::AffiliationModifiers {
+                        dimension: "religion".into(),
+                        target: Target::Current,
+                        scope: "province".into(),
+                        property: PROVINCE_FORT_MAINTENANCE.into(),
+                    },
+                    AttributeTerm::Buildings {
+                        property: PROVINCE_FORT_MAINTENANCE.into(),
+                    },
+                    AttributeTerm::TradeGood {
+                        property: PROVINCE_FORT_MAINTENANCE.into(),
+                    },
+                ],
+                rates: Vec::new(),
+            };
+            match province.is_city {
+                Some(true) => self.static_term(
+                    &mut local_fort_channel,
+                    "city",
+                    PROVINCE_FORT_MAINTENANCE,
+                    false,
+                    report,
+                    &mut local_fort_unresolved,
+                )?,
+                None => {
+                    local_fort_unresolved.insert("city_status".into());
+                }
+                _ => (),
+            }
+            match (&province.owner, &province.controller) {
+                (Some(owner), Some(controller)) if owner != controller => self.static_term(
+                    &mut local_fort_channel,
+                    "occupied",
+                    PROVINCE_FORT_MAINTENANCE,
+                    false,
+                    report,
+                    &mut local_fort_unresolved,
+                )?,
+                (Some(_), None) => {
+                    local_fort_unresolved.insert("controller".into());
+                }
+                _ => (),
+            }
+            Self::ambiguities(
+                initial,
+                entity,
+                &local_fort_channel,
+                report,
+                setup,
+                &mut local_fort_unresolved,
+            );
+            formulas.insert(
+                PROVINCE_FORT_MAINTENANCE.into(),
+                AttributeFormula {
+                    base: AttributeBase::Constant { micros: 0 },
+                    channels: vec![local_fort_channel],
+                    minimum_micros: None,
+                    maximum_micros: None,
+                    result_quantum_micros: None,
+                    unresolved: local_fort_unresolved,
+                },
+            );
             formulas.insert(
                 augustus_core::MONTHLY_AUTONOMY_DELTA_ATTRIBUTE.into(),
                 self.monthly_autonomy_formula(initial, entity, province, report, setup)?,
@@ -795,46 +916,17 @@ impl AttributeDraft {
             let mut formulas = self.attributes.formulas.remove(&entity).unwrap_or_default();
             formulas.insert(
                 COUNTRY_TRADE_STEERING.into(),
-                AttributeFormula {
-                    base: AttributeBase::Constant { micros: 0 },
-                    channels: vec![AttributeChannel {
-                        flat: vec![
-                            AttributeTerm::Modifiers {
-                                target: Target::Current,
-                                property: "trade_steering".into(),
-                            },
-                            AttributeTerm::Government {
-                                target: Target::Current,
-                                property: "trade_steering".into(),
-                            },
-                            AttributeTerm::AffiliationModifiers {
-                                dimension: "religion".into(),
-                                target: Target::Current,
-                                scope: "country".into(),
-                                property: "trade_steering".into(),
-                            },
-                            AttributeTerm::Ideas {
-                                target: Target::Current,
-                                property: "trade_steering".into(),
-                            },
-                            AttributeTerm::Estates {
-                                target: Target::Current,
-                                property: "trade_steering".into(),
-                            },
-                            AttributeTerm::Metrics {
-                                target: Target::Current,
-                                property: "trade_steering".into(),
-                            },
-                        ],
-                        rates: Vec::new(),
-                    }],
-                    minimum_micros: None,
-                    maximum_micros: None,
-                    result_quantum_micros: None,
-                    unresolved: BTreeSet::from([
-                        "country_trade_steering:remaining_sources_not_bound".into(),
-                    ]),
-                },
+                country_modifier_formula(
+                    "trade_steering",
+                    "country_trade_steering:remaining_sources_not_bound",
+                ),
+            );
+            formulas.insert(
+                COUNTRY_FORT_MAINTENANCE.into(),
+                country_modifier_formula(
+                    COUNTRY_FORT_MAINTENANCE,
+                    "fort_maintenance_modifier:remaining_sources_not_bound",
+                ),
             );
             self.attributes.formulas.insert(entity, formulas);
         }

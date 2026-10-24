@@ -165,6 +165,76 @@ fn country_trade_steering_combines_idea_and_metric_sources_but_stays_incomplete(
 }
 
 #[test]
+fn country_fort_maintenance_modifier_reads_known_idea_value_and_keeps_unknown_sources() {
+    let temp = copy_fixture();
+    let ideas_path = temp.path().join("common/ideas/test_ideas.txt");
+    let ideas = fs::read_to_string(&ideas_path).unwrap();
+    let updated_ideas = ideas.replace(
+        "start = { test_tradition = 0.125 }",
+        "start = { test_tradition = 0.125 fort_maintenance_modifier = -0.2 }",
+    );
+    assert_ne!(updated_ideas, ideas);
+    fs::write(ideas_path, updated_ideas).unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let modifiers = loaded.country_attributes("AAA").unwrap();
+    let fort = &modifiers["fort_maintenance_modifier"];
+
+    assert_eq!(fort.known_subtotal_micros, Some(-200_000));
+    assert_eq!(fort.value_micros, None);
+    assert!(
+        fort.unresolved
+            .contains("fort_maintenance_modifier:remaining_sources_not_bound")
+    );
+    assert!(fort.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source == "ideas:traditions:test_alpha"
+                && contribution.property == "fort_maintenance_modifier"
+                && contribution.micros == -200_000
+        })
+    }));
+}
+
+#[test]
+fn province_local_fort_maintenance_modifier_reads_building_value_and_keeps_unknown_sources() {
+    let temp = copy_fixture();
+    let buildings_path = temp.path().join("common/buildings/test_buildings.txt");
+    let buildings = fs::read_to_string(&buildings_path).unwrap();
+    fs::write(
+        buildings_path,
+        format!(
+            "{buildings}\ntest_fort_support = {{ cost = 50 time = 12 modifier = {{ local_fort_maintenance_modifier = 0.25 }} }}\n"
+        ),
+    )
+    .unwrap();
+
+    let history_path = temp.path().join("history/provinces/1 - North.txt");
+    let history = fs::read_to_string(&history_path).unwrap();
+    fs::write(
+        history_path,
+        format!("{history}\n1439.1.1 = {{ test_fort_support = yes }}\n"),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let fort = &loaded.province(1).unwrap().attributes["local_fort_maintenance_modifier"];
+
+    assert_eq!(fort.known_subtotal_micros, Some(250_000));
+    assert_eq!(fort.value_micros, None);
+    assert!(
+        fort.unresolved
+            .contains("local_fort_maintenance_modifier:remaining_sources_not_bound")
+    );
+    assert!(fort.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source == "building:test_fort_support"
+                && contribution.property == "local_fort_maintenance_modifier"
+                && contribution.micros == 250_000
+        })
+    }));
+}
+
+#[test]
 fn development_attribute_stays_unknown_when_a_base_component_is_missing() {
     let root = copy_fixture();
     let path = root.path().join("history/provinces/1 - North.txt");
