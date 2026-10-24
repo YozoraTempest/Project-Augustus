@@ -200,6 +200,19 @@ pub struct VanillaProvinceStateMaintenanceInput {
     pub caller_extra_modifier_milli: i32,
 }
 
+/// Resolved state-maintenance context using the development factor loaded from EU4 content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaContentStateMaintenanceInput {
+    pub special_development_scale_milli: Option<i32>,
+    pub distance: Option<VanillaStateMaintenanceDistanceInput>,
+    pub region_difference_modifier_milli: i32,
+    pub owner_relation_modifier_milli: i32,
+    pub country_key61_modifier_milli: i32,
+    pub province_key62_modifier_milli: i32,
+    pub caller_extra_modifier_milli: i32,
+}
+
 /// Fully explicit production-stage inputs supplied by an external provider.
 /// The compatibility layer fills the price from the province's EU4 content,
 /// then keeps the downstream monthly-production modifiers explicit.
@@ -411,6 +424,7 @@ pub struct VanillaWorld {
     pub province_bitmap: PathBuf,
     pub country_sources: BTreeMap<String, Vec<LoadedSource>>,
     pub province_sources: BTreeMap<u32, Vec<LoadedSource>>,
+    state_maintenance_development_scale_milli: Option<i32>,
     content: String,
 }
 
@@ -2696,6 +2710,21 @@ impl VanillaWorld {
             province_topology.add_special_adjacencies(&document, &provinces)?;
         }
         let defines = crate::Defines::load(root, &files, crate::DefineDifficulty::Normal)?;
+        let state_maintenance_development_scale_milli = defines
+            .optional("NEconomy", "STATE_MAINTENANCE_DEV_FACTOR")?
+            .map(|(value, source)| {
+                i32::try_from(value / 1_000).map_err(|_| {
+                    Error::message(
+                        &source.path,
+                        "STATE_MAINTENANCE_DEV_FACTOR exceeds the supported range",
+                    )
+                    .with_location(SourceLocation {
+                        line: source.line,
+                        column: source.column,
+                    })
+                })
+            })
+            .transpose()?;
         let mut countries = BTreeMap::new();
         let mut country_order = Vec::new();
         let mut country_sources = BTreeMap::new();
@@ -4402,6 +4431,7 @@ impl VanillaWorld {
             province_bitmap: bitmap.source().into(),
             country_sources,
             province_sources,
+            state_maintenance_development_scale_milli,
             content,
         })
     }
@@ -4710,6 +4740,34 @@ impl VanillaWorld {
                 caller_extra_modifier_milli: input.caller_extra_modifier_milli,
             },
         )?))
+    }
+
+    /// Applies state maintenance using the development factor loaded from EU4 defines.
+    /// `None` means either the define or one of the province development values is unresolved.
+    pub fn calculate_vanilla_province_state_maintenance_from_content(
+        &self,
+        id: u32,
+        input: VanillaContentStateMaintenanceInput,
+    ) -> Result<Option<VanillaStateMaintenanceResult>, augustus_core::Error> {
+        if self.initial.province(id).is_none() {
+            return Err(augustus_core::Error::Invalid("unknown province".into()));
+        }
+        let Some(development_scale_milli) = self.state_maintenance_development_scale_milli else {
+            return Ok(None);
+        };
+        self.calculate_vanilla_province_state_maintenance(
+            id,
+            VanillaProvinceStateMaintenanceInput {
+                development_scale_milli,
+                special_development_scale_milli: input.special_development_scale_milli,
+                distance: input.distance,
+                region_difference_modifier_milli: input.region_difference_modifier_milli,
+                owner_relation_modifier_milli: input.owner_relation_modifier_milli,
+                country_key61_modifier_milli: input.country_key61_modifier_milli,
+                province_key62_modifier_milli: input.province_key62_modifier_milli,
+                caller_extra_modifier_milli: input.caller_extra_modifier_milli,
+            },
+        )
     }
 
     /// Applies the confirmed `A11B80` gold-base stage for a province whose

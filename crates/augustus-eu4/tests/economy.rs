@@ -8,8 +8,9 @@ use augustus_core::{
 };
 use augustus_eu4::{
     CashflowBreakdown, VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
-    VanillaContentProductionValueInput, VanillaExternalProductionInput, VanillaExternalState,
-    VanillaGoldProductionInput, VanillaGoldProductionInputState, VanillaProductionInputState,
+    VanillaContentProductionValueInput, VanillaContentStateMaintenanceInput,
+    VanillaExternalProductionInput, VanillaExternalState, VanillaGoldProductionInput,
+    VanillaGoldProductionInputState, VanillaProductionInputState,
     VanillaProvinceProductionBaseValueInput, VanillaProvinceStateMaintenanceInput,
     VanillaTradeGoodsSizeInput, VanillaWorld,
 };
@@ -446,6 +447,35 @@ fn state_maintenance_uses_current_province_development_and_explicit_context() {
             .calculate_vanilla_province_state_maintenance(999, input)
             .is_err()
     );
+}
+
+#[test]
+fn state_maintenance_uses_loaded_development_factor_and_current_province_development() {
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let province = loaded.initial.province(1).unwrap();
+    let base_sum = province.tax_milli.unwrap()
+        + province.production_milli.unwrap()
+        + province.manpower_milli.unwrap();
+    let result = loaded
+        .calculate_vanilla_province_state_maintenance_from_content(
+            1,
+            VanillaContentStateMaintenanceInput {
+                special_development_scale_milli: None,
+                distance: None,
+                region_difference_modifier_milli: 0,
+                owner_relation_modifier_milli: 0,
+                country_key61_modifier_milli: 0,
+                province_key62_modifier_milli: 0,
+                caller_extra_modifier_milli: 0,
+            },
+        )
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(base_sum, 7_625);
+    assert_eq!(result.base_sum_milli, base_sum);
+    assert_eq!(result.scaled_base_milli, 53);
+    assert_eq!(result.maintenance_milli, 53);
 }
 
 #[test]

@@ -126,13 +126,14 @@ pub use augustus_core::{
 pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView,
     VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
-    VanillaContentProductionValueInput, VanillaExternalAdvisor, VanillaExternalArmy,
-    VanillaExternalCountryMarkers, VanillaExternalCountryPersons, VanillaExternalCountryStatuses,
-    VanillaExternalEstateState, VanillaExternalEstateStates, VanillaExternalEu4RandomState,
-    VanillaExternalFleet, VanillaExternalNavalUnit, VanillaExternalPerson,
-    VanillaExternalProductionInput, VanillaExternalProvinceDevelopment,
-    VanillaExternalRegimentState, VanillaExternalShipState, VanillaExternalState,
-    VanillaProvinceProductionBaseValueInput, VanillaProvinceStateMaintenanceInput, VanillaWorld,
+    VanillaContentProductionValueInput, VanillaContentStateMaintenanceInput,
+    VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalCountryMarkers,
+    VanillaExternalCountryPersons, VanillaExternalCountryStatuses, VanillaExternalEstateState,
+    VanillaExternalEstateStates, VanillaExternalEu4RandomState, VanillaExternalFleet,
+    VanillaExternalNavalUnit, VanillaExternalPerson, VanillaExternalProductionInput,
+    VanillaExternalProvinceDevelopment, VanillaExternalRegimentState, VanillaExternalShipState,
+    VanillaExternalState, VanillaProvinceProductionBaseValueInput,
+    VanillaProvinceStateMaintenanceInput, VanillaWorld,
 };
 pub use casus_belli::{CasusBelliReport, CasusBelliType, CasusBelliTypes};
 pub use content::{ContentRoot, ContentView, FileEntry};

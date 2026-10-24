@@ -7,6 +7,7 @@ NDefines = {
     },
     NEconomy = {
         CAPITAL_MAX_AUTONOMY = 0,
+        STATE_MAINTENANCE_DEV_FACTOR = 0.007,
     },
     NCountry = {
         CULTURAL_UNION_MIN_RANK = 3,
