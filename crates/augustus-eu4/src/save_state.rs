@@ -521,6 +521,28 @@ impl VanillaSaveState {
                 .insert(*province, buildings.clone());
         }
 
+        for (province, cores) in &self.external_state.province_cores {
+            if world.initial.province_entity(*province).is_none() {
+                continue;
+            }
+            let mut seen = BTreeSet::new();
+            for tag in cores {
+                if !countries.contains(tag.as_str()) {
+                    return Err(Error::message(
+                        "save state",
+                        format!("province {province} references unknown core country {tag}"),
+                    ));
+                }
+                if !seen.insert(tag) {
+                    return Err(Error::message(
+                        "save state",
+                        format!("province {province} has a duplicate saved core country {tag}"),
+                    ));
+                }
+            }
+            state.province_cores.insert(*province, cores.clone());
+        }
+
         for (province, discovered_by) in &self.external_state.province_discovered_by {
             if world.initial.province_entity(*province).is_some() {
                 state
@@ -1399,6 +1421,62 @@ fn read_vanilla_save_state_inner(
             ));
         }
         external_state.province_owners.insert(id, owner.clone());
+        let mut saved_cores = Vec::new();
+        let mut seen_cores = BTreeSet::new();
+        if let Some(cores) = optional_field(&parsed, &province, "cores")? {
+            let mut insert = |tag: String| -> Result<(), Error> {
+                if !is_country_tag(&tag) || !seen_cores.insert(tag.clone()) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("province {id} has an invalid or duplicate saved core country"),
+                    ));
+                }
+                saved_cores.push(tag);
+                Ok(())
+            };
+            match cores.token() {
+                TextToken::Array { .. } => {
+                    let array = cores.read_array().expect("array token");
+                    for value in array.values() {
+                        let tag = scalar(&parsed, &value)?;
+                        insert(tag)?;
+                    }
+                }
+                TextToken::Object { .. } => {
+                    let entries = cores.read_object().expect("object token");
+                    for (key, op, value) in entries.fields() {
+                        if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                            return Err(Error::message(
+                                parsed.source(),
+                                format!("province {id} has an invalid saved core entry"),
+                            ));
+                        }
+                        let tag = key.read_string();
+                        if op.is_some() {
+                            match scalar(&parsed, &value)?.as_str() {
+                                "yes" => insert(tag)?,
+                                "no" => (),
+                                _ => {
+                                    return Err(Error::message(
+                                        parsed.source(),
+                                        format!("province {id} has an invalid saved core value"),
+                                    ));
+                                }
+                            }
+                        } else {
+                            insert(tag)?;
+                        }
+                    }
+                }
+                _ => {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("province {id} has an invalid saved core list"),
+                    ));
+                }
+            }
+        }
+        external_state.province_cores.insert(id, saved_cores);
         let mut saved_buildings = BTreeSet::new();
         if let Some(buildings) = optional_object(&parsed, &province, "buildings")? {
             let mut seen = BTreeSet::new();
@@ -4291,6 +4369,76 @@ provinces={
             .external_state
             .province_buildings
             .insert(1, BTreeSet::from(["missing_building".into()]));
+        assert!(invalid.state_for_world(&baseline).is_err());
+    }
+
+    #[test]
+    fn saved_province_cores_replace_history_and_preserve_unknown_core_types() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("province-cores.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+countries={ AAA={ human=yes } BBB={} }
+provinces={
+    -1={ owner="AAA" cores={ BBB AAA } }
+    -2={ owner="AAA" cores={} }
+    -999={ cores={ ZZZ } }
+}
+"#,
+        )
+        .unwrap();
+
+        let save = read_vanilla_save_state(&save_path).unwrap();
+        assert_eq!(
+            save.external_state.province_cores[&1],
+            ["BBB".to_string(), "AAA".to_string()]
+        );
+        assert!(save.external_state.province_cores[&2].is_empty());
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = crate::VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let filtered = save.state_for_world(&baseline).unwrap();
+        assert_eq!(
+            filtered.province_cores[&1],
+            ["BBB".to_string(), "AAA".to_string()]
+        );
+        assert!(filtered.province_cores[&2].is_empty());
+        assert!(!filtered.province_cores.contains_key(&999));
+
+        let loaded =
+            crate::VanillaWorld::load_from_content_with_save_state(&content, &save).unwrap();
+        let north = loaded.initial.province_entity(1).unwrap();
+        let south = loaded.initial.province_entity(2).unwrap();
+        assert_eq!(
+            loaded.initial.province(1).unwrap().owner.as_deref(),
+            Some("AAA")
+        );
+        assert_eq!(
+            loaded.initial.province(1).unwrap().cores,
+            ["BBB".to_string(), "AAA".to_string()]
+        );
+        let administration = loaded.initial.world().administration();
+        let saved_cores = &administration.provinces[&north];
+        assert!(saved_cores.cores_known);
+        assert_eq!(saved_cores.cores.len(), 2);
+        assert_eq!(
+            saved_cores.cores[&loaded.initial.country_entity("BBB").unwrap()],
+            augustus_core::CoreType::Unspecified
+        );
+        assert!(administration.provinces[&south].cores_known);
+        assert!(administration.provinces[&south].cores.is_empty());
+
+        let mut invalid = save.clone();
+        invalid
+            .external_state
+            .province_cores
+            .insert(1, vec!["ZZZ".into()]);
         assert!(invalid.state_for_world(&baseline).is_err());
     }
 

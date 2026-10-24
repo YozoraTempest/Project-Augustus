@@ -554,6 +554,11 @@ pub struct VanillaExternalState {
     /// an empty set when its province block omits the building subobject.
     #[serde(default)]
     pub province_buildings: BTreeMap<u32, BTreeSet<String>>,
+    /// Current province core tags supplied by a save reader, in save order.
+    /// A save reader supplies an empty list when a province omits the field;
+    /// the supported field does not identify full versus territorial core.
+    #[serde(default)]
+    pub province_cores: BTreeMap<u32, Vec<String>>,
     /// Current countries that have discovered each province. An omitted
     /// province keeps its history-derived state; a present empty set is known
     /// to be undiscovered by every country in the loaded content.
@@ -691,6 +696,7 @@ struct LoadOverrides<'a> {
     province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
     province_owners: Option<&'a BTreeMap<u32, Option<String>>>,
     province_buildings: Option<&'a BTreeMap<u32, BTreeSet<String>>>,
+    province_cores: Option<&'a BTreeMap<u32, Vec<String>>>,
     province_discovered_by: Option<&'a BTreeMap<u32, BTreeSet<String>>>,
     province_trade_goods: Option<&'a BTreeMap<u32, Option<String>>>,
     province_center_of_trade_levels: Option<&'a BTreeMap<u32, Option<u8>>>,
@@ -781,6 +787,7 @@ impl<'a> LoadOverrides<'a> {
             province_owners: (!state.province_owners.is_empty()).then_some(&state.province_owners),
             province_buildings: (!state.province_buildings.is_empty())
                 .then_some(&state.province_buildings),
+            province_cores: (!state.province_cores.is_empty()).then_some(&state.province_cores),
             province_discovered_by: (!state.province_discovered_by.is_empty())
                 .then_some(&state.province_discovered_by),
             province_trade_goods: (!state.province_trade_goods.is_empty())
@@ -984,6 +991,7 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     base.province_owners.extend(overlay.province_owners.clone());
     base.province_buildings
         .extend(overlay.province_buildings.clone());
+    base.province_cores.extend(overlay.province_cores.clone());
     base.province_discovered_by
         .extend(overlay.province_discovered_by.clone());
     base.province_trade_goods
@@ -1757,6 +1765,46 @@ fn bind_external_province_buildings(
     initial
         .set_economy(economy)
         .map_err(|error| Error::caused_by("external province buildings", error))
+}
+
+fn bind_external_province_cores(
+    initial: &InitialWorld,
+    administration: &mut augustus_core::Administration,
+    values: Option<&BTreeMap<u32, Vec<String>>>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    for (province, tags) in values {
+        let entity = initial.province_entity(*province).ok_or_else(|| {
+            Error::message(
+                "external province cores",
+                format!("unknown province {province}"),
+            )
+        })?;
+        let Some(state) = administration.provinces.get_mut(&entity) else {
+            if tags.is_empty() {
+                continue;
+            }
+            return Err(Error::message(
+                "external province cores",
+                format!("province {province} has no administration state"),
+            ));
+        };
+        let mut cores = BTreeMap::new();
+        for tag in tags {
+            let country = initial.country_entity(tag).ok_or_else(|| {
+                Error::message(
+                    "external province cores",
+                    format!("province {province} references unknown core country {tag}"),
+                )
+            })?;
+            cores.insert(country, augustus_core::CoreType::Unspecified);
+        }
+        state.cores = cores;
+        state.cores_known = true;
+    }
+    Ok(())
 }
 
 fn bind_external_production_value_inputs(
@@ -3127,6 +3175,17 @@ impl VanillaWorld {
                 unresolved_ownership.remove(&id);
             }
         }
+        if let Some(cores) = overrides.province_cores {
+            for (&id, tags) in cores {
+                let Some(province) = provinces.get_mut(&id) else {
+                    return Err(Error::message(
+                        root.path(),
+                        format!("external province cores reference unknown province {id}"),
+                    ));
+                };
+                province.cores.clone_from(tags);
+            }
+        }
         if let Some(controllers) = overrides.province_controllers {
             for (&id, controller) in controllers {
                 let Some(province) = provinces.get_mut(&id) else {
@@ -3711,7 +3770,7 @@ impl VanillaWorld {
             &mut report.setup,
         )?;
         administration.initialize_country_ranks(&mut initial, &mut report.administration)?;
-        let administration = administration.bind(
+        let mut administration = administration.bind(
             &initial,
             &province_histories,
             &mut report.administration,
@@ -3719,6 +3778,7 @@ impl VanillaWorld {
             &report.attributes,
             date,
         )?;
+        bind_external_province_cores(&initial, &mut administration, overrides.province_cores)?;
         initial
             .set_administration(administration)
             .map_err(|e| Error::caused_by(root.path(), e))?;
