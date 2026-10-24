@@ -32,6 +32,7 @@ mod ideas;
 mod imperial_membership;
 mod liberty_desire;
 mod load;
+mod localisation;
 mod missions;
 mod monarch_power;
 mod navy_tradition;
@@ -152,6 +153,7 @@ pub use governments::GovernmentReport;
 pub use ideas::IdeaReport;
 pub use jomini::binary::TokenResolver as Eu4TokenResolver;
 pub use load::{ContentSet, ContentSource, FileCandidate, FileOrigin, FileTrace, Suppression};
+pub use localisation::EventText;
 pub use politics::{RelationSource, RelationView};
 pub use religious_schools::ReligiousSchoolReport;
 pub use save_state::{

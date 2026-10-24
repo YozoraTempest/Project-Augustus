@@ -5,6 +5,7 @@ use super::initialization::HistoryMetric;
 use super::{Condition, ENCODING, EstateReport, Reader};
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::country_conditions::ConditionCompileOptions;
+use crate::localisation::{EventTextKeys, load_event_texts};
 use crate::setup::{PropertyDiagnostics, block, micros};
 use crate::{ContentView, Error, FileEntry, LoadedSource, ParsedText, TextDocument};
 use augustus_core::{Action, EntityKind, EventCatalog, InitialWorld, Schema, ScopeSelector};
@@ -64,6 +65,7 @@ pub(crate) struct EstateStartup {
     steps: Vec<Step>,
     callbacks: BTreeMap<String, Callback>,
     events: EventCatalog,
+    pub(crate) event_texts: BTreeMap<String, crate::EventText>,
 }
 
 impl Compiler {
@@ -920,30 +922,33 @@ impl EstateStartup {
             collect_references(&callback.granted, &mut references);
             collect_references(&callback.revoked, &mut references);
         }
-        let events = match load_events(root, files, references, &compiler, report) {
-            Ok(events) => events,
-            Err(error) => {
-                let at = error
-                    .location()
-                    .unwrap_or(crate::SourceLocation { line: 1, column: 1 });
-                steps.insert(
-                    0,
-                    Step::Pending(
-                        format!("uncompiled_startup_event:{error}"),
-                        LoadedSource {
-                            path: error.path().into(),
-                            line: at.line,
-                            column: at.column,
-                        },
-                    ),
-                );
-                EventCatalog::default()
-            }
-        };
+        let (events, event_text_keys) =
+            match load_events(root, files, references, &compiler, report) {
+                Ok(events) => events,
+                Err(error) => {
+                    let at = error
+                        .location()
+                        .unwrap_or(crate::SourceLocation { line: 1, column: 1 });
+                    steps.insert(
+                        0,
+                        Step::Pending(
+                            format!("uncompiled_startup_event:{error}"),
+                            LoadedSource {
+                                path: error.path().into(),
+                                line: at.line,
+                                column: at.column,
+                            },
+                        ),
+                    );
+                    (EventCatalog::default(), BTreeMap::new())
+                }
+            };
+        let event_texts = load_event_texts(root, files, &event_text_keys);
         Ok(Self {
             steps,
             callbacks,
             events,
+            event_texts,
         })
     }
 
@@ -1426,9 +1431,9 @@ fn load_events(
     mut needed: BTreeSet<String>,
     compiler: &Compiler,
     report: &mut EstateReport,
-) -> Result<EventCatalog, Error> {
+) -> Result<(EventCatalog, BTreeMap<String, EventTextKeys>), Error> {
     if needed.is_empty() {
-        return Ok(EventCatalog::default());
+        return Ok((EventCatalog::default(), BTreeMap::new()));
     }
     let library = crate::ScriptLibrary::from_root(root, files, ENCODING)?
         .with_advisor_types(compiler.advisor_types.clone());
@@ -1451,6 +1456,7 @@ fn load_events(
     let mut locations = BTreeMap::new();
     let mut once_events = BTreeSet::new();
     let mut unavailable_options = BTreeMap::new();
+    let mut event_text_keys = BTreeMap::new();
     while !needed.is_empty() {
         let requested = std::mem::take(&mut needed);
         let mut found = BTreeSet::new();
@@ -1514,6 +1520,7 @@ fn load_events(
             pictures.extend(compiled.pictures);
             locations.extend(compiled.locations);
             once_events.extend(compiled.once_events);
+            event_text_keys.extend(compiled.event_text_keys);
         }
         if let Some(missing) = requested.difference(&found).next() {
             return Err(Error::message(
@@ -1523,7 +1530,7 @@ fn load_events(
         }
         needed.retain(|id| !definitions.contains_key(id));
     }
-    EventCatalog::new(definitions.into_values())
+    let catalog = EventCatalog::new(definitions.into_values())
         .and_then(|catalog| catalog.with_conditions(conditions))
         .and_then(|catalog| catalog.with_option_conditions(option_conditions))
         .and_then(|catalog| catalog.with_option_weights(option_weights))
@@ -1531,7 +1538,8 @@ fn load_events(
         .and_then(|catalog| catalog.with_locations(locations))
         .and_then(|catalog| catalog.with_once_events(once_events))
         .and_then(|catalog| catalog.with_unavailable_options(unavailable_options))
-        .map_err(|e| Error::caused_by("events", e))
+        .map_err(|e| Error::caused_by("events", e))?;
+    Ok((catalog, event_text_keys))
 }
 
 struct Pending {

@@ -295,9 +295,15 @@ func verify_event_ui() -> void:
 	var choices: Dictionary = JSON.parse_string(ui.session.pending_event_choices()).value
 	check(ui.event_overlay.visible, "startup event opens the modal choice view: %s · %s" % [str(choices), str(ui.overview.report.estates)])
 	check(choices.pending_events.size() == 1 and choices.pending_events[0].event == "augustus_popup.1", "event query returns the pending event")
+	if choices.pending_events.size() == 1:
+		var pending: Dictionary = choices.pending_events[0]
+		check(pending.title == "The Imperial Diet", "event title resolves through English localisation")
+		check(pending.description == "augustus_popup.description", "missing description falls back to its localisation key")
 	check(ui.event_option_buttons.size() == 2, "modal lists only currently available options")
 	if ui.event_option_buttons.size() == 2:
-		check(ui.event_option_buttons[0].text == choices.pending_events[0].options[0], "modal preserves available-option order")
+		check(ui.event_option_buttons[0].text == "Accept the proposal", "first option resolves through English localisation")
+		check(ui.event_option_buttons[1].text == "augustus_popup.decline", "missing option text falls back to its localisation key")
+		check(choices.pending_events[0].options == ["0", "1"], "modal preserves available-option order")
 	check_layout(ui)
 	if not ui.event_option_buttons.is_empty():
 		ui.event_option_buttons[0].pressed.emit()

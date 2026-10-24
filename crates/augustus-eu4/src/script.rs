@@ -15,6 +15,7 @@ use jomini::{
     text::{ObjectReader, Operator},
 };
 
+use crate::localisation::EventTextKeys;
 use crate::{
     ContentSet, ContentView, DefinitionKind, Error, FileEntry, ParsedText, SourceLocation,
     TextDocument, TextEncoding,
@@ -402,6 +403,7 @@ pub struct CompiledEvents {
     pub pictures: BTreeMap<String, EventPictures>,
     pub locations: BTreeMap<String, EventLocations>,
     pub once_events: BTreeSet<String>,
+    pub(crate) event_text_keys: BTreeMap<String, EventTextKeys>,
     pub sources: Vec<(PathBuf, SourceLocation)>,
     pub folded_branches: usize,
 }
@@ -1414,6 +1416,7 @@ impl<'a> ScriptCompiler<'a> {
         let mut pictures = BTreeMap::new();
         let mut locations = BTreeMap::new();
         let mut once_events = BTreeSet::new();
+        let mut event_text_keys = BTreeMap::new();
         for field in fields {
             self.sources.push((field.path.clone(), field.location));
             let scope = match field.name.as_str() {
@@ -1438,6 +1441,7 @@ impl<'a> ScriptCompiler<'a> {
                 options: Vec::new(),
                 after: Vec::new(),
             };
+            let mut text_keys = EventTextKeys::default();
             self.root_scope = Some(scope);
             let hidden_event = field
                 .block()?
@@ -1473,8 +1477,9 @@ impl<'a> ScriptCompiler<'a> {
                     "hidden" => {
                         let _ = boolean(part)?;
                     }
-                    "title" | "desc" => {
-                        part.scalar()?;
+                    "title" => text_keys.title = Some(localisation_key(part, "event title")?),
+                    "desc" => {
+                        text_keys.description = Some(localisation_key(part, "event description")?);
                     }
                     "picture" => picture_variants.push(self.event_picture(part, scope)?),
                     "goto" => event_locations.event = Some(event_location(part)?),
@@ -1483,17 +1488,18 @@ impl<'a> ScriptCompiler<'a> {
                     "after" => definition.after = self.effects(part.block()?, scope)?,
                     "option" => {
                         let mut effects = Vec::new();
-                        let mut name = false;
+                        let mut name = None;
                         let mut option_condition = None;
                         let mut weight = None;
                         let mut location = None;
                         for item in part.block()? {
                             if item.name == "name" {
-                                if name || item.scalar()?.is_empty() {
+                                let key = item.scalar()?.to_owned();
+                                if name.is_some() || key.is_empty() {
                                     return Err(item.error("invalid option name"));
                                 }
                                 self.sources.push((item.path.clone(), item.location));
-                                name = true;
+                                name = Some(key);
                             } else if item.name == "trigger" {
                                 if option_condition.is_some() {
                                     return Err(item.error("duplicate option trigger"));
@@ -1515,10 +1521,13 @@ impl<'a> ScriptCompiler<'a> {
                                 effects.push(item.clone());
                             }
                         }
-                        if !name && !hidden_event {
+                        if name.is_none() && !hidden_event {
                             return Err(part.error("option requires a scalar name"));
                         }
                         let id = definition.options.len().to_string();
+                        if let Some(name) = name {
+                            text_keys.option_labels.insert(id.clone(), name);
+                        }
                         if let Some(location) = location {
                             event_locations.options.insert(id.clone(), location);
                         }
@@ -1606,6 +1615,7 @@ impl<'a> ScriptCompiler<'a> {
             {
                 return Err(field.error("duplicate event option trigger identifier"));
             }
+            event_text_keys.insert(definition.id.clone(), text_keys);
             definitions.push(definition);
             if !weighted_options.is_empty() {
                 let id = definitions.last().expect("just inserted").id.clone();
@@ -1642,6 +1652,7 @@ impl<'a> ScriptCompiler<'a> {
             pictures,
             locations,
             once_events,
+            event_text_keys,
             sources: std::mem::take(&mut self.sources),
             folded_branches: self.folded,
         })

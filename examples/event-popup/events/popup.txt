@@ -1,12 +1,14 @@
 country_event = {
     id = augustus_popup.1
     is_triggered_only = yes
+    title = augustus_popup.title
+    desc = augustus_popup.description
     option = {
-        name = choose_left
+        name = augustus_popup.accept
         add_treasury = 1
     }
     option = {
-        name = choose_right
+        name = augustus_popup.decline
         add_treasury = 2
     }
 }

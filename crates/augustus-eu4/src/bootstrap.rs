@@ -440,6 +440,7 @@ pub struct VanillaWorld {
     pub country_sources: BTreeMap<String, Vec<LoadedSource>>,
     pub province_sources: BTreeMap<u32, Vec<LoadedSource>>,
     state_maintenance_development_scale_milli: Option<i32>,
+    event_texts: BTreeMap<String, crate::EventText>,
     content: String,
 }
 
@@ -4310,6 +4311,7 @@ impl VanillaWorld {
         // Content identity is based on the bound initial world. Startup effects
         // and AI choices are runtime state and must not vary the hash by seed.
         let content_identity_initial = initial.clone();
+        let event_texts = startup.event_texts.clone();
         startup.run(
             &mut initial,
             &mut report.estates,
@@ -4447,8 +4449,13 @@ impl VanillaWorld {
             country_sources,
             province_sources,
             state_maintenance_development_scale_milli,
+            event_texts,
             content,
         })
+    }
+
+    pub fn event_text(&self, event: &str) -> Option<&crate::EventText> {
+        self.event_texts.get(event)
     }
 
     pub fn advance(&mut self, days: u64) -> Result<(), augustus_core::Error> {

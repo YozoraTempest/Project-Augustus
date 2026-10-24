@@ -752,15 +752,29 @@ impl AugustusWorldSession {
                     let picture = world
                         .pending_event_picture(pending.id)
                         .map_err(|error| error.to_string())?;
+                    let event_text = loaded.event_text(&pending.event);
+                    let option_labels = options
+                        .iter()
+                        .map(|option| {
+                            let label = event_text
+                                .and_then(|text| text.option_labels.get(&option.id))
+                                .cloned()
+                                .unwrap_or_else(|| option.id.clone());
+                            (option.id.clone(), label)
+                        })
+                        .collect::<std::collections::BTreeMap<_, _>>();
                     Ok(serde_json::json!({
                         "id": pending.id.0,
                         "event": pending.event,
+                        "title": event_text.map_or_else(|| pending.event.clone(), |text| text.title.clone()),
+                        "description": event_text.and_then(|text| text.description.clone()),
                         "current": pending.current,
                         "current_name": current.name,
                         "day": pending.day,
                         "picture": picture,
                         "location": location,
                         "options": options.iter().map(|option| option.id.clone()).collect::<Vec<_>>(),
+                        "option_labels": option_labels,
                         "option_locations": option_locations,
                     }))
                 })

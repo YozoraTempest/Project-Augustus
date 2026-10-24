@@ -458,8 +458,11 @@ func refresh_pending_events() -> void:
 		event_option_buttons.clear()
 		return
 	var choice: Dictionary = pending[0]
-	event_title.text = str(choice.event)
-	var details := "%s · 第 %d 天" % [choice.current_name, int(choice.day)]
+	event_title.text = str(choice.get("title", choice.event))
+	var details := ""
+	if choice.get("description") != null:
+		details = str(choice.description) + "\n"
+	details += "%s · 第 %d 天" % [choice.current_name, int(choice.day)]
 	if choice.get("picture") != null:
 		details += "\n" + str(choice.picture)
 	if choice.get("location") != null:
@@ -471,9 +474,11 @@ func refresh_pending_events() -> void:
 		event_options.remove_child(child)
 		child.queue_free()
 	event_option_buttons.clear()
+	var option_labels: Dictionary = choice.get("option_labels", {})
 	for option_id in choice.options:
 		var option_key := str(option_id)
-		var option := button(option_key, choose_event_option.bind(int(choice.id), option_key))
+		var label_text := str(option_labels.get(option_key, option_key))
+		var option := button(label_text, choose_event_option.bind(int(choice.id), option_key))
 		option.custom_minimum_size.y = 50
 		option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if choice.option_locations.get(option_key) != null:
