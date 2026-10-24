@@ -4667,6 +4667,7 @@ countries={
 provinces={
     -1={
         local_autonomy=3.500
+        cores={ AAA }
     }
 }
 "#,
@@ -4689,6 +4690,7 @@ provinces={
             Some(3_500)
         );
         assert_eq!(state.external_state.province_owners[&1], None);
+        assert_eq!(state.external_state.province_cores[&1], ["AAA".to_string()]);
     }
 
     #[test]
