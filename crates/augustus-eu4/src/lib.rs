@@ -61,7 +61,8 @@ pub use administration_validation::{
 pub use attributes::AttributeReport;
 pub use augustus_core::{
     COUNTRY_LEDGER_CATEGORY_COUNT, COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT,
-    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_INCOME_GOLD_CATEGORY, COUNTRY_LEDGER_INCOME_KEYS,
+    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY,
+    COUNTRY_LEDGER_INCOME_GOLD_CATEGORY, COUNTRY_LEDGER_INCOME_KEYS,
     COUNTRY_LEDGER_INCOME_PRODUCTION_CATEGORY, COUNTRY_LEDGER_INCOME_TAX_CATEGORY,
     COUNTRY_LEDGER_INCOME_TRADE_CATEGORY, COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES,
     COUNTRY_LEDGER_NATIVE_FILTERED_INCOME_CATEGORIES, COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
@@ -75,6 +76,8 @@ pub use augustus_core::{
     VanillaGoldProductionInputState, VanillaGoldProductionProvinceResult,
     VanillaGoldProductionResult, VanillaModifierAggregationInput, VanillaModifierAggregationResult,
     VanillaProductionCountryResult, VanillaProductionInputState, VanillaProductionProvinceResult,
+    VanillaStateMaintenanceDistanceInput, VanillaStateMaintenanceInput,
+    VanillaStateMaintenanceProvinceInputState, VanillaStateMaintenanceResult,
     VanillaTradeAttachedModifierGroup, VanillaTradeCandidate, VanillaTradeCaravanInput,
     VanillaTradeCaravanResult, VanillaTradeCountryFlags, VanillaTradeCountryPowerShareInput,
     VanillaTradeDistributionCandidate, VanillaTradeDistributionCandidateInput,
@@ -104,6 +107,7 @@ pub use augustus_core::{
     calculate_vanilla_derived_modifier, calculate_vanilla_estate_influence_scale,
     calculate_vanilla_gold_base, calculate_vanilla_gold_production,
     calculate_vanilla_gold_production_for_country, calculate_vanilla_production_for_country,
+    calculate_vanilla_state_maintenance, calculate_vanilla_state_maintenance_for_country,
     calculate_vanilla_trade_caravan, calculate_vanilla_trade_country_power_share,
     calculate_vanilla_trade_distribution, calculate_vanilla_trade_good_price,
     calculate_vanilla_trade_good_price_table, calculate_vanilla_trade_goods_size,
@@ -128,7 +132,7 @@ pub use bootstrap::{
     VanillaExternalFleet, VanillaExternalNavalUnit, VanillaExternalPerson,
     VanillaExternalProductionInput, VanillaExternalProvinceDevelopment,
     VanillaExternalRegimentState, VanillaExternalShipState, VanillaExternalState,
-    VanillaProvinceProductionBaseValueInput, VanillaWorld,
+    VanillaProvinceProductionBaseValueInput, VanillaProvinceStateMaintenanceInput, VanillaWorld,
 };
 pub use casus_belli::{CasusBelliReport, CasusBelliType, CasusBelliTypes};
 pub use content::{ContentRoot, ContentView, FileEntry};

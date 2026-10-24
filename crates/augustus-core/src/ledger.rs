@@ -14,6 +14,8 @@ use crate::{
 pub const COUNTRY_LEDGER_CATEGORY_COUNT: u32 = 19;
 /// Native country-ledger expense categories occupy slots 0 through 37.
 pub const COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT: u32 = 38;
+/// State-maintenance expense slot in the native expense vector.
+pub const COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY: u32 = 2;
 /// Monthly tax receipt slot in the native income vector.
 pub const COUNTRY_LEDGER_INCOME_TAX_CATEGORY: u32 = 0;
 /// Ordinary production receipt slot in the native income vector.

@@ -50,6 +50,7 @@ mod resources;
 mod rng;
 mod school_opinions;
 mod scopes;
+mod state_maintenance;
 mod stocks;
 mod subjects;
 mod taxation;
@@ -149,7 +150,8 @@ pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, Worl
 pub use justifications::{GrantTerm, Justification, JustificationDefinition, Justifications};
 pub use ledger::{
     COUNTRY_LEDGER_CATEGORY_COUNT, COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT,
-    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_INCOME_GOLD_CATEGORY, COUNTRY_LEDGER_INCOME_KEYS,
+    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY,
+    COUNTRY_LEDGER_INCOME_GOLD_CATEGORY, COUNTRY_LEDGER_INCOME_KEYS,
     COUNTRY_LEDGER_INCOME_PRODUCTION_CATEGORY, COUNTRY_LEDGER_INCOME_TAX_CATEGORY,
     COUNTRY_LEDGER_INCOME_TRADE_CATEGORY, COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES,
     COUNTRY_LEDGER_NATIVE_FILTERED_INCOME_CATEGORIES, COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
@@ -178,6 +180,11 @@ pub use resources::{CountryResource, CountryResources};
 pub use rng::Eu4Random;
 pub use school_opinions::SchoolOpinions;
 pub use scopes::{EntityRef, ScopeContext, ScopeSelector};
+pub use state_maintenance::{
+    VanillaStateMaintenanceDistanceInput, VanillaStateMaintenanceInput,
+    VanillaStateMaintenanceProvinceInputState, VanillaStateMaintenanceResult,
+    calculate_vanilla_state_maintenance, calculate_vanilla_state_maintenance_for_country,
+};
 pub use stocks::{MonthlyStocks, StockAccount, StockRule, StockSettlement};
 pub use subjects::Subjects;
 pub use taxation::{

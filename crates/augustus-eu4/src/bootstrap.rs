@@ -12,12 +12,13 @@ use augustus_core::{
     ProvinceClass, ProvinceState, Target, Taxation, TechnologyProperty, VanillaGoldBaseInput,
     VanillaGoldBaseResult, VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
     VanillaGoldProductionInputState, VanillaGoldProductionResult, VanillaProductionBaseValueInput,
-    VanillaProductionBaseValueResult, VanillaProductionInput, VanillaTradeGoodPriceInput,
+    VanillaProductionBaseValueResult, VanillaProductionInput, VanillaStateMaintenanceDistanceInput,
+    VanillaStateMaintenanceInput, VanillaStateMaintenanceResult, VanillaTradeGoodPriceInput,
     VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, WorldDate,
     calculate_vanilla_gold_base, calculate_vanilla_gold_production,
     calculate_vanilla_gold_production_for_country, calculate_vanilla_production_base_value,
-    calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
-    calculate_vanilla_trade_goods_size,
+    calculate_vanilla_state_maintenance, calculate_vanilla_trade_good_price,
+    calculate_vanilla_trade_good_price_table, calculate_vanilla_trade_goods_size,
 };
 use jomini::{
     Encoding,
@@ -179,6 +180,24 @@ pub struct VanillaProvinceProductionBaseValueInput {
     pub external_flat_modifier_milli: i32,
     pub rate_modifier_milli: i32,
     pub external_rate_modifier_milli: i32,
+}
+
+/// Resolved context for one province's state-maintenance calculation.
+///
+/// Tax, production, and manpower development are read from the current
+/// province state. Distance and modifier sources remain explicit because
+/// their upstream rules have not been fully translated yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaProvinceStateMaintenanceInput {
+    pub development_scale_milli: i32,
+    pub special_development_scale_milli: Option<i32>,
+    pub distance: Option<VanillaStateMaintenanceDistanceInput>,
+    pub region_difference_modifier_milli: i32,
+    pub owner_relation_modifier_milli: i32,
+    pub country_key61_modifier_milli: i32,
+    pub province_key62_modifier_milli: i32,
+    pub caller_extra_modifier_milli: i32,
 }
 
 /// Fully explicit production-stage inputs supplied by an external provider.
@@ -4540,6 +4559,51 @@ impl VanillaWorld {
                 external_rate_modifier_milli: input.external_rate_modifier_milli,
             },
         )))
+    }
+
+    /// Applies the verified province state-maintenance formula using the
+    /// current tax, production, and manpower development. `None` means one of
+    /// those source values is unresolved; distance and modifier inputs remain
+    /// the caller's responsibility.
+    pub fn calculate_vanilla_province_state_maintenance(
+        &self,
+        id: u32,
+        input: VanillaProvinceStateMaintenanceInput,
+    ) -> Result<Option<VanillaStateMaintenanceResult>, augustus_core::Error> {
+        let province = self
+            .initial
+            .province(id)
+            .ok_or_else(|| augustus_core::Error::Invalid("unknown province".into()))?;
+        let (Some(base_tax_milli), Some(base_production_milli), Some(base_manpower_milli)) = (
+            province.tax_milli,
+            province.production_milli,
+            province.manpower_milli,
+        ) else {
+            return Ok(None);
+        };
+        let to_native = |value: i64, name: &str| {
+            i32::try_from(value).map_err(|_| {
+                augustus_core::Error::Invalid(format!(
+                    "province {id} {name} is outside the state-maintenance range"
+                ))
+            })
+        };
+
+        Ok(Some(calculate_vanilla_state_maintenance(
+            VanillaStateMaintenanceInput {
+                base_tax_milli: to_native(base_tax_milli, "tax")?,
+                base_production_milli: to_native(base_production_milli, "production")?,
+                base_manpower_milli: to_native(base_manpower_milli, "manpower")?,
+                development_scale_milli: input.development_scale_milli,
+                special_development_scale_milli: input.special_development_scale_milli,
+                distance: input.distance,
+                region_difference_modifier_milli: input.region_difference_modifier_milli,
+                owner_relation_modifier_milli: input.owner_relation_modifier_milli,
+                country_key61_modifier_milli: input.country_key61_modifier_milli,
+                province_key62_modifier_milli: input.province_key62_modifier_milli,
+                caller_extra_modifier_milli: input.caller_extra_modifier_milli,
+            },
+        )?))
     }
 
     /// Applies the confirmed `A11B80` gold-base stage for a province whose

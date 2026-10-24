@@ -2,12 +2,13 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, AttributeBase, AttributeFormula, Attributes, Calendar, CashflowBreakdown,
-    CountryLedger, CountryLedgerMonthlyConsolidation, CountryLedgerPendingFlush, CountryResources,
-    EntityId, EntityKind, Error, FieldId, MonthlyEconomy, MonthlyExternalCashflows,
-    MonthlyPipeline, MonthlyProduction, MonthlySystem, MonthlyTax, Schema, Taxation,
-    VanillaProductionInput, VanillaProductionInputState, VanillaTradeIncomeInput,
-    VanillaTradeIncomePassInput, World, WorldDate,
+    Action, Administration, AreaStatus, AttributeBase, AttributeFormula, Attributes, Calendar,
+    CashflowBreakdown, CountryLedger, CountryLedgerMonthlyConsolidation, CountryLedgerPendingFlush,
+    CountryResources, EntityId, EntityKind, Error, FieldId, MonthlyEconomy,
+    MonthlyExternalCashflows, MonthlyPipeline, MonthlyProduction, MonthlySystem, MonthlyTax,
+    ProvinceAdministration, Schema, Taxation, VanillaProductionInput, VanillaProductionInputState,
+    VanillaStateMaintenanceInput, VanillaStateMaintenanceProvinceInputState,
+    VanillaTradeIncomeInput, VanillaTradeIncomePassInput, World, WorldDate,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -592,6 +593,187 @@ fn known_cashflow_categories_enter_the_ledger_when_the_net_is_unknown() {
     let restored =
         World::restore(&snapshot, "partial-cashflow-categories", world.schema()).unwrap();
     assert_eq!(restored, world);
+}
+
+#[test]
+fn state_maintenance_is_recalculated_into_its_expense_category() {
+    let (mut world, country) = world();
+    let province = world.add_entity("north", EntityKind::Province);
+    world.set_owner(province, country).unwrap();
+    world
+        .set_administration(Administration {
+            areas: ["north_area".into()].into(),
+            country_areas: [(country, [("north_area".into(), AreaStatus::State)].into())].into(),
+            provinces: [(
+                province,
+                ProvinceAdministration {
+                    area: Some("north_area".into()),
+                    cores_known: true,
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    let state_maintenance = VanillaStateMaintenanceProvinceInputState {
+        input: Some(VanillaStateMaintenanceInput {
+            base_tax_milli: 2_000,
+            base_production_milli: 3_000,
+            base_manpower_milli: 1_000,
+            development_scale_milli: 7,
+            special_development_scale_milli: None,
+            distance: None,
+            region_difference_modifier_milli: 0,
+            owner_relation_modifier_milli: 0,
+            country_key61_modifier_milli: 0,
+            province_key62_modifier_milli: 0,
+            caller_extra_modifier_milli: 0,
+        }),
+        unresolved: BTreeSet::new(),
+    };
+    let cashflows = MonthlyExternalCashflows::new(BTreeMap::from([(country, None)]))
+        .with_vanilla_state_maintenance_inputs(BTreeMap::from([(province, state_maintenance)]));
+    let production = MonthlyProduction::new(BTreeMap::new());
+    world.set_monthly_production(production.clone()).unwrap();
+    world
+        .set_monthly_cashflows(Some(cashflows.clone()))
+        .unwrap();
+    let economy = MonthlyEconomy;
+    let consolidation = CountryLedgerMonthlyConsolidation::default();
+    let pipeline = MonthlyPipeline::new(
+        "state-maintenance-cashflow:test:v1",
+        Some(&economy),
+        None,
+        Some(&consolidation),
+    )
+    .unwrap();
+    world.select_monthly_system(&pipeline).unwrap();
+    world.set_monthly_production(production).unwrap();
+    world.set_monthly_cashflows(Some(cashflows)).unwrap();
+    world.advance_with_monthly_system(21, &pipeline).unwrap();
+
+    let account = &world
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.amount_milli, None);
+    assert_eq!(
+        account.breakdown.as_ref().unwrap().expense_categories_milli
+            [&augustus_core::COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY],
+        42
+    );
+    assert_eq!(
+        world.country_ledgers()[&country].expense_snapshot_milli
+            [augustus_core::COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY as usize],
+        42
+    );
+    assert_eq!(world.country_resources()[&country].treasury_milli, None);
+
+    let snapshot = world.save("state-maintenance-category").unwrap();
+    let restored = World::restore(&snapshot, "state-maintenance-category", world.schema()).unwrap();
+    assert_eq!(restored, world);
+
+    world
+        .set_monthly_vanilla_state_maintenance_inputs(Some(BTreeMap::from([(
+            province,
+            VanillaStateMaintenanceProvinceInputState {
+                input: None,
+                unresolved: ["distance_source".into()].into(),
+            },
+        )])))
+        .unwrap();
+    assert_eq!(
+        world
+            .monthly_cashflows()
+            .unwrap()
+            .vanilla_state_maintenance_inputs
+            .as_ref()
+            .unwrap()[&province]
+            .unresolved,
+        ["distance_source".into()].into()
+    );
+    world.advance_with_monthly_system(52, &pipeline).unwrap();
+    assert_eq!(world.monthly_cashflows().unwrap().settlement_count, 2);
+    let next_account = &world
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert!(
+        !next_account
+            .breakdown
+            .as_ref()
+            .unwrap()
+            .expense_categories_milli
+            .contains_key(&augustus_core::COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY)
+    );
+    assert_eq!(
+        world.country_ledgers()[&country].expense_snapshot_milli
+            [augustus_core::COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY as usize],
+        0
+    );
+}
+
+#[test]
+fn missing_state_maintenance_input_does_not_become_zero() {
+    let (mut world, country) = world();
+    let province = world.add_entity("north", EntityKind::Province);
+    world.set_owner(province, country).unwrap();
+    world
+        .set_administration(Administration {
+            areas: ["north_area".into()].into(),
+            country_areas: [(country, [("north_area".into(), AreaStatus::State)].into())].into(),
+            provinces: [(
+                province,
+                ProvinceAdministration {
+                    area: Some("north_area".into()),
+                    cores_known: true,
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    let cashflows = MonthlyExternalCashflows::new(BTreeMap::from([(country, None)]))
+        .with_vanilla_state_maintenance_inputs(BTreeMap::new());
+    let production = MonthlyProduction::new(BTreeMap::new());
+    world.set_monthly_production(production.clone()).unwrap();
+    world
+        .set_monthly_cashflows(Some(cashflows.clone()))
+        .unwrap();
+    let economy = MonthlyEconomy;
+    let consolidation = CountryLedgerMonthlyConsolidation::default();
+    let pipeline = MonthlyPipeline::new(
+        "unknown-state-maintenance:test:v1",
+        Some(&economy),
+        None,
+        Some(&consolidation),
+    )
+    .unwrap();
+    world.select_monthly_system(&pipeline).unwrap();
+    world.set_monthly_production(production).unwrap();
+    world.set_monthly_cashflows(Some(cashflows)).unwrap();
+    world.advance_with_monthly_system(21, &pipeline).unwrap();
+
+    let account = &world
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.amount_milli, None);
+    assert!(account.breakdown.is_none());
+    assert!(!world.country_ledgers().contains_key(&country));
 }
 
 #[test]
