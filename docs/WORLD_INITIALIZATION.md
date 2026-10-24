@@ -382,6 +382,8 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
 
 可以通过 `VanillaWorld::set_country_monthly_cashflow_breakdowns` 提供分类账项。已由兼容层完成资格筛选的贸易记录可放入 `trade_income_pass`，核心负责计算记录收入总额，并将结果用于净现金流和贸易账本；也可直接提供已核实的 `trade_milli`。同时提供两者时必须一致。外部状态中的 `gold_production_inputs` 可按省份提供已解析的金矿输入；输入随存档保存，核心在每次月结时按当时的省份所有权重新汇总并更新 `gold_milli`。运行中可调用 `VanillaWorld::set_vanilla_gold_production_inputs` 刷新输入。有金矿省份缺少输入时黄金收入保持未知。贸易、黄金和支出都已知时，核心会据当期金矿所有权重算净现金流；分类不全时保留外部提供的净现金流。黄金是收入，支出使用正数；三项齐全时核心会校验分类账项与净现金流一致。资格筛选和记录上下文仍由兼容层负责，缺失的分类继续保留为未知。
 
+兼容提供者可以调用 `VanillaWorld::set_vanilla_fort_maintenance_expense_categories` 计算并替换已提供省份行的要塞维护分类明细。活动要塞资格及各省份修正仍由提供者解析；该接口不会重算总支出或净现金流。
+
 生产执行器安装后，兼容提供者可以调用 `VanillaWorld::set_vanilla_production_inputs` 刷新下一次月结使用的省份输入。刷新不会重置已经完成的月结次数、账本或存档状态；输入仍按 EU4 省份编号绑定，不能借此创建不存在的省份。
 
 如果提供者保留的是货物数量和生产阶段修正，可以改用 `VanillaWorld::set_vanilla_production_value_inputs`。它会重新读取当前 EU4 内容中的商品基础价格，再刷新下一次月结输入；已有月结次数和账本保持不变。没有商品价格的省份会保留为未知。
