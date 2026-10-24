@@ -2,9 +2,10 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    COUNTRY_LEDGER_INCOME_GOLD_CATEGORY, COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
-    COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY, CountryLedger, CountryLedgerCategory,
-    CountryResources, VanillaProductionInput, World,
+    COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY, COUNTRY_LEDGER_INCOME_GOLD_CATEGORY,
+    COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY, COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY,
+    CountryLedger, CountryLedgerCategory, CountryResources, VanillaProductionInput,
+    VanillaStateMaintenanceInput, World,
 };
 use augustus_eu4::{
     CashflowBreakdown, VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
@@ -476,6 +477,115 @@ fn state_maintenance_uses_loaded_development_factor_and_current_province_develop
     assert_eq!(result.base_sum_milli, base_sum);
     assert_eq!(result.scaled_base_milli, 53);
     assert_eq!(result.maintenance_milli, 53);
+}
+
+#[test]
+fn state_maintenance_content_values_bind_to_the_monthly_executor() {
+    let mut loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    loaded
+        .set_country_monthly_cashflows(BTreeMap::from([("BBB".into(), None)]))
+        .unwrap();
+    let owner = loaded.initial.country_entity("BBB").unwrap();
+    loaded
+        .set_vanilla_state_maintenance_inputs_from_content(BTreeMap::from([(
+            1,
+            VanillaContentStateMaintenanceInput {
+                special_development_scale_milli: None,
+                distance: None,
+                region_difference_modifier_milli: 0,
+                owner_relation_modifier_milli: 0,
+                country_key61_modifier_milli: 0,
+                province_key62_modifier_milli: 0,
+                caller_extra_modifier_milli: 0,
+            },
+        )]))
+        .unwrap();
+
+    let province = loaded.initial.province_entity(1).unwrap();
+    let state = &loaded
+        .initial
+        .monthly_cashflows()
+        .unwrap()
+        .vanilla_state_maintenance_inputs
+        .as_ref()
+        .unwrap()[&province];
+    assert_eq!(
+        state.input,
+        Some(VanillaStateMaintenanceInput {
+            base_tax_milli: 2_125,
+            base_production_milli: 2_000,
+            base_manpower_milli: 3_500,
+            development_scale_milli: 7,
+            special_development_scale_milli: None,
+            distance: None,
+            region_difference_modifier_milli: 0,
+            owner_relation_modifier_milli: 0,
+            country_key61_modifier_milli: 0,
+            province_key62_modifier_milli: 0,
+            caller_extra_modifier_milli: 0,
+        })
+    );
+    assert!(state.unresolved.is_empty());
+
+    loaded.advance(21).unwrap();
+    let account = &loaded
+        .initial
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&owner];
+    assert_eq!(
+        account.breakdown.as_ref().unwrap().expense_categories_milli
+            [&COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY],
+        53
+    );
+}
+
+#[test]
+fn state_maintenance_content_binding_keeps_a_missing_factor_unresolved() {
+    let root = copy_fixture();
+    let defines = root.path().join("common/defines.lua");
+    let text = fs::read_to_string(&defines).unwrap();
+    fs::write(
+        &defines,
+        text.replace("STATE_MAINTENANCE_DEV_FACTOR = 0.007,", ""),
+    )
+    .unwrap();
+
+    let mut loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    loaded
+        .set_country_monthly_cashflows(BTreeMap::from([("AAA".into(), None)]))
+        .unwrap();
+    loaded
+        .set_vanilla_state_maintenance_inputs_from_content(BTreeMap::from([(
+            1,
+            VanillaContentStateMaintenanceInput {
+                special_development_scale_milli: None,
+                distance: None,
+                region_difference_modifier_milli: 0,
+                owner_relation_modifier_milli: 0,
+                country_key61_modifier_milli: 0,
+                province_key62_modifier_milli: 0,
+                caller_extra_modifier_milli: 0,
+            },
+        )]))
+        .unwrap();
+
+    let province = loaded.initial.province_entity(1).unwrap();
+    let state = &loaded
+        .initial
+        .monthly_cashflows()
+        .unwrap()
+        .vanilla_state_maintenance_inputs
+        .as_ref()
+        .unwrap()[&province];
+    assert_eq!(state.input, None);
+    assert_eq!(
+        state.unresolved,
+        ["development_scale:unknown".into()].into()
+    );
 }
 
 #[test]

@@ -4706,11 +4706,89 @@ impl VanillaWorld {
         id: u32,
         input: VanillaProvinceStateMaintenanceInput,
     ) -> Result<Option<VanillaStateMaintenanceResult>, augustus_core::Error> {
+        let Some((base_tax_milli, base_production_milli, base_manpower_milli)) =
+            self.province_state_maintenance_base_values(id)?
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(calculate_vanilla_state_maintenance(
+            VanillaStateMaintenanceInput {
+                base_tax_milli,
+                base_production_milli,
+                base_manpower_milli,
+                development_scale_milli: input.development_scale_milli,
+                special_development_scale_milli: input.special_development_scale_milli,
+                distance: input.distance,
+                region_difference_modifier_milli: input.region_difference_modifier_milli,
+                owner_relation_modifier_milli: input.owner_relation_modifier_milli,
+                country_key61_modifier_milli: input.country_key61_modifier_milli,
+                province_key62_modifier_milli: input.province_key62_modifier_milli,
+                caller_extra_modifier_milli: input.caller_extra_modifier_milli,
+            },
+        )?))
+    }
+
+    /// Binds current province development and the loaded EU4 factor to caller-resolved contexts.
+    /// Contexts are keyed by EU4 province ID; missing defines or development remain unresolved.
+    pub fn set_vanilla_state_maintenance_inputs_from_content(
+        &mut self,
+        contexts: BTreeMap<u32, VanillaContentStateMaintenanceInput>,
+    ) -> Result<(), augustus_core::Error> {
+        let mut inputs = BTreeMap::new();
+        for (province, context) in contexts {
+            let entity = self.initial.province_entity(province).ok_or_else(|| {
+                augustus_core::Error::Invalid(format!(
+                    "unknown EU4 state-maintenance province {province}"
+                ))
+            })?;
+            let base_values = self.province_state_maintenance_base_values(province)?;
+            let development_scale = self.state_maintenance_development_scale_milli;
+            let mut unresolved = BTreeSet::new();
+            if development_scale.is_none() {
+                unresolved.insert("development_scale:unknown".into());
+            }
+            if base_values.is_none() {
+                unresolved.insert("base_development:unknown".into());
+            }
+            let input = development_scale.zip(base_values).map(
+                |(
+                    development_scale_milli,
+                    (base_tax_milli, base_production_milli, base_manpower_milli),
+                )| {
+                    VanillaStateMaintenanceInput {
+                        base_tax_milli,
+                        base_production_milli,
+                        base_manpower_milli,
+                        development_scale_milli,
+                        special_development_scale_milli: context.special_development_scale_milli,
+                        distance: context.distance,
+                        region_difference_modifier_milli: context.region_difference_modifier_milli,
+                        owner_relation_modifier_milli: context.owner_relation_modifier_milli,
+                        country_key61_modifier_milli: context.country_key61_modifier_milli,
+                        province_key62_modifier_milli: context.province_key62_modifier_milli,
+                        caller_extra_modifier_milli: context.caller_extra_modifier_milli,
+                    }
+                },
+            );
+            inputs.insert(
+                entity,
+                augustus_core::VanillaStateMaintenanceProvinceInputState { input, unresolved },
+            );
+        }
+        self.initial
+            .set_monthly_vanilla_state_maintenance_inputs(Some(inputs))
+    }
+
+    fn province_state_maintenance_base_values(
+        &self,
+        id: u32,
+    ) -> Result<Option<(i32, i32, i32)>, augustus_core::Error> {
         let province = self
             .initial
             .province(id)
             .ok_or_else(|| augustus_core::Error::Invalid("unknown province".into()))?;
-        let (Some(base_tax_milli), Some(base_production_milli), Some(base_manpower_milli)) = (
+        let (Some(tax), Some(production), Some(manpower)) = (
             province.tax_milli,
             province.production_milli,
             province.manpower_milli,
@@ -4724,22 +4802,11 @@ impl VanillaWorld {
                 ))
             })
         };
-
-        Ok(Some(calculate_vanilla_state_maintenance(
-            VanillaStateMaintenanceInput {
-                base_tax_milli: to_native(base_tax_milli, "tax")?,
-                base_production_milli: to_native(base_production_milli, "production")?,
-                base_manpower_milli: to_native(base_manpower_milli, "manpower")?,
-                development_scale_milli: input.development_scale_milli,
-                special_development_scale_milli: input.special_development_scale_milli,
-                distance: input.distance,
-                region_difference_modifier_milli: input.region_difference_modifier_milli,
-                owner_relation_modifier_milli: input.owner_relation_modifier_milli,
-                country_key61_modifier_milli: input.country_key61_modifier_milli,
-                province_key62_modifier_milli: input.province_key62_modifier_milli,
-                caller_extra_modifier_milli: input.caller_extra_modifier_milli,
-            },
-        )?))
+        Ok(Some((
+            to_native(tax, "tax")?,
+            to_native(production, "production")?,
+            to_native(manpower, "manpower")?,
+        )))
     }
 
     /// Applies state maintenance using the development factor loaded from EU4 defines.

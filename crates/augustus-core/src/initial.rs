@@ -544,6 +544,14 @@ impl InitialWorld {
         self.world.set_monthly_cashflow_breakdowns(breakdowns)
     }
 
+    pub fn set_monthly_vanilla_state_maintenance_inputs(
+        &mut self,
+        inputs: Option<BTreeMap<EntityId, crate::VanillaStateMaintenanceProvinceInputState>>,
+    ) -> Result<(), Error> {
+        self.world
+            .set_monthly_vanilla_state_maintenance_inputs(inputs)
+    }
+
     pub fn set_monthly_vanilla_gold_production_inputs(
         &mut self,
         inputs: Option<BTreeMap<EntityId, crate::VanillaGoldProductionInputState>>,
