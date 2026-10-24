@@ -42,6 +42,8 @@ use crate::{
 };
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
+const EU4_1_37_5_FORT_BASE_COST_MILLI: i32 = 500;
+const EU4_1_37_5_CURRENCY_CONVERSION_FACTOR_MICROS: i32 = 1_000_000;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LoadedSource {
@@ -200,15 +202,14 @@ pub struct VanillaProvinceStateMaintenanceInput {
     pub caller_extra_modifier_milli: i32,
 }
 
-/// Fort-maintenance inputs resolved by a compatibility provider, excluding
-/// the local fort level, which is read from loaded province buildings.
+/// Fort-maintenance context that is not yet resolved from loaded world state.
+/// The 1.37.5 base cost and currency conversion are supplied by the adapter;
+/// the local fort level is read from the loaded province building.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VanillaFortMaintenanceContextInput {
-    pub base_cost_milli: i32,
     pub country_modifier_milli: i32,
     pub province_modifier_milli: i32,
-    pub conversion_factor_micros: i32,
     pub relationship_modifier_milli: i32,
     pub apply_relationship_modifier: bool,
     pub halve_for_special_case: bool,
@@ -5598,10 +5599,11 @@ impl VanillaWorld {
                         province_inputs.insert(
                             province.id,
                             augustus_core::VanillaFortMaintenanceInput {
-                                base_cost_milli: context.base_cost_milli,
+                                base_cost_milli: EU4_1_37_5_FORT_BASE_COST_MILLI,
                                 country_modifier_milli: context.country_modifier_milli,
                                 province_modifier_milli: context.province_modifier_milli,
-                                conversion_factor_micros: context.conversion_factor_micros,
+                                conversion_factor_micros:
+                                    EU4_1_37_5_CURRENCY_CONVERSION_FACTOR_MICROS,
                                 local_multiplier_milli: i32::try_from(fort_level_milli)
                                     .map_err(|_| augustus_core::Error::Overflow)?,
                                 relationship_modifier_milli: context.relationship_modifier_milli,

@@ -384,7 +384,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
 
 兼容提供者可以调用 `VanillaWorld::set_vanilla_fort_maintenance_expense_categories` 计算并替换已提供省份行的要塞维护分类明细。活动要塞资格及各省份修正仍由提供者解析；该接口不会重算总支出或净现金流。
 
-`VanillaWorld::set_vanilla_fort_maintenance_expense_categories_from_buildings` 会按当前所有权和已载入建筑定义自动识别带正 `fort_level` 的要塞省份。国家、省份及关系修正和特殊减半条件仍须显式提供；缺少建筑状态、要塞等级、多个要塞建筑或候选行输入不全时会报错。它同样只更新类别 8 明细，不重算总支出或净现金流。
+`VanillaWorld::set_vanilla_fort_maintenance_expense_categories_from_buildings` 会按当前所有权和已载入建筑定义自动识别带正 `fort_level` 的要塞省份，并使用已核验的 EU4 1.37.5 固定基础费与货币换算。国家、省份及关系修正和特殊减半条件仍须显式提供；缺少建筑状态、要塞等级、多个要塞建筑或候选行输入不全时会报错。它同样只更新类别 8 明细，不重算总支出或净现金流。
 
 生产执行器安装后，兼容提供者可以调用 `VanillaWorld::set_vanilla_production_inputs` 刷新下一次月结使用的省份输入。刷新不会重置已经完成的月结次数、账本或存档状态；输入仍按 EU4 省份编号绑定，不能借此创建不存在的省份。
 

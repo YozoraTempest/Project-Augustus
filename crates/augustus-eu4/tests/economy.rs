@@ -675,10 +675,8 @@ fn fort_maintenance_context_derives_level_from_owned_loaded_fort_buildings() {
             BTreeMap::from([(
                 1,
                 VanillaFortMaintenanceContextInput {
-                    base_cost_milli: 500,
                     country_modifier_milli: -200,
                     province_modifier_milli: 0,
-                    conversion_factor_micros: 1_000_000,
                     relationship_modifier_milli: 0,
                     apply_relationship_modifier: true,
                     halve_for_special_case: false,
@@ -723,6 +721,34 @@ fn fort_maintenance_context_rejects_incomplete_fort_coverage() {
             .unwrap_err()
             .to_string()
             .contains("missing fort-maintenance context")
+    );
+}
+
+#[test]
+fn fort_maintenance_context_rejects_extra_province_rows() {
+    let root = copy_fixture();
+    fs::write(
+        root.path().join("common/buildings/test_buildings.txt"),
+        "test_fort = { cost = 200 time = 18 influencing_fort = yes modifier = { fort_level = 2 } }\n",
+    )
+    .unwrap();
+    let mut loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    let context = VanillaFortMaintenanceContextInput {
+        country_modifier_milli: -200,
+        province_modifier_milli: 0,
+        relationship_modifier_milli: 0,
+        apply_relationship_modifier: true,
+        halve_for_special_case: false,
+    };
+
+    let result = loaded.set_vanilla_fort_maintenance_expense_categories_from_buildings(
+        BTreeMap::from([("BBB".into(), BTreeMap::from([(1, context), (999, context)]))]),
+    );
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("non-fort or non-owned province 999")
     );
 }
 
