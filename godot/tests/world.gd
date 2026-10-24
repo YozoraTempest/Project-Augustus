@@ -5,6 +5,7 @@ extends SceneTree
 
 var failures := 0
 var fixture := ProjectSettings.globalize_path("res://../examples/world")
+var event_fixture := ProjectSettings.globalize_path("res://../examples/event-popup")
 
 func check(condition: bool, message: String) -> void:
 	if not condition:
@@ -68,7 +69,7 @@ func _initialize() -> void:
 	check(north.value.administration.area == "north_area" and north.value.administration.area_status == "state", "capital area reaches administration query")
 	check(north.value.administration.history_autonomy_delta_micros == 0 and north.value.administration.raw_autonomy_micros == 300000, "initial autonomy includes ordered history effects")
 	check(north.value.administration.effective_autonomy_micros == 0 and north.value.administration.owner_core == "full" and north.value.administration.minimum_autonomy_micros == 0, "baseline full core and capital ceiling reach the query")
-	check(north.value.attributes.tax_after_autonomy.steps.size() == 1 and north.value.attributes.tax_after_autonomy.value_micros == null, "tax efficiency and autonomy compose with explicit missing sources")
+	check(north.value.attributes.tax_after_autonomy.steps.size() == 2 and north.value.attributes.tax_after_autonomy.steps[0].output_micros == 212500 and north.value.attributes.tax_after_autonomy.steps[1].flat_micros == -500 and north.value.attributes.tax_after_autonomy.value_micros == null, "tax efficiency precedes autonomy and preserves missing sources")
 	check(not JSON.parse_string(session.query_province(-1)).ok, "negative province query fails")
 	check(not JSON.parse_string(session.query_province(999)).ok, "unknown province query fails")
 	var before_failed_load: Dictionary = JSON.parse_string(session.query_country("AAA"))
@@ -187,7 +188,7 @@ func verify_ui(ui: Control) -> void:
 	var is_fixture: bool = ui.overview.report.map_width == 4 and ui.overview.report.map_height == 2
 	if is_fixture:
 		check(ui.politics_details.text.contains("Iris"), "country panel displays the loaded ruler")
-		check(ui.country_details.text.contains("test_court") and ui.country_details.text.contains("合法性（历史初值）：75.125"), "country panel displays selected reforms and precise legitimacy")
+		check(ui.country_details.text.contains("test_court") and ui.country_details.text.contains("合法性（历史初值）：75.125"), "country panel displays selected reforms and precise legitimacy: %s" % ui.country_details.text)
 		check(ui.country_details.text.contains("国家理念 test_alpha · 已解锁 0 项"), "country panel displays selected ideas and progress")
 		check(ui.country_details.text.contains("3 / 3 / 3") and ui.country_details.text.contains("18.500000"), "country panel displays technology and declared resources")
 		var infantry_choice: OptionButton = ui.unit_option_controls["infantry"]
@@ -270,7 +271,44 @@ func verify_ui(ui: Control) -> void:
 			check(not image.is_empty(), "rendered world is available")
 			if not image.is_empty():
 				check(image.save_png(args[i + 1]) == OK, "save rendered world")
+	await verify_event_ui()
 	finish()
+
+func verify_event_ui() -> void:
+	var ui = load("res://world.tscn").instantiate()
+	root.add_child(ui)
+	await process_frame
+	ui.game_path.text = fixture
+	ui.mod_directories.append(event_fixture)
+	ui.player_countries_input.text = "AAA"
+	var external_state_path := write_external_state()
+	check(not external_state_path.is_empty(), "create a known event-choice treasury")
+	ui.external_state.text = external_state_path
+	check(ui.load_world(), "UI loads an event through the content adapter: %s" % ui.status.text)
+	await process_frame
+	await process_frame
+	if ui.overview.is_empty():
+		if not external_state_path.is_empty():
+			DirAccess.remove_absolute(external_state_path)
+		ui.queue_free()
+		return
+	var choices: Dictionary = JSON.parse_string(ui.session.pending_event_choices()).value
+	check(ui.event_overlay.visible, "startup event opens the modal choice view: %s · %s" % [str(choices), str(ui.overview.report.estates)])
+	check(choices.pending_events.size() == 1 and choices.pending_events[0].event == "augustus_popup.1", "event query returns the pending event")
+	check(ui.event_option_buttons.size() == 2, "modal lists only currently available options")
+	if ui.event_option_buttons.size() == 2:
+		check(ui.event_option_buttons[0].text == choices.pending_events[0].options[0], "modal preserves available-option order")
+	check_layout(ui)
+	if not ui.event_option_buttons.is_empty():
+		ui.event_option_buttons[0].pressed.emit()
+		choices = JSON.parse_string(ui.session.pending_event_choices()).value
+		check(not ui.event_overlay.visible and choices.pending_events.is_empty(), "choosing an option closes the pending event")
+		var country: Dictionary = JSON.parse_string(ui.session.query_country("AAA")).value
+		check(country.resources.treasury_milli == 13345, "selected event option applies its treasury effect")
+	if not external_state_path.is_empty():
+		DirAccess.remove_absolute(external_state_path)
+	ui.queue_free()
+	await process_frame
 
 func finish() -> void:
 	print("Augustus world integration: %d failures" % failures)

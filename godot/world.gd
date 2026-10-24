@@ -38,6 +38,11 @@ var run_button: Button
 var simulation_timer: Timer
 var time_controls: Array[Button] = []
 var running := false
+var event_overlay: ColorRect
+var event_title: Label
+var event_body: Label
+var event_options: VBoxContainer
+var event_option_buttons: Array[Button] = []
 
 func _ready() -> void:
 	var font := SystemFont.new()
@@ -136,6 +141,7 @@ func _ready() -> void:
 	simulation_timer.wait_time = 0.25
 	simulation_timer.timeout.connect(func(): advance_world(1))
 	add_child(simulation_timer)
+	create_event_overlay()
 	var middle := HBoxContainer.new()
 	middle.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	middle.add_theme_constant_override("separation", 20)
@@ -195,6 +201,44 @@ func _ready() -> void:
 		return
 	if not game_path.text.is_empty():
 		load_world()
+
+func create_event_overlay() -> void:
+	event_overlay = ColorRect.new()
+	event_overlay.name = "EventChoiceOverlay"
+	event_overlay.color = Color(0.025, 0.035, 0.045, 0.78)
+	event_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	event_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	event_overlay.visible = false
+	add_child(event_overlay)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	event_overlay.add_child(center)
+	var panel := PanelContainer.new()
+	panel.name = "EventChoicePanel"
+	panel.custom_minimum_size = Vector2(560, 0)
+	center.add_child(panel)
+	var margin := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 24)
+	panel.add_child(margin)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 14)
+	margin.add_child(content)
+	event_title = label("", 23)
+	event_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(event_title)
+	event_body = label("", 16)
+	event_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(event_body)
+	var option_scroll := ScrollContainer.new()
+	option_scroll.custom_minimum_size.y = 220
+	option_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	option_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	content.add_child(option_scroll)
+	event_options = VBoxContainer.new()
+	event_options.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	event_options.add_theme_constant_override("separation", 8)
+	option_scroll.add_child(event_options)
 
 func parse_launch_args(args: PackedStringArray) -> bool:
 	var index := 0
@@ -379,6 +423,8 @@ func apply_loaded_world(candidate, data: Dictionary) -> bool:
 	return true
 
 func set_running(value: bool) -> void:
+	if value and event_overlay.visible:
+		return
 	running = value
 	run_button.text = "暂停" if running else "运行"
 	if running:
@@ -394,8 +440,63 @@ func refresh_calendar() -> void:
 	if packet.ok:
 		var date: Dictionary = packet.value.date
 		calendar_label.text = "%d.%02d.%02d · 月结 %d 次" % [date.year, date.month, date.day, packet.value.tax_settlements]
+		refresh_pending_events()
+
+func refresh_pending_events() -> void:
+	var packet: Dictionary = JSON.parse_string(session.pending_event_choices())
+	if not packet.ok:
+		event_overlay.visible = false
+		return
+	var pending: Array = packet.value.pending_events
+	var has_pending := not pending.is_empty()
+	if has_pending:
+		set_running(false)
+	for index in mini(3, time_controls.size()):
+		time_controls[index].disabled = has_pending
+	if not has_pending:
+		event_overlay.visible = false
+		event_option_buttons.clear()
+		return
+	var choice: Dictionary = pending[0]
+	event_title.text = str(choice.event)
+	var details := "%s · 第 %d 天" % [choice.current_name, int(choice.day)]
+	if choice.get("picture") != null:
+		details += "\n" + str(choice.picture)
+	if choice.get("location") != null:
+		details += "\n" + str(choice.location)
+	if pending.size() > 1:
+		details += "\n另有 %d 个待处理事件" % (pending.size() - 1)
+	event_body.text = details
+	for child in event_options.get_children():
+		event_options.remove_child(child)
+		child.queue_free()
+	event_option_buttons.clear()
+	for option_id in choice.options:
+		var option_key := str(option_id)
+		var option := button(option_key, choose_event_option.bind(int(choice.id), option_key))
+		option.custom_minimum_size.y = 50
+		option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if choice.option_locations.get(option_key) != null:
+			option.tooltip_text = "定位：%s" % choice.option_locations[option_key]
+		event_option_buttons.append(option)
+		event_options.add_child(option)
+	if event_option_buttons.is_empty():
+		var unavailable := label("当前没有可选项", 16)
+		event_options.add_child(unavailable)
+	event_overlay.visible = true
+
+func choose_event_option(pending_id: int, option_id: String) -> void:
+	var packet: Dictionary = JSON.parse_string(session.choose_event_option(pending_id, option_id))
+	if not packet.ok:
+		status.text = packet.error
+		return
+	event_overlay.visible = false
+	status.text = "已选择：%s" % option_id
+	refresh_calendar()
 
 func advance_world(days: int) -> bool:
+	if event_overlay.visible:
+		return false
 	var packet: Dictionary = JSON.parse_string(session.advance(days))
 	if not packet.ok:
 		set_running(false)
@@ -409,7 +510,9 @@ func advance_month() -> void:
 	set_running(false)
 	var packet: Dictionary = JSON.parse_string(session.simulation_view())
 	if packet.ok:
-		advance_world(int(packet.value.days_until_next_month))
+		for _day in range(int(packet.value.days_until_next_month)):
+			if not advance_world(1) or event_overlay.visible:
+				return
 
 func save_world(path: String = "user://augustus-world.json") -> bool:
 	set_running(false)

@@ -1,0 +1,12 @@
+country_event = {
+    id = augustus_popup.1
+    is_triggered_only = yes
+    option = {
+        name = choose_left
+        add_treasury = 1
+    }
+    option = {
+        name = choose_right
+        add_treasury = 2
+    }
+}

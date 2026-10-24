@@ -710,6 +710,84 @@ impl AugustusWorldSession {
     }
 
     #[func]
+    fn pending_event_choices(&self) -> GString {
+        world_reply(self.loaded().and_then(|loaded| {
+            let world = loaded.initial.world();
+            let pending_events = world
+                .pending_events()
+                .iter()
+                .map(|pending| {
+                    let current = world
+                        .entity(pending.current)
+                        .map_err(|error| error.to_string())?;
+                    let options = world
+                        .available_event_options(pending.id)
+                        .map_err(|error| error.to_string())?;
+                    let option_locations = options
+                        .iter()
+                        .map(|option| {
+                            let location = world
+                                .pending_event_option_location(pending.id, &option.id)
+                                .map_err(|error| error.to_string())?
+                                .map(|entity| {
+                                    world
+                                        .entity(entity)
+                                        .map(|state| state.name.clone())
+                                        .map_err(|error| error.to_string())
+                                })
+                                .transpose()?;
+                            Ok((option.id.clone(), location))
+                        })
+                        .collect::<Result<std::collections::BTreeMap<_, _>, String>>()?;
+                    let location = world
+                        .pending_event_location(pending.id)
+                        .map_err(|error| error.to_string())?
+                        .map(|entity| {
+                            world
+                                .entity(entity)
+                                .map(|state| state.name.clone())
+                                .map_err(|error| error.to_string())
+                        })
+                        .transpose()?;
+                    let picture = world
+                        .pending_event_picture(pending.id)
+                        .map_err(|error| error.to_string())?;
+                    Ok(serde_json::json!({
+                        "id": pending.id.0,
+                        "event": pending.event,
+                        "current": pending.current,
+                        "current_name": current.name,
+                        "day": pending.day,
+                        "picture": picture,
+                        "location": location,
+                        "options": options.iter().map(|option| option.id.clone()).collect::<Vec<_>>(),
+                        "option_locations": option_locations,
+                    }))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok(serde_json::json!({"pending_events": pending_events}))
+        }))
+    }
+
+    #[func]
+    fn choose_event_option(&mut self, pending_id: i64, option: GString) -> GString {
+        let result = (|| {
+            let pending = u64::try_from(pending_id).map_err(|_| "invalid pending event id")?;
+            self.loaded_mut()?
+                .initial
+                .choose_event(&augustus_core::EventChoice {
+                    pending: augustus_core::PendingEventId(pending),
+                    option: option.to_string(),
+                })
+                .map_err(|error| error.to_string())
+        })();
+        match result {
+            Ok(()) => self.pending_event_choices(),
+            Err(error) => world_reply::<serde_json::Value>(Err(error)),
+        }
+    }
+
+    #[func]
     fn query_province(&self, id: i64) -> GString {
         world_reply(self.loaded().and_then(|loaded| {
             let id = u32::try_from(id).map_err(|_| "invalid province identifier")?;

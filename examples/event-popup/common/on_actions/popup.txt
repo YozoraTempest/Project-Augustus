@@ -1,0 +1,6 @@
+on_startup = {
+    if = {
+        limit = { tag = AAA }
+        country_event = { id = augustus_popup.1 }
+    }
+}

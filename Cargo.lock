@@ -98,6 +98,7 @@ dependencies = [
 name = "augustus-godot"
 version = "0.1.0"
 dependencies = [
+ "augustus-core",
  "augustus-demo",
  "augustus-eu4",
  "godot",
