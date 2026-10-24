@@ -5764,6 +5764,7 @@ impl VanillaWorld {
                                 province.id
                             ))
                         })?;
+                        let mothballed = self.province_mothball_status(province.id) == Some(2);
                         province_inputs.insert(
                             province.id,
                             augustus_core::VanillaFortMaintenanceInput {
@@ -5776,7 +5777,8 @@ impl VanillaWorld {
                                     .map_err(|_| augustus_core::Error::Overflow)?,
                                 relationship_modifier_milli: context.relationship_modifier_milli,
                                 apply_relationship_modifier: context.apply_relationship_modifier,
-                                halve_for_special_case: context.halve_for_special_case,
+                                halve_for_special_case: context.halve_for_special_case
+                                    || mothballed,
                             },
                         );
                     }

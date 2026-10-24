@@ -704,6 +704,72 @@ fn fort_maintenance_context_derives_level_from_owned_loaded_fort_buildings() {
 }
 
 #[test]
+fn fort_mothball_status_only_halves_maintenance_for_status_two() {
+    let root = copy_fixture();
+    fs::write(
+        root.path().join("common/buildings/test_buildings.txt"),
+        "test_fort = { cost = 200 time = 18 influencing_fort = yes modifier = { fort_level = 2 } }\n",
+    )
+    .unwrap();
+
+    for (status, expected_cost) in [(0, 800), (1, 800), (2, 400)] {
+        let state = VanillaExternalState {
+            province_mothball_status: BTreeMap::from([(1, status)]),
+            ..Default::default()
+        };
+        let mut loaded =
+            VanillaWorld::load_with_external_state(root.path(), "1444.11.11", &state).unwrap();
+        loaded
+            .set_country_monthly_cashflow_breakdowns(BTreeMap::from([(
+                "BBB".into(),
+                CashflowBreakdown {
+                    trade_milli: Some(0),
+                    trade_income_pass: None,
+                    gold_milli: Some(0),
+                    expenses_milli: Some(900),
+                    expense_categories_milli: BTreeMap::from([(
+                        COUNTRY_LEDGER_EXPENSE_FORT_MAINTENANCE_CATEGORY,
+                        900,
+                    )]),
+                },
+            )]))
+            .unwrap();
+        loaded
+            .set_vanilla_fort_maintenance_expense_categories_from_buildings(BTreeMap::from([(
+                "BBB".into(),
+                BTreeMap::from([(
+                    1,
+                    VanillaFortMaintenanceContextInput {
+                        country_modifier_milli: -200,
+                        province_modifier_milli: 0,
+                        relationship_modifier_milli: 0,
+                        apply_relationship_modifier: true,
+                        halve_for_special_case: false,
+                    },
+                )]),
+            )]))
+            .unwrap();
+
+        loaded.advance(21).unwrap();
+        let country = loaded.initial.country_entity("BBB").unwrap();
+        let account = &loaded
+            .initial
+            .monthly_cashflows()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&country];
+        assert_eq!(
+            account.breakdown.as_ref().unwrap().expense_categories_milli
+                [&COUNTRY_LEDGER_EXPENSE_FORT_MAINTENANCE_CATEGORY],
+            expected_cost,
+            "mothball status {status}"
+        );
+    }
+}
+
+#[test]
 fn fort_maintenance_context_rejects_incomplete_fort_coverage() {
     let root = copy_fixture();
     fs::write(
