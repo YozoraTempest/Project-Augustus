@@ -529,6 +529,72 @@ fn classified_cashflow_expenses_enter_their_native_ledger_slots() {
 }
 
 #[test]
+fn known_cashflow_categories_enter_the_ledger_when_the_net_is_unknown() {
+    let (mut world, country) = world();
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(100_000),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    let breakdown = CashflowBreakdown {
+        trade_milli: Some(2_000),
+        trade_income_pass: None,
+        gold_milli: Some(500),
+        expenses_milli: None,
+        expense_categories_milli: BTreeMap::from([(2, 4_000)]),
+    };
+    let cashflows = MonthlyExternalCashflows::new(BTreeMap::from([(country, None)]))
+        .with_breakdowns(BTreeMap::from([(country, breakdown)]));
+    let production = MonthlyProduction::new(BTreeMap::new());
+    world.set_monthly_production(production.clone()).unwrap();
+    world
+        .set_monthly_cashflows(Some(cashflows.clone()))
+        .unwrap();
+    let economy = MonthlyEconomy;
+    let consolidation = CountryLedgerMonthlyConsolidation::default();
+    let pipeline = MonthlyPipeline::new(
+        "partial-cashflow-categories:test:v1",
+        Some(&economy),
+        None,
+        Some(&consolidation),
+    )
+    .unwrap();
+    world.select_monthly_system(&pipeline).unwrap();
+    world.set_monthly_production(production).unwrap();
+    world.set_monthly_cashflows(Some(cashflows)).unwrap();
+    world.advance_with_monthly_system(21, &pipeline).unwrap();
+
+    let account = &world
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.amount_milli, None);
+    assert!(account.unresolved.contains("unknown_cashflow"));
+    assert_eq!(world.country_resources()[&country].treasury_milli, None);
+
+    let ledger = &world.country_ledgers()[&country];
+    assert_eq!(ledger.income_snapshot_milli[2], 2_000);
+    assert_eq!(ledger.income_snapshot_milli[3], 500);
+    assert_eq!(ledger.expense_snapshot_milli[2], 4_000);
+    assert_eq!(ledger.expense_total_milli, 4_000);
+
+    let snapshot = world.save("partial-cashflow-categories").unwrap();
+    let restored =
+        World::restore(&snapshot, "partial-cashflow-categories", world.schema()).unwrap();
+    assert_eq!(restored, world);
+}
+
+#[test]
 fn trade_income_records_feed_monthly_cashflow_and_native_ledger() {
     let (mut world, country) = world();
     world

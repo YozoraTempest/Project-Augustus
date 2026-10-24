@@ -643,9 +643,6 @@ pub(crate) fn prepare_monthly_ledger_updates(
     }
     if let Some(cashflows) = cashflows {
         for (&country, account) in &cashflows.accounts {
-            if account.credited_milli.is_none() {
-                continue;
-            }
             let Some(breakdown) = &account.breakdown else {
                 continue;
             };
