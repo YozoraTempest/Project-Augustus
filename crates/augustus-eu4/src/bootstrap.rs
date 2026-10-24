@@ -5423,6 +5423,89 @@ impl VanillaWorld {
         }
     }
 
+    /// Replaces category 8 rows with fort-maintenance costs from resolved province inputs.
+    /// Inputs must cover every active fort row for each listed country. The method replaces only
+    /// category 8 detail; aggregate expense and net-cashflow totals remain caller-supplied.
+    pub fn set_vanilla_fort_maintenance_expense_categories(
+        &mut self,
+        inputs: BTreeMap<String, BTreeMap<u32, augustus_core::VanillaFortMaintenanceInput>>,
+    ) -> Result<(), augustus_core::Error> {
+        if inputs.is_empty() {
+            return Ok(());
+        }
+
+        let mut totals = BTreeMap::new();
+        let mut seen_provinces = BTreeSet::new();
+        for (country, province_inputs) in &inputs {
+            self.ledger_country_entity(country)?;
+            let mut total = 0_i64;
+            let mut has_owned_province = false;
+            for (&province, &input) in province_inputs {
+                if !seen_provinces.insert(province) {
+                    return Err(augustus_core::Error::Invalid(format!(
+                        "fort-maintenance province {province} is assigned to multiple countries"
+                    )));
+                }
+                let entity = self.initial.province_entity(province).ok_or_else(|| {
+                    augustus_core::Error::Invalid(format!(
+                        "unknown EU4 fort-maintenance province {province}"
+                    ))
+                })?;
+                if self.initial.world().entity(entity)?.owner.is_none() {
+                    continue;
+                }
+                let amount = augustus_core::calculate_vanilla_fort_maintenance(input)?.amount_milli;
+                if amount < 0 {
+                    return Err(augustus_core::Error::Invalid(
+                        "fort-maintenance expense must be nonnegative".into(),
+                    ));
+                }
+                has_owned_province = true;
+                total = total
+                    .checked_add(amount)
+                    .ok_or(augustus_core::Error::Overflow)?;
+            }
+            if has_owned_province {
+                totals.insert(country.clone(), total);
+            }
+        }
+
+        let mut breakdowns = BTreeMap::new();
+        if let Some(current) = self.initial.monthly_cashflows() {
+            for country in self.initial.countries() {
+                let entity = self
+                    .initial
+                    .country_entity(&country.id)
+                    .expect("registered country");
+                if let Some(breakdown) = current.breakdowns.get(&entity) {
+                    breakdowns.insert(country.id.clone(), breakdown.clone());
+                }
+            }
+        }
+        for country in inputs.keys() {
+            let breakdown =
+                breakdowns
+                    .entry(country.clone())
+                    .or_insert_with(|| CashflowBreakdown {
+                        trade_milli: None,
+                        trade_income_pass: None,
+                        gold_milli: None,
+                        expenses_milli: None,
+                        expense_categories_milli: BTreeMap::new(),
+                    });
+            breakdown
+                .expense_categories_milli
+                .remove(&augustus_core::COUNTRY_LEDGER_EXPENSE_FORT_MAINTENANCE_CATEGORY);
+            if let Some(&amount) = totals.get(country) {
+                breakdown.expense_categories_milli.insert(
+                    augustus_core::COUNTRY_LEDGER_EXPENSE_FORT_MAINTENANCE_CATEGORY,
+                    amount,
+                );
+            }
+        }
+        self.set_country_monthly_cashflow_breakdowns(breakdowns)
+    }
+
     /// Refreshes verified monthly monarch-power income from a compatibility
     /// provider. Omitted countries and metrics keep their current formulas;
     /// explicit `None` keeps the selected income unresolved.

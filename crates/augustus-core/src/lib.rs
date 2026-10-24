@@ -27,6 +27,7 @@ mod event_choices;
 mod event_decisions;
 mod event_locations;
 mod event_pictures;
+mod fort_maintenance;
 mod governments;
 mod ideas;
 mod initial;
@@ -139,6 +140,9 @@ pub use event_decisions::{
 };
 pub use event_locations::EventLocations;
 pub use event_pictures::{EventPictures, PictureVariant};
+pub use fort_maintenance::{
+    VanillaFortMaintenanceInput, VanillaFortMaintenanceResult, calculate_vanilla_fort_maintenance,
+};
 pub use governments::{
     GovernmentContribution, GovernmentEvaluation, GovernmentForm, GovernmentMechanicResourceState,
     GovernmentMetric, GovernmentReform, GovernmentState, Governments,
@@ -150,10 +154,11 @@ pub use initial::{CountryState, InitialWorld, ProvinceClass, ProvinceState, Worl
 pub use justifications::{GrantTerm, Justification, JustificationDefinition, Justifications};
 pub use ledger::{
     COUNTRY_LEDGER_CATEGORY_COUNT, COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT,
-    COUNTRY_LEDGER_EXPENSE_KEYS, COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY,
-    COUNTRY_LEDGER_INCOME_GOLD_CATEGORY, COUNTRY_LEDGER_INCOME_KEYS,
-    COUNTRY_LEDGER_INCOME_PRODUCTION_CATEGORY, COUNTRY_LEDGER_INCOME_TAX_CATEGORY,
-    COUNTRY_LEDGER_INCOME_TRADE_CATEGORY, COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES,
+    COUNTRY_LEDGER_EXPENSE_FORT_MAINTENANCE_CATEGORY, COUNTRY_LEDGER_EXPENSE_KEYS,
+    COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY, COUNTRY_LEDGER_INCOME_GOLD_CATEGORY,
+    COUNTRY_LEDGER_INCOME_KEYS, COUNTRY_LEDGER_INCOME_PRODUCTION_CATEGORY,
+    COUNTRY_LEDGER_INCOME_TAX_CATEGORY, COUNTRY_LEDGER_INCOME_TRADE_CATEGORY,
+    COUNTRY_LEDGER_NATIVE_FILTERED_EXPENSE_CATEGORIES,
     COUNTRY_LEDGER_NATIVE_FILTERED_INCOME_CATEGORIES, COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY,
     COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY, CountryLedger, CountryLedgerAnnualRollover,
     CountryLedgerCategory, CountryLedgerMonthlyConsolidation, CountryLedgerPendingFlush,

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
+    COUNTRY_LEDGER_EXPENSE_FORT_MAINTENANCE_CATEGORY,
     COUNTRY_LEDGER_EXPENSE_STATE_MAINTENANCE_CATEGORY, COUNTRY_LEDGER_INCOME_GOLD_CATEGORY,
     COUNTRY_LEDGER_SEND_OFFICERS_CATEGORY, COUNTRY_LEDGER_SUPPORT_LOYALISTS_CATEGORY,
     CountryLedger, CountryLedgerCategory, CountryResources, VanillaProductionInput,
@@ -10,8 +11,8 @@ use augustus_core::{
 use augustus_eu4::{
     CashflowBreakdown, VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
     VanillaContentProductionValueInput, VanillaContentStateMaintenanceInput,
-    VanillaExternalProductionInput, VanillaExternalState, VanillaGoldProductionInput,
-    VanillaGoldProductionInputState, VanillaProductionInputState,
+    VanillaExternalProductionInput, VanillaExternalState, VanillaFortMaintenanceInput,
+    VanillaGoldProductionInput, VanillaGoldProductionInputState, VanillaProductionInputState,
     VanillaProvinceProductionBaseValueInput, VanillaProvinceStateMaintenanceInput,
     VanillaTradeGoodsSizeInput, VanillaWorld,
 };
@@ -585,6 +586,61 @@ fn state_maintenance_content_binding_keeps_a_missing_factor_unresolved() {
     assert_eq!(
         state.unresolved,
         ["development_scale:unknown".into()].into()
+    );
+}
+
+#[test]
+fn fort_maintenance_inputs_replace_the_monthly_expense_category() {
+    let mut loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    loaded
+        .set_country_monthly_cashflow_breakdowns(BTreeMap::from([(
+            "BBB".into(),
+            CashflowBreakdown {
+                trade_milli: Some(0),
+                trade_income_pass: None,
+                gold_milli: Some(0),
+                expenses_milli: Some(900),
+                expense_categories_milli: BTreeMap::from([(
+                    COUNTRY_LEDGER_EXPENSE_FORT_MAINTENANCE_CATEGORY,
+                    900,
+                )]),
+            },
+        )]))
+        .unwrap();
+    loaded
+        .set_vanilla_fort_maintenance_expense_categories(BTreeMap::from([(
+            "BBB".into(),
+            BTreeMap::from([(
+                1,
+                VanillaFortMaintenanceInput {
+                    base_cost_milli: 500,
+                    country_modifier_milli: -200,
+                    province_modifier_milli: 0,
+                    conversion_factor_micros: 1_000_000,
+                    local_multiplier_milli: 2_000,
+                    relationship_modifier_milli: 0,
+                    apply_relationship_modifier: true,
+                    halve_for_special_case: false,
+                },
+            )]),
+        )]))
+        .unwrap();
+
+    loaded.advance(21).unwrap();
+    let country = loaded.initial.country_entity("BBB").unwrap();
+    let account = &loaded
+        .initial
+        .monthly_cashflows()
+        .unwrap()
+        .last_settlement
+        .as_ref()
+        .unwrap()
+        .accounts[&country];
+    assert_eq!(account.amount_milli, Some(-900));
+    assert_eq!(
+        account.breakdown.as_ref().unwrap().expense_categories_milli
+            [&COUNTRY_LEDGER_EXPENSE_FORT_MAINTENANCE_CATEGORY],
+        800
     );
 }
 

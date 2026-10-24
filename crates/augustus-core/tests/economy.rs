@@ -3,11 +3,11 @@
 
 use augustus_core::{
     Economy, EntityKind, Error, Schema, TradeGoodDefinition, TradeProductionInput,
-    TradeProductionResult, VanillaDerivedModifierInput, VanillaGoldBaseInput,
-    VanillaGoldProductionInput, VanillaModifierAggregationInput, VanillaProductionBaseValueInput,
-    VanillaProductionInput, VanillaProductionResult, VanillaTradeCountryFlags,
-    VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput, VanillaTradeGoodPriceInput,
-    VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput,
+    TradeProductionResult, VanillaDerivedModifierInput, VanillaFortMaintenanceInput,
+    VanillaGoldBaseInput, VanillaGoldProductionInput, VanillaModifierAggregationInput,
+    VanillaProductionBaseValueInput, VanillaProductionInput, VanillaProductionResult,
+    VanillaTradeCountryFlags, VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput,
+    VanillaTradeGoodPriceInput, VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput,
     VanillaTradeNodePassFromRetentionSourcesInput, VanillaTradeNodePassInput,
     VanillaTradeNodeRouteInput, VanillaTradeRetentionContributionRowInput,
     VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
@@ -15,7 +15,8 @@ use augustus_core::{
     VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightPassFromRowsInput,
     VanillaTradeRouteWeightPassInput, VanillaTradeRouteWeightSourceRowInput,
     VanillaTradeSteeringEligibilityInput, World, aggregate_vanilla_modifier_contributions,
-    calculate_trade_production, calculate_vanilla_derived_modifier, calculate_vanilla_gold_base,
+    calculate_trade_production, calculate_vanilla_derived_modifier,
+    calculate_vanilla_fort_maintenance, calculate_vanilla_gold_base,
     calculate_vanilla_gold_production, calculate_vanilla_production,
     calculate_vanilla_production_base_value, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
@@ -1347,4 +1348,65 @@ fn vanilla_modifier_aggregation_preserves_order_and_32_bit_storage() {
         contributions_milli: vec![1],
     });
     assert_eq!(wrapped.value_milli, i32::MIN);
+}
+
+#[test]
+fn fort_maintenance_truncates_modifier_stages_and_applies_resolved_conditions() {
+    let ordinary = calculate_vanilla_fort_maintenance(VanillaFortMaintenanceInput {
+        base_cost_milli: 501,
+        country_modifier_milli: -200,
+        province_modifier_milli: 0,
+        conversion_factor_micros: 1_000_000,
+        local_multiplier_milli: 2_000,
+        relationship_modifier_milli: 0,
+        apply_relationship_modifier: true,
+        halve_for_special_case: false,
+    })
+    .unwrap();
+    assert_eq!(
+        ordinary.base_after_country_and_province_modifiers_milli,
+        400
+    );
+    assert_eq!(ordinary.amount_milli, 800);
+
+    let halved = calculate_vanilla_fort_maintenance(VanillaFortMaintenanceInput {
+        base_cost_milli: 500,
+        country_modifier_milli: -200,
+        province_modifier_milli: 0,
+        conversion_factor_micros: 1_000_000,
+        local_multiplier_milli: 2_000,
+        relationship_modifier_milli: 0,
+        apply_relationship_modifier: true,
+        halve_for_special_case: true,
+    })
+    .unwrap();
+    assert_eq!(halved.base_after_country_and_province_modifiers_milli, 400);
+    assert_eq!(halved.amount_milli, 400);
+
+    let floored = calculate_vanilla_fort_maintenance(VanillaFortMaintenanceInput {
+        base_cost_milli: 500,
+        country_modifier_milli: -1_000,
+        province_modifier_milli: -500,
+        conversion_factor_micros: 1_000_000,
+        local_multiplier_milli: 1_000,
+        relationship_modifier_milli: 0,
+        apply_relationship_modifier: true,
+        halve_for_special_case: false,
+    })
+    .unwrap();
+    assert_eq!(floored.base_after_country_and_province_modifiers_milli, 50);
+    assert_eq!(floored.amount_milli, 50);
+
+    let related = calculate_vanilla_fort_maintenance(VanillaFortMaintenanceInput {
+        base_cost_milli: 500,
+        country_modifier_milli: -200,
+        province_modifier_milli: 0,
+        conversion_factor_micros: 1_000_000,
+        local_multiplier_milli: 2_000,
+        relationship_modifier_milli: 1_500,
+        apply_relationship_modifier: true,
+        halve_for_special_case: false,
+    })
+    .unwrap();
+    assert_eq!(related.amount_milli, 1_600);
 }
