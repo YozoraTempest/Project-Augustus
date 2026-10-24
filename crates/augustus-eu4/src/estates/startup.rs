@@ -9,8 +9,8 @@ use crate::localisation::{EventTextKeys, load_event_texts};
 use crate::setup::{PropertyDiagnostics, block, micros};
 use crate::{ContentView, Error, FileEntry, LoadedSource, ParsedText, TextDocument};
 use augustus_core::{
-    Action, DailyEventCountry, DailyEventGroup, EntityKind, EventCatalog, InitialWorld, Schema,
-    ScopeSelector, YearlyEventRules,
+    Action, DailyEventCountry, DailyEventGroup, EntityKind, EventCatalog, InitialWorld,
+    MonthlyEventRules, Schema, ScopeSelector, YearlyEventRules,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -69,6 +69,7 @@ pub(crate) struct EstateStartup {
     steps: Vec<Step>,
     callbacks: BTreeMap<String, Callback>,
     events: EventCatalog,
+    monthly_events: Vec<String>,
     yearly_events: Vec<String>,
     pub(crate) event_texts: BTreeMap<String, crate::EventText>,
 }
@@ -534,23 +535,41 @@ impl EstateStartup {
         if self.steps.is_empty()
             && self.callbacks.is_empty()
             && self.events.definitions().is_empty()
+            && self.monthly_events.is_empty()
             && self.yearly_events.is_empty()
         {
             return Ok(None);
         }
-        let mut identity = serde_json::to_value((
-            &self.steps,
-            &self.callbacks,
-            self.events.definitions(),
-            self.events.conditions(),
-            self.events.once_events(),
-            self.events.option_conditions(),
-            self.events.pictures(),
-            self.events.option_weights(),
-            self.events.locations(),
-            self.events.unavailable_options(),
-            &self.yearly_events,
-        ))?;
+        let mut identity = if self.monthly_events.is_empty() {
+            serde_json::to_value((
+                &self.steps,
+                &self.callbacks,
+                self.events.definitions(),
+                self.events.conditions(),
+                self.events.once_events(),
+                self.events.option_conditions(),
+                self.events.pictures(),
+                self.events.option_weights(),
+                self.events.locations(),
+                self.events.unavailable_options(),
+                &self.yearly_events,
+            ))?
+        } else {
+            serde_json::to_value((
+                &self.steps,
+                &self.callbacks,
+                self.events.definitions(),
+                self.events.conditions(),
+                self.events.once_events(),
+                self.events.option_conditions(),
+                self.events.pictures(),
+                self.events.option_weights(),
+                self.events.locations(),
+                self.events.unavailable_options(),
+                &self.monthly_events,
+                &self.yearly_events,
+            ))?
+        };
         fn remove_diagnostics(value: &mut serde_json::Value) {
             match value {
                 serde_json::Value::Object(fields) => {
@@ -780,6 +799,8 @@ impl EstateStartup {
             compiler.effects.push(Arc::new(document));
         }
         let mut steps = Vec::new();
+        let mut monthly_events = Vec::new();
+        let mut monthly_pulse_supported = true;
         let mut yearly_events = Vec::new();
         let mut yearly_pulse_supported = true;
         for file in files
@@ -832,6 +853,50 @@ impl EstateStartup {
             for (key, op, value) in parsed
                 .reader()
                 .fields()
+                .filter(|(key, _, _)| key.read_string() == "on_monthly_pulse")
+            {
+                let at = parsed.field_location(&key);
+                let fail =
+                    |message: &str| Error::message(parsed.source(), message).with_location(at);
+                equal(op, &fail)?;
+                let body = block(&value, &fail)?;
+                let mut seen_events = false;
+                for (key, op, value) in body.fields() {
+                    let name = key.read_string();
+                    let location = parsed.field_location(&key);
+                    if name != "events" {
+                        let unsupported = format!("on_monthly_pulse:{name}");
+                        *report
+                            .unsupported_fields
+                            .entry(unsupported.clone())
+                            .or_default() += 1;
+                        report
+                            .unsupported_examples
+                            .entry(unsupported)
+                            .or_insert_with(|| source(&parsed, location));
+                        monthly_pulse_supported = false;
+                        continue;
+                    }
+                    equal(op, &fail)?;
+                    if seen_events {
+                        return Err(fail("duplicate monthly pulse event list"));
+                    }
+                    seen_events = true;
+                    let events = value
+                        .read_array()
+                        .map_err(|_| fail("expected monthly pulse event id list"))?
+                        .values()
+                        .map(|value| value.read_string().map_err(|_| fail("expected event id")))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if events.iter().any(String::is_empty) {
+                        return Err(fail("empty monthly pulse event id"));
+                    }
+                    monthly_events.extend(events);
+                }
+            }
+            for (key, op, value) in parsed
+                .reader()
+                .fields()
                 .filter(|(key, _, _)| key.read_string() == "on_yearly_pulse")
             {
                 let at = parsed.field_location(&key);
@@ -873,6 +938,9 @@ impl EstateStartup {
                     yearly_events.extend(events);
                 }
             }
+        }
+        if !monthly_pulse_supported {
+            monthly_events.clear();
         }
         if !yearly_pulse_supported {
             yearly_events.clear();
@@ -979,22 +1047,29 @@ impl EstateStartup {
             collect_references(&callback.revoked, &mut references);
         }
         let startup_references = references.clone();
+        references.extend(monthly_events.iter().cloned());
         references.extend(yearly_events.iter().cloned());
-        let report_before_yearly_compile = (
+        let report_before_pulse_compile = (
             report.unsupported_fields.clone(),
             report.unsupported_examples.clone(),
             report.startup_script_ignored_definitions.clone(),
         );
         let loaded_events = match load_events(root, files, references, &compiler, report) {
             Ok(events) => Ok(events),
-            Err(yearly_error) if !yearly_events.is_empty() => {
-                report.unsupported_fields = report_before_yearly_compile.0;
-                report.unsupported_examples = report_before_yearly_compile.1;
-                report.startup_script_ignored_definitions = report_before_yearly_compile.2;
+            Err(pulse_error) if !monthly_events.is_empty() || !yearly_events.is_empty() => {
+                report.unsupported_fields = report_before_pulse_compile.0;
+                report.unsupported_examples = report_before_pulse_compile.1;
+                report.startup_script_ignored_definitions = report_before_pulse_compile.2;
                 match load_events(root, files, startup_references, &compiler, report) {
                     Ok(events) => {
-                        let issue = format!("yearly_event_compile:{yearly_error}");
-                        let at = yearly_error
+                        let pulse = match (monthly_events.is_empty(), yearly_events.is_empty()) {
+                            (false, false) => "periodic_event_compile",
+                            (false, true) => "monthly_event_compile",
+                            (true, false) => "yearly_event_compile",
+                            (true, true) => unreachable!("guarded by periodic event list"),
+                        };
+                        let issue = format!("{pulse}:{pulse_error}");
+                        let at = pulse_error
                             .location()
                             .unwrap_or(crate::SourceLocation { line: 1, column: 1 });
                         *report.unsupported_fields.entry(issue.clone()).or_default() += 1;
@@ -1002,10 +1077,11 @@ impl EstateStartup {
                             .unsupported_examples
                             .entry(issue)
                             .or_insert(LoadedSource {
-                                path: yearly_error.path().into(),
+                                path: pulse_error.path().into(),
                                 line: at.line,
                                 column: at.column,
                             });
+                        monthly_events.clear();
                         yearly_events.clear();
                         Ok(events)
                     }
@@ -1039,9 +1115,55 @@ impl EstateStartup {
             steps,
             callbacks,
             events,
+            monthly_events,
             yearly_events,
             event_texts,
         })
+    }
+
+    pub(crate) fn monthly_event_rules(
+        &self,
+        initial: &InitialWorld,
+        country_order: &[String],
+    ) -> Result<Option<MonthlyEventRules>, Error> {
+        if self.monthly_events.is_empty() {
+            return Ok(None);
+        }
+        let catalog = initial.world().event_catalog();
+        if self
+            .monthly_events
+            .iter()
+            .any(|event| !catalog.definitions().contains_key(event))
+        {
+            return Ok(None);
+        }
+
+        let group = DailyEventGroup::all(self.monthly_events.iter().cloned());
+        let countries = country_order
+            .iter()
+            .filter_map(|tag| {
+                initial
+                    .country_entity(tag)
+                    .map(|country| DailyEventCountry {
+                        country,
+                        groups: vec![group.clone()],
+                    })
+            })
+            .collect::<Vec<_>>();
+        if countries.is_empty() {
+            return Ok(None);
+        }
+
+        let identity = serde_json::to_vec(&self.monthly_events)
+            .map_err(|error| Error::caused_by("on_monthly_pulse", error))?;
+        let fingerprint: String = Sha256::digest(identity)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        let id = format!("eu4-on-monthly-pulse:1:{fingerprint}");
+        MonthlyEventRules::new(id, countries)
+            .map(Some)
+            .map_err(|error| Error::caused_by("on_monthly_pulse", error))
     }
 
     pub(crate) fn yearly_event_rules(

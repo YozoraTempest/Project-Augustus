@@ -240,6 +240,10 @@ impl MonthlySystem for MonthlyEconomy {
         "monthly-economy:1"
     }
 
+    fn preserves_standard_state(&self) -> bool {
+        true
+    }
+
     fn validate(&self, world: &World) -> Result<(), Error> {
         if world.monthly_accruals().is_none()
             && world.monthly_convergence().is_none()

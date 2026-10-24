@@ -13,6 +13,12 @@ pub trait MonthlySystem {
     fn id(&self) -> &str;
     fn validate(&self, world: &World) -> Result<(), Error>;
     fn settle(&self, world: &mut World) -> Result<(), Error>;
+
+    /// Keep the standard monthly state when this provider composes with it.
+    /// Pure replacements discard standard state by default.
+    fn preserves_standard_state(&self) -> bool {
+        false
+    }
 }
 
 /// A fixed-order composition of monthly providers.
@@ -63,6 +69,10 @@ impl<'a> MonthlyPipeline<'a> {
 impl MonthlySystem for MonthlyPipeline<'_> {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn preserves_standard_state(&self) -> bool {
+        self.phases().any(|phase| phase.preserves_standard_state())
     }
 
     fn validate(&self, world: &World) -> Result<(), Error> {
@@ -138,6 +148,10 @@ pub struct MonthlyTax;
 impl MonthlySystem for MonthlyTax {
     fn id(&self) -> &str {
         "monthly-tax:1"
+    }
+
+    fn preserves_standard_state(&self) -> bool {
+        true
     }
 
     fn validate(&self, world: &World) -> Result<(), Error> {

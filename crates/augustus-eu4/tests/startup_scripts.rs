@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_core::{EntityId, EventChoice, PendingEventId};
+use augustus_core::{
+    Action, EntityId, EntityKind, Error, EventChoice, MonthlySystem, PendingEventId, World,
+};
 use augustus_eu4::{VanillaExternalState, VanillaSaveState, VanillaWorld};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -73,6 +75,50 @@ country_event = {
 }
 "#,
     );
+}
+
+fn write_monthly_pulse_content(root: &Path) {
+    write(
+        root,
+        "common/on_actions/monthly.txt",
+        "on_monthly_pulse={events={monthly.pulse}}",
+    );
+    write(
+        root,
+        "events/monthly.txt",
+        r#"
+country_event = {
+    id = monthly.pulse
+    is_triggered_only = yes
+    trigger = { tag = AAA }
+    immediate = { log = monthly_pulse }
+    option = { name = monthly_pulse_a }
+}
+"#,
+    );
+}
+
+struct MonthlyPulseReplacement {
+    country: EntityId,
+}
+
+impl MonthlySystem for MonthlyPulseReplacement {
+    fn id(&self) -> &str {
+        "monthly-pulse-replacement:test:v1"
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        if world.entity(self.country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "monthly pulse replacement requires a country".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        world.execute(self.country, &[Action::Emit("replacement_monthly".into())])
+    }
 }
 
 #[test]
@@ -997,6 +1043,193 @@ fn yearly_pulse_events_run_on_year_boundary_and_survive_restore() {
             .filter(|event| event.2 == "yearly_second")
             .count(),
         1
+    );
+}
+
+#[test]
+fn monthly_pulse_events_compose_with_economy_and_resume_deterministically() {
+    let temp = fixture();
+    write_monthly_pulse_content(temp.path());
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let system_id = loaded
+        .initial
+        .world()
+        .monthly_system_id()
+        .expect("monthly pulse selects a composite system")
+        .to_owned();
+    assert!(system_id.starts_with("eu4-monthly-pulse-pipeline:1:"));
+    assert!(loaded.initial.world().taxation().is_some());
+    assert!(loaded.initial.world().monthly_accruals().is_some());
+
+    let first_month = {
+        let world = loaded.initial.world();
+        world.calendar().unwrap().next_month(world.day()).unwrap() - world.day()
+    };
+    loaded.advance(first_month - 1).unwrap();
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .pending_events()
+            .iter()
+            .any(|event| event.event == "monthly.pulse")
+    );
+    loaded.advance(1).unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .pending_events()
+            .iter()
+            .filter(|event| event.event == "monthly.pulse")
+            .count(),
+        1
+    );
+    assert!(
+        loaded
+            .initial
+            .world()
+            .taxation()
+            .unwrap()
+            .last_settlement
+            .is_some()
+    );
+
+    let snapshot = loaded.save().unwrap();
+    let mut resumed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    resumed.restore(&snapshot).unwrap();
+    let next_month = {
+        let world = loaded.initial.world();
+        world.calendar().unwrap().next_month(world.day()).unwrap() - world.day()
+    };
+    loaded.advance(next_month).unwrap();
+    resumed.advance(next_month).unwrap();
+    assert_eq!(loaded.save().unwrap(), resumed.save().unwrap());
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .filter(|event| event.2 == "monthly_pulse")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn empty_monthly_pulse_keeps_the_standard_monthly_system() {
+    let temp = fixture();
+    let baseline_temp = fixture();
+    let baseline = VanillaWorld::load(baseline_temp.path(), "1444.11.11").unwrap();
+    let baseline_save = baseline.save().unwrap();
+    write(
+        temp.path(),
+        "common/on_actions/monthly.txt",
+        "on_monthly_pulse={}",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.initial.world().monthly_system_id(),
+        Some("monthly-economy:1")
+    );
+    assert_eq!(loaded.save().unwrap(), baseline_save);
+}
+
+#[test]
+fn unsupported_monthly_pulse_fields_disable_the_whole_event_group() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/monthly.txt",
+        "on_monthly_pulse={events={monthly.pulse} random_events={100=monthly.pulse}}",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.initial.world().monthly_system_id(),
+        Some("monthly-economy:1")
+    );
+    assert_eq!(
+        loaded
+            .report
+            .estates
+            .unsupported_fields
+            .get("on_monthly_pulse:random_events"),
+        Some(&1)
+    );
+}
+
+#[test]
+fn monthly_system_replacement_replaces_monthly_pulse_dispatch() {
+    let temp = fixture();
+    write_monthly_pulse_content(temp.path());
+    let mut loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let replacement = MonthlyPulseReplacement {
+        country: loaded.initial.country_entity("AAA").unwrap(),
+    };
+
+    loaded.select_monthly_system(&replacement).unwrap();
+    assert!(loaded.initial.world().taxation().is_none());
+    loaded
+        .advance_with_systems(21, None, Some(&replacement))
+        .unwrap();
+
+    let messages = loaded
+        .initial
+        .world()
+        .events()
+        .iter()
+        .map(|event| event.2.as_str())
+        .collect::<Vec<_>>();
+    assert!(messages.contains(&"replacement_monthly"));
+    assert!(!messages.contains(&"monthly_pulse"));
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .pending_events()
+            .iter()
+            .any(|event| event.event == "monthly.pulse")
+    );
+}
+
+#[test]
+fn unsupported_monthly_event_keeps_startup_event_content() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "common/on_actions/monthly.txt",
+        "on_monthly_pulse={events={monthly.bad}}",
+    );
+    write(
+        temp.path(),
+        "events/monthly_bad.txt",
+        "country_event={id=monthly.bad is_triggered_only=yes trigger={unsupported_trigger=yes} option={name=monthly_bad_a}}",
+    );
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    assert_eq!(
+        loaded.initial.world().monthly_system_id(),
+        Some("monthly-economy:1")
+    );
+    assert!(
+        loaded
+            .initial
+            .world()
+            .events()
+            .iter()
+            .any(|event| event.2 == "startup")
+    );
+    assert!(
+        loaded
+            .report
+            .estates
+            .unsupported_fields
+            .keys()
+            .any(|key| key.starts_with("monthly_event_compile:")
+                && key.contains("unsupported trigger unsupported_trigger"))
     );
 }
 

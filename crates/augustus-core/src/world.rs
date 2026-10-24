@@ -1234,13 +1234,16 @@ impl World {
         {
             return Err(Error::Invalid("invalid monthly system selection".into()));
         }
+        let preserves_standard_state = system.preserves_standard_state();
         system.validate(self)?;
-        self.taxation = None;
-        self.monthly_accruals = None;
-        self.monthly_convergence = None;
-        self.monthly_stocks = None;
-        self.monthly_production = None;
-        self.monthly_cashflows = None;
+        if !preserves_standard_state {
+            self.taxation = None;
+            self.monthly_accruals = None;
+            self.monthly_convergence = None;
+            self.monthly_stocks = None;
+            self.monthly_production = None;
+            self.monthly_cashflows = None;
+        }
         self.monthly_system_id = Some(system.id().into());
         Ok(())
     }

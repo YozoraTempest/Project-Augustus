@@ -8,8 +8,9 @@ use std::{
 
 use augustus_core::{
     Action, Calendar, CashflowBreakdown, CountryLedger, CountryResources, CountryState, EntityKind,
-    InitialWorld, MonthlyExternalCashflows, MonthlyProduction, NumericOperation, NumericSlot,
-    ProvinceClass, ProvinceState, Target, Taxation, TechnologyProperty, VanillaGoldBaseInput,
+    InitialWorld, MonthlyEconomy, MonthlyEventRules, MonthlyExternalCashflows, MonthlyPipeline,
+    MonthlyProduction, MonthlySystem, MonthlyTax, NumericOperation, NumericSlot, ProvinceClass,
+    ProvinceState, Target, Taxation, TechnologyProperty, VanillaGoldBaseInput,
     VanillaGoldBaseResult, VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
     VanillaGoldProductionInputState, VanillaGoldProductionResult, VanillaProductionBaseValueInput,
     VanillaProductionBaseValueResult, VanillaProductionInput, VanillaStateMaintenanceDistanceInput,
@@ -441,8 +442,66 @@ pub struct VanillaWorld {
     pub province_sources: BTreeMap<u32, Vec<LoadedSource>>,
     state_maintenance_development_scale_milli: Option<i32>,
     event_texts: BTreeMap<String, crate::EventText>,
+    monthly_event_rules: Option<MonthlyEventRules>,
+    monthly_event_system_id: Option<String>,
+    monthly_event_base: Option<MonthlyEventBase>,
     yearly_event_rules: Option<augustus_core::YearlyEventRules>,
     content: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MonthlyEventBase {
+    Tax,
+    Economy,
+    EventsOnly,
+}
+
+impl MonthlyEventBase {
+    fn system_id(self) -> Option<&'static str> {
+        match self {
+            Self::Tax => Some("monthly-tax:1"),
+            Self::Economy => Some("monthly-economy:1"),
+            Self::EventsOnly => None,
+        }
+    }
+}
+
+fn monthly_event_base(initial: &InitialWorld) -> Result<MonthlyEventBase, augustus_core::Error> {
+    match initial.monthly_system_id() {
+        Some(id) if id == MonthlyTax.id() => Ok(MonthlyEventBase::Tax),
+        Some(id) if id == MonthlyEconomy.id() => Ok(MonthlyEventBase::Economy),
+        None => Ok(MonthlyEventBase::EventsOnly),
+        Some(id) => Err(augustus_core::Error::Invalid(format!(
+            "cannot compose monthly pulse events with custom monthly system {id}"
+        ))),
+    }
+}
+
+fn monthly_event_pipeline_id(
+    base: MonthlyEventBase,
+    rules: &MonthlyEventRules,
+) -> Result<String, Error> {
+    let identity = serde_json::to_vec(&(base.system_id(), rules.id()))
+        .map_err(|error| Error::caused_by("on_monthly_pulse", error))?;
+    let fingerprint: String = Sha256::digest(identity)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    Ok(format!("eu4-monthly-pulse-pipeline:1:{fingerprint}"))
+}
+
+fn monthly_event_pipeline<'a>(
+    id: impl Into<String>,
+    base: MonthlyEventBase,
+    rules: &'a MonthlyEventRules,
+) -> Result<MonthlyPipeline<'a>, augustus_core::Error> {
+    let world_phase: Option<&dyn MonthlySystem> = match base {
+        MonthlyEventBase::Tax => Some(&MonthlyTax),
+        MonthlyEventBase::Economy => Some(&MonthlyEconomy),
+        MonthlyEventBase::EventsOnly => None,
+    };
+    let event_phase: &dyn MonthlySystem = rules;
+    MonthlyPipeline::new(id, world_phase, None, Some(event_phase))
 }
 
 /// State supplied by a second simulation or an external save reader.
@@ -4319,6 +4378,26 @@ impl VanillaWorld {
             &country_order,
             clock_origin,
         )?;
+        let monthly_event_rules = startup.monthly_event_rules(&initial, &country_order)?;
+        let monthly_event_base = monthly_event_rules
+            .as_ref()
+            .map(|_| {
+                monthly_event_base(&initial).map_err(|error| Error::caused_by(root.path(), error))
+            })
+            .transpose()?;
+        let monthly_event_system_id = match (&monthly_event_rules, monthly_event_base) {
+            (Some(rules), Some(base)) => {
+                let id = monthly_event_pipeline_id(base, rules)?;
+                let system = monthly_event_pipeline(id.clone(), base, rules)
+                    .map_err(|error| Error::caused_by(root.path(), error))?;
+                initial
+                    .select_monthly_system(&system)
+                    .map_err(|error| Error::caused_by(root.path(), error))?;
+                Some(id)
+            }
+            (None, None) => None,
+            _ => unreachable!("monthly event rules and base are selected together"),
+        };
         let yearly_event_rules = startup.yearly_event_rules(&initial, &country_order)?;
         if let Some(system) = &yearly_event_rules {
             initial
@@ -4446,6 +4525,10 @@ impl VanillaWorld {
             digest.update(b"\0yearly-event-rules\0");
             digest.update(serde_json::to_vec(rules).map_err(|e| Error::caused_by(root.path(), e))?);
         }
+        if let Some(id) = &monthly_event_system_id {
+            digest.update(b"\0monthly-event-system\0");
+            digest.update(id.as_bytes());
+        }
         let fingerprint: String = digest
             .finalize()
             .iter()
@@ -4461,6 +4544,9 @@ impl VanillaWorld {
             province_sources,
             state_maintenance_development_scale_milli,
             event_texts,
+            monthly_event_rules,
+            monthly_event_system_id,
+            monthly_event_base,
             yearly_event_rules,
             content,
         })
@@ -4481,6 +4567,21 @@ impl VanillaWorld {
         monthly: Option<&dyn augustus_core::MonthlySystem>,
         yearly: Option<&dyn augustus_core::YearlySystem>,
     ) -> Result<(), augustus_core::Error> {
+        let selected_monthly_event_pipeline = match (
+            self.monthly_event_rules.as_ref(),
+            self.monthly_event_system_id.as_deref(),
+            self.monthly_event_base,
+        ) {
+            (Some(rules), Some(id), Some(base)) if self.initial.monthly_system_id() == Some(id) => {
+                Some(monthly_event_pipeline(id, base, rules)?)
+            }
+            _ => None,
+        };
+        let selected_monthly = monthly.or_else(|| {
+            selected_monthly_event_pipeline
+                .as_ref()
+                .map(|pipeline| pipeline as &dyn augustus_core::MonthlySystem)
+        });
         let selected_yearly_event_rules = self
             .yearly_event_rules
             .as_ref()
@@ -4489,7 +4590,7 @@ impl VanillaWorld {
         self.initial.advance_with_systems_and_yearly(
             days,
             daily,
-            monthly,
+            selected_monthly,
             yearly.or(selected_yearly_event_rules),
         )
     }
