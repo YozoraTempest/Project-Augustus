@@ -1159,8 +1159,8 @@ fn religious_tolerance_scales_base_and_legitimacy_by_live_religion_relation() {
         fs::write(
             &effects_path,
             format!(
-                "tolerance = {{ local_tax_modifier = {tolerance_tax} }}\n\
-                 intolerance = {{ local_tax_modifier = {intolerance_tax} }}\n"
+                "tolerance = {{ local_tax_modifier = {tolerance_tax} trade_goods_size_modifier = 0.05 }}\n\
+                 intolerance = {{ local_tax_modifier = {intolerance_tax} trade_goods_size_modifier = 0.1 }}\n"
             ),
         )
         .unwrap();
@@ -1192,6 +1192,14 @@ fn religious_tolerance_scales_base_and_legitimacy_by_live_religion_relation() {
     let tax_rate = |loaded: &VanillaWorld| {
         loaded.province(1).unwrap().attributes["tax_basis"].steps[0].rate_micros
     };
+    let trade_goods_size_modifier = |loaded: &VanillaWorld| {
+        let world = loaded.initial.world();
+        let province = loaded.initial.province_entity(1).unwrap();
+        world
+            .attributes()
+            .evaluate(world, province, "trade_goods_size_modifier")
+            .unwrap()
+    };
 
     set_province_religion("heathen_faith");
     let heathen_baseline = tax_rate(&load());
@@ -1211,6 +1219,16 @@ fn religious_tolerance_scales_base_and_legitimacy_by_live_religion_relation() {
     );
     assert_eq!(country_tolerance.known_subtotal_micros, Some(-1_500_000));
     assert!(country_tolerance.value_micros.is_none());
+    let heathen_goods_size = trade_goods_size_modifier(&heathen);
+    assert_eq!(heathen_goods_size.known_subtotal_micros, Some(-150_000));
+    assert!(heathen_goods_size.value_micros.is_none());
+    assert!(
+        !heathen
+            .report
+            .attributes
+            .unmapped_properties
+            .contains_key("static_modifiers:trade_goods_size_modifier")
+    );
 
     set_province_religion("heretic_faith");
     write_effects("0", "0");
@@ -1242,6 +1260,10 @@ fn religious_tolerance_scales_base_and_legitimacy_by_live_religion_relation() {
         Some(-2_000_000)
     );
     assert_eq!(tax_rate(&heretic) - heretic_baseline, -200_000);
+    assert_eq!(
+        trade_goods_size_modifier(&heretic).known_subtotal_micros,
+        Some(-200_000)
+    );
 
     set_province_religion("state_faith");
     write_effects("0", "0");
@@ -1249,6 +1271,10 @@ fn religious_tolerance_scales_base_and_legitimacy_by_live_religion_relation() {
     write_effects("0.05", "0.1");
     let own = load();
     assert_eq!(tax_rate(&own) - own_baseline, 200_000);
+    assert_eq!(
+        trade_goods_size_modifier(&own).known_subtotal_micros,
+        Some(200_000)
+    );
 }
 
 #[test]

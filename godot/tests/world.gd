@@ -52,6 +52,7 @@ func _initialize() -> void:
 	check(north.value.modifiers == ["test_harbor", "test_river"] and north.value.declared_modifier_totals_micros.test_growth == -2500, "permanent modifier bindings retain signed precision")
 	check(north.value.attributes.tax_basis.known_subtotal_micros == 212000 and north.value.attributes.tax_basis.value_micros == null, "attribute query separates known calculation from complete result")
 	check(north.value.attributes.manpower_contribution.known_subtotal_micros == 831250000, "manpower calculation includes trade good and culture effects")
+	check(north.value.attributes.has("trade_goods_size_modifier") and north.value.attributes.trade_goods_size_modifier.unresolved.has("tolerance_and_religious_mechanics"), "trade-good size modifier remains visible with unknown tolerance inputs")
 	check(alpha.value.province_attribute_totals.tax_basis.known_subtotal_micros == 1100000, "country aggregation includes buildings and trade goods")
 	check(not JSON.parse_string(session.advance(-1)).ok, "negative advancement is rejected")
 	var first_month: Dictionary = JSON.parse_string(session.advance(20))
@@ -203,7 +204,7 @@ func verify_ui(ui: Control) -> void:
 			check(selected_units.selected.infantry == "test_infantry", "unit selection survives save and restore")
 		ui.choose_unit_template(0, "infantry")
 		selected_units = JSON.parse_string(ui.session.query_unit_templates("AAA")).value
-		check(selected_units.selected.infantry == null, "unit selector can clear a country selection")
+		check(selected_units.selected.infantry == "test_infantry", "clearing explicit selection restores the unique available template")
 		check(ui.diplomacy_details.text.contains("贸易联盟成员 BBB"), "country panel preserves trade league meaning")
 		check(ui.province_details.text.contains("North · 1"), "map click follows BMP orientation and letterboxing")
 		check(ui.province_details.text.contains("BBB"), "clicked province displays current owner")

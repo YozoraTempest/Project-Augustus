@@ -22,10 +22,11 @@ const ATTRIBUTE_ONE_MICROS: i64 = 1_000_000;
 const AUTONOMY_MONTHLY_SCALE_MICROS: i64 = 10_000;
 // One game autonomy tick is 0.001 percentage points, or 10 ratio millionths.
 const AUTONOMY_MONTHLY_QUANTUM_MICROS: i64 = 10;
-pub(super) const ATTRIBUTE_NAMES: [&str; 6] = [
+pub(super) const ATTRIBUTE_NAMES: [&str; 7] = [
     "development",
     "tax_basis",
     "manpower_contribution",
+    "trade_goods_size_modifier",
     "tax_after_autonomy",
     "manpower_after_autonomy",
     "local_fort_maintenance_modifier",
@@ -125,6 +126,7 @@ fn used_property(name: &str) -> bool {
             | "local_autonomy"
             | "global_autonomy"
             | "trade_steering"
+            | "trade_goods_size_modifier"
             | "tolerance_own"
             | "tolerance_heretic"
             | "tolerance_heathen"
@@ -833,6 +835,76 @@ impl AttributeDraft {
                 formulas.insert(derived.into(), after_autonomy);
                 formulas.insert(name.into(), formula);
             }
+            let property = "trade_goods_size_modifier";
+            let mut trade_goods_size_unresolved =
+                BTreeSet::from(["trade_goods_size_modifier:remaining_sources_not_bound".into()]);
+            let mut trade_goods_size_channel = AttributeChannel {
+                flat: vec![
+                    AttributeTerm::Metrics {
+                        target: Target::Current,
+                        property: property.into(),
+                    },
+                    AttributeTerm::Buildings {
+                        property: property.into(),
+                    },
+                    AttributeTerm::TradeGood {
+                        property: property.into(),
+                    },
+                    AttributeTerm::Modifiers {
+                        target: Target::Current,
+                        property: property.into(),
+                    },
+                    AttributeTerm::AffiliationModifiers {
+                        dimension: "religion".into(),
+                        target: Target::Current,
+                        scope: "province".into(),
+                        property: property.into(),
+                    },
+                ],
+                rates: Vec::new(),
+            };
+            if tolerance_effects_available {
+                trade_goods_size_unresolved.insert("tolerance:additional_sources_not_bound".into());
+                for definition in ["tolerance", "intolerance"] {
+                    let key = format!("static_modifiers:{definition}:{property}");
+                    if report.ambiguous_properties.contains_key(&key)
+                        || self
+                            .static_unresolved
+                            .get(definition)
+                            .is_some_and(|properties| properties.contains(property))
+                    {
+                        trade_goods_size_unresolved.insert(format!("ambiguous:{key}"));
+                    }
+                }
+                trade_goods_size_channel
+                    .flat
+                    .push(AttributeTerm::AffiliationTerms {
+                        dimension: "religion".into(),
+                        target: Target::Owner,
+                        cases: religious_tolerance_effect_cases(property),
+                    });
+            } else {
+                trade_goods_size_unresolved.insert("tolerance_and_religious_mechanics".into());
+            }
+            Self::ambiguities(
+                initial,
+                entity,
+                &trade_goods_size_channel,
+                report,
+                setup,
+                &mut trade_goods_size_unresolved,
+            );
+            formulas.insert(
+                property.into(),
+                AttributeFormula {
+                    base: AttributeBase::Constant { micros: 0 },
+                    channels: vec![trade_goods_size_channel],
+                    minimum_micros: None,
+                    maximum_micros: None,
+                    result_quantum_micros: Some(1_000),
+                    unresolved: trade_goods_size_unresolved,
+                },
+            );
             let mut local_fort_unresolved = BTreeSet::from([
                 "local_fort_maintenance_modifier:remaining_sources_not_bound".into(),
             ]);

@@ -767,7 +767,7 @@ func attribute_text(attributes: Dictionary) -> String:
 	if attributes.is_empty():
 		return ""
 	var text := "\n属性计算（已接入部分）"
-	var labels := {"tax_basis": "税收基数（自治前）", "manpower_contribution": "人力贡献（自治前）", "tax_after_autonomy": "税收基数（自治折减后）", "manpower_after_autonomy": "人力贡献（自治折减后）"}
+	var labels := {"tax_basis": "税收基数（自治前）", "manpower_contribution": "人力贡献（自治前）", "trade_goods_size_modifier": "商品数量修正", "tax_after_autonomy": "税收基数（自治折减后）", "manpower_after_autonomy": "人力贡献（自治折减后）"}
 	var missing: Dictionary = {}
 	for name in attributes:
 		var value: Dictionary = attributes[name]
