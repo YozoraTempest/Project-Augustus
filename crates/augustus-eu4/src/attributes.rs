@@ -36,6 +36,8 @@ const COUNTRY_FORT_MAINTENANCE: &str = "fort_maintenance_modifier";
 const PROVINCE_FORT_MAINTENANCE: &str = "local_fort_maintenance_modifier";
 
 const GLOBAL_TAX_INCOME: &str = "global_tax_income";
+const RELIGIOUS_TOLERANCE_PROPERTIES: [&str; 3] =
+    ["tolerance_own", "tolerance_heretic", "tolerance_heathen"];
 
 #[derive(Debug, Default, Serialize)]
 pub struct AttributeReport {
@@ -123,9 +125,111 @@ fn used_property(name: &str) -> bool {
             | "local_autonomy"
             | "global_autonomy"
             | "trade_steering"
+            | "tolerance_own"
+            | "tolerance_heretic"
+            | "tolerance_heathen"
             | "fort_maintenance_modifier"
             | "local_fort_maintenance_modifier"
     )
+}
+
+fn religious_tolerance_terms(
+    property: &str,
+    target: Target,
+    include_base: bool,
+) -> Vec<AttributeTerm> {
+    let mut terms = Vec::new();
+    if include_base {
+        terms.push(AttributeTerm::Static {
+            definition: "base_values".into(),
+            property: property.into(),
+        });
+    }
+    terms.extend([
+        AttributeTerm::AffiliationModifiers {
+            dimension: "religion".into(),
+            target,
+            scope: "country".into(),
+            property: property.into(),
+        },
+        AttributeTerm::Government {
+            target,
+            property: property.into(),
+        },
+        AttributeTerm::Ideas {
+            target,
+            property: property.into(),
+        },
+        AttributeTerm::Estates {
+            target,
+            property: property.into(),
+        },
+        AttributeTerm::Modifiers {
+            target,
+            property: property.into(),
+        },
+        AttributeTerm::Metrics {
+            target,
+            property: property.into(),
+        },
+        AttributeTerm::AffiliationModifiers {
+            dimension: "religious_school".into(),
+            target,
+            scope: "country".into(),
+            property: property.into(),
+        },
+    ]);
+    terms
+}
+
+fn religious_tolerance_effect_cases(
+    local_property: &str,
+) -> BTreeMap<AffiliationRelation, Vec<AttributeTerm>> {
+    let mut cases = BTreeMap::new();
+    for (relation, tolerance_property) in [
+        (AffiliationRelation::Same, "tolerance_own"),
+        (AffiliationRelation::SameGroup, "tolerance_heretic"),
+        (AffiliationRelation::OtherGroup, "tolerance_heathen"),
+    ] {
+        let terms = religious_tolerance_terms(tolerance_property, Target::Owner, true);
+        let tolerance = AttributeTerm::TruncatedSum {
+            source: format!("religious_tolerance:{tolerance_property}"),
+            quantum_micros: 1,
+            terms,
+        };
+        let positive = AttributeTerm::Product {
+            source: format!("tolerance:{local_property}"),
+            factors: vec![
+                vec![AttributeTerm::ClampMinimum {
+                    source: format!("tolerance:{tolerance_property}"),
+                    minimum_micros: 0,
+                    term: Box::new(tolerance.clone()),
+                }],
+                vec![AttributeTerm::Static {
+                    definition: "tolerance".into(),
+                    property: local_property.into(),
+                }],
+            ],
+            quantum_micros: 1_000,
+        };
+        let negative = AttributeTerm::Product {
+            source: format!("intolerance:{local_property}"),
+            factors: vec![
+                vec![AttributeTerm::ClampMaximum {
+                    source: format!("intolerance:{tolerance_property}"),
+                    maximum_micros: 0,
+                    term: Box::new(tolerance),
+                }],
+                vec![AttributeTerm::Static {
+                    definition: "intolerance".into(),
+                    property: local_property.into(),
+                }],
+            ],
+            quantum_micros: 1_000,
+        };
+        cases.insert(relation, vec![positive, negative]);
+    }
+    cases
 }
 
 fn country_modifier_formula(property: &str, unresolved_reason: &str) -> AttributeFormula {
@@ -255,7 +359,9 @@ impl AttributeDraft {
                         .keys()
                         .chain(definition.flags.keys())
                         .filter(|p| {
-                            !used_property(p)
+                            (!used_property(p)
+                                || (kind != "static_modifiers"
+                                    && RELIGIOUS_TOLERANCE_PROPERTIES.contains(&p.as_str())))
                                 && !(kind == "buildings" && p.as_str() == "fort_level")
                         })
                     {
@@ -421,6 +527,13 @@ impl AttributeDraft {
         report: &mut AttributeReport,
         setup: &SetupReport,
     ) -> Result<Attributes, Error> {
+        let tolerance_base_values = self.attributes.static_modifiers.get("base_values");
+        let tolerance_effects_available =
+            RELIGIOUS_TOLERANCE_PROPERTIES.iter().all(|property| {
+                tolerance_base_values
+                    .is_some_and(|definition| definition.values_micros.contains_key(*property))
+            }) && self.attributes.static_modifiers.contains_key("tolerance")
+                && self.attributes.static_modifiers.contains_key("intolerance");
         self.attributes.administration_mappings.insert(
             "province_status".into(),
             [
@@ -510,17 +623,29 @@ impl AttributeDraft {
                     "global_manpower_modifier",
                 ),
             ] {
-                let mut unresolved: BTreeSet<String> = [
-                    "autonomy_and_state_rules",
-                    "culture_government_effects",
-                    "tolerance_and_religious_mechanics",
-                    "other_government_estate_and_country_effects",
-                    "building_retention_conditions",
-                    "original_runtime_comparison",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect();
+                let mut unresolved = BTreeSet::from([
+                    "autonomy_and_state_rules".into(),
+                    "culture_government_effects".into(),
+                    "other_government_estate_and_country_effects".into(),
+                    "building_retention_conditions".into(),
+                    "original_runtime_comparison".into(),
+                ]);
+                if tolerance_effects_available {
+                    unresolved.insert("tolerance:additional_sources_not_bound".into());
+                    for definition in ["tolerance", "intolerance"] {
+                        let key = format!("static_modifiers:{definition}:{local_rate}");
+                        if report.ambiguous_properties.contains_key(&key)
+                            || self
+                                .static_unresolved
+                                .get(definition)
+                                .is_some_and(|properties| properties.contains(local_rate))
+                        {
+                            unresolved.insert(format!("ambiguous:{key}"));
+                        }
+                    }
+                } else {
+                    unresolved.insert("tolerance_and_religious_mechanics".into());
+                }
                 let mut channel = AttributeChannel {
                     flat: if name == "tax_basis" {
                         vec![
@@ -598,6 +723,13 @@ impl AttributeDraft {
                         target,
                         scope: scope.into(),
                         property: property.into(),
+                    });
+                }
+                if tolerance_effects_available {
+                    channel.rates.push(AttributeTerm::AffiliationTerms {
+                        dimension: "religion".into(),
+                        target: Target::Owner,
+                        cases: religious_tolerance_effect_cases(local_rate),
                     });
                 }
                 channel.rates.push(AttributeTerm::AffiliationModifiers {
@@ -914,6 +1046,35 @@ impl AttributeDraft {
                 .country_entity(&country.id)
                 .expect("registered country");
             let mut formulas = self.attributes.formulas.remove(&entity).unwrap_or_default();
+            for property in RELIGIOUS_TOLERANCE_PROPERTIES {
+                let base_value_known = self
+                    .attributes
+                    .static_modifiers
+                    .get("base_values")
+                    .is_some_and(|definition| definition.values_micros.contains_key(property));
+                let formula = AttributeFormula {
+                    base: if base_value_known {
+                        AttributeBase::Constant { micros: 0 }
+                    } else {
+                        AttributeBase::Unknown {
+                            reason: format!("religious_tolerance:missing_base:{property}"),
+                        }
+                    },
+                    channels: vec![AttributeChannel {
+                        flat: religious_tolerance_terms(
+                            property,
+                            Target::Current,
+                            base_value_known,
+                        ),
+                        rates: Vec::new(),
+                    }],
+                    minimum_micros: None,
+                    maximum_micros: None,
+                    result_quantum_micros: None,
+                    unresolved: BTreeSet::from(["tolerance:additional_sources_not_bound".into()]),
+                };
+                formulas.insert(property.into(), formula);
+            }
             formulas.insert(
                 COUNTRY_TRADE_STEERING.into(),
                 country_modifier_formula(

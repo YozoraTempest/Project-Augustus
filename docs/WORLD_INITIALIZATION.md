@@ -229,9 +229,9 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 省份查询的 `attributes` 包含 `development`、`tax_basis` 和 `manpower_contribution`；`development` 为税收、生产与人力基础值之和，可用于省份作用域的 `development = n` 条件。任一基础值未知时，总发展度也保持未知。Godot 显示税收与人力的“已接入部分，自治前”计算，并列出来源和缺项。税收基数从基础税收开始，人力贡献按本地 `NMilitary.BASE_MP_TO_MANPOWER` 的明确声明换算为人数。月结使用另一个自治后属性 `tax_after_autonomy`；完整国家人力上限及可用人力结算尚未建立。
 
-当前组合城市状态、明确的占领状态、历史记载建筑、商品的 `province` 块、永久省份与所有者历史修正，以及文化待遇和宗教定义的直接效果。税收接入固定增量 `tax_income`、省份 `local_tax_modifier` 与所有者 `global_tax_modifier`；人力接入省份 `local_manpower_modifier` 与所有者 `global_manpower_modifier`。其他静态修正仍只是目录声明，未根据其名称自动生效。建筑保留条件尚未执行，参与计算的建筑仍是历史载入结果。
+当前组合城市状态、明确的占领状态、历史记载建筑、商品的 `province` 块、永久省份与所有者历史修正，以及文化待遇、宗教直接效果和已接入的宽容度来源。税收接入固定增量 `tax_income`、省份 `local_tax_modifier` 与所有者 `global_tax_modifier`；人力接入省份 `local_manpower_modifier` 与所有者 `global_manpower_modifier`。其他静态修正仍只是目录声明，未根据其名称自动生效。建筑保留条件尚未执行，参与计算的建筑仍是历史载入结果。
 
-文化组从本地定义读取，接受文化的增删按所选历史日期处理，文化联盟按已接入的国家等级规则初始化。主文化、接受文化及联盟接受的文化不应用基础文化惩罚；同组和异组的未接受文化分别选择 `same_culture_group`、`non_accepted_culture` 中的数值。宗教只自动应用当前国教的 `country` 块和省份宗教的 `province` 块中已支持的属性；兼容入口不将次要宗教、转换回调或宽容度声明直接当成税收效果。`report.attributes.religion_definitions` 给出已确定的宗教定义数量；定义和属性重复时保留来源与缺项。
+文化组从本地定义读取，接受文化的增删按所选历史日期处理，文化联盟按已接入的国家等级规则初始化。主文化、接受文化及联盟接受的文化不应用基础文化惩罚；同组和异组的未接受文化分别选择 `same_culture_group`、`non_accepted_culture` 中的数值。宽容度从 `base_values`、当前国教直接效果、已选政体改革、合法性、理念、阶层、运行修正和宗教派别计算；省份与国教的关系决定采用本国、异端或异教宽容度。正负宽容度分别按 `tolerance` 和 `intolerance` 静态定义缩放，当前接入税收与人力修正。科技、其他尚未绑定的来源以及 `trade_goods_size_modifier` 仍保留未决，不把部分宽容度当成完整税收或生产结果。宗教直接效果只应用当前国教的 `country` 块和省份宗教的 `province` 块中已支持的属性；不自动应用次要宗教或转换回调。`report.attributes.religion_definitions` 给出已确定的宗教定义数量；定义和属性重复时保留来源与缺项。
 
 每条计算返回基础值、各阶段的固定增量、比例之和、输出与贡献来源。数值均使用百万分位整数；`known_subtotal_micros` 是已接入部分的结果，`unresolved` 列出缺项。只要存在缺项，`value_micros` 就是 `null`。基础值未知时，已知部分结果也为 `null`。国家查询的 `province_attribute_totals` 按当前所有权汇总省份贡献，同时保留缺项；尚有省份归属未确定时，只给出已知领土的小计，完整总量保持未知，明确无主的省份不会造成这一缺项。它不包含国家固定人力等尚未接入的来源。
 

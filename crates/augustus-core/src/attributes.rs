@@ -52,6 +52,13 @@ pub(crate) fn validate_attribute_condition(condition: &Condition) -> Result<(), 
 
 type ResolvedContributions = (Vec<(String, String, i64)>, bool);
 
+struct ProductSpec<'a> {
+    source: &'a str,
+    factors: &'a [Vec<AttributeTerm>],
+    quantum_micros: i64,
+    subtract_baseline: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AttributeBase {
@@ -89,6 +96,12 @@ pub enum AttributeTerm {
     ClampMinimum {
         source: String,
         minimum_micros: i64,
+        term: Box<AttributeTerm>,
+    },
+    /// Keep a subexpression at or below a ceiling while retaining its inputs.
+    ClampMaximum {
+        source: String,
+        maximum_micros: i64,
         term: Box<AttributeTerm>,
     },
     Conditional {
@@ -139,6 +152,12 @@ pub enum AttributeTerm {
         factors: Vec<Vec<AttributeTerm>>,
         quantum_micros: i64,
     },
+    /// Multiply the sum of each factor group without a baseline offset.
+    Product {
+        source: String,
+        factors: Vec<Vec<AttributeTerm>>,
+        quantum_micros: i64,
+    },
     Metrics {
         target: Target,
         property: String,
@@ -168,6 +187,12 @@ pub enum AttributeTerm {
         target: Target,
         definitions: BTreeMap<AffiliationRelation, String>,
         property: String,
+    },
+    /// Select a set of terms from the live affiliation relation.
+    AffiliationTerms {
+        dimension: String,
+        target: Target,
+        cases: BTreeMap<AffiliationRelation, Vec<AttributeTerm>>,
     },
     AffiliationModifiers {
         dimension: String,
@@ -678,6 +703,31 @@ impl Attributes {
                 }
                 return Ok((values, known));
             }
+            AttributeTerm::ClampMaximum {
+                source,
+                maximum_micros,
+                term,
+            } => {
+                if source.is_empty() {
+                    return Err(Error::Invalid("invalid attribute maximum clamp".into()));
+                }
+                let (contributions, known) =
+                    self.resolve(world, entity, term, unresolved, depth + 1)?;
+                let mut total = 0_i128;
+                for (source, property, micros) in contributions {
+                    total = total
+                        .checked_add(i128::from(micros))
+                        .ok_or(Error::Overflow)?;
+                    values.push((source, property, micros));
+                }
+                let adjustment = i128::from(*maximum_micros)
+                    .checked_sub(total)
+                    .ok_or(Error::Overflow)?;
+                if adjustment < 0 {
+                    values.push((source.clone(), "maximum_clamp".into(), narrow(adjustment)?));
+                }
+                return Ok((values, known));
+            }
             AttributeTerm::Conditional {
                 condition,
                 then,
@@ -765,44 +815,36 @@ impl Attributes {
                 factors,
                 quantum_micros,
             } => {
-                if source.is_empty()
-                    || *quantum_micros <= 0
-                    || factors.len() < 2
-                    || factors.iter().any(Vec::is_empty)
-                {
-                    return Err(Error::Invalid("invalid attribute product group".into()));
-                }
-                let mut known = true;
-                let mut input_total = 0_i128;
-                let mut factor_totals = Vec::with_capacity(factors.len());
-                for factor in factors {
-                    let mut factor_total = 0_i128;
-                    for term in factor {
-                        let (contributions, complete) =
-                            self.resolve(world, entity, term, unresolved, depth + 1)?;
-                        known &= complete;
-                        for contribution in contributions {
-                            factor_total = factor_total
-                                .checked_add(i128::from(contribution.2))
-                                .ok_or(Error::Overflow)?;
-                            input_total = input_total
-                                .checked_add(i128::from(contribution.2))
-                                .ok_or(Error::Overflow)?;
-                            values.push(contribution);
-                        }
-                    }
-                    factor_totals.push(factor_total);
-                }
-                let mut product = factor_totals[0];
-                for factor in &factor_totals[1..] {
-                    product = product.checked_mul(*factor).ok_or(Error::Overflow)? / ONE;
-                }
-                let quantum = i128::from(*quantum_micros);
-                let product = product / quantum * quantum;
-                let relative_rate = product.checked_sub(ONE).ok_or(Error::Overflow)?;
-                let adjustment = narrow(relative_rate - input_total)?;
-                values.push((source.clone(), "composition_adjustment".into(), adjustment));
-                return Ok((values, known));
+                return self.resolve_product(
+                    world,
+                    entity,
+                    ProductSpec {
+                        source,
+                        factors,
+                        quantum_micros: *quantum_micros,
+                        subtract_baseline: true,
+                    },
+                    unresolved,
+                    depth,
+                );
+            }
+            AttributeTerm::Product {
+                source,
+                factors,
+                quantum_micros,
+            } => {
+                return self.resolve_product(
+                    world,
+                    entity,
+                    ProductSpec {
+                        source,
+                        factors,
+                        quantum_micros: *quantum_micros,
+                        subtract_baseline: false,
+                    },
+                    unresolved,
+                    depth,
+                );
             }
             AttributeTerm::RulerSkill {
                 target,
@@ -1022,6 +1064,32 @@ impl Attributes {
                     unresolved.insert(format!("affiliation:{dimension}:unknown_relation"));
                 }
             }
+            AttributeTerm::AffiliationTerms {
+                dimension,
+                target,
+                cases,
+            } => {
+                let Some(other) = attribute_target(world, entity, *target)? else {
+                    unresolved.insert(format!("target:{target:?}:unknown"));
+                    return Ok((values, false));
+                };
+                let Some(relation) = world.affiliations().relation(dimension, entity, other) else {
+                    unresolved.insert(format!("affiliation:{dimension}:unknown_relation"));
+                    return Ok((values, false));
+                };
+                let Some(selected) = cases.get(&relation) else {
+                    unresolved.insert(format!("affiliation:{dimension}:unmapped_relation"));
+                    return Ok((values, false));
+                };
+                let mut known = true;
+                for term in selected {
+                    let (contributions, complete) =
+                        self.resolve(world, entity, term, unresolved, depth + 1)?;
+                    known &= complete;
+                    values.extend(contributions);
+                }
+                return Ok((values, known));
+            }
             AttributeTerm::AffiliationModifiers {
                 dimension,
                 target,
@@ -1227,6 +1295,61 @@ impl Attributes {
         Ok((values, true))
     }
 
+    fn resolve_product(
+        &self,
+        world: &World,
+        entity: EntityId,
+        spec: ProductSpec<'_>,
+        unresolved: &mut BTreeSet<String>,
+        depth: usize,
+    ) -> Result<ResolvedContributions, Error> {
+        if spec.source.is_empty()
+            || spec.quantum_micros <= 0
+            || spec.factors.len() < 2
+            || spec.factors.iter().any(Vec::is_empty)
+        {
+            return Err(Error::Invalid("invalid attribute product group".into()));
+        }
+        let mut values = Vec::new();
+        let mut known = true;
+        let mut input_total = 0_i128;
+        let mut factor_totals = Vec::with_capacity(spec.factors.len());
+        for factor in spec.factors {
+            let mut factor_total = 0_i128;
+            for term in factor {
+                let (contributions, complete) =
+                    self.resolve(world, entity, term, unresolved, depth + 1)?;
+                known &= complete;
+                for contribution in contributions {
+                    factor_total = factor_total
+                        .checked_add(i128::from(contribution.2))
+                        .ok_or(Error::Overflow)?;
+                    input_total = input_total
+                        .checked_add(i128::from(contribution.2))
+                        .ok_or(Error::Overflow)?;
+                    values.push(contribution);
+                }
+            }
+            factor_totals.push(factor_total);
+        }
+        let mut product = factor_totals[0];
+        for factor in &factor_totals[1..] {
+            product = product.checked_mul(*factor).ok_or(Error::Overflow)? / ONE;
+        }
+        let quantum = i128::from(spec.quantum_micros);
+        product = product / quantum * quantum;
+        if spec.subtract_baseline {
+            product = product.checked_sub(ONE).ok_or(Error::Overflow)?;
+        }
+        let adjustment = narrow(product - input_total)?;
+        values.push((
+            spec.source.into(),
+            "composition_adjustment".into(),
+            adjustment,
+        ));
+        Ok((values, known))
+    }
+
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
         for (name, definitions) in &self.administration_mappings {
             if name.is_empty() || definitions.values().any(String::is_empty) {
@@ -1346,6 +1469,10 @@ impl Attributes {
                             terms.push((term, is_rate));
                             !source.is_empty()
                         }
+                        AttributeTerm::ClampMaximum { source, term, .. } => {
+                            terms.push((term, is_rate));
+                            !source.is_empty()
+                        }
                         AttributeTerm::Conditional {
                             condition,
                             then,
@@ -1381,6 +1508,17 @@ impl Attributes {
                                 && factors.len() >= 2
                                 && factors.iter().all(|factor| !factor.is_empty())
                         }
+                        AttributeTerm::Product {
+                            source,
+                            factors,
+                            quantum_micros,
+                        } => {
+                            terms.extend(factors.iter().flatten().map(|term| (term, is_rate)));
+                            !source.is_empty()
+                                && *quantum_micros > 0
+                                && factors.len() >= 2
+                                && factors.iter().all(|factor| !factor.is_empty())
+                        }
                         AttributeTerm::RulerSkill { .. }
                         | AttributeTerm::NationalFocus { .. }
                         | AttributeTerm::AdvisorSkill { .. } => true,
@@ -1398,6 +1536,14 @@ impl Attributes {
                             !dimension.is_empty()
                                 && !property.is_empty()
                                 && definitions.values().all(|s| !s.is_empty())
+                        }
+                        AttributeTerm::AffiliationTerms {
+                            dimension, cases, ..
+                        } => {
+                            terms.extend(cases.values().flatten().map(|term| (term, is_rate)));
+                            !dimension.is_empty()
+                                && !cases.is_empty()
+                                && cases.values().all(|terms| !terms.is_empty())
                         }
                         AttributeTerm::AffiliationModifiers {
                             dimension,

@@ -1104,9 +1104,12 @@ fn religion_scopes_apply_direct_effects_without_secondary_or_tolerance_shortcuts
             .definition_sources
             .contains_key("religions:test_faith:province")
     );
-    assert_eq!(
-        loaded.report.attributes.unmapped_properties["religions.country:tolerance_heathen"],
-        1
+    assert!(
+        !loaded
+            .report
+            .attributes
+            .unmapped_properties
+            .contains_key("religions.country:tolerance_heathen")
     );
     let mut world = loaded.initial.world().clone();
     let beta = loaded.initial.country_entity("BBB").unwrap();
@@ -1127,6 +1130,125 @@ fn religion_scopes_apply_direct_effects_without_secondary_or_tolerance_shortcuts
             .known_subtotal_micros,
         Some(781_000)
     );
+}
+
+#[test]
+fn religious_tolerance_scales_base_and_legitimacy_by_live_religion_relation() {
+    let temp = copy_fixture();
+    let static_dir = temp.path().join("common/static_modifiers");
+    let modifier_path = static_dir.join("test_governments.txt");
+    let source = fs::read_to_string(&modifier_path).unwrap();
+    let revised = source.replace(
+        "legitimacy = { test_authority = 0.75 }",
+        "legitimacy = { test_authority = 0.75 tolerance_heathen = 2 }",
+    );
+    assert_ne!(source, revised);
+    fs::write(modifier_path, revised).unwrap();
+
+    let base_values_path = static_dir.join("test_static.txt");
+    let base_values_source = fs::read_to_string(&base_values_path).unwrap();
+    let base_values_revised = base_values_source.replace(
+        "base_values = { global_manpower = 8 }",
+        "base_values = { global_manpower = 8 tolerance_own = 3 tolerance_heretic = -2 tolerance_heathen = -3 }",
+    );
+    assert_ne!(base_values_source, base_values_revised);
+    fs::write(base_values_path, base_values_revised).unwrap();
+
+    let effects_path = static_dir.join("religious_tolerance.txt");
+    let write_effects = |tolerance_tax: &str, intolerance_tax: &str| {
+        fs::write(
+            &effects_path,
+            format!(
+                "tolerance = {{ local_tax_modifier = {tolerance_tax} }}\n\
+                 intolerance = {{ local_tax_modifier = {intolerance_tax} }}\n"
+            ),
+        )
+        .unwrap();
+    };
+    write_effects("0", "0");
+
+    fs::write(
+        temp.path().join("common/religions/religious_tolerance.txt"),
+        "christian = { state_faith = { country = { tolerance_own = 1 tolerance_heathen = 0.5 } } heretic_faith = {} } heathen = { heathen_faith = {} }",
+    )
+    .unwrap();
+    let country_history = temp.path().join("history/countries/BBB - Beta.txt");
+    fs::create_dir_all(country_history.parent().unwrap()).unwrap();
+    fs::write(
+        &country_history,
+        "government = monarchy capital = 1 primary_culture = beta religion = state_faith",
+    )
+    .unwrap();
+    let province_history = temp.path().join("history/provinces/1 - North.txt");
+    let province_source = fs::read_to_string(&province_history).unwrap();
+
+    let set_province_religion = |religion: &str| {
+        let updated =
+            province_source.replace("religion = test_faith", &format!("religion = {religion}"));
+        assert_ne!(province_source, updated);
+        fs::write(&province_history, updated).unwrap();
+    };
+    let load = || VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let tax_rate = |loaded: &VanillaWorld| {
+        loaded.province(1).unwrap().attributes["tax_basis"].steps[0].rate_micros
+    };
+
+    set_province_religion("heathen_faith");
+    let heathen_baseline = tax_rate(&load());
+    write_effects("0.05", "0.1");
+    let heathen = load();
+    let country_entity = heathen.initial.country_entity("BBB").unwrap();
+    let country_tolerance = heathen
+        .initial
+        .world()
+        .attributes()
+        .evaluate(heathen.initial.world(), country_entity, "tolerance_heathen")
+        .unwrap();
+    assert_eq!(
+        tax_rate(&heathen) - heathen_baseline,
+        -150_000,
+        "tolerance effects must use the current province and owner religions"
+    );
+    assert_eq!(country_tolerance.known_subtotal_micros, Some(-1_500_000));
+    assert!(country_tolerance.value_micros.is_none());
+
+    set_province_religion("heretic_faith");
+    write_effects("0", "0");
+    let heretic_baseline = tax_rate(&load());
+    write_effects("0.05", "0.1");
+    let heretic = load();
+    let heretic_country = heretic.initial.country_entity("BBB").unwrap();
+    let heretic_province = heretic.initial.province_entity(1).unwrap();
+    assert_eq!(
+        heretic.initial.world().affiliations().relation(
+            "religion",
+            heretic_province,
+            heretic_country,
+        ),
+        Some(augustus_core::AffiliationRelation::SameGroup)
+    );
+    assert_eq!(
+        heretic
+            .initial
+            .world()
+            .attributes()
+            .evaluate(
+                heretic.initial.world(),
+                heretic_country,
+                "tolerance_heretic",
+            )
+            .unwrap()
+            .known_subtotal_micros,
+        Some(-2_000_000)
+    );
+    assert_eq!(tax_rate(&heretic) - heretic_baseline, -200_000);
+
+    set_province_religion("state_faith");
+    write_effects("0", "0");
+    let own_baseline = tax_rate(&load());
+    write_effects("0.05", "0.1");
+    let own = load();
+    assert_eq!(tax_rate(&own) - own_baseline, 200_000);
 }
 
 #[test]
