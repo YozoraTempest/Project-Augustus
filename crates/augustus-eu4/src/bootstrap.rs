@@ -677,6 +677,10 @@ pub struct VanillaExternalState {
     /// reader. An omitted province or value remains content-derived.
     #[serde(default)]
     pub province_development: BTreeMap<u32, VanillaExternalProvinceDevelopment>,
+    /// Current province metric values supplied by a save reader. Omitted
+    /// provinces and metric names keep their content-derived state.
+    #[serde(default)]
+    pub province_metric_values: BTreeMap<u32, BTreeMap<String, Option<i64>>>,
     /// Current city status supplied by a save reader. An omitted province
     /// remains unknown; `Some(false)` preserves an explicit non-city state.
     #[serde(default)]
@@ -799,6 +803,7 @@ struct LoadOverrides<'a> {
     province_religions: Option<&'a BTreeMap<u32, Option<String>>>,
     province_controllers: Option<&'a BTreeMap<u32, Option<String>>>,
     province_development: Option<&'a BTreeMap<u32, VanillaExternalProvinceDevelopment>>,
+    province_metric_values: Option<&'a BTreeMap<u32, BTreeMap<String, Option<i64>>>>,
     province_is_city: Option<&'a BTreeMap<u32, Option<bool>>>,
     province_in_empire: Option<&'a BTreeMap<u32, Option<bool>>>,
     province_mothball_status: Option<&'a BTreeMap<u32, u8>>,
@@ -898,6 +903,8 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.province_controllers),
             province_development: (!state.province_development.is_empty())
                 .then_some(&state.province_development),
+            province_metric_values: (!state.province_metric_values.is_empty())
+                .then_some(&state.province_metric_values),
             province_is_city: (!state.province_is_city.is_empty())
                 .then_some(&state.province_is_city),
             province_in_empire: (!state.province_in_empire.is_empty())
@@ -1105,6 +1112,10 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
     overlay_province_development(
         &mut base.province_development,
         &overlay.province_development,
+    );
+    overlay_nested_map(
+        &mut base.province_metric_values,
+        &overlay.province_metric_values,
     );
     base.province_is_city
         .extend(overlay.province_is_city.clone());
@@ -1526,6 +1537,30 @@ fn bind_external_country_metrics(
             .map_err(|e| Error::caused_by("external country metric ceilings", e))?;
     }
     Ok(())
+}
+
+fn bind_external_province_metrics(
+    initial: &mut InitialWorld,
+    values: Option<&BTreeMap<u32, BTreeMap<String, Option<i64>>>>,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let bound = values
+        .iter()
+        .map(|(province, metrics)| {
+            let entity = initial.province_entity(*province).ok_or_else(|| {
+                Error::message(
+                    "external province metrics",
+                    format!("unknown EU4 metric province {province}"),
+                )
+            })?;
+            Ok((entity, metrics.clone()))
+        })
+        .collect::<Result<BTreeMap<_, _>, Error>>()?;
+    initial
+        .set_metric_values(bound)
+        .map_err(|e| Error::caused_by("external province metrics", e))
 }
 
 fn bind_province_discoveries(
@@ -3811,6 +3846,7 @@ impl VanillaWorld {
             overrides.country_metric_values,
             overrides.country_metric_ceilings,
         )?;
+        bind_external_province_metrics(&mut initial, overrides.province_metric_values)?;
         apply_historical_prestige_deltas(
             &mut initial,
             &historical_prestige_deltas,
@@ -4420,6 +4456,7 @@ impl VanillaWorld {
                 overrides.country_metric_values,
                 overrides.country_metric_ceilings,
             )?;
+            bind_external_province_metrics(&mut initial, overrides.province_metric_values)?;
             bind_external_province_in_empire(&mut initial, overrides.province_in_empire)?;
         }
         bind_external_country_persons(&mut initial, overrides.country_persons)?;

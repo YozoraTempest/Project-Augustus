@@ -1325,6 +1325,50 @@ fn religious_tolerance_scales_base_and_legitimacy_by_live_religion_relation() {
 }
 
 #[test]
+fn devastation_scales_trade_goods_size_before_quantity_calculation() {
+    let temp = copy_fixture();
+    let static_path = temp.path().join("common/static_modifiers/test_static.txt");
+    let source = fs::read_to_string(&static_path).unwrap();
+    let revised = source.replace(
+        "devastation = { local_manpower_modifier = -1 }",
+        "devastation = { local_manpower_modifier = -1 trade_goods_size_modifier = -2 }",
+    );
+    assert_ne!(source, revised);
+    fs::write(static_path, revised).unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let province = loaded.initial.province_entity(1).unwrap();
+    let mut world = loaded.initial.world().clone();
+    let mut metrics = world.metrics().clone();
+    metrics
+        .entities
+        .entry(province)
+        .or_default()
+        .insert("devastation".into(), Some(25_000));
+    world.set_metrics(metrics).unwrap();
+
+    let modifier = world
+        .attributes()
+        .evaluate(&world, province, "trade_goods_size_modifier")
+        .unwrap();
+    assert_eq!(modifier.known_subtotal_micros, Some(-500_000));
+    assert!(modifier.value_micros.is_none());
+
+    let quantity = augustus_core::calculate_vanilla_trade_goods_size(
+        augustus_core::VanillaTradeGoodsSizeInput {
+            province_base_milli: 1_000,
+            trade_good_base_milli: 0,
+            external_base_milli: 0,
+            province_modifier_milli: i32::try_from(modifier.known_subtotal_micros.unwrap() / 1_000)
+                .unwrap(),
+            trade_good_modifier_milli: 0,
+            external_modifier_milli: 0,
+        },
+    );
+    assert_eq!(quantity.quantity_milli, 500);
+}
+
+#[test]
 fn ambiguous_religion_effects_and_unknown_culture_members_remain_unresolved() {
     let temp = copy_fixture();
     fs::write(temp.path().join("common/religions/test.txt"), "group = { test_faith = { country = { global_tax_modifier = 0.1 global_tax_modifier = 0.2 } } }").unwrap();

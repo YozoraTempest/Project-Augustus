@@ -484,6 +484,24 @@ impl VanillaSaveState {
             }
         }
 
+        for (province, values) in &self.external_state.province_metric_values {
+            if world.initial.province_entity(*province).is_none() {
+                continue;
+            }
+            let filtered = values
+                .iter()
+                .filter(|(name, _)| {
+                    definitions.get(name.as_str()).is_some_and(|definition| {
+                        definition.kind == augustus_core::EntityKind::Province
+                    })
+                })
+                .map(|(name, value)| (name.clone(), *value))
+                .collect::<BTreeMap<_, _>>();
+            if !filtered.is_empty() {
+                state.province_metric_values.insert(*province, filtered);
+            }
+        }
+
         for (province, owner) in &self.external_state.province_owners {
             if world.initial.province_entity(*province).is_none() {
                 continue;
@@ -1592,6 +1610,19 @@ fn read_vanilla_save_state_inner(
             base_production_milli: optional_milli(&parsed, &province, "base_production")?,
             base_manpower_milli: optional_milli(&parsed, &province, "base_manpower")?,
         };
+        if let Some(devastation) = optional_milli(&parsed, &province, "devastation")? {
+            if !(0..=100_000).contains(&devastation) {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("province {id} has saved devastation outside 0..100"),
+                ));
+            }
+            external_state
+                .province_metric_values
+                .entry(id)
+                .or_default()
+                .insert("devastation".into(), Some(devastation));
+        }
         if development.base_tax_milli.is_some_and(|value| value < 0)
             || development
                 .base_production_milli
@@ -3824,6 +3855,7 @@ provinces={
         base_tax=12.345
         base_production=7.890
         base_manpower=4.250
+        devastation=12.345
         mothball_status=0
     }
     -2={
@@ -3863,6 +3895,11 @@ provinces={
             Some(4_250)
         );
         assert!(save.external_state.province_development.contains_key(&999));
+        assert_eq!(
+            save.external_state.province_metric_values[&1]["devastation"],
+            Some(12_345)
+        );
+        assert!(!save.external_state.province_metric_values.contains_key(&2));
         assert_eq!(save.external_state.province_mothball_status[&1], 0);
         assert_eq!(save.external_state.province_mothball_status[&2], 1);
         assert_eq!(save.external_state.province_mothball_status[&3], 2);
@@ -3904,6 +3941,12 @@ provinces={
             Some("AAA")
         );
         let (_, filtered) = save.for_world(&baseline).unwrap();
+        assert_eq!(
+            filtered.province_metric_values[&1]["devastation"],
+            Some(12_345)
+        );
+        assert!(!filtered.province_metric_values.contains_key(&2));
+        assert!(!filtered.province_metric_values.contains_key(&999));
         assert_eq!(filtered.province_controllers[&1].as_deref(), Some("AAA"));
         assert!(filtered.province_controllers.contains_key(&2));
         assert_eq!(filtered.province_controllers[&2], None);
@@ -3936,6 +3979,31 @@ provinces={
         );
         assert_eq!(loaded.initial.province(2).unwrap().controller, None);
         assert!(loaded.initial.province(999).is_none());
+        let province_one = loaded.initial.province_entity(1).unwrap();
+        assert_eq!(
+            loaded.initial.world().metrics().entities[&province_one]["devastation"],
+            Some(12_345)
+        );
+        let province_two = loaded.initial.province_entity(2).unwrap();
+        let baseline_devastation = baseline
+            .initial
+            .world()
+            .metrics()
+            .entities
+            .get(&province_two)
+            .and_then(|metrics| metrics.get("devastation"))
+            .copied();
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .metrics()
+                .entities
+                .get(&province_two)
+                .and_then(|metrics| metrics.get("devastation"))
+                .copied(),
+            baseline_devastation
+        );
 
         let unknown_controller_path = directory.path().join("unknown-controller.eu4");
         std::fs::write(
@@ -3969,6 +4037,32 @@ provinces={
         )
         .unwrap();
         assert_eq!(loaded.initial.province(2).unwrap().controller, None);
+    }
+
+    #[test]
+    fn rejects_saved_devastation_outside_supported_range() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("invalid-devastation.eu4");
+        std::fs::write(
+            &path,
+            r#"EU4txt
+date=1444.11.11
+countries={ AAA={ human=yes } }
+provinces={
+    -1={ devastation=100.001 }
+}
+"#,
+        )
+        .unwrap();
+
+        let error = read_vanilla_save_state(&path).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("saved devastation outside 0..100"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
@@ -4812,6 +4906,37 @@ trade={
                 base_production_milli: Some(8_000),
                 base_manpower_milli: Some(3_000),
             }
+        );
+    }
+
+    #[test]
+    fn external_province_metric_overlay_merges_by_name() {
+        let mut base = crate::VanillaExternalState {
+            province_metric_values: BTreeMap::from([(
+                1,
+                BTreeMap::from([
+                    ("devastation".into(), Some(10_000)),
+                    ("prosperity".into(), Some(20_000)),
+                ]),
+            )]),
+            ..Default::default()
+        };
+        let overlay = crate::VanillaExternalState {
+            province_metric_values: BTreeMap::from([(
+                1,
+                BTreeMap::from([("devastation".into(), Some(25_000))]),
+            )]),
+            ..Default::default()
+        };
+
+        base.apply_overlay(&overlay);
+
+        assert_eq!(
+            base.province_metric_values[&1],
+            BTreeMap::from([
+                ("devastation".into(), Some(25_000)),
+                ("prosperity".into(), Some(20_000)),
+            ])
         );
     }
 

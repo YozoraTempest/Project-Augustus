@@ -303,6 +303,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         province_religions: Default::default(),
         province_controllers: Default::default(),
         province_development: Default::default(),
+        province_metric_values: Default::default(),
         province_is_city: Default::default(),
         province_in_empire: Default::default(),
         province_mothball_status: Default::default(),
