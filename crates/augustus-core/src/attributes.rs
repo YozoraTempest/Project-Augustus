@@ -217,6 +217,15 @@ pub enum AttributeTerm {
         affiliation_dimension: String,
         affiliation_member: String,
     },
+    /// Apply a static modifier once for each country whose capital belongs to
+    /// the selected affiliation and which has not selected the excluded reform.
+    CountedCapitalStaticModifier {
+        definition: String,
+        property: String,
+        excluded_reform: String,
+        affiliation_dimension: String,
+        affiliation_member: String,
+    },
     Buildings {
         property: String,
     },
@@ -379,6 +388,68 @@ fn count_reform_members(
                 unresolved.insert(format!(
                     "{reform}:unknown_selection:{}:{error}",
                     world.entity(country)?.name
+                ));
+            }
+        }
+    }
+    Ok((count, complete))
+}
+
+fn count_capitals_without_reform(
+    world: &World,
+    excluded_reform: &str,
+    dimension: &str,
+    member: &str,
+    unresolved: &mut BTreeSet<String>,
+) -> Result<(i64, bool), Error> {
+    let mut count = 0_i64;
+    let mut complete = true;
+    for (index, country) in world.entities().iter().enumerate() {
+        if country.kind != EntityKind::Country {
+            continue;
+        }
+        let country_id = EntityId(index);
+        let Some(capital) = country.capital else {
+            let known_absent = world
+                .known_absent_targets
+                .get(&country_id)
+                .is_some_and(|targets| targets.contains(&Target::Capital));
+            if !known_absent {
+                complete = false;
+                unresolved.insert(format!(
+                    "{dimension}:{member}:unknown_capital:{}",
+                    country.name
+                ));
+            }
+            continue;
+        };
+        let capital_state = world.entity(capital)?;
+        if capital_state.kind != EntityKind::Province || capital_state.owner != Some(country_id) {
+            return Err(Error::Invalid(format!(
+                "country {} has an invalid capital relation",
+                country.name
+            )));
+        }
+        match world.affiliations().belongs_to(dimension, capital, member) {
+            Some(false) => continue,
+            Some(true) => {}
+            None => {
+                complete = false;
+                unresolved.insert(format!(
+                    "{dimension}:{member}:unknown_capital_membership:{}",
+                    country.name
+                ));
+                continue;
+            }
+        }
+        match world.government_reform_selected(country_id, excluded_reform) {
+            Ok(true) => {}
+            Ok(false) => count = count.checked_add(1).ok_or(Error::Overflow)?,
+            Err(error) => {
+                complete = false;
+                unresolved.insert(format!(
+                    "{excluded_reform}:unknown_selection:{}:{error}",
+                    country.name
                 ));
             }
         }
@@ -1212,6 +1283,43 @@ impl Attributes {
                 ));
                 return Ok((values, complete));
             }
+            AttributeTerm::CountedCapitalStaticModifier {
+                definition,
+                property,
+                excluded_reform,
+                affiliation_dimension,
+                affiliation_member,
+            } => {
+                if world.entity(entity)?.kind != EntityKind::Country {
+                    return Err(Error::Invalid(
+                        "counted capital static modifier requires a country attribute".into(),
+                    ));
+                }
+                let data = self
+                    .static_modifiers
+                    .get(definition)
+                    .ok_or_else(|| Error::Invalid("unknown static attribute source".into()))?;
+                if data.flags.contains_key(property) {
+                    return Err(Error::Invalid(format!(
+                        "attribute requires numeric property {property}"
+                    )));
+                }
+                let per_country = data.values_micros.get(property).copied().unwrap_or(0);
+                let (count, complete) = count_capitals_without_reform(
+                    world,
+                    excluded_reform,
+                    affiliation_dimension,
+                    affiliation_member,
+                    unresolved,
+                )?;
+                let value = narrow(i128::from(per_country) * i128::from(count))?;
+                values.push((
+                    format!("static:{definition}:counted_by_capital_without:{excluded_reform}"),
+                    property.clone(),
+                    value,
+                ));
+                return Ok((values, complete));
+            }
             AttributeTerm::Buildings { property } => {
                 if let Some(state) = world.economy().provinces.get(&entity) {
                     for name in &state.buildings {
@@ -1570,6 +1678,24 @@ impl Attributes {
                                 && world.entity(entity)?.kind == EntityKind::Country
                                 && !property.is_empty()
                                 && !reform.is_empty()
+                                && !affiliation_dimension.is_empty()
+                                && !affiliation_member.is_empty()
+                                && self
+                                    .static_modifiers
+                                    .get(definition)
+                                    .is_some_and(|data| data.values_micros.contains_key(property))
+                        }
+                        AttributeTerm::CountedCapitalStaticModifier {
+                            definition,
+                            property,
+                            excluded_reform,
+                            affiliation_dimension,
+                            affiliation_member,
+                        } => {
+                            !is_rate
+                                && world.entity(entity)?.kind == EntityKind::Country
+                                && !property.is_empty()
+                                && !excluded_reform.is_empty()
                                 && !affiliation_dimension.is_empty()
                                 && !affiliation_member.is_empty()
                                 && self

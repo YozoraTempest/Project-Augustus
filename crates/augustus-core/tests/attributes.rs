@@ -386,6 +386,185 @@ fn counted_static_country_tax_keeps_unknown_reform_or_membership_unresolved() {
 }
 
 #[test]
+fn counted_capital_static_modifier_uses_capital_membership_and_excludes_free_cities() {
+    let mut world = World::new(Schema::new(["base"]).unwrap());
+    let emperor = world.add_entity("Emperor", EntityKind::Country);
+    let member = world.add_entity("Member", EntityKind::Country);
+    let free_city = world.add_entity("Free City", EntityKind::Country);
+    let outside = world.add_entity("Outside", EntityKind::Country);
+    let uncertain = world.add_entity("Uncertain", EntityKind::Country);
+    let emperor_capital = world.add_entity("Emperor Capital", EntityKind::Province);
+    let member_capital = world.add_entity("Member Capital", EntityKind::Province);
+    let free_city_capital = world.add_entity("Free City Capital", EntityKind::Province);
+    let outside_capital = world.add_entity("Outside Capital", EntityKind::Province);
+    let outside_hre_province = world.add_entity("Outside HRE Province", EntityKind::Province);
+    let uncertain_capital = world.add_entity("Uncertain Capital", EntityKind::Province);
+
+    for (country, province) in [
+        (emperor, emperor_capital),
+        (member, member_capital),
+        (free_city, free_city_capital),
+        (outside, outside_capital),
+        (outside, outside_hre_province),
+        (uncertain, uncertain_capital),
+    ] {
+        world.set_owner(province, country).unwrap();
+    }
+    for (country, capital) in [
+        (emperor, emperor_capital),
+        (member, member_capital),
+        (free_city, free_city_capital),
+        (outside, outside_capital),
+        (uncertain, uncertain_capital),
+    ] {
+        world.set_capital(country, capital).unwrap();
+    }
+
+    let free_city_reforms: BTreeSet<String> = ["free_city".into()].into_iter().collect();
+    world
+        .set_governments(Governments {
+            reforms: [("free_city".into(), GovernmentReform::default())]
+                .into_iter()
+                .collect(),
+            countries: [
+                (
+                    emperor,
+                    GovernmentState {
+                        reforms: Some(BTreeSet::new()),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    member,
+                    GovernmentState {
+                        reforms: Some(BTreeSet::new()),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    free_city,
+                    GovernmentState {
+                        reforms: Some(free_city_reforms),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    outside,
+                    GovernmentState {
+                        reforms: Some(BTreeSet::new()),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    uncertain,
+                    GovernmentState {
+                        reforms: Some(BTreeSet::new()),
+                        ..Default::default()
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            ..Governments::default()
+        })
+        .unwrap();
+
+    let mut imperial = AffiliationDimension::default();
+    imperial.groups.insert("hre".into(), None);
+    for province in [
+        emperor_capital,
+        member_capital,
+        free_city_capital,
+        outside_hre_province,
+    ] {
+        imperial.members.insert(province, Some("hre".into()));
+    }
+    imperial.absent_members.insert(outside_capital);
+    imperial.members.insert(uncertain_capital, None);
+    world
+        .set_affiliations(Affiliations(
+            [("imperial_membership".into(), imperial)]
+                .into_iter()
+                .collect(),
+        ))
+        .unwrap();
+    world
+        .set_politics(Politics {
+            offices: [("imperial_emperor".into(), emperor)].into_iter().collect(),
+            ..Politics::default()
+        })
+        .unwrap();
+
+    let mut force_limit = formula(AttributeBase::Constant { micros: 0 });
+    force_limit.channels.push(AttributeChannel {
+        flat: vec![AttributeTerm::OfficeScoped {
+            office: "imperial_emperor".into(),
+            term: Box::new(AttributeTerm::CountedCapitalStaticModifier {
+                definition: "states_in_hre".into(),
+                property: "land_forcelimit".into(),
+                excluded_reform: "free_city".into(),
+                affiliation_dimension: "imperial_membership".into(),
+                affiliation_member: "hre".into(),
+            }),
+        }],
+        rates: Vec::new(),
+    });
+    world
+        .set_attributes(Attributes {
+            static_modifiers: [(
+                "states_in_hre".into(),
+                ModifierDefinition {
+                    values_micros: [("land_forcelimit".into(), 500_000)].into_iter().collect(),
+                    flags: BTreeMap::new(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+            formulas: [(
+                emperor,
+                [("country_land_forcelimit_flat".into(), force_limit)]
+                    .into_iter()
+                    .collect(),
+            )]
+            .into_iter()
+            .collect(),
+            ..Attributes::default()
+        })
+        .unwrap();
+
+    let unknown_membership = world
+        .attributes()
+        .evaluate(&world, emperor, "country_land_forcelimit_flat")
+        .unwrap();
+    assert_eq!(unknown_membership.value_micros, None);
+    assert!(unknown_membership.unresolved.iter().any(|reason| {
+        reason.contains("imperial_membership:hre:unknown_capital_membership:Uncertain")
+    }));
+
+    world
+        .set_affiliation_member(uncertain_capital, "imperial_membership", Some("hre"))
+        .unwrap();
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(&world, emperor, "country_land_forcelimit_flat")
+            .unwrap()
+            .value_micros,
+        Some(1_500_000)
+    );
+
+    world.set_capital(outside, outside_hre_province).unwrap();
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(&world, emperor, "country_land_forcelimit_flat")
+            .unwrap()
+            .value_micros,
+        Some(2_000_000)
+    );
+}
+
+#[test]
 fn unknown_ownership_preserves_known_subtotals_without_declaring_complete_income() {
     let mut current = world();
     let unknown = current.add_entity("Unresolved", EntityKind::Province);

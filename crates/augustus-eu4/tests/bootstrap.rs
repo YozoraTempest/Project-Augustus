@@ -398,6 +398,103 @@ fn country_tax_counts_free_city_reforms_in_the_hre_for_the_current_emperor() {
 }
 
 #[test]
+fn country_land_force_limit_counts_non_free_countries_with_hre_capitals() {
+    let fixture = copy_fixture();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "states_in_hre = { land_forcelimit = 0.5 }",
+    );
+    append_fixture(
+        fixture.path(),
+        "common/government_reforms/test_governments.txt",
+        "free_city = { republic = yes }",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/countries/BBB - Beta.txt",
+        "add_government_reform = free_city",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/provinces/2 - East.txt",
+        "1444.1.1 = { owner = BBB hre = yes }",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/provinces/4 - Highland.txt",
+        "1444.1.1 = { owner = AAA hre = yes }",
+    );
+
+    let state_with_outside_capital = VanillaExternalState {
+        country_capitals: BTreeMap::from([("AAA".into(), Some(1)), ("BBB".into(), Some(2))]),
+        country_government_reforms: BTreeMap::from([
+            ("AAA".into(), Some(BTreeSet::new())),
+            ("BBB".into(), Some(["free_city".into()].into())),
+        ]),
+        province_owners: BTreeMap::from([(1, Some("AAA".into()))]),
+        ..VanillaExternalState::default()
+    };
+    let outside_capital_world = VanillaWorld::load_with_external_state(
+        fixture.path(),
+        "1444.11.11",
+        &state_with_outside_capital,
+    )
+    .unwrap();
+    let emperor = outside_capital_world.initial.country_entity("AAA").unwrap();
+    assert_eq!(outside_capital_world.initial.bound_capital("AAA"), Some(1));
+    assert_eq!(
+        outside_capital_world
+            .initial
+            .world()
+            .entity(outside_capital_world.initial.province_entity(1).unwrap())
+            .unwrap()
+            .owner,
+        Some(emperor)
+    );
+    let outside_capital = outside_capital_world
+        .initial
+        .world()
+        .attributes()
+        .evaluate(
+            outside_capital_world.initial.world(),
+            emperor,
+            "country_land_forcelimit_flat",
+        )
+        .unwrap();
+    assert_eq!(
+        outside_capital.known_subtotal_micros,
+        Some(0),
+        "{outside_capital:?}"
+    );
+
+    let state_with_hre_capital = VanillaExternalState {
+        country_capitals: BTreeMap::from([("AAA".into(), Some(4)), ("BBB".into(), Some(2))]),
+        country_government_reforms: state_with_outside_capital.country_government_reforms,
+        province_owners: BTreeMap::from([(1, Some("AAA".into()))]),
+        ..VanillaExternalState::default()
+    };
+    let hre_capital_world = VanillaWorld::load_with_external_state(
+        fixture.path(),
+        "1444.11.11",
+        &state_with_hre_capital,
+    )
+    .unwrap();
+    let emperor = hre_capital_world.initial.country_entity("AAA").unwrap();
+    let hre_capital = hre_capital_world
+        .initial
+        .world()
+        .attributes()
+        .evaluate(
+            hre_capital_world.initial.world(),
+            emperor,
+            "country_land_forcelimit_flat",
+        )
+        .unwrap();
+    assert_eq!(hre_capital.known_subtotal_micros, Some(500_000));
+}
+
+#[test]
 fn external_province_city_status_reaches_the_loaded_province_state() {
     let state = VanillaExternalState {
         province_is_city: BTreeMap::from([(2, Some(true))]),
