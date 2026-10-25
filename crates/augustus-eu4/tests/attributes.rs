@@ -1147,11 +1147,16 @@ fn religious_tolerance_scales_base_and_legitimacy_by_live_religion_relation() {
 
     let base_values_path = static_dir.join("test_static.txt");
     let base_values_source = fs::read_to_string(&base_values_path).unwrap();
-    let base_values_revised = base_values_source.replace(
+    let base_values_with_tolerance = base_values_source.replace(
         "base_values = { global_manpower = 8 }",
         "base_values = { global_manpower = 8 tolerance_own = 3 tolerance_heretic = -2 tolerance_heathen = -3 }",
     );
-    assert_ne!(base_values_source, base_values_revised);
+    assert_ne!(base_values_source, base_values_with_tolerance);
+    let base_values_revised = base_values_with_tolerance.replace(
+        "occupied = { local_tax_modifier = -0.5 local_manpower_modifier = -0.5 }",
+        "occupied = { local_tax_modifier = -0.5 local_manpower_modifier = -0.5 trade_goods_size_modifier = -0.5 }",
+    );
+    assert_ne!(base_values_with_tolerance, base_values_revised);
     fs::write(base_values_path, base_values_revised).unwrap();
 
     let effects_path = static_dir.join("religious_tolerance.txt");
@@ -1274,6 +1279,48 @@ fn religious_tolerance_scales_base_and_legitimacy_by_live_religion_relation() {
     assert_eq!(
         trade_goods_size_modifier(&own).known_subtotal_micros,
         Some(200_000)
+    );
+
+    let mut global_world = own.initial.world().clone();
+    let owner = own.initial.country_entity("BBB").unwrap();
+    let province = own.initial.province_entity(1).unwrap();
+    let mut modifiers = global_world.modifiers().clone();
+    modifiers.definitions.insert(
+        "test_global_goods_size".into(),
+        ModifierDefinition {
+            values_micros: [("global_trade_goods_size_modifier".into(), 250_000)].into(),
+            ..Default::default()
+        },
+    );
+    modifiers
+        .active
+        .entry(owner)
+        .or_default()
+        .insert("test_global_goods_size".into(), ModifierInstance::default());
+    global_world.set_modifiers(modifiers).unwrap();
+    assert_eq!(
+        global_world
+            .attributes()
+            .evaluate(&global_world, province, "trade_goods_size_modifier")
+            .unwrap()
+            .known_subtotal_micros,
+        Some(450_000),
+        "country-wide modifiers add to the province-local goods-size modifier"
+    );
+
+    let occupied_source = province_source
+        .replace("controller = BBB", "controller = AAA")
+        .replace("religion = test_faith", "religion = state_faith");
+    assert_ne!(province_source, occupied_source);
+    fs::write(&province_history, occupied_source).unwrap();
+    let occupied = load();
+    let occupied_goods_size = trade_goods_size_modifier(&occupied);
+    assert_eq!(
+        occupied_goods_size.known_subtotal_micros,
+        Some(-300_000),
+        "owner={:?}, controller={:?}, evaluation={occupied_goods_size:#?}",
+        occupied.province(1).unwrap().state.owner,
+        occupied.province(1).unwrap().state.controller
     );
 }
 

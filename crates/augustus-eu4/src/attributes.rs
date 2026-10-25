@@ -37,6 +37,7 @@ const COUNTRY_FORT_MAINTENANCE: &str = "fort_maintenance_modifier";
 const PROVINCE_FORT_MAINTENANCE: &str = "local_fort_maintenance_modifier";
 
 const GLOBAL_TAX_INCOME: &str = "global_tax_income";
+const GLOBAL_TRADE_GOODS_SIZE_MODIFIER: &str = "global_trade_goods_size_modifier";
 const RELIGIOUS_TOLERANCE_PROPERTIES: [&str; 3] =
     ["tolerance_own", "tolerance_heretic", "tolerance_heathen"];
 
@@ -127,6 +128,7 @@ fn used_property(name: &str) -> bool {
             | "global_autonomy"
             | "trade_steering"
             | "trade_goods_size_modifier"
+            | GLOBAL_TRADE_GOODS_SIZE_MODIFIER
             | "tolerance_own"
             | "tolerance_heretic"
             | "tolerance_heathen"
@@ -838,11 +840,20 @@ impl AttributeDraft {
             let property = "trade_goods_size_modifier";
             let mut trade_goods_size_unresolved =
                 BTreeSet::from(["trade_goods_size_modifier:remaining_sources_not_bound".into()]);
+            // Goods-size modifiers are summed before the quantity base is applied.
             let mut trade_goods_size_channel = AttributeChannel {
                 flat: vec![
+                    AttributeTerm::Administration {
+                        mapping: "province_status".into(),
+                        property: property.into(),
+                    },
                     AttributeTerm::Metrics {
                         target: Target::Current,
                         property: property.into(),
+                    },
+                    AttributeTerm::Metrics {
+                        target: Target::Owner,
+                        property: GLOBAL_TRADE_GOODS_SIZE_MODIFIER.into(),
                     },
                     AttributeTerm::Buildings {
                         property: property.into(),
@@ -854,15 +865,85 @@ impl AttributeDraft {
                         target: Target::Current,
                         property: property.into(),
                     },
+                    AttributeTerm::Modifiers {
+                        target: Target::Owner,
+                        property: GLOBAL_TRADE_GOODS_SIZE_MODIFIER.into(),
+                    },
+                    AttributeTerm::Estates {
+                        target: Target::Owner,
+                        property: GLOBAL_TRADE_GOODS_SIZE_MODIFIER.into(),
+                    },
+                    AttributeTerm::Ideas {
+                        target: Target::Owner,
+                        property: GLOBAL_TRADE_GOODS_SIZE_MODIFIER.into(),
+                    },
+                    AttributeTerm::Government {
+                        target: Target::Owner,
+                        property: GLOBAL_TRADE_GOODS_SIZE_MODIFIER.into(),
+                    },
+                    AttributeTerm::AffiliationRelation {
+                        dimension: "culture".into(),
+                        target: Target::Owner,
+                        definitions: [
+                            (AffiliationRelation::SameGroup, "same_culture_group".into()),
+                            (
+                                AffiliationRelation::OtherGroup,
+                                "non_accepted_culture".into(),
+                            ),
+                        ]
+                        .into_iter()
+                        .collect(),
+                        property: property.into(),
+                    },
                     AttributeTerm::AffiliationModifiers {
                         dimension: "religion".into(),
                         target: Target::Current,
                         scope: "province".into(),
                         property: property.into(),
                     },
+                    AttributeTerm::AffiliationModifiers {
+                        dimension: "religion".into(),
+                        target: Target::Owner,
+                        scope: "country".into(),
+                        property: GLOBAL_TRADE_GOODS_SIZE_MODIFIER.into(),
+                    },
+                    AttributeTerm::AffiliationModifiers {
+                        dimension: "religious_school".into(),
+                        target: Target::Owner,
+                        scope: "country".into(),
+                        property: GLOBAL_TRADE_GOODS_SIZE_MODIFIER.into(),
+                    },
                 ],
                 rates: Vec::new(),
             };
+            match province.is_city {
+                Some(true) => self.static_term(
+                    &mut trade_goods_size_channel,
+                    "city",
+                    property,
+                    false,
+                    report,
+                    &mut trade_goods_size_unresolved,
+                )?,
+                None => {
+                    trade_goods_size_unresolved.insert("city_status".into());
+                }
+                _ => (),
+            }
+            match (&province.owner, &province.controller) {
+                (Some(owner), Some(controller)) if owner != controller => self.static_term(
+                    &mut trade_goods_size_channel,
+                    "occupied",
+                    property,
+                    false,
+                    report,
+                    &mut trade_goods_size_unresolved,
+                )?,
+                (Some(_), None) => {
+                    trade_goods_size_unresolved.insert("controller".into());
+                }
+                _ => (),
+            }
             if tolerance_effects_available {
                 trade_goods_size_unresolved.insert("tolerance:additional_sources_not_bound".into());
                 for definition in ["tolerance", "intolerance"] {
