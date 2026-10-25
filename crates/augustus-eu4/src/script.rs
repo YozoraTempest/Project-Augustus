@@ -1220,6 +1220,10 @@ impl<'a> ScriptCompiler<'a> {
                 EntityKind::Province,
                 "province modifiers require province scope",
             ),
+            "has_state_edict" => (
+                EntityKind::Province,
+                "state edict conditions require province scope",
+            ),
             _ => unreachable!("modifier scope is checked only for modifier statements"),
         };
         if scope != required {
@@ -3609,19 +3613,24 @@ impl<'a> ScriptCompiler<'a> {
                         Condition::Not(Box::new(Condition::Any(children)))
                     }
                 }
-                "has_country_modifier" | "has_province_modifier" => {
+                "has_country_modifier" | "has_province_modifier" | "has_state_edict" => {
                     self.modifier_scope(field, scope)?;
-                    let name = field.scalar()?;
-                    if name.is_empty() {
+                    let identifier = field.scalar()?;
+                    if identifier.is_empty() {
                         return Err(field.error("empty modifier name"));
                     }
-                    if self.modifier_ids.contains(name) {
+                    let name = if field.name == "has_state_edict" {
+                        crate::state_edicts::modifier_identifier(identifier)
+                    } else {
+                        identifier.into()
+                    };
+                    if self.modifier_ids.contains(&name) {
                         Condition::HasModifier {
                             target: Target::Current,
-                            name: name.into(),
+                            name,
                         }
                     } else {
-                        if name.chars().any(|c| matches!(c, '$' | '@')) {
+                        if identifier.chars().any(|c| matches!(c, '$' | '@')) {
                             return Err(field.error("unsupported dynamic modifier name"));
                         }
                         Condition::Always(false)

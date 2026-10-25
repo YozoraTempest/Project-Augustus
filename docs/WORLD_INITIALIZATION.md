@@ -241,7 +241,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 ## 地区与自治
 
-敕令定义中的未支持顶层字段会记录在 `report.setup.unapplied_definition_fields`，每项的首个来源保存在 `report.setup.unapplied_examples`。
+省份作用域的 `has_state_edict` 查询读取已导入的活动敕令，与其省份 modifier 共用同一状态。敕令定义中的未支持顶层字段会记录在 `report.setup.unapplied_definition_fields`，每项的首个来源保存在 `report.setup.unapplied_examples`。
 
 省份查询的 `administration` 提供地区、所有者的州或领地状态、所有者核心类型、首都关系、历史自治追加、规则最低自治及有效自治。自治使用百万分位比例，`250000` 表示 25%；这与原版文件中以百分数书写的 `25` 不同。非陆地省份目前没有行政记录。国家查询的 `administrative_areas` 只列已确定的状态，缺少条目表示未知。
 

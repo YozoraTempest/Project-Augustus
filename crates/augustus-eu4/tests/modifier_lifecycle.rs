@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, EntityId, EntityKind, EventCatalog, EventChoice, ModifierRenewal, Modifiers,
-    PendingEventId, Schema, Target, World,
+    Action, EntityId, EntityKind, EventCatalog, EventChoice, ModifierDefinition, ModifierRenewal,
+    Modifiers, PendingEventId, Schema, Target, World,
 };
 use augustus_eu4::{ScriptCompiler, ScriptLibrary, TextDocument, TextEncoding};
 
@@ -311,6 +311,60 @@ fn province_modifier_queries_and_removal_keep_entity_scope_across_restore() {
 }
 
 #[test]
+fn state_edict_condition_queries_its_scoped_modifier_across_restore() {
+    let schema = Schema::new(["unused"]).unwrap();
+    let library = ScriptLibrary::new();
+    let mut results = Vec::new();
+
+    for optimise in [false, true] {
+        let mut modifier_definitions = definitions();
+        modifier_definitions.definitions.insert(
+            "state_edict:edict_test".into(),
+            ModifierDefinition::default(),
+        );
+        let modifier_ids = modifier_definitions.definitions.keys().cloned().collect();
+        let query = ScriptCompiler::new(&schema, &library, optimise)
+            .with_modifier_ids(modifier_ids)
+            .compile(
+                &document("if={limit={has_state_edict=edict_test} log=active} else={log=absent}"),
+                EntityKind::Province,
+            )
+            .unwrap()
+            .plan;
+
+        let mut world = World::new(schema.clone());
+        world.add_entity("AAA", EntityKind::Country);
+        world.add_entity("1", EntityKind::Province);
+        world.set_owner(EntityId(1), EntityId(0)).unwrap();
+        world.set_modifiers(modifier_definitions).unwrap();
+
+        world.execute(EntityId(1), &query).unwrap();
+        assert_eq!(world.events()[0].2, "absent");
+        world
+            .attach_modifier(
+                EntityId(1),
+                "state_edict:edict_test",
+                None,
+                None,
+                ModifierRenewal::Replace,
+            )
+            .unwrap();
+        world.execute(EntityId(1), &query).unwrap();
+        assert_eq!(world.events()[1].2, "active");
+
+        let saved = world.save("state-edict-condition").unwrap();
+        let mut resumed = World::restore(&saved, "state-edict-condition", &schema).unwrap();
+        world.execute(EntityId(1), &query).unwrap();
+        resumed.execute(EntityId(1), &query).unwrap();
+        assert_eq!(world.events()[2].2, "active");
+        assert_eq!(world, resumed);
+        results.push(world);
+    }
+
+    assert_eq!(results[0], results[1]);
+}
+
+#[test]
 fn province_modifier_scope_and_names_are_checked_before_folding() {
     let schema = Schema::new(["unused"]).unwrap();
     let library = ScriptLibrary::new();
@@ -319,6 +373,10 @@ fn province_modifier_scope_and_names_are_checked_before_folding() {
         (
             EntityKind::Country,
             "if={limit={has_province_modifier=boost} log=wrong}",
+        ),
+        (
+            EntityKind::Country,
+            "if={limit={has_state_edict=edict_test} log=wrong}",
         ),
         (EntityKind::Province, "add_country_modifier={name=boost}"),
         (EntityKind::Province, "remove_country_modifier=boost"),
