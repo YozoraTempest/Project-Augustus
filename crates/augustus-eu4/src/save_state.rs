@@ -1610,18 +1610,20 @@ fn read_vanilla_save_state_inner(
             base_production_milli: optional_milli(&parsed, &province, "base_production")?,
             base_manpower_milli: optional_milli(&parsed, &province, "base_manpower")?,
         };
-        if let Some(devastation) = optional_milli(&parsed, &province, "devastation")? {
-            if !(0..=100_000).contains(&devastation) {
-                return Err(Error::message(
-                    parsed.source(),
-                    format!("province {id} has saved devastation outside 0..100"),
-                ));
+        for name in ["devastation", "prosperity"] {
+            if let Some(value) = optional_milli(&parsed, &province, name)? {
+                if !(0..=100_000).contains(&value) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("province {id} has saved {name} outside 0..100"),
+                    ));
+                }
+                external_state
+                    .province_metric_values
+                    .entry(id)
+                    .or_default()
+                    .insert(name.into(), Some(value));
             }
-            external_state
-                .province_metric_values
-                .entry(id)
-                .or_default()
-                .insert("devastation".into(), Some(devastation));
         }
         if development.base_tax_milli.is_some_and(|value| value < 0)
             || development
@@ -3856,6 +3858,7 @@ provinces={
         base_production=7.890
         base_manpower=4.250
         devastation=12.345
+        prosperity=75.500
         mothball_status=0
     }
     -2={
@@ -3898,6 +3901,10 @@ provinces={
         assert_eq!(
             save.external_state.province_metric_values[&1]["devastation"],
             Some(12_345)
+        );
+        assert_eq!(
+            save.external_state.province_metric_values[&1]["prosperity"],
+            Some(75_500)
         );
         assert!(!save.external_state.province_metric_values.contains_key(&2));
         assert_eq!(save.external_state.province_mothball_status[&1], 0);
@@ -3945,6 +3952,10 @@ provinces={
             filtered.province_metric_values[&1]["devastation"],
             Some(12_345)
         );
+        assert_eq!(
+            filtered.province_metric_values[&1]["prosperity"],
+            Some(75_500)
+        );
         assert!(!filtered.province_metric_values.contains_key(&2));
         assert!(!filtered.province_metric_values.contains_key(&999));
         assert_eq!(filtered.province_controllers[&1].as_deref(), Some("AAA"));
@@ -3984,6 +3995,10 @@ provinces={
             loaded.initial.world().metrics().entities[&province_one]["devastation"],
             Some(12_345)
         );
+        assert_eq!(
+            loaded.initial.world().metrics().entities[&province_one]["prosperity"],
+            Some(75_500)
+        );
         let province_two = loaded.initial.province_entity(2).unwrap();
         let baseline_devastation = baseline
             .initial
@@ -4003,6 +4018,10 @@ provinces={
                 .and_then(|metrics| metrics.get("devastation"))
                 .copied(),
             baseline_devastation
+        );
+        assert_eq!(
+            loaded.initial.world().metrics().entities[&province_two]["prosperity"],
+            None
         );
 
         let unknown_controller_path = directory.path().join("unknown-controller.eu4");
@@ -4040,29 +4059,37 @@ provinces={
     }
 
     #[test]
-    fn rejects_saved_devastation_outside_supported_range() {
+    fn rejects_saved_province_metrics_outside_supported_range() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("invalid-devastation.eu4");
-        std::fs::write(
-            &path,
-            r#"EU4txt
+        for (metric, value) in [
+            ("devastation", "100.001"),
+            ("prosperity", "100.001"),
+            ("prosperity", "-0.001"),
+        ] {
+            let path = directory.path().join(format!("invalid-{metric}.eu4"));
+            std::fs::write(
+                &path,
+                format!(
+                    r#"EU4txt
 date=1444.11.11
-countries={ AAA={ human=yes } }
-provinces={
-    -1={ devastation=100.001 }
-}
-"#,
-        )
-        .unwrap();
+countries={{ AAA={{ human=yes }} }}
+provinces={{
+    -1={{ {metric}={value} }}
+}}
+"#
+                ),
+            )
+            .unwrap();
 
-        let error = read_vanilla_save_state(&path).unwrap_err();
+            let error = read_vanilla_save_state(&path).unwrap_err();
 
-        assert!(
-            error
-                .to_string()
-                .contains("saved devastation outside 0..100"),
-            "unexpected error: {error}"
-        );
+            assert!(
+                error
+                    .to_string()
+                    .contains(&format!("saved {metric} outside 0..100")),
+                "unexpected error: {error}"
+            );
+        }
     }
 
     #[test]

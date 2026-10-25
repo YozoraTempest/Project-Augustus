@@ -19,7 +19,7 @@ fn compiler<'a>(
 ) -> ScriptCompiler<'a> {
     ScriptCompiler::new(schema, library, optimise)
         .with_area_scopes(BTreeMap::from([("test_area".into(), vec![3, 1, 2])]))
-        .with_metric_ids(["devastation".into()].into())
+        .with_metric_ids(["devastation".into(), "prosperity".into()].into())
 }
 fn world() -> World {
     let mut world = World::new(Schema::new(["unused"]).unwrap());
@@ -34,25 +34,35 @@ fn world() -> World {
             ..Default::default()
         })
         .unwrap();
+    let metric_definition = MetricDefinition {
+        kind: EntityKind::Province,
+        minimum: 0,
+        maximum: 100_000,
+        baseline: 0,
+        divisor: 100_000,
+        modifier: None,
+        unresolved_properties: Default::default(),
+        below_baseline: None,
+        growth_ceiling: false,
+    };
     world
         .set_metrics(Metrics {
-            definitions: [(
-                "devastation".into(),
-                MetricDefinition {
-                    kind: EntityKind::Province,
-                    minimum: 0,
-                    maximum: 100_000,
-                    baseline: 0,
-                    divisor: 100_000,
-                    modifier: None,
-                    unresolved_properties: Default::default(),
-                    below_baseline: None,
-                    growth_ceiling: false,
-                },
-            )]
+            definitions: [
+                ("devastation".into(), metric_definition.clone()),
+                ("prosperity".into(), metric_definition),
+            ]
             .into(),
             entities: (1..=3)
-                .map(|id| (EntityId(id), [("devastation".into(), Some(0))].into()))
+                .map(|id| {
+                    (
+                        EntityId(id),
+                        [
+                            ("devastation".into(), Some(0)),
+                            ("prosperity".into(), Some(0)),
+                        ]
+                        .into(),
+                    )
+                })
                 .collect(),
             ceilings: Default::default(),
         })
@@ -104,12 +114,42 @@ fn translation_preserves_live_filters_declared_order_and_threshold_precision() {
 }
 
 #[test]
+fn prosperity_effect_and_condition_share_the_province_metric() {
+    let text = "country_event={id=prosperity.start is_triggered_only=yes immediate={1={add_prosperity=50 if={limit={prosperity=50} log=prosperity_ready}}} option={name=ok}}";
+    let mut outputs = Vec::new();
+    for optimise in [false, true] {
+        let mut world = world();
+        let compiled = compiler(world.schema(), &ScriptLibrary::new(), optimise)
+            .compile_events(&document(text))
+            .unwrap();
+        world
+            .set_event_catalog(EventCatalog::new(compiled.definitions).unwrap())
+            .unwrap();
+        world
+            .trigger_event("prosperity.start", EntityId(0))
+            .unwrap();
+
+        assert_eq!(
+            world
+                .numeric_value(EntityId(1), &NumericSlot::Metric("prosperity".into()))
+                .unwrap(),
+            50_000
+        );
+        assert_eq!(world.events().last().unwrap().2, "prosperity_ready");
+        outputs.push(world.save("prosperity-test").unwrap());
+    }
+    assert_eq!(outputs[0], outputs[1]);
+}
+
+#[test]
 fn invalid_scope_missing_metric_and_duplicate_limit_keep_source_diagnostics() {
     let schema = Schema::new(["unused"]).unwrap();
     let library = ScriptLibrary::new();
     for text in [
         "country_event={id=x immediate={add_devastation=10}}",
         "country_event={id=x trigger={devastation=1}}",
+        "country_event={id=x immediate={add_prosperity=10}}",
+        "country_event={id=x trigger={prosperity=1}}",
         "country_event={id=x trigger={province_id=1}}",
         "country_event={id=x immediate={test_area={limit={always=yes} limit={always=no}}}}",
         "country_event={id=x immediate={test_area={add_devastation=1.0001}}}",

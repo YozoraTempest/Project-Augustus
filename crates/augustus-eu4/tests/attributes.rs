@@ -1369,6 +1369,45 @@ fn devastation_scales_trade_goods_size_before_quantity_calculation() {
 }
 
 #[test]
+fn prosperity_goods_size_effect_stays_unresolved_until_its_scale_is_verified() {
+    let temp = copy_fixture();
+    let static_path = temp.path().join("common/static_modifiers/test_static.txt");
+    let source = fs::read_to_string(&static_path).unwrap();
+    fs::write(
+        &static_path,
+        format!("{source}\nprosperity = {{ trade_goods_size_modifier = 0.25 }}\n"),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let province = loaded.initial.province_entity(1).unwrap();
+    let mut world = loaded.initial.world().clone();
+    let before = world
+        .attributes()
+        .evaluate(&world, province, "trade_goods_size_modifier")
+        .unwrap();
+    let mut metrics = world.metrics().clone();
+    metrics
+        .entities
+        .entry(province)
+        .or_default()
+        .insert("prosperity".into(), Some(50_000));
+    world.set_metrics(metrics).unwrap();
+
+    let after = world
+        .attributes()
+        .evaluate(&world, province, "trade_goods_size_modifier")
+        .unwrap();
+
+    assert_eq!(after.known_subtotal_micros, before.known_subtotal_micros);
+    assert!(
+        after
+            .unresolved
+            .contains("metric:prosperity:unresolved:trade_goods_size_modifier")
+    );
+}
+
+#[test]
 fn ambiguous_religion_effects_and_unknown_culture_members_remain_unresolved() {
     let temp = copy_fixture();
     fs::write(temp.path().join("common/religions/test.txt"), "group = { test_faith = { country = { global_tax_modifier = 0.1 global_tax_modifier = 0.2 } } }").unwrap();

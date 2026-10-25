@@ -579,9 +579,16 @@ impl<'a> ScriptCompiler<'a> {
         self
     }
 
-    fn devastation_scope(&self, field: &Field, scope: EntityKind) -> Result<(), Error> {
-        if scope != EntityKind::Province || !self.metric_ids.contains("devastation") {
-            return Err(field.error("devastation requires province scope and a registered metric"));
+    fn province_metric_scope(
+        &self,
+        field: &Field,
+        scope: EntityKind,
+        metric: &str,
+    ) -> Result<(), Error> {
+        if scope != EntityKind::Province || !self.metric_ids.contains(metric) {
+            return Err(field.error(format!(
+                "{metric} requires province scope and a registered metric"
+            )));
         }
         Ok(())
     }
@@ -2073,10 +2080,19 @@ impl<'a> ScriptCompiler<'a> {
                     });
                 }
                 "add_devastation" => {
-                    self.devastation_scope(field, scope)?;
+                    self.province_metric_scope(field, scope, "devastation")?;
                     plan.push(Action::UpdateNumeric {
                         target: Target::Current,
                         slot: augustus_core::NumericSlot::Metric("devastation".into()),
+                        operation: augustus_core::NumericOperation::Add,
+                        value: decimal(field)? / 1000 * 1000,
+                    });
+                }
+                "add_prosperity" => {
+                    self.province_metric_scope(field, scope, "prosperity")?;
+                    plan.push(Action::UpdateNumeric {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Metric("prosperity".into()),
                         operation: augustus_core::NumericOperation::Add,
                         value: decimal(field)? / 1000 * 1000,
                     });
@@ -3000,10 +3016,19 @@ impl<'a> ScriptCompiler<'a> {
                     }
                 }
                 "devastation" => {
-                    self.devastation_scope(field, scope)?;
+                    self.province_metric_scope(field, scope, "devastation")?;
                     Condition::NumericCompare {
                         target: Target::Current,
                         slot: augustus_core::NumericSlot::Metric("devastation".into()),
+                        comparison: augustus_core::NumericComparison::AtLeast,
+                        value: decimal(field)?,
+                    }
+                }
+                "prosperity" => {
+                    self.province_metric_scope(field, scope, "prosperity")?;
+                    Condition::NumericCompare {
+                        target: Target::Current,
+                        slot: augustus_core::NumericSlot::Metric("prosperity".into()),
                         comparison: augustus_core::NumericComparison::AtLeast,
                         value: decimal(field)?,
                     }

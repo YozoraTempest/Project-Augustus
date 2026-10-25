@@ -662,6 +662,7 @@ impl Condition {
                                     "dip_power",
                                     "mil_power",
                                     "devastation",
+                                    "prosperity",
                                 ]
                                 .map(String::from)
                                 .into(),
@@ -1490,6 +1491,27 @@ mod tests {
             !report
                 .unsupported_fields
                 .contains_key("trigger:province_has_center_of_trade_of_level")
+        );
+    }
+
+    #[test]
+    fn owned_province_scope_accepts_prosperity_metric_conditions() {
+        let document = TextDocument::from_bytes(
+            "self-authored-prosperity-condition.txt",
+            b"any_owned_province = { prosperity = 50 }".to_vec(),
+            TextEncoding::Utf8,
+        );
+        let parsed = document.parse().unwrap();
+        let mut report = crate::estates::EstateReport::default();
+        let conditions =
+            Condition::compile(&parsed, parsed.reader(), &mut report, 0, true, None, false)
+                .unwrap();
+
+        assert_eq!(conditions.len(), 1);
+        assert!(
+            !report
+                .unsupported_fields
+                .contains_key("trigger:any_owned_province")
         );
     }
 

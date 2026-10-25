@@ -14,6 +14,18 @@
       },
       "unresolved_properties": []
     },
+    "prosperity": {
+      "kind": "Province",
+      "minimum": 0,
+      "maximum": 100000,
+      "baseline": 0,
+      "divisor": 100000,
+      "modifier": null,
+      "unresolved_properties": [
+        "trade_goods_size_modifier"
+      ],
+      "growth_ceiling": false
+    },
     "stability": {
       "kind": "Country",
       "minimum": -3,
@@ -108,22 +120,28 @@
   },
   "entities": {
     "2": {
-      "devastation": 0
+      "devastation": 0,
+      "prosperity": null
     },
     "3": {
-      "devastation": 0
+      "devastation": 0,
+      "prosperity": null
     },
     "4": {
-      "devastation": 0
+      "devastation": 0,
+      "prosperity": null
     },
     "5": {
-      "devastation": 0
+      "devastation": 0,
+      "prosperity": null
     },
     "6": {
-      "devastation": 0
+      "devastation": 0,
+      "prosperity": null
     },
     "7": {
-      "devastation": 0
+      "devastation": 0,
+      "prosperity": null
     },
     "0": {
       "stability": 0,

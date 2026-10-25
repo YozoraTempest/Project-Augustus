@@ -50,21 +50,47 @@ pub(super) fn bind(
             "local_manpower_modifier".into(),
         ]);
     }
+    let prosperity_name = "prosperity".to_owned();
+    let mut prosperity_unresolved_properties =
+        attributes.static_unresolved_properties(&prosperity_name);
+    if let Some(modifier) = attributes.static_modifier(&prosperity_name) {
+        prosperity_unresolved_properties.extend(modifier.values_micros.keys().cloned());
+        prosperity_unresolved_properties.extend(modifier.flags.keys().cloned());
+    } else {
+        prosperity_unresolved_properties.insert("trade_goods_size_modifier".into());
+    }
+    // Keep Prosperity's static effects unresolved until their runtime scaling is verified.
     Metrics {
-        definitions: [(
-            name.clone(),
-            MetricDefinition {
-                kind: EntityKind::Province,
-                minimum: 0,
-                maximum: 100_000,
-                baseline: 0,
-                divisor: 100_000,
-                modifier,
-                unresolved_properties,
-                below_baseline: None,
-                growth_ceiling: false,
-            },
-        )]
+        definitions: [
+            (
+                name.clone(),
+                MetricDefinition {
+                    kind: EntityKind::Province,
+                    minimum: 0,
+                    maximum: 100_000,
+                    baseline: 0,
+                    divisor: 100_000,
+                    modifier,
+                    unresolved_properties,
+                    below_baseline: None,
+                    growth_ceiling: false,
+                },
+            ),
+            (
+                prosperity_name.clone(),
+                MetricDefinition {
+                    kind: EntityKind::Province,
+                    minimum: 0,
+                    maximum: 100_000,
+                    baseline: 0,
+                    divisor: 100_000,
+                    modifier: None,
+                    unresolved_properties: prosperity_unresolved_properties,
+                    below_baseline: None,
+                    growth_ceiling: false,
+                },
+            ),
+        ]
         .into_iter()
         .collect(),
         entities: initial
@@ -84,7 +110,7 @@ pub(super) fn bind(
                     initial
                         .province_entity(province.id)
                         .expect("registered province"),
-                    BTreeMap::from([(name.clone(), value)]),
+                    BTreeMap::from([(name.clone(), value), (prosperity_name.clone(), None)]),
                 )
             })
             .collect(),
