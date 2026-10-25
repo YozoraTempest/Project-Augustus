@@ -565,21 +565,27 @@ impl SetupDraft {
                 }
                 let reader = block(&value, &fail)?;
                 let mut modifier_reader = None;
-                for (modifier_key, modifier_op, modifier_value) in reader
-                    .clone()
-                    .fields()
-                    .filter(|(key, _, _)| key.read_string() == "modifier")
-                {
-                    let modifier_location = parsed.field_location(&modifier_key);
-                    let modifier_fail = |m: &str| {
-                        Error::message(parsed.source(), m).with_location(modifier_location)
-                    };
-                    equal(modifier_op, &modifier_fail)?;
-                    if modifier_reader
-                        .replace(block(&modifier_value, &modifier_fail)?)
-                        .is_some()
-                    {
-                        return Err(modifier_fail("duplicate state edict modifier block"));
+                for (field_key, field_op, field_value) in reader.clone().fields() {
+                    let field = field_key.read_string();
+                    let field_location = parsed.field_location(&field_key);
+                    let field_fail =
+                        |m: &str| Error::message(parsed.source(), m).with_location(field_location);
+                    equal(field_op, &field_fail)?;
+                    if field == "modifier" {
+                        if modifier_reader
+                            .replace(block(&field_value, &field_fail)?)
+                            .is_some()
+                        {
+                            return Err(field_fail("duplicate state edict modifier block"));
+                        }
+                    } else {
+                        unknown(
+                            &parsed,
+                            "state_edict",
+                            &format!("{name}:{field}"),
+                            field_location,
+                            report,
+                        );
                     }
                 }
                 let modifier_name = crate::state_edicts::modifier_identifier(&name);

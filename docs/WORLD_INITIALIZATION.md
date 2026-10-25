@@ -241,6 +241,8 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 ## 地区与自治
 
+敕令定义中的未支持顶层字段会记录在 `report.setup.unapplied_definition_fields`，每项的首个来源保存在 `report.setup.unapplied_examples`。
+
 省份查询的 `administration` 提供地区、所有者的州或领地状态、所有者核心类型、首都关系、历史自治追加、规则最低自治及有效自治。自治使用百万分位比例，`250000` 表示 25%；这与原版文件中以百分数书写的 `25` 不同。非陆地省份目前没有行政记录。国家查询的 `administrative_areas` 只列已确定的状态，缺少条目表示未知。
 
 地区来自 `default.map` 指定的 `area` 文件。支持省份列表，以及在列表前声明的三分量 `color`。同一地区重复列出省份时合并归属，在 `report.administration.repeated_province_memberships` 中记录重复次数；跨地区重复归属时报错。空地区标识保留并列入 `empty_areas`。地图没有声明地区文件时，原有入口仍能载入，陆地省份的缺失归属列入 `missing_land_areas`。

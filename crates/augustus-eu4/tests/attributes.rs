@@ -42,7 +42,12 @@ fn load_state_edict(identifier: Option<&str>) -> (tempfile::TempDir, VanillaWorl
     fs::create_dir_all(&state_edicts).unwrap();
     fs::write(
         state_edicts.join("test.txt"),
-        "edict_test = { modifier = { local_development_cost = -0.1 } }\n",
+        r#"edict_test = {
+    allow = { always = yes }
+    ai_will_do = { factor = 1 }
+    modifier = { local_development_cost = -0.1 }
+}
+"#,
     )
     .unwrap();
     let active_edict = identifier
@@ -96,14 +101,17 @@ fn saved_state_edict_becomes_a_modifier_on_its_current_state_provinces() {
             .definition_sources
             .contains_key("state_edict:edict_test")
     );
-    assert!(
-        !loaded
-            .report
-            .setup
-            .unapplied_definition_fields
-            .keys()
-            .any(|key| { key.starts_with("state_edict:") })
+    assert_eq!(
+        loaded.report.setup.unapplied_definition_fields["state_edict:edict_test:allow"],
+        1
     );
+    assert_eq!(
+        loaded.report.setup.unapplied_definition_fields["state_edict:edict_test:ai_will_do"],
+        1
+    );
+    let allow_source = &loaded.report.setup.unapplied_examples["state_edict:edict_test:allow"];
+    assert!(allow_source.path.ends_with("common/state_edicts/test.txt"));
+    assert_eq!(allow_source.line, 2);
 }
 
 #[test]
