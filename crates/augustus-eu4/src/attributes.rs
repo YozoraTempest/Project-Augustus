@@ -22,7 +22,7 @@ const ATTRIBUTE_ONE_MICROS: i64 = 1_000_000;
 const AUTONOMY_MONTHLY_SCALE_MICROS: i64 = 10_000;
 // One game autonomy tick is 0.001 percentage points, or 10 ratio millionths.
 const AUTONOMY_MONTHLY_QUANTUM_MICROS: i64 = 10;
-pub(super) const ATTRIBUTE_NAMES: [&str; 8] = [
+pub(super) const ATTRIBUTE_NAMES: [&str; 10] = [
     "development",
     "tax_basis",
     "manpower_contribution",
@@ -31,6 +31,8 @@ pub(super) const ATTRIBUTE_NAMES: [&str; 8] = [
     "manpower_after_autonomy",
     "local_fort_maintenance_modifier",
     "local_development_cost_modifier",
+    "province_land_forcelimit_local_raw",
+    "province_naval_forcelimit_local_raw",
 ];
 pub(super) const COUNTRY_ANNUAL_TAX: &str = "country_annual_tax";
 pub(super) const COUNTRY_TRADE_STEERING: &str = "country_trade_steering";
@@ -40,6 +42,8 @@ const COUNTRY_LAND_FORCE_LIMIT_FLAT: &str = "country_land_forcelimit_flat";
 const COUNTRY_NAVAL_FORCE_LIMIT_FLAT: &str = "country_naval_forcelimit_flat";
 const COUNTRY_LAND_FORCE_LIMIT_MODIFIER: &str = "country_land_forcelimit_modifier";
 const COUNTRY_NAVAL_FORCE_LIMIT_MODIFIER: &str = "country_naval_forcelimit_modifier";
+const PROVINCE_LAND_FORCE_LIMIT_LOCAL_RAW: &str = "province_land_forcelimit_local_raw";
+const PROVINCE_NAVAL_FORCE_LIMIT_LOCAL_RAW: &str = "province_naval_forcelimit_local_raw";
 
 const GLOBAL_TAX_INCOME: &str = "global_tax_income";
 const GLOBAL_TRADE_GOODS_SIZE_MODIFIER: &str = "global_trade_goods_size_modifier";
@@ -141,6 +145,14 @@ fn used_property(name: &str) -> bool {
             | "fort_maintenance_modifier"
             | "local_fort_maintenance_modifier"
     )
+}
+
+fn mapped_property(kind: &str, definition: &str, property: &str) -> bool {
+    used_property(property)
+        || (kind == "static_modifiers"
+            && definition == "development"
+            && matches!(property, "land_forcelimit" | "naval_forcelimit"))
+        || (kind == "buildings" && matches!(property, "land_forcelimit" | "naval_forcelimit"))
 }
 
 fn religious_tolerance_terms(
@@ -369,7 +381,7 @@ impl AttributeDraft {
                         .keys()
                         .chain(definition.flags.keys())
                         .filter(|p| {
-                            (!used_property(p)
+                            (!mapped_property(kind, &name, p)
                                 || (kind != "static_modifiers"
                                     && RELIGIOUS_TOLERANCE_PROPERTIES.contains(&p.as_str())))
                                 && !(kind == "buildings" && p.as_str() == "fort_level")
@@ -574,39 +586,37 @@ impl AttributeDraft {
                 .province_entity(province.id)
                 .expect("registered province");
             let mut formulas = BTreeMap::new();
-            let development_unresolved = [
+            let development_fields = [
                 ("province.tax_base", province.tax_milli),
                 ("province.production_base", province.production_milli),
                 ("province.manpower_base", province.manpower_milli),
-            ]
-            .into_iter()
-            .filter(|(_, value)| value.is_none())
-            .map(|(field, _)| format!("province:{}:missing_base:{field}", province.id))
-            .collect();
+            ];
+            let development_unresolved = development_fields
+                .into_iter()
+                .filter(|(_, value)| value.is_none())
+                .map(|(field, _)| format!("province:{}:missing_base:{field}", province.id))
+                .collect();
+            let development_terms: Vec<_> = development_fields
+                .into_iter()
+                .map(|(field, _)| AttributeTerm::Numeric {
+                    source: field.into(),
+                    target: Target::Current,
+                    slot: augustus_core::NumericSlot::Field(
+                        initial
+                            .world()
+                            .schema()
+                            .field(field)
+                            .expect("registered province base field"),
+                    ),
+                    micros_per_unit: 1_000,
+                })
+                .collect();
             formulas.insert(
                 "development".into(),
                 AttributeFormula {
                     base: AttributeBase::Constant { micros: 0 },
                     channels: vec![AttributeChannel {
-                        flat: [
-                            "province.tax_base",
-                            "province.production_base",
-                            "province.manpower_base",
-                        ]
-                        .into_iter()
-                        .map(|field| AttributeTerm::Numeric {
-                            source: field.into(),
-                            target: Target::Current,
-                            slot: augustus_core::NumericSlot::Field(
-                                initial
-                                    .world()
-                                    .schema()
-                                    .field(field)
-                                    .expect("registered province base field"),
-                            ),
-                            micros_per_unit: 1_000,
-                        })
-                        .collect(),
+                        flat: development_terms.clone(),
                         rates: Vec::new(),
                     }],
                     minimum_micros: Some(0),
@@ -615,6 +625,74 @@ impl AttributeDraft {
                     unresolved: development_unresolved,
                 },
             );
+            for (attribute, property, unresolved_reason) in [
+                (
+                    PROVINCE_LAND_FORCE_LIMIT_LOCAL_RAW,
+                    "land_forcelimit",
+                    "province_land_forcelimit_local_raw:autonomy_not_applied",
+                ),
+                (
+                    PROVINCE_NAVAL_FORCE_LIMIT_LOCAL_RAW,
+                    "naval_forcelimit",
+                    "province_naval_forcelimit_local_raw:autonomy_not_applied",
+                ),
+            ] {
+                let mut unresolved = BTreeSet::from([
+                    unresolved_reason.into(),
+                    format!("{attribute}:remaining_local_sources_not_bound"),
+                ]);
+                if attribute == PROVINCE_NAVAL_FORCE_LIMIT_LOCAL_RAW {
+                    unresolved
+                        .insert("province_naval_forcelimit_local_raw:port_gate_not_applied".into());
+                }
+                let has_development_source = self
+                    .attributes
+                    .static_modifiers
+                    .get("development")
+                    .is_some_and(|definition| definition.values_micros.contains_key(property));
+                let development_term = if has_development_source {
+                    AttributeTerm::Product {
+                        source: format!("province_development:{property}"),
+                        factors: vec![
+                            development_terms.clone(),
+                            vec![AttributeTerm::Static {
+                                definition: "development".into(),
+                                property: property.into(),
+                            }],
+                        ],
+                        quantum_micros: 1,
+                    }
+                } else {
+                    AttributeTerm::Unknown {
+                        reason: format!("{attribute}:missing_development_source:{property}"),
+                    }
+                };
+                let channel = AttributeChannel {
+                    flat: vec![
+                        development_term,
+                        AttributeTerm::Buildings {
+                            property: property.into(),
+                        },
+                        AttributeTerm::Modifiers {
+                            target: Target::Current,
+                            property: property.into(),
+                        },
+                    ],
+                    rates: Vec::new(),
+                };
+                Self::ambiguities(initial, entity, &channel, report, setup, &mut unresolved);
+                formulas.insert(
+                    attribute.into(),
+                    AttributeFormula {
+                        base: AttributeBase::Constant { micros: 0 },
+                        channels: vec![channel],
+                        minimum_micros: None,
+                        maximum_micros: None,
+                        result_quantum_micros: None,
+                        unresolved,
+                    },
+                );
+            }
             formulas.insert(
                 "local_development_cost_modifier".into(),
                 AttributeFormula {

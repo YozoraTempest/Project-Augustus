@@ -404,6 +404,96 @@ fn country_force_limit_modifier_sources_are_exposed_without_claiming_a_complete_
 }
 
 #[test]
+fn province_force_limit_raw_sources_include_development_buildings_and_owned_totals() {
+    let temp = copy_fixture();
+    let static_path = temp.path().join("common/static_modifiers/test_static.txt");
+    let static_modifiers = fs::read_to_string(&static_path).unwrap();
+    fs::write(
+        static_path,
+        format!(
+            "{static_modifiers}\ndevelopment = {{ land_forcelimit = 0.1 naval_forcelimit = 0.1 }}\n"
+        ),
+    )
+    .unwrap();
+
+    let buildings_path = temp.path().join("common/buildings/test_buildings.txt");
+    let buildings = fs::read_to_string(&buildings_path).unwrap();
+    fs::write(
+        buildings_path,
+        format!(
+            "{buildings}\ntest_land_force = {{ cost = 100 time = 12 modifier = {{ land_forcelimit = 1 }} }}\ntest_naval_force = {{ cost = 100 time = 12 build_trigger = {{ has_port = yes }} modifier = {{ naval_forcelimit = 2 }} }}\n"
+        ),
+    )
+    .unwrap();
+
+    let province_path = temp.path().join("history/provinces/1 - North.txt");
+    let province = fs::read_to_string(&province_path).unwrap();
+    fs::write(
+        province_path,
+        format!("{province}\n1441.1.1 = {{ test_land_force = yes test_naval_force = yes }}\n"),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let world = loaded.initial.world();
+    let province = loaded.initial.province_entity(1).unwrap();
+    for (name, property, expected, required_unknown) in [
+        (
+            "province_land_forcelimit_local_raw",
+            "land_forcelimit",
+            1_762_500,
+            "province_land_forcelimit_local_raw:autonomy_not_applied",
+        ),
+        (
+            "province_naval_forcelimit_local_raw",
+            "naval_forcelimit",
+            2_762_500,
+            "province_naval_forcelimit_local_raw:port_gate_not_applied",
+        ),
+    ] {
+        let attribute = world.attributes().evaluate(world, province, name).unwrap();
+        assert_eq!(attribute.known_subtotal_micros, Some(expected), "{name}");
+        assert_eq!(attribute.value_micros, None, "{name}");
+        assert!(attribute.unresolved.contains(required_unknown), "{name}");
+        assert!(attribute.steps.iter().any(|step| {
+            step.contributions.iter().any(|contribution| {
+                (contribution.source == "building:test_land_force"
+                    || contribution.source == "building:test_naval_force")
+                    && contribution.property == property
+            })
+        }));
+        assert!(attribute.steps.iter().any(|step| {
+            step.contributions.iter().any(|contribution| {
+                contribution.source == format!("province_development:{property}")
+                    && contribution.property == "composition_adjustment"
+            })
+        }));
+    }
+
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    for name in [
+        "province_land_forcelimit_local_raw",
+        "province_naval_forcelimit_local_raw",
+    ] {
+        let total = world.attributes().sum_owned(world, country, name).unwrap();
+        let expected: i64 = loaded
+            .initial
+            .owned_provinces("AAA")
+            .into_iter()
+            .map(|id| {
+                world
+                    .attributes()
+                    .evaluate(world, loaded.initial.province_entity(id).unwrap(), name)
+                    .unwrap()
+                    .known_subtotal_micros
+                    .unwrap()
+            })
+            .sum();
+        assert_eq!(total.known_subtotal_micros, expected, "{name}");
+    }
+}
+
+#[test]
 fn province_local_fort_maintenance_modifier_reads_building_value_and_keeps_unknown_sources() {
     let temp = copy_fixture();
     let buildings_path = temp.path().join("common/buildings/test_buildings.txt");
