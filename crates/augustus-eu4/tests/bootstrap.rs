@@ -240,6 +240,99 @@ fn country_tax_does_not_assume_landless_countries_receive_all_nations() {
 }
 
 #[test]
+fn country_force_limit_includes_all_nations_for_landowners() {
+    let fixture = copy_fixture();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "all_nations = { land_forcelimit = 6 naval_forcelimit = 12 }",
+    );
+    for (id, name) in [(1, "North"), (2, "East"), (3, "South"), (4, "Highland")] {
+        fs::write(
+            fixture
+                .path()
+                .join(format!("history/provinces/{id} - {name}.txt")),
+            "owner = AAA",
+        )
+        .unwrap();
+    }
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let world = loaded.initial.world();
+    assert!(world.has_owned_province(country).unwrap());
+    for (attribute, property, expected) in [
+        ("country_land_forcelimit_flat", "land_forcelimit", 6_000_000),
+        (
+            "country_naval_forcelimit_flat",
+            "naval_forcelimit",
+            12_000_000,
+        ),
+    ] {
+        let result = world
+            .attributes()
+            .evaluate(world, country, attribute)
+            .unwrap();
+        assert_eq!(result.known_subtotal_micros, Some(expected), "{attribute}");
+        assert_eq!(result.value_micros, None, "{attribute}");
+        assert!(result.steps.iter().any(|step| {
+            step.contributions.iter().any(|contribution| {
+                contribution.source == "static:all_nations"
+                    && contribution.property == property
+                    && contribution.micros == expected
+            })
+        }));
+        assert!(
+            !loaded
+                .report
+                .attributes
+                .unmapped_properties
+                .contains_key(&format!("static_modifiers:{property}")),
+            "{property}"
+        );
+    }
+}
+
+#[test]
+fn country_force_limit_does_not_assume_landless_countries_receive_all_nations() {
+    let fixture = copy_fixture();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "all_nations = { land_forcelimit = 6 naval_forcelimit = 12 }",
+    );
+    for (id, name) in [(1, "North"), (2, "East"), (3, "South"), (4, "Highland")] {
+        fs::write(
+            fixture
+                .path()
+                .join(format!("history/provinces/{id} - {name}.txt")),
+            "owner = AAA",
+        )
+        .unwrap();
+    }
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let landless = loaded.initial.country_entity("BBB").unwrap();
+    let world = loaded.initial.world();
+    assert!(!world.has_owned_province(landless).unwrap());
+    for attribute in [
+        "country_land_forcelimit_flat",
+        "country_naval_forcelimit_flat",
+    ] {
+        let result = world
+            .attributes()
+            .evaluate(world, landless, attribute)
+            .unwrap();
+        assert_eq!(result.value_micros, None, "{attribute}");
+        assert!(
+            result
+                .unresolved
+                .contains("all_nations_landless_country_type_unresolved")
+        );
+    }
+}
+
+#[test]
 fn country_tax_counts_free_city_reforms_in_the_hre_for_the_current_emperor() {
     let fixture = copy_fixture();
     append_fixture(

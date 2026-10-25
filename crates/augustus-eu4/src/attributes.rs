@@ -157,6 +157,9 @@ fn mapped_property(kind: &str, definition: &str, property: &str) -> bool {
             && definition == "development"
             && matches!(property, "land_forcelimit" | "naval_forcelimit"))
         || (kind == "static_modifiers"
+            && definition == "all_nations"
+            && matches!(property, "land_forcelimit" | "naval_forcelimit"))
+        || (kind == "static_modifiers"
             && definition == "free_cities_in_hre"
             && property == "land_forcelimit")
         || (kind == "static_modifiers"
@@ -1427,6 +1430,50 @@ impl AttributeDraft {
                         &format!("{attribute}:remaining_sources_not_bound"),
                     ),
                 );
+            }
+            if has_all_nations_source {
+                for (attribute, property) in [
+                    (COUNTRY_LAND_FORCE_LIMIT_FLAT, "land_forcelimit"),
+                    (COUNTRY_NAVAL_FORCE_LIMIT_FLAT, "naval_forcelimit"),
+                ] {
+                    let source_ambiguous = all_nations_ambiguous
+                        || report
+                            .ambiguous_properties
+                            .contains_key(&format!("static_modifiers:all_nations:{property}"));
+                    let source_unsupported = self
+                        .static_unresolved
+                        .get("all_nations")
+                        .is_some_and(|properties| properties.contains(property));
+                    let source_is_flag = self
+                        .attributes
+                        .static_modifiers
+                        .get("all_nations")
+                        .is_some_and(|definition| definition.flags.contains_key(property));
+                    let term = if source_ambiguous || source_unsupported || source_is_flag {
+                        AttributeTerm::Unknown {
+                            reason: format!("all_nations_force_limit_source_unresolved:{property}"),
+                        }
+                    } else {
+                        AttributeTerm::Conditional {
+                            condition: Box::new(Condition::HasOwnedProvince {
+                                target: Target::Current,
+                            }),
+                            then: vec![AttributeTerm::Static {
+                                definition: "all_nations".into(),
+                                property: property.into(),
+                            }],
+                            otherwise: vec![AttributeTerm::Unknown {
+                                reason: "all_nations_landless_country_type_unresolved".into(),
+                            }],
+                        }
+                    };
+                    formulas
+                        .get_mut(attribute)
+                        .expect("registered force limit formula")
+                        .channels[0]
+                        .flat
+                        .push(term);
+                }
             }
             let free_city_land_key = "static_modifiers:free_cities_in_hre:land_forcelimit";
             let free_city_land_ambiguous = report
