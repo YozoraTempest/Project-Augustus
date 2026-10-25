@@ -327,6 +327,83 @@ fn country_fort_maintenance_modifier_reads_known_idea_value_and_keeps_unknown_so
 }
 
 #[test]
+fn country_force_limit_modifier_sources_are_exposed_without_claiming_a_complete_total() {
+    let temp = copy_fixture();
+    let ideas_path = temp.path().join("common/ideas/test_ideas.txt");
+    let ideas = fs::read_to_string(&ideas_path).unwrap();
+    let updated_ideas = ideas.replace(
+        "start = { test_tradition = 0.125 }",
+        "start = { test_tradition = 0.125 land_forcelimit = 2 naval_forcelimit = 3 land_forcelimit_modifier = 0.25 naval_forcelimit_modifier = -0.1 }",
+    );
+    assert_ne!(updated_ideas, ideas);
+    fs::write(ideas_path, updated_ideas).unwrap();
+
+    let static_modifiers_path = temp.path().join("common/static_modifiers/test_static.txt");
+    let static_modifiers = fs::read_to_string(&static_modifiers_path).unwrap();
+    fs::write(
+        static_modifiers_path,
+        format!(
+            "{static_modifiers}\ntest_force_limit = {{ land_forcelimit = 1 naval_forcelimit = 1 land_forcelimit_modifier = 0.1 naval_forcelimit_modifier = 0.1 }}\n"
+        ),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let attributes = loaded.country_attributes("AAA").unwrap();
+    for (name, property, expected) in [
+        ("country_land_forcelimit_flat", "land_forcelimit", 2_000_000),
+        (
+            "country_naval_forcelimit_flat",
+            "naval_forcelimit",
+            3_000_000,
+        ),
+        (
+            "country_land_forcelimit_modifier",
+            "land_forcelimit_modifier",
+            250_000,
+        ),
+        (
+            "country_naval_forcelimit_modifier",
+            "naval_forcelimit_modifier",
+            -100_000,
+        ),
+    ] {
+        let attribute = &attributes[name];
+        assert_eq!(attribute.known_subtotal_micros, Some(expected), "{name}");
+        assert_eq!(attribute.value_micros, None, "{name}");
+        assert!(
+            attribute
+                .unresolved
+                .contains(&format!("{name}:remaining_sources_not_bound")),
+            "{name}"
+        );
+        assert!(attribute.steps.iter().any(|step| {
+            step.contributions.iter().any(|contribution| {
+                contribution.source == "ideas:traditions:test_alpha"
+                    && contribution.property == property
+                    && contribution.micros == expected
+            })
+        }));
+    }
+
+    for property in [
+        "land_forcelimit",
+        "naval_forcelimit",
+        "land_forcelimit_modifier",
+        "naval_forcelimit_modifier",
+    ] {
+        assert!(
+            loaded
+                .report
+                .attributes
+                .unmapped_properties
+                .contains_key(&format!("static_modifiers:{property}")),
+            "{property}"
+        );
+    }
+}
+
+#[test]
 fn province_local_fort_maintenance_modifier_reads_building_value_and_keeps_unknown_sources() {
     let temp = copy_fixture();
     let buildings_path = temp.path().join("common/buildings/test_buildings.txt");

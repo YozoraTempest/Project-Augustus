@@ -36,6 +36,10 @@ pub(super) const COUNTRY_ANNUAL_TAX: &str = "country_annual_tax";
 pub(super) const COUNTRY_TRADE_STEERING: &str = "country_trade_steering";
 const COUNTRY_FORT_MAINTENANCE: &str = "fort_maintenance_modifier";
 const PROVINCE_FORT_MAINTENANCE: &str = "local_fort_maintenance_modifier";
+const COUNTRY_LAND_FORCE_LIMIT_FLAT: &str = "country_land_forcelimit_flat";
+const COUNTRY_NAVAL_FORCE_LIMIT_FLAT: &str = "country_naval_forcelimit_flat";
+const COUNTRY_LAND_FORCE_LIMIT_MODIFIER: &str = "country_land_forcelimit_modifier";
+const COUNTRY_NAVAL_FORCE_LIMIT_MODIFIER: &str = "country_naval_forcelimit_modifier";
 
 const GLOBAL_TAX_INCOME: &str = "global_tax_income";
 const GLOBAL_TRADE_GOODS_SIZE_MODIFIER: &str = "global_trade_goods_size_modifier";
@@ -1261,6 +1265,26 @@ impl AttributeDraft {
                     "fort_maintenance_modifier:remaining_sources_not_bound",
                 ),
             );
+            for (attribute, property) in [
+                (COUNTRY_LAND_FORCE_LIMIT_FLAT, "land_forcelimit"),
+                (COUNTRY_NAVAL_FORCE_LIMIT_FLAT, "naval_forcelimit"),
+                (
+                    COUNTRY_LAND_FORCE_LIMIT_MODIFIER,
+                    "land_forcelimit_modifier",
+                ),
+                (
+                    COUNTRY_NAVAL_FORCE_LIMIT_MODIFIER,
+                    "naval_forcelimit_modifier",
+                ),
+            ] {
+                formulas.insert(
+                    attribute.into(),
+                    country_modifier_formula(
+                        property,
+                        &format!("{attribute}:remaining_sources_not_bound"),
+                    ),
+                );
+            }
             self.attributes.formulas.insert(entity, formulas);
         }
         Ok(self.attributes)
