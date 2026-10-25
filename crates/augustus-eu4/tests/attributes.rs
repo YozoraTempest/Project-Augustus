@@ -11,7 +11,10 @@ use augustus_core::{
     EstateDefinition, EstateEffect, EstatePrivilege, EstateState, Estates,
     MONTHLY_AUTONOMY_DELTA_ATTRIBUTE, ModifierDefinition, ModifierInstance, World,
 };
-use augustus_eu4::{VanillaExternalState, VanillaWorld};
+use augustus_eu4::{
+    ContentRoot, ContentSet, ContentSource, VanillaExternalState, VanillaWorld,
+    read_vanilla_save_state, read_vanilla_save_state_with_state_edicts,
+};
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world")
@@ -31,6 +34,126 @@ fn copy_fixture() -> tempfile::TempDir {
         }
     }
     temp
+}
+
+fn load_state_edict(identifier: Option<&str>) -> (tempfile::TempDir, VanillaWorld) {
+    let temp = copy_fixture();
+    let state_edicts = temp.path().join("common/state_edicts");
+    fs::create_dir_all(&state_edicts).unwrap();
+    fs::write(
+        state_edicts.join("test.txt"),
+        "edict_test = { modifier = { local_development_cost = -0.1 } }\n",
+    )
+    .unwrap();
+    let active_edict = identifier
+        .map(|identifier| format!("active_edict = {{ which={identifier} date=1444.11.11 }}"))
+        .unwrap_or_default();
+    let save_path = temp.path().join("state-edict.eu4");
+    let save = r#"EU4txt
+date=1444.11.11
+map_area_data={
+    north_area={
+        state={
+            area=north_area
+            country_state={
+                country=AAA
+                ACTIVE_EDICT
+            }
+        }
+    }
+}
+countries={ AAA={} BBB={} }
+provinces={ -1={ owner=AAA } -2={ owner=BBB } }
+"#
+    .replace("ACTIVE_EDICT", &active_edict);
+    fs::write(&save_path, save).unwrap();
+    let parsed_save = read_vanilla_save_state_with_state_edicts(&save_path).unwrap();
+    let content = ContentSet::resolve(vec![ContentSource::base(
+        ContentRoot::open(temp.path()).unwrap(),
+    )])
+    .unwrap();
+    let loaded = VanillaWorld::load_from_content_with_state_edicts(&content, &parsed_save).unwrap();
+    (temp, loaded)
+}
+
+#[test]
+fn saved_state_edict_becomes_a_modifier_on_its_current_state_provinces() {
+    let (_temp, loaded) = load_state_edict(Some("edict_test"));
+    let north = loaded.province(1).unwrap();
+    assert_eq!(
+        north.attributes["local_development_cost_modifier"].value_micros,
+        Some(-100_000)
+    );
+    assert!(north.modifiers.contains(&"state_edict:edict_test"));
+    assert_eq!(
+        loaded.province(2).unwrap().attributes["local_development_cost_modifier"].value_micros,
+        Some(0)
+    );
+    assert!(
+        loaded
+            .report
+            .setup
+            .definition_sources
+            .contains_key("state_edict:edict_test")
+    );
+    assert!(
+        !loaded
+            .report
+            .setup
+            .unapplied_definition_fields
+            .keys()
+            .any(|key| { key.starts_with("state_edict:") })
+    );
+}
+
+#[test]
+fn absent_state_edict_is_not_filled_with_a_default() {
+    let (_temp, loaded) = load_state_edict(None);
+    let north = loaded.province(1).unwrap();
+    assert_eq!(
+        north.attributes["local_development_cost_modifier"].value_micros,
+        Some(0)
+    );
+    assert!(
+        !north
+            .modifiers
+            .iter()
+            .any(|name| name.starts_with("state_edict:"))
+    );
+}
+
+#[test]
+fn unknown_saved_state_edict_keeps_its_modifier_unresolved() {
+    let (_temp, loaded) = load_state_edict(Some("edict_missing"));
+    let north = loaded.province(1).unwrap();
+    assert_eq!(
+        north.attributes["local_development_cost_modifier"].value_micros,
+        None
+    );
+    assert!(!north.modifier_attachments_known);
+    assert_eq!(
+        loaded.report.setup.unapplied_definition_fields["state_edict:edict_missing:unknown_active_definition"],
+        1
+    );
+}
+
+#[test]
+fn legacy_save_reader_does_not_require_state_edict_fields() {
+    let temp = tempfile::tempdir().unwrap();
+    let save_path = temp.path().join("incomplete-state-edict.eu4");
+    fs::write(
+        &save_path,
+        r#"EU4txt
+date=1444.11.11
+map_area_data={ north_area={ state={ area=north_area country_state={ country=AAA active_edict={ which=edict_test } } } } }
+countries={ AAA={} BBB={} }
+provinces={ -1={ owner=AAA } -2={ owner=BBB } }
+"#,
+    )
+    .unwrap();
+
+    assert!(read_vanilla_save_state(&save_path).is_ok());
+    assert!(read_vanilla_save_state_with_state_edicts(&save_path).is_err());
 }
 
 #[test]

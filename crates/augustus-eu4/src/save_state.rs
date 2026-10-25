@@ -16,13 +16,16 @@ use jomini::{
 };
 use serde::Serialize;
 
-use crate::administration_validation::{SaveTokenResolver, read_eu4_save_documents};
+use crate::administration_validation::{
+    SaveTokenResolver, read_eu4_save_documents, read_state_edicts,
+};
 use crate::bootstrap::{
     VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState,
     VanillaExternalEu4RandomState, VanillaExternalFleet, VanillaExternalNavalUnit,
     VanillaExternalPerson, VanillaExternalProvinceDevelopment, VanillaExternalRegimentState,
     VanillaExternalShipState, VanillaExternalState, VanillaWorld,
 };
+use crate::state_edicts::VanillaExternalStateEdicts;
 use crate::{Error, ParsedText, TextEncoding};
 
 type Object<'a, 'b> = jomini::text::ObjectReader<'a, 'b, TextEncoding>;
@@ -40,6 +43,14 @@ pub struct VanillaSaveState {
     pub player: Option<String>,
     pub players: BTreeSet<String>,
     pub external_state: VanillaExternalState,
+}
+
+/// Save state plus active state edicts, kept separate to preserve existing
+/// `VanillaSaveState` and `VanillaExternalState` construction APIs.
+#[derive(Debug, Clone, Serialize)]
+pub struct VanillaSaveStateWithStateEdicts {
+    pub save: VanillaSaveState,
+    pub state_edicts: VanillaExternalStateEdicts,
 }
 
 /// Supported save state plus runtime trade-node current values.
@@ -678,8 +689,20 @@ impl VanillaSaveState {
 
 /// Read supported state from an EU4 text save or a ZIP-wrapped text save.
 pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveState, Error> {
-    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, false)
-        .map(|save| save.save.state)
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, false, false)
+        .map(|(save, _)| save.save.state)
+}
+
+/// Read supported state and active state edicts from an EU4 save.
+pub fn read_vanilla_save_state_with_state_edicts(
+    path: impl AsRef<Path>,
+) -> Result<VanillaSaveStateWithStateEdicts, Error> {
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, false, true).map(
+        |(save, state_edicts)| VanillaSaveStateWithStateEdicts {
+            save: save.save.state,
+            state_edicts,
+        },
+    )
 }
 
 /// Read supported state and current trade-node values from an EU4 save.
@@ -698,14 +721,16 @@ pub fn read_vanilla_save_state_and_trade_nodes(
 pub fn read_vanilla_save_state_and_trade_node_runtime_states(
     path: impl AsRef<Path>,
 ) -> Result<VanillaSaveStateWithTradeNodeRuntimeStates, Error> {
-    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, true).map(|save| save.save)
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, true, false)
+        .map(|(save, _)| save.save)
 }
 
 /// Read supported state and trade nodes in their serialized save order.
 pub fn read_vanilla_save_state_and_ordered_trade_node_runtime_states(
     path: impl AsRef<Path>,
 ) -> Result<VanillaSaveStateWithOrderedTradeNodeRuntimeStates, Error> {
-    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, true)
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, None, true, false)
+        .map(|(save, _)| save)
 }
 
 /// Read supported state from an EU4 save using a player-provided binary token map when needed.
@@ -717,8 +742,32 @@ pub fn read_vanilla_save_state_with_token_map(
     path: impl AsRef<Path>,
     token_map_path: impl AsRef<Path>,
 ) -> Result<VanillaSaveState, Error> {
-    read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()), None, false)
-        .map(|save| save.save.state)
+    read_vanilla_save_state_inner_thread(
+        path.as_ref(),
+        Some(token_map_path.as_ref()),
+        None,
+        false,
+        false,
+    )
+    .map(|(save, _)| save.save.state)
+}
+
+/// Read supported state and active state edicts using a player-provided token map.
+pub fn read_vanilla_save_state_with_state_edicts_with_token_map(
+    path: impl AsRef<Path>,
+    token_map_path: impl AsRef<Path>,
+) -> Result<VanillaSaveStateWithStateEdicts, Error> {
+    read_vanilla_save_state_inner_thread(
+        path.as_ref(),
+        Some(token_map_path.as_ref()),
+        None,
+        false,
+        true,
+    )
+    .map(|(save, state_edicts)| VanillaSaveStateWithStateEdicts {
+        save: save.save.state,
+        state_edicts,
+    })
 }
 
 /// Read supported state and current trade-node values using a player-provided binary token map.
@@ -738,8 +787,14 @@ pub fn read_vanilla_save_state_and_trade_node_runtime_states_with_token_map(
     path: impl AsRef<Path>,
     token_map_path: impl AsRef<Path>,
 ) -> Result<VanillaSaveStateWithTradeNodeRuntimeStates, Error> {
-    read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()), None, true)
-        .map(|save| save.save)
+    read_vanilla_save_state_inner_thread(
+        path.as_ref(),
+        Some(token_map_path.as_ref()),
+        None,
+        true,
+        false,
+    )
+    .map(|(save, _)| save.save)
 }
 
 /// Read saved trade-node order using a player-provided binary token map.
@@ -747,7 +802,14 @@ pub fn read_vanilla_save_state_and_ordered_trade_node_runtime_states_with_token_
     path: impl AsRef<Path>,
     token_map_path: impl AsRef<Path>,
 ) -> Result<VanillaSaveStateWithOrderedTradeNodeRuntimeStates, Error> {
-    read_vanilla_save_state_inner_thread(path.as_ref(), Some(token_map_path.as_ref()), None, true)
+    read_vanilla_save_state_inner_thread(
+        path.as_ref(),
+        Some(token_map_path.as_ref()),
+        None,
+        true,
+        false,
+    )
+    .map(|(save, _)| save)
 }
 
 /// Read supported state using an integration-provided token resolver.
@@ -762,8 +824,29 @@ pub fn read_vanilla_save_state_with_token_resolver<R>(
 where
     R: TokenResolver + Send + 'static,
 {
-    read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), false)
-        .map(|save| save.save.state)
+    read_vanilla_save_state_inner_thread(
+        path.as_ref(),
+        None,
+        Some(Box::new(resolver)),
+        false,
+        false,
+    )
+    .map(|(save, _)| save.save.state)
+}
+
+/// Read supported state and active state edicts using an integration-provided token resolver.
+pub fn read_vanilla_save_state_with_state_edicts_with_token_resolver<R>(
+    path: impl AsRef<Path>,
+    resolver: R,
+) -> Result<VanillaSaveStateWithStateEdicts, Error>
+where
+    R: TokenResolver + Send + 'static,
+{
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), false, true)
+        .map(|(save, state_edicts)| VanillaSaveStateWithStateEdicts {
+            save: save.save.state,
+            state_edicts,
+        })
 }
 
 /// Read supported state and current trade-node values using an integration-provided token resolver.
@@ -789,8 +872,8 @@ pub fn read_vanilla_save_state_and_trade_node_runtime_states_with_token_resolver
 where
     R: TokenResolver + Send + 'static,
 {
-    read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), true)
-        .map(|save| save.save)
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), true, false)
+        .map(|(save, _)| save.save)
 }
 
 /// Read saved trade-node order using an integration-provided token resolver.
@@ -801,7 +884,8 @@ pub fn read_vanilla_save_state_and_ordered_trade_node_runtime_states_with_token_
 where
     R: TokenResolver + Send + 'static,
 {
-    read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), true)
+    read_vanilla_save_state_inner_thread(path.as_ref(), None, Some(Box::new(resolver)), true, false)
+        .map(|(save, _)| save)
 }
 
 fn read_vanilla_save_state_inner_thread(
@@ -809,7 +893,14 @@ fn read_vanilla_save_state_inner_thread(
     token_map_path: Option<&Path>,
     token_resolver: Option<SaveTokenResolver>,
     capture_trade_nodes: bool,
-) -> Result<VanillaSaveStateWithOrderedTradeNodeRuntimeStates, Error> {
+    capture_state_edicts: bool,
+) -> Result<
+    (
+        VanillaSaveStateWithOrderedTradeNodeRuntimeStates,
+        VanillaExternalStateEdicts,
+    ),
+    Error,
+> {
     let path = path.to_path_buf();
     let token_map_path = token_map_path.map(Path::to_path_buf);
     let parser_path = path.clone();
@@ -824,6 +915,7 @@ fn read_vanilla_save_state_inner_thread(
                 parser_token_map_path.as_deref(),
                 &mut parser_token_resolver,
                 capture_trade_nodes,
+                capture_state_edicts,
             )
         })
         .map_err(|error| Error::caused_by(&path, error))?;
@@ -837,9 +929,21 @@ fn read_vanilla_save_state_inner(
     token_map_path: Option<&Path>,
     token_resolver: &mut Option<SaveTokenResolver>,
     capture_trade_nodes: bool,
-) -> Result<VanillaSaveStateWithOrderedTradeNodeRuntimeStates, Error> {
+    capture_state_edicts: bool,
+) -> Result<
+    (
+        VanillaSaveStateWithOrderedTradeNodeRuntimeStates,
+        VanillaExternalStateEdicts,
+    ),
+    Error,
+> {
     let documents = read_eu4_save_documents(path, token_map_path, token_resolver)?;
     let parsed = documents.game_state.parse()?;
+    let state_edicts = if capture_state_edicts {
+        read_state_edicts(&parsed)?
+    } else {
+        VanillaExternalStateEdicts::new()
+    };
     let metadata = documents
         .meta
         .as_ref()
@@ -1690,19 +1794,22 @@ fn read_vanilla_save_state_inner(
         }
     }
 
-    Ok(VanillaSaveStateWithOrderedTradeNodeRuntimeStates {
-        save: VanillaSaveStateWithTradeNodeRuntimeStates {
-            state: VanillaSaveState {
-                date,
-                player,
-                players,
-                external_state,
+    Ok((
+        VanillaSaveStateWithOrderedTradeNodeRuntimeStates {
+            save: VanillaSaveStateWithTradeNodeRuntimeStates {
+                state: VanillaSaveState {
+                    date,
+                    player,
+                    players,
+                    external_state,
+                },
+                current_trade_node_values_milli,
+                trade_node_runtime_states,
             },
-            current_trade_node_values_milli,
-            trade_node_runtime_states,
+            trade_node_order,
         },
-        trade_node_order,
-    })
+        state_edicts,
+    ))
 }
 
 fn is_country_tag(value: &str) -> bool {

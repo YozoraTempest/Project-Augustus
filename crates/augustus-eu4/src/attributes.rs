@@ -22,7 +22,7 @@ const ATTRIBUTE_ONE_MICROS: i64 = 1_000_000;
 const AUTONOMY_MONTHLY_SCALE_MICROS: i64 = 10_000;
 // One game autonomy tick is 0.001 percentage points, or 10 ratio millionths.
 const AUTONOMY_MONTHLY_QUANTUM_MICROS: i64 = 10;
-pub(super) const ATTRIBUTE_NAMES: [&str; 7] = [
+pub(super) const ATTRIBUTE_NAMES: [&str; 8] = [
     "development",
     "tax_basis",
     "manpower_contribution",
@@ -30,6 +30,7 @@ pub(super) const ATTRIBUTE_NAMES: [&str; 7] = [
     "tax_after_autonomy",
     "manpower_after_autonomy",
     "local_fort_maintenance_modifier",
+    "local_development_cost_modifier",
 ];
 pub(super) const COUNTRY_ANNUAL_TAX: &str = "country_annual_tax";
 pub(super) const COUNTRY_TRADE_STEERING: &str = "country_trade_steering";
@@ -126,6 +127,7 @@ fn used_property(name: &str) -> bool {
             | "global_manpower_modifier"
             | "local_autonomy"
             | "global_autonomy"
+            | "local_development_cost"
             | "trade_steering"
             | "trade_goods_size_modifier"
             | GLOBAL_TRADE_GOODS_SIZE_MODIFIER
@@ -607,6 +609,23 @@ impl AttributeDraft {
                     maximum_micros: None,
                     result_quantum_micros: None,
                     unresolved: development_unresolved,
+                },
+            );
+            formulas.insert(
+                "local_development_cost_modifier".into(),
+                AttributeFormula {
+                    base: AttributeBase::Constant { micros: 0 },
+                    channels: vec![AttributeChannel {
+                        flat: vec![AttributeTerm::Modifiers {
+                            target: Target::Current,
+                            property: "local_development_cost".into(),
+                        }],
+                        rates: Vec::new(),
+                    }],
+                    minimum_micros: None,
+                    maximum_micros: None,
+                    result_quantum_micros: None,
+                    unresolved: BTreeSet::new(),
                 },
             );
             for (name, base, field, scale, local_rate, global_rate) in [

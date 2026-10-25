@@ -14,6 +14,7 @@ use augustus_core::{
 use jomini::{
     TextToken,
     binary::{BasicTokenResolver, TokenResolver},
+    common::Date,
     text::{ObjectReader, ValueReader},
 };
 use serde::Serialize;
@@ -22,6 +23,7 @@ use zip::ZipArchive;
 
 use crate::bootstrap::equal;
 use crate::setup::micros;
+use crate::state_edicts::{VanillaExternalStateEdict, VanillaExternalStateEdicts};
 use crate::{EXPANSIONS, Error, ParsedText, TextDocument, TextEncoding, VanillaWorld};
 
 pub(crate) type SaveTokenResolver = Box<dyn TokenResolver + Send>;
@@ -771,6 +773,73 @@ fn read_states(parsed: &ParsedText<'_>) -> Result<BTreeSet<(String, String)>, Er
             let tag = scalar(parsed, &required(parsed, &country, "country")?)?;
             if tag.is_empty() || !result.insert((tag, area.clone())) {
                 return Err(fail("empty or duplicate country state"));
+            }
+        }
+    }
+    Ok(result)
+}
+
+pub(crate) fn read_state_edicts(
+    parsed: &ParsedText<'_>,
+) -> Result<VanillaExternalStateEdicts, Error> {
+    let root = parsed.reader();
+    let Some(map_area_data) = single(parsed, &root, "map_area_data")? else {
+        return Ok(BTreeMap::new());
+    };
+    let root = object(parsed, &map_area_data)?;
+    let mut result = VanillaExternalStateEdicts::new();
+    let mut areas = BTreeSet::new();
+    let mut states = BTreeSet::new();
+    for (key, op, value) in root.fields() {
+        let fail = |message: &str| {
+            Error::message(parsed.source(), message).with_location(parsed.field_location(&key))
+        };
+        equal(op, &fail)?;
+        let area = key.read_string();
+        if area.is_empty() || !areas.insert(area.clone()) {
+            return Err(fail("empty or duplicate saved area"));
+        }
+        let data = object(parsed, &value)?;
+        let Some(state) = single(parsed, &data, "state")? else {
+            continue;
+        };
+        let state = object(parsed, &state)?;
+        if scalar(parsed, &required(parsed, &state, "area")?)? != area {
+            return Err(fail("saved state area does not match its container"));
+        }
+        for (_, op, value) in state
+            .fields()
+            .filter(|(key, _, _)| key.read_string() == "country_state")
+        {
+            equal(op, &fail)?;
+            let country_state = object(parsed, &value)?;
+            let country = scalar(parsed, &required(parsed, &country_state, "country")?)?;
+            if country.is_empty() || !states.insert((country.clone(), area.clone())) {
+                return Err(fail("empty or duplicate country state"));
+            }
+            let Some(active_edict) = single(parsed, &country_state, "active_edict")? else {
+                continue;
+            };
+            let active_edict = object(parsed, &active_edict)?;
+            let identifier = scalar(parsed, &required(parsed, &active_edict, "which")?)?;
+            if identifier.is_empty() {
+                return Err(fail("empty saved state edict identifier"));
+            }
+            let enacted_on = scalar(parsed, &required(parsed, &active_edict, "date")?)?;
+            Date::parse(&enacted_on).map_err(|error| Error::caused_by(parsed.source(), error))?;
+            if result
+                .entry(country.clone())
+                .or_default()
+                .insert(
+                    area.clone(),
+                    VanillaExternalStateEdict {
+                        identifier,
+                        enacted_on,
+                    },
+                )
+                .is_some()
+            {
+                return Err(fail("duplicate saved state edict"));
             }
         }
     }

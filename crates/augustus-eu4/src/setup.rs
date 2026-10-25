@@ -549,6 +549,81 @@ impl SetupDraft {
                     .insert(format!("modifier:{name}"), source(&parsed, location));
             }
         }
+        for file in files
+            .iter()
+            .filter(|f| direct_txt(&f.relative_path, "common/state_edicts"))
+        {
+            let doc = root.read_text(&file.relative_path, ENCODING)?;
+            let parsed = doc.parse()?;
+            for (key, op, value) in parsed.reader().fields() {
+                let name = key.read_string();
+                let location = parsed.field_location(&key);
+                let fail = |m: &str| Error::message(parsed.source(), m).with_location(location);
+                equal(op, &fail)?;
+                if name.is_empty() || name.starts_with('@') {
+                    return Err(fail("invalid state edict identifier"));
+                }
+                let reader = block(&value, &fail)?;
+                let mut modifier_reader = None;
+                for (modifier_key, modifier_op, modifier_value) in reader
+                    .clone()
+                    .fields()
+                    .filter(|(key, _, _)| key.read_string() == "modifier")
+                {
+                    let modifier_location = parsed.field_location(&modifier_key);
+                    let modifier_fail = |m: &str| {
+                        Error::message(parsed.source(), m).with_location(modifier_location)
+                    };
+                    equal(modifier_op, &modifier_fail)?;
+                    if modifier_reader
+                        .replace(block(&modifier_value, &modifier_fail)?)
+                        .is_some()
+                    {
+                        return Err(modifier_fail("duplicate state edict modifier block"));
+                    }
+                }
+                let modifier_name = crate::state_edicts::modifier_identifier(&name);
+                let (definition, unresolved_properties) =
+                    if let Some(modifier_reader) = modifier_reader {
+                        let definition = properties(
+                            &parsed,
+                            modifier_reader.clone(),
+                            "state_edict",
+                            &name,
+                            report,
+                        )?;
+                        let unresolved_properties = modifier_reader
+                            .fields()
+                            .map(|(key, _, _)| key.read_string())
+                            .filter(|property| {
+                                !matches!(property.as_str(), "picture" | "desc")
+                                    && !definition.values_micros.contains_key(property)
+                                    && !definition.flags.contains_key(property)
+                            })
+                            .collect();
+                        (definition, unresolved_properties)
+                    } else {
+                        (ModifierDefinition::default(), BTreeSet::new())
+                    };
+                if draft
+                    .modifiers
+                    .definitions
+                    .insert(modifier_name.clone(), definition)
+                    .is_some()
+                {
+                    return Err(fail("duplicate state edict definition"));
+                }
+                if !unresolved_properties.is_empty() {
+                    draft
+                        .modifiers
+                        .unresolved_properties
+                        .insert(modifier_name.clone(), unresolved_properties);
+                }
+                report
+                    .definition_sources
+                    .insert(format!("state_edict:{name}"), source(&parsed, location));
+            }
+        }
         report.technology_groups = draft.groups.len();
         report.technology_levels = draft.technology.tables.values().map(Vec::len).sum();
         report.modifier_definitions = draft.modifiers.definitions.len();

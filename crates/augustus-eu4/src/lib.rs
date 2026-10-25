@@ -49,6 +49,7 @@ mod save_binary;
 mod save_state;
 mod script;
 mod setup;
+mod state_edicts;
 mod terrain_map;
 mod text;
 
@@ -158,8 +159,9 @@ pub use politics::{RelationSource, RelationView};
 pub use religious_schools::ReligiousSchoolReport;
 pub use save_state::{
     VanillaSaveState, VanillaSaveStateWithOrderedTradeNodeRuntimeStates,
-    VanillaSaveStateWithTradeNodeRuntimeStates, VanillaSaveStateWithTradeNodes,
-    read_vanilla_save_state, read_vanilla_save_state_and_ordered_trade_node_runtime_states,
+    VanillaSaveStateWithStateEdicts, VanillaSaveStateWithTradeNodeRuntimeStates,
+    VanillaSaveStateWithTradeNodes, read_vanilla_save_state,
+    read_vanilla_save_state_and_ordered_trade_node_runtime_states,
     read_vanilla_save_state_and_ordered_trade_node_runtime_states_with_token_map,
     read_vanilla_save_state_and_ordered_trade_node_runtime_states_with_token_resolver,
     read_vanilla_save_state_and_trade_node_runtime_states,
@@ -168,10 +170,14 @@ pub use save_state::{
     read_vanilla_save_state_and_trade_nodes,
     read_vanilla_save_state_and_trade_nodes_with_token_map,
     read_vanilla_save_state_and_trade_nodes_with_token_resolver,
+    read_vanilla_save_state_with_state_edicts,
+    read_vanilla_save_state_with_state_edicts_with_token_map,
+    read_vanilla_save_state_with_state_edicts_with_token_resolver,
     read_vanilla_save_state_with_token_map, read_vanilla_save_state_with_token_resolver,
 };
 pub use script::{CompiledEvents, CompiledScript, ScriptCompiler, ScriptLibrary};
 pub use setup::SetupReport;
+pub use state_edicts::{VanillaExternalStateEdict, VanillaExternalStateEdicts};
 pub use text::{FieldSummary, ParsedText, TextDocument, TextEncoding};
 
 pub(crate) const EXPANSIONS: [&str; 22] = [

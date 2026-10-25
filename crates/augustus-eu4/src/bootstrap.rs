@@ -8,10 +8,11 @@ use std::{
 
 use augustus_core::{
     Action, Calendar, CashflowBreakdown, CountryLedger, CountryResources, CountryState, EntityKind,
-    InitialWorld, MonthlyEconomy, MonthlyEventRules, MonthlyExternalCashflows, MonthlyPipeline,
-    MonthlyProduction, MonthlySystem, MonthlyTax, NumericOperation, NumericSlot, ProvinceClass,
-    ProvinceState, Target, Taxation, TechnologyProperty, VanillaGoldBaseInput,
-    VanillaGoldBaseResult, VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
+    InitialWorld, ModifierDefinition, ModifierInstance, MonthlyEconomy, MonthlyEventRules,
+    MonthlyExternalCashflows, MonthlyPipeline, MonthlyProduction, MonthlySystem, MonthlyTax,
+    NumericOperation, NumericSlot, ProvinceClass, ProvinceState, Target, Taxation,
+    TechnologyProperty, VanillaGoldBaseInput, VanillaGoldBaseResult,
+    VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
     VanillaGoldProductionInputState, VanillaGoldProductionResult, VanillaProductionBaseValueInput,
     VanillaProductionBaseValueResult, VanillaProductionInput, VanillaStateMaintenanceDistanceInput,
     VanillaStateMaintenanceInput, VanillaStateMaintenanceResult, VanillaTradeGoodPriceInput,
@@ -38,6 +39,7 @@ use crate::governments::{GovernmentDraft, GovernmentReport};
 use crate::ideas::{IdeaDraft, IdeaReport};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
 use crate::setup::{SetupDraft, SetupReport};
+use crate::state_edicts::VanillaExternalStateEdicts;
 use crate::{
     ContentRoot, ContentSet, ContentView, Error, ParsedText, SourceLocation, TextEncoding,
 };
@@ -804,6 +806,7 @@ struct LoadOverrides<'a> {
     province_controllers: Option<&'a BTreeMap<u32, Option<String>>>,
     province_development: Option<&'a BTreeMap<u32, VanillaExternalProvinceDevelopment>>,
     province_metric_values: Option<&'a BTreeMap<u32, BTreeMap<String, Option<i64>>>>,
+    state_edicts: Option<&'a VanillaExternalStateEdicts>,
     province_is_city: Option<&'a BTreeMap<u32, Option<bool>>>,
     province_in_empire: Option<&'a BTreeMap<u32, Option<bool>>>,
     province_mothball_status: Option<&'a BTreeMap<u32, u8>>,
@@ -905,6 +908,7 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.province_development),
             province_metric_values: (!state.province_metric_values.is_empty())
                 .then_some(&state.province_metric_values),
+            state_edicts: None,
             province_is_city: (!state.province_is_city.is_empty())
                 .then_some(&state.province_is_city),
             province_in_empire: (!state.province_in_empire.is_empty())
@@ -1561,6 +1565,97 @@ fn bind_external_province_metrics(
     initial
         .set_metric_values(bound)
         .map_err(|e| Error::caused_by("external province metrics", e))
+}
+
+fn bind_external_state_edicts(
+    initial: &mut InitialWorld,
+    values: Option<&VanillaExternalStateEdicts>,
+    report: &mut SetupReport,
+) -> Result<(), Error> {
+    let Some(values) = values else {
+        return Ok(());
+    };
+    let mut modifiers = initial.world().modifiers().clone();
+    for (country, areas) in values {
+        let Some(owner) = initial.country_entity(country) else {
+            for area in areas.keys() {
+                report
+                    .unapplied_definition_fields
+                    .entry(format!("state_edict:{country}:{area}:unknown_country"))
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+            }
+            continue;
+        };
+        for (area, edict) in areas {
+            let mut provinces = Vec::new();
+            for province in initial.provinces() {
+                let Some(entity) = initial.province_entity(province.id) else {
+                    continue;
+                };
+                if initial
+                    .world()
+                    .entity(entity)
+                    .map_err(|error| Error::caused_by("external state edicts", error))?
+                    .owner
+                    != Some(owner)
+                {
+                    continue;
+                }
+                let province_area = initial
+                    .world()
+                    .administration()
+                    .provinces
+                    .get(&entity)
+                    .and_then(|state| state.area.as_deref());
+                if province_area == Some(area.as_str()) {
+                    provinces.push(entity);
+                }
+            }
+            if provinces.is_empty() {
+                report
+                    .unapplied_definition_fields
+                    .entry(format!("state_edict:{country}:{area}:no_owned_provinces"))
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+                continue;
+            }
+
+            let modifier_name = crate::state_edicts::modifier_identifier(&edict.identifier);
+            if !modifiers.definitions.contains_key(&modifier_name) {
+                modifiers
+                    .definitions
+                    .insert(modifier_name.clone(), ModifierDefinition::default());
+                for province in provinces {
+                    modifiers
+                        .unresolved
+                        .entry(province)
+                        .or_default()
+                        .insert(modifier_name.clone());
+                }
+                report
+                    .unapplied_definition_fields
+                    .entry(format!(
+                        "state_edict:{}:unknown_active_definition",
+                        edict.identifier
+                    ))
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+                continue;
+            }
+
+            for province in provinces {
+                modifiers
+                    .active
+                    .entry(province)
+                    .or_default()
+                    .insert(modifier_name.clone(), ModifierInstance::default());
+            }
+        }
+    }
+    initial
+        .set_modifiers(modifiers)
+        .map_err(|e| Error::caused_by("external state edicts", e))
 }
 
 fn bind_province_discoveries(
@@ -2349,8 +2444,8 @@ impl VanillaWorld {
         content: &ContentSet,
         path: impl AsRef<Path>,
     ) -> Result<Self, Error> {
-        let save = crate::read_vanilla_save_state(path)?;
-        Self::load_from_content_with_save_state(content, &save)
+        let save = crate::read_vanilla_save_state_with_state_edicts(path)?;
+        Self::load_from_content_with_state_edicts(content, &save)
     }
 
     /// Loads a plaintext EU4 save and overlays supplemental translated state
@@ -2363,8 +2458,44 @@ impl VanillaWorld {
         path: impl AsRef<Path>,
         overlay: &VanillaExternalState,
     ) -> Result<Self, Error> {
-        let save = crate::read_vanilla_save_state(path)?;
-        Self::load_from_content_with_save_state_and_external_state(content, &save, Some(overlay))
+        let save = crate::read_vanilla_save_state_with_state_edicts(path)?;
+        Self::load_from_content_with_state_edicts_and_external_state(content, &save, Some(overlay))
+    }
+
+    /// Loads a save together with its current state edicts before startup effects execute.
+    pub fn load_from_content_with_state_edicts(
+        content: &ContentSet,
+        save: &crate::VanillaSaveStateWithStateEdicts,
+    ) -> Result<Self, Error> {
+        Self::load_from_content_with_state_edicts_and_external_state(content, save, None)
+    }
+
+    /// Loads a save with its state edicts and overlays supplemental translated state.
+    pub fn load_from_content_with_state_edicts_and_external_state(
+        content: &ContentSet,
+        save: &crate::VanillaSaveStateWithStateEdicts,
+        overlay: Option<&VanillaExternalState>,
+    ) -> Result<Self, Error> {
+        let save = save.clone();
+        let overlay = overlay.cloned();
+        let root = content.base_root();
+        std::thread::scope(|scope| {
+            let handle = std::thread::Builder::new()
+                .name("augustus-eu4-save-loader".into())
+                .stack_size(32 * 1024 * 1024)
+                .spawn_scoped(scope, || {
+                    Self::load_from_content_with_save_state_inner(
+                        content,
+                        &save.save,
+                        overlay.as_ref(),
+                        Some(&save.state_edicts),
+                    )
+                })
+                .map_err(|error| Error::caused_by(root.path(), error))?;
+            handle
+                .join()
+                .map_err(|_| Error::message(root.path(), "EU4 save loader thread panicked"))?
+        })
     }
 
     /// Variant of [`VanillaWorld::load_from_content_with_save`] for callers
@@ -2395,7 +2526,12 @@ impl VanillaWorld {
                 .name("augustus-eu4-save-loader".into())
                 .stack_size(32 * 1024 * 1024)
                 .spawn_scoped(scope, || {
-                    Self::load_from_content_with_save_state_inner(content, &save, overlay.as_ref())
+                    Self::load_from_content_with_save_state_inner(
+                        content,
+                        &save,
+                        overlay.as_ref(),
+                        None,
+                    )
                 })
                 .map_err(|error| Error::caused_by(root.path(), error))?;
             handle
@@ -2408,14 +2544,23 @@ impl VanillaWorld {
         content: &ContentSet,
         save: &crate::VanillaSaveState,
         overlay: Option<&VanillaExternalState>,
+        state_edicts: Option<&VanillaExternalStateEdicts>,
     ) -> Result<Self, Error> {
         let baseline = Self::load_from_content(content, &save.date)?;
         let (players, mut state) = save.for_world(&baseline)?;
         if let Some(overlay) = overlay {
             state.apply_overlay(overlay);
         }
-        Self::load_from_content_with_players_and_external_state(
-            content, &save.date, &players, &state,
+        let mut overrides = LoadOverrides::from_external_state(&state);
+        overrides.state_edicts = state_edicts;
+        Self::load_from_view(
+            content,
+            content.base_root(),
+            &save.date,
+            Some(&players),
+            0,
+            None,
+            overrides,
         )
     }
 
@@ -4413,6 +4558,7 @@ impl VanillaWorld {
             overrides.naval_units,
             overrides.naval_fleets,
         )?;
+        bind_external_state_edicts(&mut initial, overrides.state_edicts, &mut report.setup)?;
         report.missions = missions.bind(&mut initial, overrides.country_mission_completions)?;
         // Content identity is based on the bound initial world. Startup effects
         // and AI choices are runtime state and must not vary the hash by seed.
