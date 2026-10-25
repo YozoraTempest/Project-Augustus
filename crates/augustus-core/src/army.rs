@@ -69,6 +69,45 @@ pub fn calculate_vanilla_unit_production_quantity(
     }
 }
 
+/// Inputs for the shared land and naval force limit calculation stage.
+///
+/// The EU4 adapter resolves the base value and the two modifier contributions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaForceLimitInput {
+    pub base_milli: i32,
+    pub flat_modifier_milli: i32,
+    pub percentage_modifier_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaForceLimitResult {
+    pub base_with_flat_modifier_milli: i32,
+    pub scale_factor_milli: i32,
+    pub scaled_limit_milli: i32,
+    pub whole_unit_limit_milli: i32,
+    pub force_limit_milli: i32,
+}
+
+/// Applies force limit modifiers, truncates to a whole unit, and enforces a
+/// minimum limit of one unit.
+pub fn calculate_vanilla_force_limit(input: VanillaForceLimitInput) -> VanillaForceLimitResult {
+    let base_with_flat_modifier_milli = input.base_milli.wrapping_add(input.flat_modifier_milli);
+    let scale_factor_milli = input.percentage_modifier_milli.wrapping_add(1_000);
+    let scaled_limit_milli =
+        (i64::from(base_with_flat_modifier_milli) * i64::from(scale_factor_milli) / 1_000) as i32;
+    let whole_unit_limit_milli = (scaled_limit_milli / 1_000) * 1_000;
+    let force_limit_milli = whole_unit_limit_milli.max(1_000);
+
+    VanillaForceLimitResult {
+        base_with_flat_modifier_milli,
+        scale_factor_milli,
+        scaled_limit_milli,
+        whole_unit_limit_milli,
+        force_limit_milli,
+    }
+}
+
 /// Inputs for the verified morale stage used while completing a unit.
 ///
 /// The compatibility layer resolves the country's two morale bases, the
