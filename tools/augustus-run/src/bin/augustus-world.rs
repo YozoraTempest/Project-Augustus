@@ -548,6 +548,22 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         output["country"] = serde_json::to_value(loaded.country(&id).ok_or("unknown country")?)?;
         output["country"]["attributes"] = serde_json::to_value(loaded.country_attributes(&id)?)?;
         let country_entity = loaded.initial.country_entity(&id).expect("known country");
+        let available_units = loaded
+            .initial
+            .world()
+            .available_unit_templates(country_entity)?;
+        let selected_units = available_units
+            .keys()
+            .filter_map(|category| {
+                loaded
+                    .initial
+                    .world()
+                    .selected_unit(country_entity, category)
+                    .map(|unit| (category.clone(), unit.to_owned()))
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        output["country"]["available_unit_templates"] = serde_json::to_value(available_units)?;
+        output["country"]["selected_unit_templates"] = serde_json::to_value(selected_units)?;
         if let Some(ledger) = loaded
             .initial
             .world()

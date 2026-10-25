@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntityKind, Error, World};
+use crate::{EntityId, EntityKind, Error, UnitTemplate, World};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -99,6 +99,21 @@ fn validate_identifier(value: &str, label: &str) -> Result<(), Error> {
     Ok(())
 }
 
+fn template_unit_group(template: &UnitTemplate) -> Option<&str> {
+    let mut group = None;
+    for property in template
+        .properties
+        .iter()
+        .filter(|property| property.name == "unit_type")
+    {
+        if group.is_some_and(|previous| previous != property.value) {
+            return None;
+        }
+        group = Some(property.value.as_str());
+    }
+    group
+}
+
 pub(crate) fn is_enabled(world: &World, country: EntityId, unit_type: &str) -> Result<bool, Error> {
     let Some(level) = world
         .technology()
@@ -158,20 +173,7 @@ impl World {
                 let Some(template) = self.unit_templates().definitions.get(unit_type) else {
                     continue;
                 };
-                let mut template_group = None;
-                let mut conflicting_groups = false;
-                for property in template
-                    .properties
-                    .iter()
-                    .filter(|property| property.name == "unit_type")
-                {
-                    if template_group.is_some_and(|previous| previous != property.value) {
-                        conflicting_groups = true;
-                        break;
-                    }
-                    template_group = Some(property.value.as_str());
-                }
-                if conflicting_groups || template_group != Some(group) {
+                if template_unit_group(template) != Some(group) {
                     continue;
                 }
                 let candidates = result.entry(template.category.clone()).or_default();
@@ -184,7 +186,9 @@ impl World {
     }
 
     pub fn selected_unit(&self, country: EntityId, category: &str) -> Option<&str> {
-        self.unit_selections.get(country, category)
+        self.unit_selections
+            .get(country, category)
+            .or_else(|| unique_available_unit_template(self, country, category))
     }
 
     pub fn clear_selected_unit(&mut self, country: EntityId, category: &str) -> Result<(), Error> {
@@ -254,5 +258,121 @@ impl World {
 
         self.unit_selections.set(country, category, unit_type);
         Ok(())
+    }
+}
+
+fn unique_available_unit_template<'a>(
+    world: &'a World,
+    country: EntityId,
+    category: &str,
+) -> Option<&'a str> {
+    let group = world.affiliations().member("unit_type", country)?;
+    let level = world
+        .technology()
+        .countries
+        .get(&country)?
+        .get("military")
+        .copied()?;
+    let levels = world.technology().tables.get("military")?;
+    let available = levels.get(..=usize::from(level))?;
+    let mut selected = None;
+
+    for technology in available {
+        for unit_type in &technology.enabled_units {
+            let Some(template) = world.unit_templates().definitions.get(unit_type) else {
+                continue;
+            };
+            if template.category != category || template_unit_group(template) != Some(group) {
+                continue;
+            }
+            if selected.is_some_and(|previous| previous != unit_type.as_str()) {
+                return None;
+            }
+            selected = Some(unit_type.as_str());
+        }
+    }
+
+    selected
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use crate::{
+        AffiliationDimension, Affiliations, EntityKind, Schema, Technology, TechnologyLevel,
+        UnitTemplate, UnitTemplateProperty, UnitTemplates, World,
+    };
+
+    fn world_with_units(infantry: &[&str]) -> (World, crate::EntityId) {
+        let mut world = World::new(Schema::new(std::iter::empty::<String>()).unwrap());
+        let country = world.add_entity("AAA", EntityKind::Country);
+        let mut affiliations = Affiliations::default();
+        affiliations.0.insert(
+            "unit_type".into(),
+            AffiliationDimension {
+                members: BTreeMap::from([(country, Some("western".into()))]),
+                ..Default::default()
+            },
+        );
+        world.set_affiliations(affiliations).unwrap();
+
+        let mut enabled_units = infantry
+            .iter()
+            .map(|unit| (*unit).to_owned())
+            .collect::<Vec<_>>();
+        enabled_units.push("cavalry_a".into());
+        world
+            .set_technology(Technology {
+                tables: BTreeMap::from([(
+                    "military".into(),
+                    vec![TechnologyLevel {
+                        year: 1444,
+                        values_micros: BTreeMap::new(),
+                        flags: BTreeMap::new(),
+                        enabled_units,
+                        unresolved_properties: Default::default(),
+                    }],
+                )]),
+                countries: BTreeMap::from([(country, BTreeMap::from([("military".into(), 0)]))]),
+            })
+            .unwrap();
+        let template = |category: &str| UnitTemplate {
+            category: category.into(),
+            properties: vec![UnitTemplateProperty {
+                name: "unit_type".into(),
+                value: "western".into(),
+            }],
+        };
+        let mut definitions = infantry
+            .iter()
+            .map(|unit| ((*unit).to_owned(), template("infantry")))
+            .collect::<BTreeMap<_, _>>();
+        definitions.insert("cavalry_a".into(), template("cavalry"));
+        world
+            .set_unit_templates(UnitTemplates { definitions })
+            .unwrap();
+        (world, country)
+    }
+
+    #[test]
+    fn a_unique_available_template_is_the_effective_selection() {
+        let (world, country) = world_with_units(&["infantry_a"]);
+        assert_eq!(world.selected_unit(country, "infantry"), Some("infantry_a"));
+        assert_eq!(world.selected_unit(country, "cavalry"), Some("cavalry_a"));
+    }
+
+    #[test]
+    fn multiple_available_templates_require_an_explicit_selection() {
+        let (mut world, country) = world_with_units(&["infantry_a", "infantry_b"]);
+        assert_eq!(world.selected_unit(country, "infantry"), None);
+        assert_eq!(world.selected_unit(country, "cavalry"), Some("cavalry_a"));
+
+        world
+            .set_selected_unit(country, "infantry", "infantry_b")
+            .unwrap();
+        assert_eq!(world.selected_unit(country, "infantry"), Some("infantry_b"));
+        world.clear_selected_unit(country, "infantry").unwrap();
+        assert_eq!(world.selected_unit(country, "infantry"), None);
     }
 }

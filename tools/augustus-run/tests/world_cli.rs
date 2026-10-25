@@ -91,6 +91,18 @@ fn world_cli_reports_state_sources_and_query_failures() {
     assert_eq!(value["province_trade_good_base_price_milli"], 2125);
     assert_eq!(value["province_trade_good_price_milli"], 2125);
     assert_eq!(value["country"]["technology"]["administrative"], 3);
+    assert_eq!(
+        value["country"]["selected_unit_templates"]["infantry"],
+        "test_infantry"
+    );
+    assert_eq!(
+        value["country"]["selected_unit_templates"]["cavalry"],
+        "test_cavalry"
+    );
+    assert_eq!(
+        value["country"]["available_unit_templates"]["artillery"],
+        serde_json::json!(["test_artillery"])
+    );
     assert_eq!(value["country"]["resources"]["mercantilism_milli"], 18500);
     assert_eq!(
         value["province"]["attributes"]["tax_basis"]["known_subtotal_micros"],
