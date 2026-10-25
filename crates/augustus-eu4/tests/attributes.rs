@@ -470,6 +470,53 @@ fn province_force_limit_raw_sources_include_development_buildings_and_owned_tota
         }));
     }
 
+    let mut coastal_world = world.clone();
+    coastal_world.set_province_has_port(province, true).unwrap();
+    let autonomy = coastal_world
+        .administration()
+        .evaluate(&coastal_world, province)
+        .unwrap()
+        .effective_autonomy_micros
+        .unwrap();
+    for (raw_name, local_name) in [
+        (
+            "province_land_forcelimit_local_raw",
+            "province_land_forcelimit_local",
+        ),
+        (
+            "province_naval_forcelimit_local_raw",
+            "province_naval_forcelimit_local",
+        ),
+    ] {
+        let raw = coastal_world
+            .attributes()
+            .evaluate(&coastal_world, province, raw_name)
+            .unwrap()
+            .known_subtotal_micros
+            .unwrap();
+        let local = coastal_world
+            .attributes()
+            .evaluate(&coastal_world, province, local_name)
+            .unwrap();
+        let expected = (i128::from(raw) * i128::from(1_000_000 - autonomy) / 1_000_000) as i64;
+        assert_eq!(local.known_subtotal_micros, Some(expected), "{local_name}");
+        assert_eq!(local.value_micros, None, "{local_name}");
+        assert!(
+            local
+                .unresolved
+                .contains(&format!("{local_name}:remaining_local_sources_not_bound"))
+        );
+    }
+
+    let mut inland_world = coastal_world.clone();
+    inland_world.set_province_has_port(province, false).unwrap();
+    let inland_naval = inland_world
+        .attributes()
+        .evaluate(&inland_world, province, "province_naval_forcelimit_local")
+        .unwrap();
+    assert_eq!(inland_naval.known_subtotal_micros, Some(0));
+    assert_eq!(inland_naval.value_micros, None);
+
     let country = loaded.initial.country_entity("AAA").unwrap();
     for name in [
         "province_land_forcelimit_local_raw",

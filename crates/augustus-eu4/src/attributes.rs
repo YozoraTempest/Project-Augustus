@@ -22,7 +22,7 @@ const ATTRIBUTE_ONE_MICROS: i64 = 1_000_000;
 const AUTONOMY_MONTHLY_SCALE_MICROS: i64 = 10_000;
 // One game autonomy tick is 0.001 percentage points, or 10 ratio millionths.
 const AUTONOMY_MONTHLY_QUANTUM_MICROS: i64 = 10;
-pub(super) const ATTRIBUTE_NAMES: [&str; 10] = [
+pub(super) const ATTRIBUTE_NAMES: [&str; 12] = [
     "development",
     "tax_basis",
     "manpower_contribution",
@@ -33,6 +33,8 @@ pub(super) const ATTRIBUTE_NAMES: [&str; 10] = [
     "local_development_cost_modifier",
     "province_land_forcelimit_local_raw",
     "province_naval_forcelimit_local_raw",
+    "province_land_forcelimit_local",
+    "province_naval_forcelimit_local",
 ];
 pub(super) const COUNTRY_ANNUAL_TAX: &str = "country_annual_tax";
 pub(super) const COUNTRY_TRADE_STEERING: &str = "country_trade_steering";
@@ -44,6 +46,8 @@ const COUNTRY_LAND_FORCE_LIMIT_MODIFIER: &str = "country_land_forcelimit_modifie
 const COUNTRY_NAVAL_FORCE_LIMIT_MODIFIER: &str = "country_naval_forcelimit_modifier";
 const PROVINCE_LAND_FORCE_LIMIT_LOCAL_RAW: &str = "province_land_forcelimit_local_raw";
 const PROVINCE_NAVAL_FORCE_LIMIT_LOCAL_RAW: &str = "province_naval_forcelimit_local_raw";
+const PROVINCE_LAND_FORCE_LIMIT_LOCAL: &str = "province_land_forcelimit_local";
+const PROVINCE_NAVAL_FORCE_LIMIT_LOCAL: &str = "province_naval_forcelimit_local";
 
 const GLOBAL_TAX_INCOME: &str = "global_tax_income";
 const GLOBAL_TRADE_GOODS_SIZE_MODIFIER: &str = "global_trade_goods_size_modifier";
@@ -625,26 +629,20 @@ impl AttributeDraft {
                     unresolved: development_unresolved,
                 },
             );
-            for (attribute, property, unresolved_reason) in [
+            for (raw_attribute, local_attribute, property, is_naval) in [
                 (
                     PROVINCE_LAND_FORCE_LIMIT_LOCAL_RAW,
+                    PROVINCE_LAND_FORCE_LIMIT_LOCAL,
                     "land_forcelimit",
-                    "province_land_forcelimit_local_raw:autonomy_not_applied",
+                    false,
                 ),
                 (
                     PROVINCE_NAVAL_FORCE_LIMIT_LOCAL_RAW,
+                    PROVINCE_NAVAL_FORCE_LIMIT_LOCAL,
                     "naval_forcelimit",
-                    "province_naval_forcelimit_local_raw:autonomy_not_applied",
+                    true,
                 ),
             ] {
-                let mut unresolved = BTreeSet::from([
-                    unresolved_reason.into(),
-                    format!("{attribute}:remaining_local_sources_not_bound"),
-                ]);
-                if attribute == PROVINCE_NAVAL_FORCE_LIMIT_LOCAL_RAW {
-                    unresolved
-                        .insert("province_naval_forcelimit_local_raw:port_gate_not_applied".into());
-                }
                 let has_development_source = self
                     .attributes
                     .static_modifiers
@@ -664,32 +662,93 @@ impl AttributeDraft {
                     }
                 } else {
                     AttributeTerm::Unknown {
-                        reason: format!("{attribute}:missing_development_source:{property}"),
+                        reason: format!(
+                            "province_force_limit:missing_development_source:{property}"
+                        ),
                     }
                 };
-                let channel = AttributeChannel {
-                    flat: vec![
-                        development_term,
-                        AttributeTerm::Buildings {
-                            property: property.into(),
-                        },
-                        AttributeTerm::Modifiers {
-                            target: Target::Current,
-                            property: property.into(),
-                        },
-                    ],
+                let local_sources = vec![
+                    development_term,
+                    AttributeTerm::Buildings {
+                        property: property.into(),
+                    },
+                    AttributeTerm::Modifiers {
+                        target: Target::Current,
+                        property: property.into(),
+                    },
+                ];
+                let raw_channel = AttributeChannel {
+                    flat: local_sources.clone(),
                     rates: Vec::new(),
                 };
-                Self::ambiguities(initial, entity, &channel, report, setup, &mut unresolved);
+                let mut raw_unresolved = BTreeSet::from([
+                    format!("{raw_attribute}:autonomy_not_applied"),
+                    format!("{raw_attribute}:remaining_local_sources_not_bound"),
+                ]);
+                if is_naval {
+                    raw_unresolved.insert(format!("{raw_attribute}:port_gate_not_applied"));
+                }
+                Self::ambiguities(
+                    initial,
+                    entity,
+                    &raw_channel,
+                    report,
+                    setup,
+                    &mut raw_unresolved,
+                );
                 formulas.insert(
-                    attribute.into(),
+                    raw_attribute.into(),
                     AttributeFormula {
                         base: AttributeBase::Constant { micros: 0 },
-                        channels: vec![channel],
+                        channels: vec![raw_channel],
                         minimum_micros: None,
                         maximum_micros: None,
                         result_quantum_micros: None,
-                        unresolved,
+                        unresolved: raw_unresolved,
+                    },
+                );
+
+                let (local_flat, autonomy_rate) = if is_naval {
+                    let port_condition = Box::new(Condition::ProvinceHasPort);
+                    (
+                        vec![AttributeTerm::Conditional {
+                            condition: port_condition.clone(),
+                            then: local_sources,
+                            otherwise: Vec::new(),
+                        }],
+                        AttributeTerm::Conditional {
+                            condition: port_condition,
+                            then: vec![AttributeTerm::Autonomy],
+                            otherwise: Vec::new(),
+                        },
+                    )
+                } else {
+                    (local_sources, AttributeTerm::Autonomy)
+                };
+                let mut local_unresolved = BTreeSet::from([format!(
+                    "{local_attribute}:remaining_local_sources_not_bound"
+                )]);
+                let local_channel = AttributeChannel {
+                    flat: local_flat,
+                    rates: vec![autonomy_rate],
+                };
+                Self::ambiguities(
+                    initial,
+                    entity,
+                    &local_channel,
+                    report,
+                    setup,
+                    &mut local_unresolved,
+                );
+                formulas.insert(
+                    local_attribute.into(),
+                    AttributeFormula {
+                        base: AttributeBase::Constant { micros: 0 },
+                        channels: vec![local_channel],
+                        minimum_micros: None,
+                        maximum_micros: None,
+                        result_quantum_micros: None,
+                        unresolved: local_unresolved,
                     },
                 );
             }
