@@ -156,6 +156,9 @@ fn mapped_property(kind: &str, definition: &str, property: &str) -> bool {
         || (kind == "static_modifiers"
             && definition == "development"
             && matches!(property, "land_forcelimit" | "naval_forcelimit"))
+        || (kind == "static_modifiers"
+            && definition == "free_cities_in_hre"
+            && property == "land_forcelimit")
         || (kind == "buildings" && matches!(property, "land_forcelimit" | "naval_forcelimit"))
 }
 
@@ -1421,6 +1424,71 @@ impl AttributeDraft {
                         &format!("{attribute}:remaining_sources_not_bound"),
                     ),
                 );
+            }
+            let free_city_land_key = "static_modifiers:free_cities_in_hre:land_forcelimit";
+            let free_city_land_ambiguous = report
+                .ambiguous_definitions
+                .contains_key("static_modifiers:free_cities_in_hre")
+                || report.ambiguous_properties.contains_key(free_city_land_key);
+            let free_city_land_unsupported = self
+                .static_unresolved
+                .get("free_cities_in_hre")
+                .is_some_and(|properties| properties.contains("land_forcelimit"));
+            let free_city_land_is_flag = self
+                .attributes
+                .static_modifiers
+                .get("free_cities_in_hre")
+                .is_some_and(|definition| definition.flags.contains_key("land_forcelimit"));
+            let free_city_land_value_present = self
+                .attributes
+                .static_modifiers
+                .get("free_cities_in_hre")
+                .is_some_and(|definition| definition.values_micros.contains_key("land_forcelimit"));
+            let free_city_land_term =
+                if free_city_land_ambiguous || free_city_land_unsupported || free_city_land_is_flag
+                {
+                    Some(AttributeTerm::Unknown {
+                        reason: "emperor_free_city_land_forcelimit_source_unresolved".into(),
+                    })
+                } else if free_city_land_value_present {
+                    Some(AttributeTerm::CountedStaticModifier {
+                        definition: "free_cities_in_hre".into(),
+                        property: "land_forcelimit".into(),
+                        reform: "free_city".into(),
+                        affiliation_dimension: crate::imperial_membership::DIMENSION.into(),
+                        affiliation_member: "hre".into(),
+                    })
+                } else {
+                    None
+                };
+            if let Some(term) = free_city_land_term {
+                formulas
+                    .get_mut(COUNTRY_LAND_FORCE_LIMIT_FLAT)
+                    .expect("registered land force limit formula")
+                    .channels[0]
+                    .flat
+                    .push(AttributeTerm::OfficeScoped {
+                        office: "imperial_emperor".into(),
+                        term: Box::new(term),
+                    });
+            }
+            let states_in_hre_known = self
+                .attributes
+                .static_modifiers
+                .get("states_in_hre")
+                .is_some_and(|definition| definition.values_micros.contains_key("land_forcelimit"));
+            let states_in_hre_ambiguous = report
+                .ambiguous_definitions
+                .contains_key("static_modifiers:states_in_hre")
+                || report
+                    .ambiguous_properties
+                    .contains_key("static_modifiers:states_in_hre:land_forcelimit");
+            if states_in_hre_known || states_in_hre_ambiguous {
+                formulas
+                    .get_mut(COUNTRY_LAND_FORCE_LIMIT_FLAT)
+                    .expect("registered land force limit formula")
+                    .unresolved
+                    .insert("states_in_hre:state_count_not_bound".into());
             }
             self.attributes.formulas.insert(entity, formulas);
         }

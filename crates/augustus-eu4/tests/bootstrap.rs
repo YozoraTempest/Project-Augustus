@@ -246,7 +246,7 @@ fn country_tax_counts_free_city_reforms_in_the_hre_for_the_current_emperor() {
         fixture.path(),
         "common/static_modifiers/test_static.txt",
         "all_nations = { global_tax_income = 13 }\n\
-         free_cities_in_hre = { global_tax_income = 3 }",
+         free_cities_in_hre = { global_tax_income = 3 land_forcelimit = 0.5 }",
     );
     append_fixture(
         fixture.path(),
@@ -293,6 +293,30 @@ fn country_tax_counts_free_city_reforms_in_the_hre_for_the_current_emperor() {
         .evaluate(world, emperor, "country_annual_tax")
         .unwrap();
     assert_eq!(emperor_tax.value_micros, Some(16_000_000));
+    let emperor_land_force_limit = world
+        .attributes()
+        .evaluate(world, emperor, "country_land_forcelimit_flat")
+        .unwrap();
+    assert_eq!(
+        emperor_land_force_limit.known_subtotal_micros,
+        Some(500_000)
+    );
+    assert_eq!(emperor_land_force_limit.value_micros, None);
+    assert!(
+        !loaded
+            .report
+            .attributes
+            .unmapped_properties
+            .contains_key("static_modifiers:land_forcelimit")
+    );
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(world, city, "country_land_forcelimit_flat")
+            .unwrap()
+            .known_subtotal_micros,
+        Some(0)
+    );
     assert_eq!(
         world
             .attributes()
@@ -316,6 +340,20 @@ fn country_tax_counts_free_city_reforms_in_the_hre_for_the_current_emperor() {
             .unwrap()
             .value_micros,
         Some(13_000_000)
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(
+                loaded.initial.world(),
+                emperor,
+                "country_land_forcelimit_flat",
+            )
+            .unwrap()
+            .known_subtotal_micros,
+        Some(0)
     );
 
     let mut affiliations = loaded.initial.world().affiliations().clone();
@@ -342,6 +380,20 @@ fn country_tax_counts_free_city_reforms_in_the_hre_for_the_current_emperor() {
             .unwrap()
             .value_micros,
         Some(13_000_000)
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(
+                loaded.initial.world(),
+                emperor,
+                "country_land_forcelimit_flat",
+            )
+            .unwrap()
+            .known_subtotal_micros,
+        Some(0)
     );
 }
 
