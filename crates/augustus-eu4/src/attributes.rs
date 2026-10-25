@@ -12,6 +12,7 @@ use serde::Serialize;
 
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::setup::{PropertyDiagnostics, block, properties};
+use crate::subject_modifiers::SubjectModifierDraft;
 use crate::{
     ContentView, Error, FileEntry, LoadedSource, ParsedText, SetupReport, SourceLocation,
     TextEncoding,
@@ -111,6 +112,7 @@ impl PropertyDiagnostics for SchoolProperties<'_> {
 pub(super) struct AttributeDraft {
     attributes: Attributes,
     static_unresolved: BTreeMap<String, BTreeSet<String>>,
+    subject_modifiers: SubjectModifierDraft,
     manpower_per_base: i64,
 }
 
@@ -151,7 +153,12 @@ fn used_property(name: &str) -> bool {
     )
 }
 
-fn mapped_property(kind: &str, definition: &str, property: &str) -> bool {
+fn mapped_property(
+    kind: &str,
+    definition: &str,
+    property: &str,
+    subject_modifier_source: bool,
+) -> bool {
     used_property(property)
         || (kind == "static_modifiers"
             && definition == "development"
@@ -165,6 +172,15 @@ fn mapped_property(kind: &str, definition: &str, property: &str) -> bool {
         || (kind == "static_modifiers"
             && definition == "states_in_hre"
             && property == "land_forcelimit")
+        || (kind == "static_modifiers"
+            && subject_modifier_source
+            && matches!(
+                property,
+                "land_forcelimit"
+                    | "naval_forcelimit"
+                    | "land_forcelimit_modifier"
+                    | "naval_forcelimit_modifier"
+            ))
         || (kind == "buildings" && matches!(property, "land_forcelimit" | "naval_forcelimit"))
 }
 
@@ -326,6 +342,7 @@ impl AttributeDraft {
     ) -> Result<Self, Error> {
         let mut attributes = Attributes::default();
         let mut static_unresolved: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let subject_modifiers = SubjectModifierDraft::load(root, files)?;
         for kind in ["static_modifiers", "buildings", "tradegoods"] {
             for file in files
                 .iter()
@@ -394,7 +411,7 @@ impl AttributeDraft {
                         .keys()
                         .chain(definition.flags.keys())
                         .filter(|p| {
-                            (!mapped_property(kind, &name, p)
+                            (!mapped_property(kind, &name, p, subject_modifiers.references(&name))
                                 || (kind != "static_modifiers"
                                     && RELIGIOUS_TOLERANCE_PROPERTIES.contains(&p.as_str())))
                                 && !(kind == "buildings" && p.as_str() == "fort_level")
@@ -552,6 +569,7 @@ impl AttributeDraft {
         Ok(Self {
             attributes,
             static_unresolved,
+            subject_modifiers,
             manpower_per_base,
         })
     }
@@ -1255,8 +1273,9 @@ impl AttributeDraft {
             .is_some_and(|definition| definition.flags.contains_key(GLOBAL_TAX_INCOME));
         let has_all_nations_source =
             self.attributes.static_modifiers.contains_key("all_nations") || all_nations_ambiguous;
+        let subject_tax_terms = self.subject_modifier_terms(initial, GLOBAL_TAX_INCOME, report);
 
-        if has_all_nations_source {
+        if has_all_nations_source || !subject_tax_terms.is_empty() {
             let free_city_tax_key =
                 format!("static_modifiers:free_cities_in_hre:{GLOBAL_TAX_INCOME}");
             let free_city_definition_ambiguous = report
@@ -1305,10 +1324,11 @@ impl AttributeDraft {
                 let mut formulas = self.attributes.formulas.remove(&entity).unwrap_or_default();
                 let mut unresolved = BTreeSet::new();
 
-                let source_unresolved = all_nations_ambiguous
-                    || all_nations_tax_ambiguous
-                    || all_nations_tax_unsupported
-                    || all_nations_tax_is_flag;
+                let source_unresolved = has_all_nations_source
+                    && (all_nations_ambiguous
+                        || all_nations_tax_ambiguous
+                        || all_nations_tax_unsupported
+                        || all_nations_tax_is_flag);
                 let (base, mut channels) = if source_unresolved {
                     unresolved.insert("all_nations_tax_source_unresolved".into());
                     (
@@ -1317,7 +1337,7 @@ impl AttributeDraft {
                         },
                         Vec::new(),
                     )
-                } else {
+                } else if has_all_nations_source {
                     (
                         AttributeBase::Constant { micros: 0 },
                         vec![AttributeChannel {
@@ -1333,6 +1353,14 @@ impl AttributeDraft {
                                     reason: "all_nations_landless_country_type_unresolved".into(),
                                 }],
                             }],
+                            rates: Vec::new(),
+                        }],
+                    )
+                } else {
+                    (
+                        AttributeBase::Constant { micros: 0 },
+                        vec![AttributeChannel {
+                            flat: Vec::new(),
                             rates: Vec::new(),
                         }],
                     )
@@ -1359,6 +1387,11 @@ impl AttributeDraft {
                         result_quantum_micros: None,
                         unresolved,
                     },
+                );
+                Self::append_formula_flat_terms(
+                    &mut formulas,
+                    COUNTRY_ANNUAL_TAX,
+                    subject_tax_terms.clone(),
                 );
                 self.attributes.formulas.insert(entity, formulas);
             }
@@ -1430,6 +1463,21 @@ impl AttributeDraft {
                         &format!("{attribute}:remaining_sources_not_bound"),
                     ),
                 );
+            }
+            for (attribute, property) in [
+                (COUNTRY_LAND_FORCE_LIMIT_FLAT, "land_forcelimit"),
+                (COUNTRY_NAVAL_FORCE_LIMIT_FLAT, "naval_forcelimit"),
+                (
+                    COUNTRY_LAND_FORCE_LIMIT_MODIFIER,
+                    "land_forcelimit_modifier",
+                ),
+                (
+                    COUNTRY_NAVAL_FORCE_LIMIT_MODIFIER,
+                    "naval_forcelimit_modifier",
+                ),
+            ] {
+                let terms = self.subject_modifier_terms(initial, property, report);
+                Self::append_formula_flat_terms(&mut formulas, attribute, terms);
             }
             if has_all_nations_source {
                 for (attribute, property) in [
@@ -1572,6 +1620,105 @@ impl AttributeDraft {
             self.attributes.formulas.insert(entity, formulas);
         }
         Ok(self.attributes)
+    }
+
+    fn subject_modifier_terms(
+        &self,
+        initial: &InitialWorld,
+        property: &str,
+        report: &AttributeReport,
+    ) -> Vec<AttributeTerm> {
+        let mut terms = Vec::new();
+        for subject_type in &initial.world().subjects().types {
+            let Some(modifiers) = self.subject_modifiers.for_type(subject_type) else {
+                terms.push(AttributeTerm::Conditional {
+                    condition: Box::new(Condition::SubjectType {
+                        target: Target::Current,
+                        subject_type: subject_type.clone(),
+                    }),
+                    then: vec![AttributeTerm::Unknown {
+                        reason: format!(
+                            "subject_modifier_type_unresolved:{subject_type}:{property}"
+                        ),
+                    }],
+                    otherwise: Vec::new(),
+                });
+                continue;
+            };
+            let mut type_terms = Vec::new();
+            for modifier in modifiers {
+                let definition = &modifier.definition;
+                let definition_ambiguous = report
+                    .ambiguous_definitions
+                    .contains_key(&format!("static_modifiers:{definition}"));
+                let property_ambiguous = report
+                    .ambiguous_properties
+                    .contains_key(&format!("static_modifiers:{definition}:{property}"));
+                let property_unsupported = self
+                    .static_unresolved
+                    .get(definition)
+                    .is_some_and(|properties| properties.contains(property));
+                let source = self.attributes.static_modifiers.get(definition);
+                let property_is_flag =
+                    source.is_some_and(|source| source.flags.contains_key(property));
+                let property_has_value =
+                    source.is_some_and(|source| source.values_micros.contains_key(property));
+                if definition_ambiguous
+                    || property_ambiguous
+                    || property_unsupported
+                    || property_is_flag
+                    || source.is_none()
+                {
+                    type_terms.push(AttributeTerm::Unknown {
+                        reason: format!(
+                            "subject_modifier_source_unresolved:{subject_type}:{definition}:{property}"
+                        ),
+                    });
+                } else if property_has_value && modifier.conditional {
+                    type_terms.push(AttributeTerm::Unknown {
+                        reason: format!(
+                            "subject_modifier_trigger_unresolved:{subject_type}:{definition}:{property}"
+                        ),
+                    });
+                } else if property_has_value {
+                    type_terms.push(AttributeTerm::Static {
+                        definition: definition.clone(),
+                        property: property.into(),
+                    });
+                }
+            }
+            if !type_terms.is_empty() {
+                terms.push(AttributeTerm::Conditional {
+                    condition: Box::new(Condition::SubjectType {
+                        target: Target::Current,
+                        subject_type: subject_type.clone(),
+                    }),
+                    then: type_terms,
+                    otherwise: Vec::new(),
+                });
+            }
+        }
+        terms
+    }
+
+    fn append_formula_flat_terms(
+        formulas: &mut BTreeMap<String, AttributeFormula>,
+        attribute: &str,
+        terms: Vec<AttributeTerm>,
+    ) {
+        if terms.is_empty() {
+            return;
+        }
+        let formula = formulas
+            .get_mut(attribute)
+            .expect("registered country attribute formula");
+        if formula.channels.is_empty() {
+            formula.channels.push(AttributeChannel {
+                flat: Vec::new(),
+                rates: Vec::new(),
+            });
+        }
+        formula.channels[0].flat.extend(terms);
     }
 
     fn static_term(

@@ -50,6 +50,7 @@ mod save_state;
 mod script;
 mod setup;
 mod state_edicts;
+mod subject_modifiers;
 mod terrain_map;
 mod text;
 

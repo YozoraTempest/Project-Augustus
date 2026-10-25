@@ -333,6 +333,173 @@ fn country_force_limit_does_not_assume_landless_countries_receive_all_nations() 
 }
 
 #[test]
+fn subject_type_modifiers_apply_inherited_flat_sources_and_keep_triggers_unresolved() {
+    let fixture = copy_fixture();
+    let subject_types_path = fixture.path().join("common/subject_types/test.txt");
+    let subject_types = fs::read_to_string(&subject_types_path).unwrap();
+    let subject_types = subject_types.replace(
+        "default = { max_government_rank = 0 }",
+        "default = { max_government_rank = 0 modifier_subject = { modifier = subject_nation } }",
+    );
+    assert!(subject_types.contains("modifier = subject_nation"));
+    let subject_types = subject_types.replace(
+        "test_vassal = { copy_from = default }",
+        "test_vassal = { copy_from = default modifier_subject = { modifier = test_triggered_forcelimit trigger = { always = yes } } }",
+    );
+    assert!(subject_types.contains("modifier = test_triggered_forcelimit"));
+    fs::write(subject_types_path, subject_types).unwrap();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "all_nations = { global_tax_income = 13 land_forcelimit = 6 naval_forcelimit = 12 }\n\
+         subject_nation = { global_tax_income = -6 land_forcelimit = -3 naval_forcelimit = -6 }\n\
+         test_triggered_forcelimit = { land_forcelimit_modifier = 0.3 naval_forcelimit_modifier = 0.3 }",
+    );
+    for (id, name, owner) in [
+        (1, "North", "AAA"),
+        (2, "East", "BBB"),
+        (3, "South", "AAA"),
+        (4, "Highland", "AAA"),
+    ] {
+        fs::write(
+            fixture
+                .path()
+                .join(format!("history/provinces/{id} - {name}.txt")),
+            format!("owner = {owner}"),
+        )
+        .unwrap();
+    }
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let subject = loaded.initial.country_entity("BBB").unwrap();
+    let overlord = loaded.initial.country_entity("AAA").unwrap();
+    let world = loaded.initial.world();
+    assert!(world.is_subject_of_type(subject, "test_vassal").unwrap());
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(world, subject, "country_annual_tax")
+            .unwrap()
+            .value_micros,
+        Some(7_000_000)
+    );
+    for (attribute, property, subject_value, overlord_value) in [
+        (
+            "country_land_forcelimit_flat",
+            "land_forcelimit",
+            3_000_000,
+            6_000_000,
+        ),
+        (
+            "country_naval_forcelimit_flat",
+            "naval_forcelimit",
+            6_000_000,
+            12_000_000,
+        ),
+    ] {
+        let subject_result = world
+            .attributes()
+            .evaluate(world, subject, attribute)
+            .unwrap();
+        assert_eq!(subject_result.known_subtotal_micros, Some(subject_value));
+        assert!(subject_result.steps.iter().any(|step| {
+            step.contributions.iter().any(|contribution| {
+                contribution.source == "static:subject_nation"
+                    && contribution.property == property
+                    && contribution.micros == subject_value - overlord_value
+            })
+        }));
+        assert_eq!(
+            world
+                .attributes()
+                .evaluate(world, overlord, attribute)
+                .unwrap()
+                .known_subtotal_micros,
+            Some(overlord_value)
+        );
+    }
+    let land_rate = world
+        .attributes()
+        .evaluate(world, subject, "country_land_forcelimit_modifier")
+        .unwrap();
+    assert!(land_rate.unresolved.contains(
+        "subject_modifier_trigger_unresolved:test_vassal:test_triggered_forcelimit:land_forcelimit_modifier"
+    ));
+    assert!(!land_rate.steps.iter().any(|step| {
+        step.contributions
+            .iter()
+            .any(|contribution| contribution.source == "static:test_triggered_forcelimit")
+    }));
+}
+
+#[test]
+fn subject_type_clear_removes_inherited_subject_modifiers() {
+    let fixture = copy_fixture();
+    let subject_types_path = fixture.path().join("common/subject_types/test.txt");
+    let subject_types = fs::read_to_string(&subject_types_path).unwrap();
+    let subject_types = subject_types.replace(
+        "default = { max_government_rank = 0 }",
+        "default = { max_government_rank = 0 modifier_subject = { modifier = subject_nation } }",
+    );
+    assert!(subject_types.contains("modifier = subject_nation"));
+    let subject_types = format!(
+        "{subject_types}\ntest_exempt = {{ copy_from = test_vassal modifier_subject = clear }}\n"
+    );
+    fs::write(subject_types_path, subject_types).unwrap();
+    let diplomacy_path = fixture.path().join("history/diplomacy/test.txt");
+    let diplomacy = fs::read_to_string(&diplomacy_path).unwrap();
+    let diplomacy = diplomacy.replace("subject_type = test_vassal", "subject_type = test_exempt");
+    assert!(diplomacy.contains("subject_type = test_exempt"));
+    fs::write(diplomacy_path, diplomacy).unwrap();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "subject_nation = { global_tax_income = -6 land_forcelimit = -3 naval_forcelimit = -6 }",
+    );
+    for (id, name, owner) in [
+        (1, "North", "AAA"),
+        (2, "East", "BBB"),
+        (3, "South", "AAA"),
+        (4, "Highland", "AAA"),
+    ] {
+        fs::write(
+            fixture
+                .path()
+                .join(format!("history/provinces/{id} - {name}.txt")),
+            format!("owner = {owner}"),
+        )
+        .unwrap();
+    }
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let subject = loaded.initial.country_entity("BBB").unwrap();
+    let world = loaded.initial.world();
+    assert!(world.is_subject_of_type(subject, "test_exempt").unwrap());
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(world, subject, "country_annual_tax")
+            .unwrap()
+            .value_micros,
+        Some(0)
+    );
+    for (attribute, expected) in [
+        ("country_land_forcelimit_flat", 0),
+        ("country_naval_forcelimit_flat", 0),
+    ] {
+        assert_eq!(
+            world
+                .attributes()
+                .evaluate(world, subject, attribute)
+                .unwrap()
+                .known_subtotal_micros,
+            Some(expected),
+            "{attribute}"
+        );
+    }
+}
+
+#[test]
 fn country_tax_counts_free_city_reforms_in_the_hre_for_the_current_emperor() {
     let fixture = copy_fixture();
     append_fixture(
