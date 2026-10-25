@@ -5278,19 +5278,72 @@ impl VanillaWorld {
             .country_entity(id)
             .ok_or_else(|| augustus_core::Error::Invalid("unknown country".into()))?;
         let world = self.initial.world();
-        world
-            .attributes()
-            .formulas
-            .get(&entity)
-            .into_iter()
-            .flat_map(|formulas| formulas.keys())
-            .map(|name| {
-                Ok((
-                    name.clone(),
-                    world.attributes().evaluate(world, entity, name)?,
-                ))
-            })
-            .collect()
+        let mut attributes: std::collections::BTreeMap<String, augustus_core::AttributeEvaluation> =
+            world
+                .attributes()
+                .formulas
+                .get(&entity)
+                .into_iter()
+                .flat_map(|formulas| formulas.keys())
+                .map(|name| {
+                    Ok((
+                        name.clone(),
+                        world.attributes().evaluate(world, entity, name)?,
+                    ))
+                })
+                .collect::<Result<_, augustus_core::Error>>()?;
+        for (country_attribute, province_attribute) in [
+            (
+                "country_land_forcelimit_flat",
+                "province_land_forcelimit_local",
+            ),
+            (
+                "country_naval_forcelimit_flat",
+                "province_naval_forcelimit_local",
+            ),
+        ] {
+            let aggregate = world
+                .attributes()
+                .sum_owned(world, entity, province_attribute)?;
+            let country = attributes
+                .entry(country_attribute.into())
+                .or_insert_with(|| augustus_core::AttributeEvaluation {
+                    base_micros: None,
+                    known_subtotal_micros: None,
+                    value_micros: None,
+                    unresolved: [format!("{country_attribute}:missing_formula")].into(),
+                    steps: Vec::new(),
+                });
+            let input = country.known_subtotal_micros;
+            let flat = aggregate.known_subtotal_micros;
+            let total = input
+                .map(|input| {
+                    input
+                        .checked_add(flat)
+                        .ok_or(augustus_core::Error::Overflow)
+                })
+                .transpose()?;
+            let aggregate_complete = aggregate.value_micros.is_some();
+            country.unresolved.extend(aggregate.unresolved);
+            let complete = country.value_micros.is_some()
+                && aggregate_complete
+                && country.unresolved.is_empty();
+            country.steps.push(augustus_core::AttributeStep {
+                input_micros: input,
+                flat_micros: flat,
+                rate_micros: 0,
+                output_micros: total,
+                contributions: vec![augustus_core::AttributeContribution {
+                    source: "owned_provinces".into(),
+                    property: province_attribute.into(),
+                    micros: flat,
+                    is_rate: false,
+                }],
+            });
+            country.known_subtotal_micros = total;
+            country.value_micros = if complete { total } else { None };
+        }
+        Ok(attributes)
     }
 
     pub fn country_vanilla_production(

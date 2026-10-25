@@ -538,6 +538,37 @@ fn province_force_limit_raw_sources_include_development_buildings_and_owned_tota
             .sum();
         assert_eq!(total.known_subtotal_micros, expected, "{name}");
     }
+
+    let direct = world
+        .attributes()
+        .evaluate(world, country, "country_land_forcelimit_flat")
+        .unwrap();
+    let province_total = world
+        .attributes()
+        .sum_owned(world, country, "province_land_forcelimit_local")
+        .unwrap();
+    let combined = loaded.country_attributes("AAA").unwrap();
+    let expected = direct.known_subtotal_micros.map(|value| {
+        value
+            .checked_add(province_total.known_subtotal_micros)
+            .unwrap()
+    });
+    assert_eq!(
+        combined["country_land_forcelimit_flat"].known_subtotal_micros,
+        expected
+    );
+    assert!(
+        combined["country_land_forcelimit_flat"]
+            .steps
+            .iter()
+            .any(|step| {
+                step.contributions.iter().any(|contribution| {
+                    contribution.source == "owned_provinces"
+                        && contribution.property == "province_land_forcelimit_local"
+                        && contribution.micros == province_total.known_subtotal_micros
+                })
+            })
+    );
 }
 
 #[test]
