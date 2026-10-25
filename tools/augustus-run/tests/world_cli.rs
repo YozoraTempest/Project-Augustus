@@ -35,6 +35,20 @@ fn binary_startup_save() -> Vec<u8> {
     bytes
 }
 
+fn plaintext_startup_save() -> &'static str {
+    r#"EU4txt
+date=1444.11.11
+player="AAA"
+countries={
+	AAA={ human=yes prestige=5.000 }
+	BBB={ human=no prestige=0.000 }
+}
+provinces={
+	-1={ owner="AAA" controller="AAA" }
+}
+"#
+}
+
 fn copy_directory(source: &Path, destination: &Path) {
     fs::create_dir_all(destination).unwrap();
     for entry in fs::read_dir(source).unwrap() {
@@ -310,32 +324,32 @@ fn diplomacy_query_reports_saved_country_relation_state() {
 }
 
 #[test]
-fn world_cli_reports_delayed_startup_tasks_until_they_run() {
+fn world_cli_loads_eu4_save_and_executes_delayed_startup_action() {
     let temp = tempfile::tempdir().unwrap();
     let fixture = temp.path().join("world");
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     copy_directory(&source, &fixture);
+    let save = temp.path().join("startup.eu4");
+    fs::write(&save, plaintext_startup_save()).unwrap();
 
-    let on_actions = fixture.join("common/on_actions");
-    fs::create_dir_all(&on_actions).unwrap();
-    fs::write(
-        on_actions.join("startup.txt"),
-        "on_startup = { if = { limit = { tag = AAA } country_event = { id = probe.1 days = 5 } } }",
-    )
-    .unwrap();
-    let events = fixture.join("events");
-    fs::create_dir_all(&events).unwrap();
-    fs::write(
-        events.join("startup.txt"),
-        "namespace = probe country_event = { id = probe.1 hidden = yes is_triggered_only = yes immediate = { log = delayed_startup_event } }",
-    )
-    .unwrap();
-
-    let run = |days: &str| {
-        let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+    let run = |snapshot: Option<&Path>, days: Option<&str>, save_snapshot: Option<&Path>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+        command
             .arg("--game-root")
             .arg(&fixture)
-            .args(["--days", days, "--omit-load-report"])
+            .arg("--eu4-save")
+            .arg(&save);
+        if let Some(snapshot) = snapshot {
+            command.arg("--load").arg(snapshot);
+        }
+        if let Some(days) = days {
+            command.args(["--days", days]);
+        }
+        if let Some(save_snapshot) = save_snapshot {
+            command.arg("--save").arg(save_snapshot);
+        }
+        let output = command
+            .args(["--country", "AAA", "--omit-load-report"])
             .output()
             .unwrap();
         assert!(
@@ -346,8 +360,37 @@ fn world_cli_reports_delayed_startup_tasks_until_they_run() {
         serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
     };
 
-    assert_eq!(run("0")["simulation"]["pending_tasks"], 1);
-    assert_eq!(run("5")["simulation"]["pending_tasks"], 0);
+    let without_delay = run(None, None, None);
+    assert_eq!(without_delay["simulation"]["pending_tasks"], 0);
+    assert_eq!(without_delay["country"]["metrics"]["prestige"], 5_000);
+
+    let on_actions = fixture.join("common/on_actions");
+    fs::create_dir_all(&on_actions).unwrap();
+    fs::write(
+        on_actions.join("startup.txt"),
+        "on_startup = { if = { limit = { tag = AAA prestige = 5 } country_event = { id = probe.1 days = 5 } } }",
+    )
+    .unwrap();
+    let events = fixture.join("events");
+    fs::create_dir_all(&events).unwrap();
+    fs::write(
+        events.join("startup.txt"),
+        "namespace = probe country_event = { id = probe.1 hidden = yes is_triggered_only = yes immediate = { add_prestige = 2 } }",
+    )
+    .unwrap();
+
+    let pending_snapshot = temp.path().join("startup-pending.json");
+    let scheduled = run(None, Some("0"), Some(&pending_snapshot));
+    assert_eq!(scheduled["simulation"]["pending_tasks"], 1);
+    assert_eq!(scheduled["country"]["metrics"]["prestige"], 5_000);
+
+    let before_due = run(Some(&pending_snapshot), Some("4"), None);
+    assert_eq!(before_due["simulation"]["pending_tasks"], 1);
+    assert_eq!(before_due["country"]["metrics"]["prestige"], 5_000);
+
+    let due = run(Some(&pending_snapshot), Some("5"), None);
+    assert_eq!(due["simulation"]["pending_tasks"], 0);
+    assert_eq!(due["country"]["metrics"]["prestige"], 7_000);
 }
 
 #[test]
