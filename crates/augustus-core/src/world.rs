@@ -2902,7 +2902,8 @@ pub(crate) fn validate_condition(
         crate::Condition::ScopeIsCurrent(selector) => selector.validate(),
         crate::Condition::AnySubjectCountry { condition, .. }
         | crate::Condition::With { condition, .. }
-        | crate::Condition::AnyOwnedProvince { condition, .. } => validate_condition(
+        | crate::Condition::AnyOwnedProvince { condition, .. }
+        | crate::Condition::SubjectOverlord { condition } => validate_condition(
             condition,
             schema,
             completions,

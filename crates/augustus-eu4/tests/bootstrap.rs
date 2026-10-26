@@ -344,7 +344,7 @@ fn subject_type_modifiers_apply_inherited_flat_sources_and_keep_triggers_unresol
     assert!(subject_types.contains("modifier = subject_nation"));
     let subject_types = subject_types.replace(
         "test_vassal = { copy_from = default }",
-        "test_vassal = { copy_from = default modifier_subject = { modifier = test_triggered_forcelimit trigger = { always = yes } } }",
+        "test_vassal = { copy_from = default modifier_subject = { modifier = test_triggered_forcelimit trigger = { development_of_overlord_fraction = 0.25 } } }",
     );
     assert!(subject_types.contains("modifier = test_triggered_forcelimit"));
     fs::write(subject_types_path, subject_types).unwrap();
@@ -497,6 +497,93 @@ fn subject_type_clear_removes_inherited_subject_modifiers() {
             "{attribute}"
         );
     }
+}
+
+#[test]
+fn personal_union_subject_bonus_follows_the_overlords_live_government_feature() {
+    let fixture = copy_fixture();
+    let subject_types_path = fixture.path().join("common/subject_types/test.txt");
+    let subject_types = fs::read_to_string(&subject_types_path).unwrap();
+    let subject_types = format!(
+        "{subject_types}\ntest_union = {{ copy_from = default modifier_subject = {{ modifier = pu_subject_bonus trigger = {{ overlord = {{ has_government_attribute = personal_union_war_contribution }} }} }} }}\n"
+    );
+    fs::write(subject_types_path, subject_types).unwrap();
+    let diplomacy_path = fixture.path().join("history/diplomacy/test.txt");
+    let diplomacy = fs::read_to_string(&diplomacy_path).unwrap();
+    let diplomacy = diplomacy.replace("subject_type = test_vassal", "subject_type = test_union");
+    assert!(diplomacy.contains("subject_type = test_union"));
+    fs::write(diplomacy_path, diplomacy).unwrap();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "pu_subject_bonus = { land_forcelimit_modifier = 0.3 naval_forcelimit_modifier = 0.3 }",
+    );
+
+    let mut loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let subject = loaded.initial.country_entity("BBB").unwrap();
+    let overlord = loaded.initial.country_entity("AAA").unwrap();
+    let world = loaded.initial.world();
+    assert!(world.is_subject_of_type(subject, "test_union").unwrap());
+    let mut governments = world.governments().clone();
+    governments.reforms.insert(
+        "war_contribution".into(),
+        augustus_core::GovernmentReform {
+            features: BTreeMap::from([("personal_union_war_contribution".into(), Some(true))]),
+            modifier: Default::default(),
+            unresolved_properties: BTreeSet::new(),
+        },
+    );
+    governments.countries.get_mut(&overlord).unwrap().reforms = Some(BTreeSet::new());
+    loaded.initial.set_governments(governments.clone()).unwrap();
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(
+                loaded.initial.world(),
+                subject,
+                "country_land_forcelimit_modifier",
+            )
+            .unwrap()
+            .known_subtotal_micros,
+        Some(0)
+    );
+
+    governments.countries.get_mut(&overlord).unwrap().reforms =
+        Some(BTreeSet::from(["war_contribution".into()]));
+    loaded.initial.set_governments(governments).unwrap();
+    let result = loaded
+        .initial
+        .world()
+        .attributes()
+        .evaluate(
+            loaded.initial.world(),
+            subject,
+            "country_land_forcelimit_modifier",
+        )
+        .unwrap();
+    assert_eq!(result.known_subtotal_micros, Some(300_000));
+    assert!(result.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source == "static:pu_subject_bonus"
+                && contribution.property == "land_forcelimit_modifier"
+                && contribution.micros == 300_000
+        })
+    }));
+    let source_world = loaded.initial.world();
+    let saved = source_world.save("subject-overlord-feature").unwrap();
+    let restored =
+        augustus_core::World::restore(&saved, "subject-overlord-feature", source_world.schema())
+            .unwrap();
+    assert_eq!(
+        restored
+            .attributes()
+            .evaluate(&restored, subject, "country_land_forcelimit_modifier")
+            .unwrap()
+            .known_subtotal_micros,
+        Some(300_000)
+    );
 }
 
 #[test]

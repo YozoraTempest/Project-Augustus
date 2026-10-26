@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::bootstrap::{direct_txt, equal, source};
 use crate::setup::{PropertyDiagnostics, block, properties};
-use crate::subject_modifiers::SubjectModifierDraft;
+use crate::subject_modifiers::{SubjectModifierDraft, SubjectModifierTrigger};
 use crate::{
     ContentView, Error, FileEntry, LoadedSource, ParsedText, SetupReport, SourceLocation,
     TextEncoding,
@@ -1674,16 +1674,25 @@ impl AttributeDraft {
                             "subject_modifier_source_unresolved:{subject_type}:{definition}:{property}"
                         ),
                     });
-                } else if property_has_value && modifier.conditional {
-                    type_terms.push(AttributeTerm::Unknown {
-                        reason: format!(
-                            "subject_modifier_trigger_unresolved:{subject_type}:{definition}:{property}"
-                        ),
-                    });
                 } else if property_has_value {
-                    type_terms.push(AttributeTerm::Static {
+                    let source = AttributeTerm::Static {
                         definition: definition.clone(),
                         property: property.into(),
+                    };
+                    type_terms.push(match &modifier.trigger {
+                        None => source,
+                        Some(SubjectModifierTrigger::Condition(condition)) => {
+                            AttributeTerm::Conditional {
+                                condition: Box::new(condition.clone()),
+                                then: vec![source],
+                                otherwise: Vec::new(),
+                            }
+                        }
+                        Some(SubjectModifierTrigger::Unresolved) => AttributeTerm::Unknown {
+                            reason: format!(
+                                "subject_modifier_trigger_unresolved:{subject_type}:{definition}:{property}"
+                            ),
+                        },
                     });
                 }
             }

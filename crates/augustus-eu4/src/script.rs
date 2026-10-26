@@ -640,6 +640,16 @@ impl<'a> ScriptCompiler<'a> {
         )
     }
 
+    pub(crate) fn compile_condition_reader(
+        mut self,
+        parsed: &ParsedText<'_>,
+        reader: ObjectReader<'_, '_, TextEncoding>,
+        scope: EntityKind,
+    ) -> Result<Condition, Error> {
+        self.root_scope.get_or_insert(scope);
+        self.conditions(&read_fields(parsed, reader, 1, false)?, scope)
+    }
+
     pub(crate) fn compile_condition_source(
         mut self,
         source: &ConditionSource,
@@ -2890,6 +2900,16 @@ impl<'a> ScriptCompiler<'a> {
                         selector: ScopeSelector::Root,
                         kind,
                         condition: Box::new(self.conditions(field.block()?, kind)?),
+                    }
+                }
+                "overlord" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("overlord scope requires country scope"));
+                    }
+                    Condition::SubjectOverlord {
+                        condition: Box::new(
+                            self.conditions(field.block()?, EntityKind::Country)?,
+                        ),
                     }
                 }
                 "is_subject_of" => {

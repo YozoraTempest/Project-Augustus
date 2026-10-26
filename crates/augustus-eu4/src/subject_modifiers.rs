@@ -3,14 +3,23 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use augustus_core::{Condition, EntityKind, Schema};
+
 use crate::bootstrap::{direct_txt, equal};
+use crate::script::{ScriptCompiler, ScriptLibrary};
 use crate::setup::block;
 use crate::{ContentView, Error, FileEntry, TextEncoding};
 
 #[derive(Debug, Clone)]
+pub(super) enum SubjectModifierTrigger {
+    Condition(Condition),
+    Unresolved,
+}
+
+#[derive(Debug, Clone)]
 pub(super) struct SubjectModifier {
     pub(super) definition: String,
-    pub(super) conditional: bool,
+    pub(super) trigger: Option<SubjectModifierTrigger>,
 }
 
 #[derive(Debug)]
@@ -30,6 +39,9 @@ impl SubjectModifierDraft {
     pub(super) fn load(root: &impl ContentView, files: &[FileEntry]) -> Result<Self, Error> {
         let mut definitions = BTreeMap::<String, Option<Vec<Operation>>>::new();
         let mut referenced_modifiers = BTreeSet::new();
+        let schema = Schema::new(Vec::<String>::new())
+            .map_err(|error| Error::caused_by(root.path(), error))?;
+        let library = ScriptLibrary::new();
         for file in files
             .iter()
             .filter(|file| direct_txt(&file.relative_path, "common/subject_types"))
@@ -73,29 +85,49 @@ impl SubjectModifierDraft {
                                 continue;
                             };
                             let mut definition = None;
-                            let mut conditional = false;
+                            let mut trigger = None;
                             for (key, op, value) in modifier_block.fields() {
+                                equal(op, &fail)?;
                                 match key.read_string().as_str() {
-                                    "modifier" => {
-                                        equal(op, &fail)?;
-                                        match value.read_string() {
-                                            Ok(value) if definition.is_none() => {
-                                                referenced_modifiers.insert(value.clone());
-                                                definition = Some(value);
-                                            }
-                                            _ => complete = false,
+                                    "modifier" => match value.read_string() {
+                                        Ok(value) if definition.is_none() => {
+                                            referenced_modifiers.insert(value.clone());
+                                            definition = Some(value);
                                         }
+                                        _ => complete = false,
+                                    },
+                                    "trigger" => {
+                                        if trigger.is_some() {
+                                            trigger = Some(SubjectModifierTrigger::Unresolved);
+                                            continue;
+                                        }
+                                        let Ok(trigger_reader) = value.read_object() else {
+                                            complete = false;
+                                            continue;
+                                        };
+                                        let compiled = ScriptCompiler::new(&schema, &library, true)
+                                            .with_unbound_subject_types()
+                                            .compile_condition_reader(
+                                                &parsed,
+                                                trigger_reader,
+                                                EntityKind::Country,
+                                            );
+                                        trigger = Some(match compiled {
+                                            Ok(condition) => {
+                                                SubjectModifierTrigger::Condition(condition)
+                                            }
+                                            Err(_) => SubjectModifierTrigger::Unresolved,
+                                        });
                                     }
-                                    "trigger" => conditional = true,
                                     "expiration_message_subject"
                                     | "expiration_message_overlord" => {}
-                                    _ => conditional = true,
+                                    _ => trigger = Some(SubjectModifierTrigger::Unresolved),
                                 }
                             }
                             if let Some(definition) = definition {
                                 operations.push(Operation::Add(SubjectModifier {
                                     definition,
-                                    conditional,
+                                    trigger,
                                 }));
                             } else {
                                 complete = false;

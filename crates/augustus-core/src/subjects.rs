@@ -214,6 +214,16 @@ impl World {
         Ok(self.subject_index.incoming.contains_key(&country))
     }
 
+    /// Resolve a direct subject's overlord without treating an unknown graph as independence.
+    pub fn subject_overlord(&self, country: EntityId) -> Result<Option<EntityId>, Error> {
+        self.require_subject_country(country)?;
+        Ok(self
+            .subject_index
+            .incoming
+            .get(&country)
+            .map(|&index| self.politics.relations[index].first))
+    }
+
     /// Compare a direct incoming subject relation with the selected overlord.
     pub fn is_subject_of(&self, country: EntityId, overlord: EntityId) -> Result<bool, Error> {
         self.require_subject_country(country)?;

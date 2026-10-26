@@ -68,6 +68,9 @@ pub enum Condition {
         subject: crate::EntityRef,
         overlord: crate::EntityRef,
     },
+    SubjectOverlord {
+        condition: Box<Condition>,
+    },
     SubjectPresent {
         target: Target,
     },
@@ -571,6 +574,7 @@ impl Condition {
             Self::AnyOwnedProvince { condition, .. }
             | Self::AnySubjectCountry { condition, .. }
             | Self::With { condition, .. }
+            | Self::SubjectOverlord { condition }
             | Self::InScope { condition, .. }
             | Self::Not(condition) => condition.collect_global_marker_references(names),
             Self::If {
@@ -700,6 +704,12 @@ impl Condition {
                     return Ok(false);
                 }
                 world.is_subject_of(subject, overlord)
+            }
+            Self::SubjectOverlord { condition } => {
+                let Some(overlord) = world.subject_overlord(current)? else {
+                    return Ok(false);
+                };
+                condition.evaluate_in_context(world, context.with_current(overlord))
             }
             Self::SubjectPresent { target } => {
                 world.is_subject_country(world.target(current, *target)?)
