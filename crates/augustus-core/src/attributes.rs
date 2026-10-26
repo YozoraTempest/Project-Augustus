@@ -227,6 +227,15 @@ pub enum AttributeTerm {
         affiliation_dimension: String,
         affiliation_member: String,
     },
+    /// Apply a static modifier on an overlord for each direct subject of a type.
+    SubjectCountryModifier {
+        subject_type: String,
+        definition: String,
+        property: String,
+        condition: Option<Condition>,
+        source_unresolved: bool,
+        trigger_unresolved: bool,
+    },
     Buildings {
         property: String,
     },
@@ -1321,6 +1330,97 @@ impl Attributes {
                 ));
                 return Ok((values, complete));
             }
+            AttributeTerm::SubjectCountryModifier {
+                subject_type,
+                definition,
+                property,
+                condition,
+                source_unresolved,
+                trigger_unresolved,
+            } => {
+                if world.entity(entity)?.kind != EntityKind::Country {
+                    return Err(Error::Invalid(
+                        "subject-country modifier requires a country attribute".into(),
+                    ));
+                }
+                let subjects = match world.subject_countries(entity) {
+                    Ok(subjects) => subjects,
+                    Err(_) => {
+                        unresolved.insert(format!(
+                            "subject_country_modifiers:unknown_subjects:{subject_type}"
+                        ));
+                        return Ok((values, false));
+                    }
+                };
+                let mut complete = true;
+                for &subject in subjects {
+                    let matches_type = match world.is_subject_of_type(subject, subject_type) {
+                        Ok(matches) => matches,
+                        Err(_) => {
+                            unresolved.insert(format!(
+                                "subject_country_modifiers:unknown_type:{subject_type}"
+                            ));
+                            complete = false;
+                            continue;
+                        }
+                    };
+                    if !matches_type {
+                        continue;
+                    }
+                    if *trigger_unresolved {
+                        unresolved.insert(format!(
+                            "subject_modifier_trigger_unresolved:{subject_type}:{definition}:{property}"
+                        ));
+                        complete = false;
+                        continue;
+                    }
+                    if let Some(condition) = condition {
+                        match condition.evaluate(world, subject) {
+                            Ok(true) => {}
+                            Ok(false) => continue,
+                            Err(error) => {
+                                unresolved.insert(format!(
+                                    "subject_modifier_trigger_unknown:{subject_type}:{error}"
+                                ));
+                                complete = false;
+                                continue;
+                            }
+                        }
+                    }
+                    if *source_unresolved {
+                        unresolved.insert(format!(
+                            "subject_modifier_source_unresolved:{subject_type}:{definition}:{property}"
+                        ));
+                        complete = false;
+                        continue;
+                    }
+                    let Some(data) = self.static_modifiers.get(definition) else {
+                        unresolved.insert(format!(
+                            "subject_modifier_source_missing:{subject_type}:{definition}"
+                        ));
+                        complete = false;
+                        continue;
+                    };
+                    if data.flags.contains_key(property) {
+                        unresolved.insert(format!(
+                            "subject_modifier_property_not_numeric:{subject_type}:{definition}:{property}"
+                        ));
+                        complete = false;
+                        continue;
+                    }
+                    if let Some(&micros) = data.values_micros.get(property) {
+                        values.push((
+                            format!(
+                                "subject_country:{}:static:{definition}",
+                                world.entity(subject)?.name
+                            ),
+                            property.clone(),
+                            micros,
+                        ));
+                    }
+                }
+                return Ok((values, complete));
+            }
             AttributeTerm::Buildings { property } => {
                 if let Some(state) = world.economy().provinces.get(&entity) {
                     for name in &state.buildings {
@@ -1703,6 +1803,28 @@ impl Attributes {
                                     .static_modifiers
                                     .get(definition)
                                     .is_some_and(|data| data.values_micros.contains_key(property))
+                        }
+                        AttributeTerm::SubjectCountryModifier {
+                            subject_type,
+                            definition,
+                            property,
+                            condition,
+                            source_unresolved,
+                            ..
+                        } => {
+                            if let Some(condition) = condition {
+                                validate_attribute_condition(condition)?;
+                                world.validate_condition(condition)?;
+                            }
+                            !is_rate
+                                && world.entity(entity)?.kind == EntityKind::Country
+                                && world.subjects().types.contains(subject_type)
+                                && !definition.is_empty()
+                                && !property.is_empty()
+                                && (*source_unresolved
+                                    || self.static_modifiers.get(definition).is_some_and(|data| {
+                                        data.values_micros.contains_key(property)
+                                    }))
                         }
                         AttributeTerm::Buildings { property }
                         | AttributeTerm::TradeGood { property } => {

@@ -433,6 +433,267 @@ fn subject_type_modifiers_apply_inherited_flat_sources_and_keep_triggers_unresol
 }
 
 #[test]
+fn overlord_force_limit_modifiers_follow_subject_type_inheritance_and_clear() {
+    for (subject_type, expected_modifier, expected_value) in [
+        ("test_vassal", "vassal_subject", 1_000_000),
+        ("test_march", "march_subject", 2_000_000),
+    ] {
+        let fixture = copy_fixture();
+        let subject_types_path = fixture.path().join("common/subject_types/test.txt");
+        let subject_types = fs::read_to_string(&subject_types_path).unwrap();
+        let subject_types = subject_types.replace(
+            "test_vassal = { copy_from = default }",
+            "test_vassal = { copy_from = default modifier_overlord = { modifier = vassal_subject } }",
+        );
+        assert!(subject_types.contains("modifier = vassal_subject"));
+        let subject_types = if subject_type == "test_march" {
+            format!(
+                "{subject_types}\ntest_march = {{ copy_from = test_vassal modifier_overlord = clear modifier_overlord = {{ modifier = march_subject }} }}\n"
+            )
+        } else {
+            subject_types
+        };
+        fs::write(subject_types_path, subject_types).unwrap();
+
+        append_fixture(
+            fixture.path(),
+            "common/country_tags/test.txt",
+            "CCC = \"countries/Other.txt\"",
+        );
+        fs::write(
+            fixture.path().join("common/countries/Other.txt"),
+            "color = { 60 180 120 }\ncapital = 5\nprimary_culture = alpha\nreligion = test_faith\ngovernment = monarchy\ntechnology_group = test_group",
+        )
+        .unwrap();
+        fs::write(
+            fixture.path().join("history/countries/CCC - Other.txt"),
+            "monarch = { name = Other adm = 2 dip = 2 mil = 2 }",
+        )
+        .unwrap();
+
+        if subject_type == "test_march" {
+            let diplomacy_path = fixture.path().join("history/diplomacy/test.txt");
+            let diplomacy = fs::read_to_string(&diplomacy_path).unwrap();
+            let diplomacy =
+                diplomacy.replace("subject_type = test_vassal", "subject_type = test_march");
+            assert!(diplomacy.contains("subject_type = test_march"));
+            fs::write(diplomacy_path, diplomacy).unwrap();
+        }
+        append_fixture(
+            fixture.path(),
+            "history/diplomacy/test.txt",
+            "dependency = { first = AAA second = CCC subject_type = test_vassal start_date = 1430.1.1 end_date = 1450.1.1 }",
+        );
+        append_fixture(
+            fixture.path(),
+            "common/static_modifiers/test_static.txt",
+            "vassal_subject = { land_forcelimit = 1 }\n\
+             march_subject = { land_forcelimit = 2 }",
+        );
+
+        let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+        let subject = loaded.initial.country_entity("BBB").unwrap();
+        let second_subject = loaded.initial.country_entity("CCC").unwrap();
+        let overlord = loaded.initial.country_entity("AAA").unwrap();
+        let world = loaded.initial.world();
+        assert!(world.is_subject_of_type(subject, subject_type).unwrap());
+        assert!(
+            world
+                .is_subject_of_type(second_subject, "test_vassal")
+                .unwrap()
+        );
+        assert_eq!(world.subject_countries(overlord).unwrap().len(), 2);
+        let result = world
+            .attributes()
+            .evaluate(world, overlord, "country_land_forcelimit_flat")
+            .unwrap();
+        for (country, modifier, value) in [
+            (subject, expected_modifier, expected_value),
+            (second_subject, "vassal_subject", 1_000_000),
+        ] {
+            assert!(
+                result.steps.iter().any(|step| {
+                    step.contributions.iter().any(|contribution| {
+                        contribution.source
+                            == format!(
+                                "subject_country:{}:static:{modifier}",
+                                world.entity(country).unwrap().name
+                            )
+                            && contribution.property == "land_forcelimit"
+                            && contribution.micros == value
+                    })
+                }),
+                "{result:?}"
+            );
+        }
+        if subject_type == "test_march" {
+            assert!(
+                !result.steps.iter().any(|step| {
+                    step.contributions.iter().any(|contribution| {
+                        contribution.source
+                            == format!(
+                                "subject_country:{}:static:vassal_subject",
+                                world.entity(subject).unwrap().name
+                            )
+                    })
+                }),
+                "{result:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn conditional_pirate_subject_modifier_updates_the_overlords_naval_force_limit() {
+    let fixture = copy_fixture();
+    let subject_types_path = fixture.path().join("common/subject_types/test.txt");
+    let subject_types = fs::read_to_string(&subject_types_path).unwrap();
+    let subject_types = subject_types.replace(
+        "test_vassal = { copy_from = default }",
+        "test_vassal = { copy_from = default modifier_overlord = { modifier = pirate_subject trigger = { has_government_attribute = is_pirate_republic_reform overlord = { has_government_attribute = pirate_vassal_bonus } } } }",
+    );
+    assert!(subject_types.contains("modifier = pirate_subject"));
+    fs::write(subject_types_path, subject_types).unwrap();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "pirate_subject = { naval_forcelimit = 2 }",
+    );
+    let mut loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let subject = loaded.initial.country_entity("BBB").unwrap();
+    let overlord = loaded.initial.country_entity("AAA").unwrap();
+    let mut governments = loaded.initial.world().governments().clone();
+    for (id, feature) in [
+        ("pirate_subject", "is_pirate_republic_reform"),
+        ("pirate_overlord", "pirate_vassal_bonus"),
+    ] {
+        governments.reforms.insert(
+            id.into(),
+            augustus_core::GovernmentReform {
+                features: BTreeMap::from([(feature.into(), Some(true))]),
+                modifier: Default::default(),
+                unresolved_properties: BTreeSet::new(),
+            },
+        );
+    }
+    let subject_reforms = governments
+        .countries
+        .get_mut(&subject)
+        .unwrap()
+        .reforms
+        .as_mut()
+        .unwrap();
+    subject_reforms.insert("pirate_subject".into());
+    loaded.initial.set_governments(governments.clone()).unwrap();
+    let naval_limit = |loaded: &VanillaWorld| {
+        loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(
+                loaded.initial.world(),
+                overlord,
+                "country_naval_forcelimit_flat",
+            )
+            .unwrap()
+    };
+    assert_eq!(
+        naval_limit(&loaded).known_subtotal_micros,
+        Some(0),
+        "{:?}",
+        naval_limit(&loaded)
+    );
+
+    governments
+        .countries
+        .get_mut(&overlord)
+        .unwrap()
+        .reforms
+        .as_mut()
+        .unwrap()
+        .insert("pirate_overlord".into());
+    loaded.initial.set_governments(governments.clone()).unwrap();
+    let active = naval_limit(&loaded);
+    assert_eq!(active.known_subtotal_micros, Some(2_000_000));
+    let subject_name = loaded.initial.world().entity(subject).unwrap().name.clone();
+    assert!(active.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source == format!("subject_country:{subject_name}:static:pirate_subject")
+                && contribution.property == "naval_forcelimit"
+                && contribution.micros == 2_000_000
+        })
+    }));
+
+    let source_world = loaded.initial.world();
+    let saved = source_world.save("pirate-subject-force-limit").unwrap();
+    let restored =
+        augustus_core::World::restore(&saved, "pirate-subject-force-limit", source_world.schema())
+            .unwrap();
+    assert_eq!(
+        restored
+            .attributes()
+            .evaluate(&restored, overlord, "country_naval_forcelimit_flat")
+            .unwrap()
+            .known_subtotal_micros,
+        Some(2_000_000)
+    );
+
+    governments
+        .countries
+        .get_mut(&subject)
+        .unwrap()
+        .reforms
+        .as_mut()
+        .unwrap()
+        .remove("pirate_subject");
+    loaded.initial.set_governments(governments).unwrap();
+    assert_eq!(naval_limit(&loaded).known_subtotal_micros, Some(0));
+}
+
+#[test]
+fn pronoia_overlord_percentage_modifier_reaches_the_country_rate_formula() {
+    let fixture = copy_fixture();
+    let subject_types_path = fixture.path().join("common/subject_types/test.txt");
+    let subject_types = fs::read_to_string(&subject_types_path).unwrap();
+    let subject_types = format!(
+        "{subject_types}\ntest_pronoia = {{ copy_from = default modifier_overlord = {{ modifier = soyurghal_base_overlord_modifiers }} }}\n"
+    );
+    fs::write(subject_types_path, subject_types).unwrap();
+    let diplomacy_path = fixture.path().join("history/diplomacy/test.txt");
+    let diplomacy = fs::read_to_string(&diplomacy_path).unwrap();
+    let diplomacy = diplomacy.replace("subject_type = test_vassal", "subject_type = test_pronoia");
+    assert!(diplomacy.contains("subject_type = test_pronoia"));
+    fs::write(diplomacy_path, diplomacy).unwrap();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "soyurghal_base_overlord_modifiers = { land_forcelimit_modifier = 0.05 }",
+    );
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let subject = loaded.initial.country_entity("BBB").unwrap();
+    let overlord = loaded.initial.country_entity("AAA").unwrap();
+    let world = loaded.initial.world();
+    assert!(world.is_subject_of_type(subject, "test_pronoia").unwrap());
+    let result = world
+        .attributes()
+        .evaluate(world, overlord, "country_land_forcelimit_modifier")
+        .unwrap();
+    assert_eq!(result.known_subtotal_micros, Some(50_000), "{result:?}");
+    assert!(result.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source
+                == format!(
+                    "subject_country:{}:static:soyurghal_base_overlord_modifiers",
+                    world.entity(subject).unwrap().name
+                )
+                && contribution.property == "land_forcelimit_modifier"
+                && contribution.micros == 50_000
+        })
+    }));
+}
+
+#[test]
 fn march_bonus_uses_subject_development_fraction_at_the_25_percent_boundary() {
     for (subject_development, expected_bonus) in [(8, 300_000), (9, 0), (10, 0)] {
         let fixture = copy_fixture();

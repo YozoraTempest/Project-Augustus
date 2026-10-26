@@ -1478,6 +1478,8 @@ impl AttributeDraft {
             ] {
                 let terms = self.subject_modifier_terms(initial, property, report);
                 Self::append_formula_flat_terms(&mut formulas, attribute, terms);
+                let terms = self.overlord_modifier_terms(initial, property, report);
+                Self::append_formula_flat_terms(&mut formulas, attribute, terms);
             }
             if has_all_nations_source {
                 for (attribute, property) in [
@@ -1704,6 +1706,77 @@ impl AttributeDraft {
                     }),
                     then: type_terms,
                     otherwise: Vec::new(),
+                });
+            }
+        }
+        terms
+    }
+
+    fn overlord_modifier_terms(
+        &self,
+        initial: &InitialWorld,
+        property: &str,
+        report: &AttributeReport,
+    ) -> Vec<AttributeTerm> {
+        let mut terms = Vec::new();
+        for subject_type in &initial.world().subjects().types {
+            let Some(modifiers) = self.subject_modifiers.for_overlord_type(subject_type) else {
+                terms.push(AttributeTerm::Conditional {
+                    condition: Box::new(Condition::AnySubjectCountry {
+                        target: Target::Current,
+                        condition: Box::new(Condition::SubjectType {
+                            target: Target::Current,
+                            subject_type: subject_type.clone(),
+                        }),
+                    }),
+                    then: vec![AttributeTerm::Unknown {
+                        reason: format!(
+                            "overlord_modifier_type_unresolved:{subject_type}:{property}"
+                        ),
+                    }],
+                    otherwise: Vec::new(),
+                });
+                continue;
+            };
+            for modifier in modifiers {
+                let definition = &modifier.definition;
+                let definition_ambiguous = report
+                    .ambiguous_definitions
+                    .contains_key(&format!("static_modifiers:{definition}"));
+                let property_ambiguous = report
+                    .ambiguous_properties
+                    .contains_key(&format!("static_modifiers:{definition}:{property}"));
+                let property_unsupported = self
+                    .static_unresolved
+                    .get(definition)
+                    .is_some_and(|properties| properties.contains(property));
+                let source = self.attributes.static_modifiers.get(definition);
+                let property_is_flag =
+                    source.is_some_and(|source| source.flags.contains_key(property));
+                let property_has_value =
+                    source.is_some_and(|source| source.values_micros.contains_key(property));
+                let source_unresolved = definition_ambiguous
+                    || property_ambiguous
+                    || property_unsupported
+                    || property_is_flag
+                    || source.is_none();
+                if !source_unresolved && !property_has_value {
+                    continue;
+                }
+                let condition = match &modifier.trigger {
+                    Some(SubjectModifierTrigger::Condition(condition)) => Some(condition.clone()),
+                    _ => None,
+                };
+                terms.push(AttributeTerm::SubjectCountryModifier {
+                    subject_type: subject_type.clone(),
+                    definition: definition.clone(),
+                    property: property.into(),
+                    condition,
+                    source_unresolved,
+                    trigger_unresolved: matches!(
+                        &modifier.trigger,
+                        Some(SubjectModifierTrigger::Unresolved)
+                    ),
                 });
             }
         }
