@@ -71,6 +71,9 @@ pub enum Condition {
     SubjectOverlord {
         condition: Box<Condition>,
     },
+    DevelopmentOfOverlordFraction {
+        threshold_micros: i64,
+    },
     SubjectPresent {
         target: Target,
     },
@@ -710,6 +713,37 @@ impl Condition {
                     return Ok(false);
                 };
                 condition.evaluate_in_context(world, context.with_current(overlord))
+            }
+            Self::DevelopmentOfOverlordFraction { threshold_micros } => {
+                if !(0..=1_000_000).contains(threshold_micros) {
+                    return Err(Error::Invalid(
+                        "development fraction threshold must be between zero and one".into(),
+                    ));
+                }
+                let Some(overlord) = world.subject_overlord(current)? else {
+                    return Ok(false);
+                };
+                let development = |country| {
+                    world
+                        .attributes()
+                        .sum_owned(world, country, "development")?
+                        .value_micros
+                        .ok_or_else(|| {
+                            Error::Invalid(format!(
+                                "development is unknown for country {}",
+                                country.0
+                            ))
+                        })
+                };
+                let subject_development = development(current)?;
+                let overlord_development = development(overlord)?;
+                if overlord_development <= 0 {
+                    return Err(Error::Invalid(
+                        "overlord development must be positive for a development fraction".into(),
+                    ));
+                }
+                Ok(i128::from(subject_development) * 1_000_000
+                    >= i128::from(overlord_development) * i128::from(*threshold_micros))
             }
             Self::SubjectPresent { target } => {
                 world.is_subject_country(world.target(current, *target)?)

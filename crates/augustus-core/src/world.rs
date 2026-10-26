@@ -2844,6 +2844,13 @@ pub(crate) fn validate_condition(
         crate::Condition::GovernmentRank { rank, .. } if !(1..=3).contains(rank) => Err(
             Error::Invalid("government rank must be between 1 and 3".into()),
         ),
+        crate::Condition::DevelopmentOfOverlordFraction { threshold_micros }
+            if !(0..=1_000_000).contains(threshold_micros) =>
+        {
+            Err(Error::Invalid(
+                "development fraction threshold must be between zero and one".into(),
+            ))
+        }
         crate::Condition::GovernmentReform { id, .. } => {
             governments.reform_definition(id).map(|_| ())
         }

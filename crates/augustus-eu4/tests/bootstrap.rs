@@ -344,7 +344,7 @@ fn subject_type_modifiers_apply_inherited_flat_sources_and_keep_triggers_unresol
     assert!(subject_types.contains("modifier = subject_nation"));
     let subject_types = subject_types.replace(
         "test_vassal = { copy_from = default }",
-        "test_vassal = { copy_from = default modifier_subject = { modifier = test_triggered_forcelimit trigger = { development_of_overlord_fraction = 0.25 } } }",
+        "test_vassal = { copy_from = default modifier_subject = { modifier = test_triggered_forcelimit trigger = { unsupported_test_subject_trigger = yes } } }",
     );
     assert!(subject_types.contains("modifier = test_triggered_forcelimit"));
     fs::write(subject_types_path, subject_types).unwrap();
@@ -430,6 +430,137 @@ fn subject_type_modifiers_apply_inherited_flat_sources_and_keep_triggers_unresol
             .iter()
             .any(|contribution| contribution.source == "static:test_triggered_forcelimit")
     }));
+}
+
+#[test]
+fn march_bonus_uses_subject_development_fraction_at_the_25_percent_boundary() {
+    for (subject_development, expected_bonus) in [(8, 300_000), (9, 0), (10, 0)] {
+        let fixture = copy_fixture();
+        let subject_types_path = fixture.path().join("common/subject_types/test.txt");
+        let subject_types = fs::read_to_string(&subject_types_path).unwrap();
+        let subject_types = format!(
+            "{subject_types}\ntest_march = {{ copy_from = default modifier_subject = {{ modifier = march_bonus trigger = {{ NOT = {{ development_of_overlord_fraction = 0.25 }} }} }} }}\n"
+        );
+        fs::write(subject_types_path, subject_types).unwrap();
+        let diplomacy_path = fixture.path().join("history/diplomacy/test.txt");
+        let diplomacy = fs::read_to_string(&diplomacy_path).unwrap();
+        let diplomacy =
+            diplomacy.replace("subject_type = test_vassal", "subject_type = test_march");
+        assert!(diplomacy.contains("subject_type = test_march"));
+        fs::write(diplomacy_path, diplomacy).unwrap();
+        append_fixture(
+            fixture.path(),
+            "common/static_modifiers/test_static.txt",
+            "march_bonus = { land_forcelimit_modifier = 0.3 naval_forcelimit_modifier = 0.3 }",
+        );
+        append_fixture(
+            fixture.path(),
+            "common/country_tags/test.txt",
+            "CCC = \"countries/Other.txt\"",
+        );
+        fs::write(
+            fixture.path().join("common/countries/Other.txt"),
+            "color = { 60 180 120 }\ncapital = 5\nprimary_culture = alpha\nreligion = test_faith\ngovernment = monarchy\ntechnology_group = test_group",
+        )
+        .unwrap();
+        fs::write(
+            fixture.path().join("history/countries/CCC - Other.txt"),
+            "monarch = { name = Other adm = 2 dip = 2 mil = 2 }",
+        )
+        .unwrap();
+        for (id, name, owner, development) in [
+            (1, "North", "AAA", 36),
+            (2, "East", "BBB", subject_development),
+            (4, "Highland", "CCC", 0),
+            (5, "Unused One", "CCC", 0),
+            (6, "Unused Two", "CCC", 0),
+        ] {
+            fs::write(
+                fixture
+                    .path()
+                    .join(format!("history/provinces/{id} - {name}.txt")),
+                format!(
+                    "owner = {owner}\nbase_tax = {development}\nbase_production = 0\nbase_manpower = 0"
+                ),
+            )
+            .unwrap();
+        }
+
+        let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+        let subject = loaded.initial.country_entity("BBB").unwrap();
+        let world = loaded.initial.world();
+        assert!(world.subjects().types.contains("test_march"));
+        assert!(world.is_subject_of_type(subject, "test_march").unwrap());
+        assert!(
+            world
+                .attributes()
+                .static_modifiers
+                .get("march_bonus")
+                .is_some_and(|modifier| modifier
+                    .values_micros
+                    .contains_key("land_forcelimit_modifier"))
+        );
+        assert_eq!(
+            world
+                .attributes()
+                .sum_owned(world, subject, "development")
+                .unwrap()
+                .value_micros,
+            Some(i64::from(subject_development) * 1_000_000)
+        );
+        let overlord_development = world
+            .attributes()
+            .sum_owned(
+                world,
+                loaded.initial.country_entity("AAA").unwrap(),
+                "development",
+            )
+            .unwrap();
+        assert_eq!(
+            overlord_development.value_micros,
+            Some(36_000_000),
+            "{overlord_development:?}"
+        );
+        assert_eq!(
+            augustus_core::Condition::DevelopmentOfOverlordFraction {
+                threshold_micros: 250_000,
+            }
+            .evaluate(world, subject)
+            .unwrap(),
+            subject_development >= 9
+        );
+        assert_eq!(
+            augustus_core::Condition::Not(Box::new(
+                augustus_core::Condition::DevelopmentOfOverlordFraction {
+                    threshold_micros: 250_000,
+                }
+            ))
+            .evaluate(world, subject)
+            .unwrap(),
+            subject_development < 9
+        );
+        let result = world
+            .attributes()
+            .evaluate(world, subject, "country_land_forcelimit_modifier")
+            .unwrap();
+        assert_eq!(
+            result.known_subtotal_micros,
+            Some(expected_bonus),
+            "subject development {subject_development} / overlord development 36: {result:?}"
+        );
+        let saved = world.save("march-development-fraction").unwrap();
+        let restored =
+            augustus_core::World::restore(&saved, "march-development-fraction", world.schema())
+                .unwrap();
+        assert_eq!(
+            restored
+                .attributes()
+                .evaluate(&restored, subject, "country_land_forcelimit_modifier")
+                .unwrap()
+                .known_subtotal_micros,
+            Some(expected_bonus)
+        );
+    }
 }
 
 #[test]

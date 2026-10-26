@@ -3025,6 +3025,22 @@ impl<'a> ScriptCompiler<'a> {
                         condition: Box::new(self.conditions(field.block()?, EntityKind::Province)?),
                     }
                 }
+                "development_of_overlord_fraction" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error(
+                            "overlord development fraction requires country scope",
+                        ));
+                    }
+                    let threshold_micros = decimal(field)?
+                        .checked_mul(1_000)
+                        .ok_or_else(|| field.error("overlord development fraction overflow"))?;
+                    if !(0..=1_000_000).contains(&threshold_micros) {
+                        return Err(field.error(
+                            "overlord development fraction must be between zero and one",
+                        ));
+                    }
+                    Condition::DevelopmentOfOverlordFraction { threshold_micros }
+                }
                 "development" => {
                     if scope != EntityKind::Province {
                         return Err(field.error("development conditions require province scope"));
