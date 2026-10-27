@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    EntityId, EntityKind, Error, MonthlySystem, TaxSettlement, VanillaProductionInputState, World,
-    calculate_vanilla_production,
+    EntityId, EntityKind, Error, MonthlySystem, TaxSettlement, VanillaProductionBaseValueInput,
+    VanillaProductionInputState, World, calculate_vanilla_production,
+    calculate_vanilla_production_base_value,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +49,8 @@ pub struct ProductionSettlement {
 #[serde(deny_unknown_fields)]
 pub struct MonthlyProduction {
     pub inputs: BTreeMap<EntityId, VanillaProductionInputState>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub price_inputs: BTreeMap<EntityId, VanillaProductionBaseValueInput>,
     pub settlement_count: u64,
     pub last_settlement: Option<ProductionSettlement>,
 }
@@ -56,9 +59,62 @@ impl MonthlyProduction {
     pub fn new(inputs: BTreeMap<EntityId, VanillaProductionInputState>) -> Self {
         Self {
             inputs,
+            price_inputs: BTreeMap::new(),
             settlement_count: 0,
             last_settlement: None,
         }
+    }
+
+    pub fn with_price_inputs(
+        mut self,
+        inputs: BTreeMap<EntityId, VanillaProductionBaseValueInput>,
+    ) -> Self {
+        self.price_inputs = inputs;
+        self
+    }
+
+    pub(crate) fn refreshed_prices(
+        &self,
+        world: &World,
+        refreshed_prices: &BTreeMap<String, Option<i64>>,
+    ) -> Result<Self, Error> {
+        let mut refreshed = self.clone();
+        for (&province, source) in &self.price_inputs {
+            let trade_good = world
+                .economy()
+                .provinces
+                .get(&province)
+                .and_then(|state| state.trade_good.as_deref())
+                .ok_or_else(|| Error::Invalid("price input province has no trade good".into()))?;
+            let price = refreshed_prices
+                .get(trade_good)
+                .copied()
+                .flatten()
+                .or_else(|| {
+                    world
+                        .economy()
+                        .current_trade_good_price_milli(trade_good)
+                        .flatten()
+                })
+                .ok_or_else(|| {
+                    Error::Invalid("price input has no current trade-good price".into())
+                })?;
+            let price = i32::try_from(price)
+                .map_err(|_| Error::Invalid("trade-good price exceeds production range".into()))?;
+            let value = calculate_vanilla_production_base_value(VanillaProductionBaseValueInput {
+                trade_good_price_milli: price,
+                ..*source
+            });
+            let state = refreshed
+                .inputs
+                .get_mut(&province)
+                .ok_or_else(|| Error::Invalid("price input has no production input".into()))?;
+            let input = state.input.as_mut().ok_or_else(|| {
+                Error::Invalid("price input production state is unresolved".into())
+            })?;
+            input.base_value_milli = value.value_milli;
+        }
+        Ok(refreshed)
     }
 
     pub(crate) fn prepare(
@@ -254,6 +310,15 @@ impl MonthlyProduction {
             {
                 return Err(Error::Invalid("invalid monthly production input".into()));
             }
+        }
+        if self.price_inputs.iter().any(|(province, _)| {
+            self.inputs
+                .get(province)
+                .is_none_or(|state| state.input.is_none() || !state.unresolved.is_empty())
+        }) {
+            return Err(Error::Invalid(
+                "invalid monthly production price input".into(),
+            ));
         }
         match &self.last_settlement {
             None if self.settlement_count == 0 => Ok(()),

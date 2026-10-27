@@ -1962,6 +1962,49 @@ fn bind_external_trade_good_prices(
         .map_err(|e| Error::caused_by("external trade-good prices", e))
 }
 
+fn bind_external_trade_good_price_impacts(
+    initial: &mut InitialWorld,
+    totals: Option<&BTreeMap<u32, i32>>,
+    entries: Option<&BTreeMap<u32, Vec<i32>>>,
+) -> Result<(), Error> {
+    if totals.is_none() && entries.is_none() {
+        return Ok(());
+    }
+    let mut economy = initial.world().economy().clone();
+    if let Some(entries) = entries {
+        for (&index, values) in entries {
+            let Some((name, _)) = economy.trade_good_by_runtime_index(index) else {
+                return Err(Error::message(
+                    "external trade-good price impacts",
+                    format!("unknown EU4 trade-good index {index}"),
+                ));
+            };
+            economy
+                .external_trade_good_price_impacts_milli
+                .insert(name.into(), values.clone());
+        }
+    }
+    if let Some(totals) = totals {
+        for (&index, value) in totals {
+            if entries.is_some_and(|entries| entries.contains_key(&index)) {
+                continue;
+            }
+            let Some((name, _)) = economy.trade_good_by_runtime_index(index) else {
+                return Err(Error::message(
+                    "external trade-good price impacts",
+                    format!("unknown EU4 trade-good index {index}"),
+                ));
+            };
+            economy
+                .external_trade_good_price_impacts_milli
+                .insert(name.into(), vec![*value]);
+        }
+    }
+    initial
+        .set_economy(economy)
+        .map_err(|error| Error::caused_by("external trade-good price impacts", error))
+}
+
 fn bind_external_province_buildings(
     initial: &mut InitialWorld,
     values: Option<&BTreeMap<u32, BTreeSet<String>>>,
@@ -2037,31 +2080,36 @@ fn bind_external_province_cores(
     Ok(())
 }
 
+struct ExternalProductionValueBindings {
+    states: BTreeMap<augustus_core::EntityId, augustus_core::VanillaProductionInputState>,
+    price_inputs: BTreeMap<augustus_core::EntityId, VanillaProductionBaseValueInput>,
+}
+
 fn bind_external_production_value_inputs(
     initial: &InitialWorld,
     inputs: &BTreeMap<u32, VanillaExternalProductionInput>,
     price_impacts: Option<&BTreeMap<u32, i32>>,
     price_impact_entries: Option<&BTreeMap<u32, Vec<i32>>>,
-) -> Result<BTreeMap<augustus_core::EntityId, augustus_core::VanillaProductionInputState>, Error> {
+) -> Result<ExternalProductionValueBindings, Error> {
     let economy = initial.world().economy();
-    inputs
-        .iter()
-        .map(|(province, source)| {
-            let entity = initial.province_entity(*province).ok_or_else(|| {
-                Error::message(
-                    "external production value inputs",
-                    format!("unknown EU4 production province {province}"),
-                )
-            })?;
-            let trade_good = economy
-                .provinces
-                .get(&entity)
-                .and_then(|state| state.trade_good.as_deref());
-            let definition = trade_good.and_then(|name| economy.trade_goods.get(name));
-            let price = if let Some(current) =
-                trade_good.and_then(|name| economy.current_trade_good_prices_milli.get(name))
-            {
-                current
+    let mut states = BTreeMap::new();
+    let mut price_inputs = BTreeMap::new();
+    for (province, source) in inputs {
+        let entity = initial.province_entity(*province).ok_or_else(|| {
+            Error::message(
+                "external production value inputs",
+                format!("unknown EU4 production province {province}"),
+            )
+        })?;
+        let trade_good = economy
+            .provinces
+            .get(&entity)
+            .and_then(|state| state.trade_good.as_deref());
+        let definition = trade_good.and_then(|name| economy.trade_goods.get(name));
+        let price = if let Some(current) =
+            trade_good.and_then(|name| economy.current_trade_good_prices_milli.get(name))
+        {
+            current
                     .as_ref()
                     .map(|price| {
                         i32::try_from(*price).map_err(|_| {
@@ -2074,8 +2122,10 @@ fn bind_external_production_value_inputs(
                         })
                     })
                     .transpose()?
-            } else if let Some(base_price) = definition.and_then(|definition| definition.base_price_milli) {
-                let base_price = i32::try_from(base_price).map_err(|_| {
+        } else if let Some(base_price) =
+            definition.and_then(|definition| definition.base_price_milli)
+        {
+            let base_price = i32::try_from(base_price).map_err(|_| {
                     Error::message(
                         "external production value inputs",
                         format!(
@@ -2083,76 +2133,77 @@ fn bind_external_production_value_inputs(
                         ),
                     )
                 })?;
-                let runtime_index = definition.and_then(|definition| definition.runtime_index);
-                let price = runtime_index
-                    .and_then(|index| {
-                        price_impact_entries
-                            .and_then(|entries| entries.get(&index))
-                            .map(|entries| {
-                                calculate_vanilla_trade_good_price_table(
-                                    VanillaTradeGoodPriceTableInput {
-                                        base_price_milli: base_price,
-                                        price_impacts_milli: entries.clone(),
-                                    },
-                                )
-                                .effective_price_milli
-                            })
-                            .or_else(|| {
-                                price_impacts
-                                    .and_then(|impacts| impacts.get(&index))
-                                    .copied()
-                                    .map(|price_impact_milli| {
-                                        calculate_vanilla_trade_good_price(
-                                            VanillaTradeGoodPriceInput {
-                                                base_price_milli: base_price,
-                                                price_impact_milli,
-                                            },
-                                        )
-                                        .effective_price_milli
-                                    })
-                            })
-                    })
-                    .unwrap_or_else(|| {
-                        calculate_vanilla_trade_good_price(VanillaTradeGoodPriceInput {
-                            base_price_milli: base_price,
-                            price_impact_milli: 0,
+            let runtime_index = definition.and_then(|definition| definition.runtime_index);
+            let price = runtime_index
+                .and_then(|index| {
+                    price_impact_entries
+                        .and_then(|entries| entries.get(&index))
+                        .map(|entries| {
+                            calculate_vanilla_trade_good_price_table(
+                                VanillaTradeGoodPriceTableInput {
+                                    base_price_milli: base_price,
+                                    price_impacts_milli: entries.clone(),
+                                },
+                            )
+                            .effective_price_milli
                         })
-                        .effective_price_milli
-                    });
-                Some(price)
-            } else {
-                None
-            };
-            let state = match price {
-                Some(price) => {
-                    let value = calculate_vanilla_production_base_value(
-                        VanillaProductionBaseValueInput {
-                            goods_size_milli: source.goods_size_milli,
-                            trade_good_price_milli: price,
-                            flat_modifier_milli: source.flat_modifier_milli,
-                            external_flat_modifier_milli: source.external_flat_modifier_milli,
-                            rate_modifier_milli: source.rate_modifier_milli,
-                            external_rate_modifier_milli: source.external_rate_modifier_milli,
-                        },
-                    );
-                    augustus_core::VanillaProductionInputState {
-                        input: Some(VanillaProductionInput {
-                            base_value_milli: value.value_milli,
-                            country_modifier_milli: source.country_modifier_milli,
-                            legacy_province_modifier_milli: source.legacy_province_modifier_milli,
-                            queried_province_modifier_milli: source.queried_province_modifier_milli,
-                        }),
-                        unresolved: Default::default(),
-                    }
+                        .or_else(|| {
+                            price_impacts
+                                .and_then(|impacts| impacts.get(&index))
+                                .copied()
+                                .map(|price_impact_milli| {
+                                    calculate_vanilla_trade_good_price(VanillaTradeGoodPriceInput {
+                                        base_price_milli: base_price,
+                                        price_impact_milli,
+                                    })
+                                    .effective_price_milli
+                                })
+                        })
+                })
+                .unwrap_or_else(|| {
+                    calculate_vanilla_trade_good_price(VanillaTradeGoodPriceInput {
+                        base_price_milli: base_price,
+                        price_impact_milli: 0,
+                    })
+                    .effective_price_milli
+                });
+            Some(price)
+        } else {
+            None
+        };
+        let state = match price {
+            Some(price) => {
+                let price_input = VanillaProductionBaseValueInput {
+                    goods_size_milli: source.goods_size_milli,
+                    trade_good_price_milli: price,
+                    flat_modifier_milli: source.flat_modifier_milli,
+                    external_flat_modifier_milli: source.external_flat_modifier_milli,
+                    rate_modifier_milli: source.rate_modifier_milli,
+                    external_rate_modifier_milli: source.external_rate_modifier_milli,
+                };
+                let value = calculate_vanilla_production_base_value(price_input);
+                price_inputs.insert(entity, price_input);
+                augustus_core::VanillaProductionInputState {
+                    input: Some(VanillaProductionInput {
+                        base_value_milli: value.value_milli,
+                        country_modifier_milli: source.country_modifier_milli,
+                        legacy_province_modifier_milli: source.legacy_province_modifier_milli,
+                        queried_province_modifier_milli: source.queried_province_modifier_milli,
+                    }),
+                    unresolved: Default::default(),
                 }
-                None => augustus_core::VanillaProductionInputState {
-                    input: None,
-                    unresolved: ["missing_trade_good_base_price".into()].into(),
-                },
-            };
-            Ok((entity, state))
-        })
-        .collect()
+            }
+            None => augustus_core::VanillaProductionInputState {
+                input: None,
+                unresolved: ["missing_trade_good_base_price".into()].into(),
+            },
+        };
+        states.insert(entity, state);
+    }
+    Ok(ExternalProductionValueBindings {
+        states,
+        price_inputs,
+    })
 }
 
 fn bind_vanilla_gold_production_inputs(
@@ -3782,6 +3833,11 @@ impl VanillaWorld {
             .set_trade_node_route_orders(&trade_node_route_orders)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         bind_external_trade_good_prices(&mut initial, overrides.trade_good_prices_milli)?;
+        bind_external_trade_good_price_impacts(
+            &mut initial,
+            overrides.trade_good_price_impacts_milli,
+            overrides.trade_good_price_impact_entries_milli,
+        )?;
         setup.bind(&mut initial, date, &mut report.setup)?;
         if let Some(saved_levels) = overrides.country_technology_levels {
             let mut technology = initial.world().technology().clone();
@@ -4256,6 +4312,7 @@ impl VanillaWorld {
             .map_err(|e| Error::caused_by(root.path(), e))?;
         if overrides.production_inputs.is_some() || overrides.production_value_inputs.is_some() {
             let mut bound = BTreeMap::new();
+            let mut price_inputs = BTreeMap::new();
             if let Some(inputs) = overrides.production_inputs {
                 for (province, input) in inputs {
                     let entity = initial.province_entity(*province).ok_or_else(|| {
@@ -4268,12 +4325,17 @@ impl VanillaWorld {
                 }
             }
             if let Some(inputs) = overrides.production_value_inputs {
-                for (entity, input) in bind_external_production_value_inputs(
+                let ExternalProductionValueBindings {
+                    states,
+                    price_inputs: bound_price_inputs,
+                } = bind_external_production_value_inputs(
                     &initial,
                     inputs,
                     overrides.trade_good_price_impacts_milli,
                     overrides.trade_good_price_impact_entries_milli,
-                )? {
+                )?;
+                price_inputs.extend(bound_price_inputs);
+                for (entity, input) in states {
                     if bound.insert(entity, input).is_some() {
                         return Err(Error::message(
                             "external production inputs",
@@ -4283,7 +4345,9 @@ impl VanillaWorld {
                 }
             }
             initial
-                .set_monthly_production(MonthlyProduction::new(bound))
+                .set_monthly_production(
+                    MonthlyProduction::new(bound).with_price_inputs(price_inputs),
+                )
                 .map_err(|e| Error::caused_by("external production inputs", e))?;
         }
         if let Some(targets) = overrides.estate_loyalty_targets {

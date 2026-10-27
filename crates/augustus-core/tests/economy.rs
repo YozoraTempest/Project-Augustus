@@ -2,22 +2,23 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Economy, EntityKind, Error, Schema, TradeGoodDefinition, TradeProductionInput,
-    TradeProductionResult, VanillaDerivedModifierInput, VanillaFortMaintenanceInput,
-    VanillaGoldBaseInput, VanillaGoldProductionInput, VanillaModifierAggregationInput,
-    VanillaProductionBaseValueInput, VanillaProductionInput, VanillaProductionResult,
-    VanillaTradeCountryFlags, VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput,
-    VanillaTradeGoodPriceInput, VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput,
+    Action, Calendar, Economy, EntityId, EntityKind, Error, MonthlyProduction, Schema,
+    TradeGoodDefinition, TradeProductionInput, TradeProductionResult, VanillaDerivedModifierInput,
+    VanillaFortMaintenanceInput, VanillaGoldBaseInput, VanillaGoldProductionInput,
+    VanillaModifierAggregationInput, VanillaProductionBaseValueInput, VanillaProductionInput,
+    VanillaProductionInputState, VanillaProductionResult, VanillaTradeCountryFlags,
+    VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput, VanillaTradeGoodPriceInput,
+    VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput,
     VanillaTradeNodePassFromRetentionSourcesInput, VanillaTradeNodePassInput,
     VanillaTradeNodeRouteInput, VanillaTradeRetentionContributionRowInput,
     VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
     VanillaTradeRetentionSequenceEntryInput, VanillaTradeRetentionSourcesInput,
     VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightPassFromRowsInput,
     VanillaTradeRouteWeightPassInput, VanillaTradeRouteWeightSourceRowInput,
-    VanillaTradeSteeringEligibilityInput, World, aggregate_vanilla_modifier_contributions,
-    calculate_trade_production, calculate_vanilla_derived_modifier,
-    calculate_vanilla_fort_maintenance, calculate_vanilla_gold_base,
-    calculate_vanilla_gold_production, calculate_vanilla_production,
+    VanillaTradeSteeringEligibilityInput, World, WorldDate,
+    aggregate_vanilla_modifier_contributions, calculate_trade_production,
+    calculate_vanilla_derived_modifier, calculate_vanilla_fort_maintenance,
+    calculate_vanilla_gold_base, calculate_vanilla_gold_production, calculate_vanilla_production,
     calculate_vanilla_production_base_value, calculate_vanilla_trade_distribution,
     calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
     calculate_vanilla_trade_goods_size,
@@ -1180,6 +1181,131 @@ fn vanilla_trade_good_price_rebuilds_runtime_impact_before_production() {
 
     assert_eq!(result.factor_milli, 1_500);
     assert_eq!(result.effective_price_milli, 3_750);
+}
+
+#[test]
+fn keyed_price_impact_refreshes_before_monthly_production_and_survives_restore() {
+    let mut world = world();
+    let country = EntityId(0);
+    let province = EntityId(1);
+    world.set_owner(province, country).unwrap();
+    world
+        .set_calendar(Calendar {
+            start: WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            },
+            month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+        })
+        .unwrap();
+
+    let mut economy = economy();
+    economy
+        .trade_goods
+        .get_mut("grain")
+        .unwrap()
+        .base_price_milli = Some(2_500);
+    economy.provinces.entry(province).or_default().trade_good = Some("grain".into());
+    economy
+        .current_trade_good_prices_milli
+        .insert("grain".into(), Some(2_500));
+    world.set_economy(economy).unwrap();
+    world
+        .set_monthly_production(
+            MonthlyProduction::new(
+                [(
+                    province,
+                    VanillaProductionInputState {
+                        input: Some(VanillaProductionInput {
+                            base_value_milli: 2_500,
+                            country_modifier_milli: 0,
+                            legacy_province_modifier_milli: 0,
+                            queried_province_modifier_milli: 0,
+                        }),
+                        unresolved: Default::default(),
+                    },
+                )]
+                .into(),
+            )
+            .with_price_inputs(
+                [(
+                    province,
+                    VanillaProductionBaseValueInput {
+                        goods_size_milli: 1_000,
+                        trade_good_price_milli: 2_500,
+                        flat_modifier_milli: 0,
+                        external_flat_modifier_milli: 0,
+                        rate_modifier_milli: 0,
+                        external_rate_modifier_milli: 0,
+                    },
+                )]
+                .into(),
+            ),
+        )
+        .unwrap();
+
+    let impact = Action::SetTradeGoodPriceImpact {
+        trade_good: "grain".into(),
+        key: "PK_TEST_GRAIN_IMPACT".into(),
+        value_milli: 500,
+    };
+    world
+        .execute(country, std::slice::from_ref(&impact))
+        .unwrap();
+    assert_eq!(
+        world.economy().current_trade_good_price_milli("grain"),
+        Some(Some(2_500))
+    );
+    assert_eq!(
+        world.economy().keyed_trade_good_price_impacts_milli["grain"]["PK_TEST_GRAIN_IMPACT"],
+        500
+    );
+
+    world
+        .execute(
+            country,
+            &[Action::SetTradeGoodPriceImpact {
+                trade_good: "grain".into(),
+                key: "PK_TEST_GRAIN_IMPACT".into(),
+                value_milli: 250,
+            }],
+        )
+        .unwrap();
+    world
+        .execute(country, std::slice::from_ref(&impact))
+        .unwrap();
+
+    let saved = world.save("keyed-price-impact").unwrap();
+    let mut resumed = World::restore(&saved, "keyed-price-impact", world.schema()).unwrap();
+    world.advance_to(20).unwrap();
+    resumed.advance_to(20).unwrap();
+
+    assert_eq!(world, resumed);
+    assert_eq!(
+        resumed.economy().current_trade_good_price_milli("grain"),
+        Some(Some(3_750))
+    );
+    assert_eq!(
+        resumed.monthly_production().unwrap().inputs[&province]
+            .input
+            .as_ref()
+            .unwrap()
+            .base_value_milli,
+        3_750
+    );
+    assert_eq!(
+        resumed
+            .monthly_production()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&country]
+            .provinces[&province]
+            .annual_value_milli,
+        Some(3_750)
+    );
 }
 
 #[test]

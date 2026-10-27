@@ -274,6 +274,12 @@ impl MonthlySystem for MonthlyEconomy {
     }
 
     fn settle(&self, world: &mut World) -> Result<(), Error> {
+        let refreshed_prices = world.economy().refreshed_trade_good_prices()?;
+        let refreshed_production = world
+            .monthly_production
+            .as_ref()
+            .map(|production| production.refreshed_prices(world, &refreshed_prices))
+            .transpose()?;
         let previous_administration = world
             .prepare_monthly_autonomy()?
             .map(|administration| world.replace_administration(administration))
@@ -297,7 +303,12 @@ impl MonthlySystem for MonthlyEconomy {
                 .transpose()?;
             let production_receipts = world
                 .monthly_production()
-                .map(|production| production.prepare(world, taxes.as_ref()))
+                .map(|_| {
+                    refreshed_production
+                        .as_ref()
+                        .expect("prepared production inputs")
+                        .prepare(world, taxes.as_ref())
+                })
                 .transpose()?;
             let cashflow_receipts = world
                 .monthly_cashflows()
@@ -311,6 +322,7 @@ impl MonthlySystem for MonthlyEconomy {
                 production_receipts.as_ref(),
                 cashflow_receipts.as_ref(),
             )?;
+            world.set_current_trade_good_prices(&refreshed_prices)?;
             if let Some(taxes) = taxes {
                 let mut taxation = world.taxation.take().expect("prepared taxation");
                 taxation.commit(world, taxes);
@@ -321,6 +333,12 @@ impl MonthlySystem for MonthlyEconomy {
                     .monthly_production
                     .take()
                     .expect("prepared production");
+                production.inputs.clone_from(
+                    &refreshed_production
+                        .as_ref()
+                        .expect("prepared production inputs")
+                        .inputs,
+                );
                 production.commit(world, receipts);
                 world.monthly_production = Some(production);
             }

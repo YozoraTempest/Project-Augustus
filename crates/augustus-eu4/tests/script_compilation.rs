@@ -1076,3 +1076,51 @@ fn library_registration_preserves_unsupported_templates_for_call_site_validation
     );
     assert!(library.add_effects(&document("invalid=scalar")).is_err());
 }
+
+#[test]
+fn change_price_compiles_permanent_keyed_impacts_and_rejects_unverified_durations() {
+    let schema = Schema::new([] as [&str; 0]).unwrap();
+    let library = ScriptLibrary::new();
+    let compiled = ScriptCompiler::new(&schema, &library, true)
+        .compile(
+            &document(
+                "change_price = { trade_goods = grain key = PK_TEST_GRAIN_IMPACT value = 0.5 duration = -1 }",
+            ),
+            EntityKind::Country,
+        )
+        .unwrap();
+    assert!(matches!(
+        compiled.plan.as_slice(),
+        [Action::SetTradeGoodPriceImpact {
+            trade_good,
+            key,
+            value_milli: 500,
+        }] if trade_good == "grain" && key == "PK_TEST_GRAIN_IMPACT"
+    ));
+
+    let finite = ScriptCompiler::new(&schema, &library, true)
+        .compile(
+            &document(
+                "change_price = { trade_goods = grain key = temporary value = 0.5 duration = 30 }",
+            ),
+            EntityKind::Country,
+        )
+        .unwrap_err();
+    assert!(
+        format!("{finite:?}").contains("supports only duration = -1"),
+        "{finite:?}"
+    );
+
+    for invalid in [
+        "change_price = { trade_goods = grain value = 0.5 duration = -1 }",
+        "change_price = { trade_goods = grain key = x value = 0.5 duration = -1 key = y }",
+        "change_price = { trade_goods = grain key = x value = 0.5 duration = -1 other = yes }",
+    ] {
+        assert!(
+            ScriptCompiler::new(&schema, &library, true)
+                .compile(&document(invalid), EntityKind::Country)
+                .is_err(),
+            "{invalid}"
+        );
+    }
+}

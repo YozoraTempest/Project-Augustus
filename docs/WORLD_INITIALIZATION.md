@@ -157,7 +157,7 @@ EU4 存档中已支持的贸易节点运行值会在 --economy 输出各节点�
 
 使用 `--economy` 查询建筑与商品目录、完整贸易网络；报告的 `economy` 字段给出数量、定义来源、建筑历史的最终声明位置和未应用字段。原有省份 JSON 字段继续保留，新增 `buildings`、`trade_node`、`trade_node_outgoing` 和 `trade_good_definition`。查询单个省份时还会给出 `province_trade_good_base_price_milli` 和 `province_trade_good_price_milli`：前者是 `common/prices` 中声明的商品基础价格，后者优先反映存档或外部状态提供的当前价格；两者都不代表贸易结算已经完成。Rust 调用方可以使用 `VanillaWorld::calculate_vanilla_province_production_base_value`，在明确提供货物数量及修正项时复用当前价格；没有已知商品价格时返回未知，不补默认值。
 
-建筑定义会保留标准建筑与要塞的角色及要塞等级。要塞不参与普通省份属性的建筑修正汇总；防御区域、维护和战斗路径尚未接通。存档提供的 `change_price.current_price` 会作为运行时价格保存；没有运行时价格时，生产值阶段继续使用内容基础价格或显式价格影响，缺失值不会被补成默认市场价。
+建筑定义会保留标准建筑与要塞的角色及要塞等级。要塞不参与普通省份属性的建筑修正汇总；防御区域、维护和战斗路径尚未接通。存档提供的 `change_price.current_price` 会作为运行时价格保存；没有运行时价格时，生产值阶段继续使用内容基础价格或显式价格影响，缺失值不会被补成默认市场价。脚本 `change_price` 当前支持 `duration = -1`：影响按商品和 key 保存，在下一次月度价格刷新时参与价格重建并更新已绑定的生产值输入；有限期限及其到期清理尚未实现。
 
 ```sh
 cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to/Europa Universalis IV" --province 134 --economy

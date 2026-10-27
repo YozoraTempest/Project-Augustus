@@ -895,6 +895,14 @@ fn external_price_impacts_rebuild_effective_price_before_production() {
     let input = &loaded.initial.world().monthly_production().unwrap().inputs[&entity];
 
     assert_eq!(input.input.as_ref().unwrap().base_value_milli, 4_500);
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .economy()
+            .external_trade_good_price_impacts_milli["cloth"],
+        [500]
+    );
 }
 
 #[test]
@@ -921,6 +929,14 @@ fn ordered_external_price_impacts_are_aggregated_before_production() {
     let input = &loaded.initial.world().monthly_production().unwrap().inputs[&entity];
 
     assert_eq!(input.input.as_ref().unwrap().base_value_milli, 4_500);
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .economy()
+            .external_trade_good_price_impacts_milli["cloth"],
+        [200, 300]
+    );
 }
 
 #[test]

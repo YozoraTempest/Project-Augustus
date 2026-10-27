@@ -2403,6 +2403,56 @@ impl<'a> ScriptCompiler<'a> {
                         office: "imperial_emperor".into(),
                     });
                 }
+                "change_price" => {
+                    let mut trade_good = None;
+                    let mut key = None;
+                    let mut value = None;
+                    let mut duration = None;
+                    for parameter in field.block()? {
+                        match parameter.name.as_str() {
+                            "trade_goods" if trade_good.is_none() => {
+                                trade_good = Some(parameter.scalar()?.to_owned());
+                            }
+                            "key" if key.is_none() => {
+                                key = Some(parameter.scalar()?.to_owned());
+                            }
+                            "value" if value.is_none() => {
+                                value = Some(i32::try_from(decimal(parameter)?).map_err(|_| {
+                                    parameter.error("change_price value exceeds supported range")
+                                })?);
+                            }
+                            "duration" if duration.is_none() => {
+                                duration =
+                                    Some(parameter.scalar()?.parse::<i32>().map_err(|_| {
+                                        parameter.error("change_price duration must be an integer")
+                                    })?);
+                            }
+                            "trade_goods" | "key" | "value" | "duration" => {
+                                return Err(parameter.error("duplicate change_price parameter"));
+                            }
+                            _ => return Err(parameter.error("unsupported change_price parameter")),
+                        }
+                    }
+                    let trade_good = trade_good
+                        .filter(|name| !name.is_empty())
+                        .ok_or_else(|| field.error("change_price requires trade_goods"))?;
+                    let key = key
+                        .filter(|name| !name.is_empty())
+                        .ok_or_else(|| field.error("change_price requires key"))?;
+                    let value_milli =
+                        value.ok_or_else(|| field.error("change_price requires value"))?;
+                    if duration.ok_or_else(|| field.error("change_price requires duration"))? != -1
+                    {
+                        return Err(
+                            field.error("change_price currently supports only duration = -1")
+                        );
+                    }
+                    plan.push(Action::SetTradeGoodPriceImpact {
+                        trade_good,
+                        key,
+                        value_milli,
+                    });
+                }
                 "add_legitimacy" | "add_republican_tradition" | "add_devotion" => {
                     let name = field.name.strip_prefix("add_").expect("metric effect");
                     self.government_metric(field, scope, name)?;

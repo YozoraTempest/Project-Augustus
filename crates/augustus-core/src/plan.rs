@@ -379,6 +379,11 @@ pub enum Action {
         operation: crate::NumericOperation,
         value: i64,
     },
+    SetTradeGoodPriceImpact {
+        trade_good: String,
+        key: String,
+        value_milli: i32,
+    },
     ChangeRulerSkill {
         target: Target,
         skill: crate::RulerSkill,
@@ -1478,6 +1483,11 @@ impl World {
                     let entity = self.target(current, *target)?;
                     self.update_numeric(entity, slot, *operation, *value)?;
                 }
+                Action::SetTradeGoodPriceImpact {
+                    trade_good,
+                    key,
+                    value_milli,
+                } => self.set_trade_good_price_impact(trade_good, key, *value_milli)?,
                 Action::RefreshObjectives => self.refresh_objectives(current)?,
                 Action::ChangeRulerSkill {
                     target,

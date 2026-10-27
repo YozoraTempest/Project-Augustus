@@ -774,6 +774,12 @@ pub struct Economy {
     /// only the content-defined base price is available.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub current_trade_good_prices_milli: BTreeMap<String, Option<i64>>,
+    /// Unkeyed price-impact chains supplied by the compatibility layer.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub external_trade_good_price_impacts_milli: BTreeMap<String, Vec<i32>>,
+    /// Persistent script price impacts, grouped by trade good and effect key.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub keyed_trade_good_price_impacts_milli: BTreeMap<String, BTreeMap<String, i32>>,
     pub trade_nodes: BTreeMap<String, TradeNode>,
     pub provinces: BTreeMap<EntityId, ProvinceEconomy>,
 }
@@ -783,6 +789,8 @@ impl Economy {
         self.buildings.is_empty()
             && self.trade_goods.is_empty()
             && self.current_trade_good_prices_milli.is_empty()
+            && self.external_trade_good_price_impacts_milli.is_empty()
+            && self.keyed_trade_good_price_impacts_milli.is_empty()
             && self.trade_nodes.is_empty()
             && self.provinces.is_empty()
     }
@@ -813,6 +821,58 @@ impl Economy {
         )
     }
 
+    pub(crate) fn refreshed_trade_good_prices(
+        &self,
+    ) -> Result<BTreeMap<String, Option<i64>>, Error> {
+        let mut refreshed = BTreeMap::new();
+        for (name, external_impacts) in &self.external_trade_good_price_impacts_milli {
+            let Some(definition) = self.trade_goods.get(name) else {
+                return Err(Error::Invalid("unknown trade good in price impacts".into()));
+            };
+            let Some(base_price) = definition.base_price_milli else {
+                continue;
+            };
+            let base_price = i32::try_from(base_price).map_err(|_| {
+                Error::Invalid("trade-good base price exceeds runtime range".into())
+            })?;
+            let mut impacts = external_impacts.clone();
+            if let Some(keyed) = self.keyed_trade_good_price_impacts_milli.get(name) {
+                impacts.extend(keyed.values().copied());
+            }
+            if !impacts.is_empty() {
+                let price =
+                    calculate_vanilla_trade_good_price_table(VanillaTradeGoodPriceTableInput {
+                        base_price_milli: base_price,
+                        price_impacts_milli: impacts,
+                    });
+                refreshed.insert(name.clone(), Some(i64::from(price.effective_price_milli)));
+            }
+        }
+        for (name, keyed) in &self.keyed_trade_good_price_impacts_milli {
+            if self
+                .external_trade_good_price_impacts_milli
+                .contains_key(name)
+            {
+                continue;
+            }
+            let Some(definition) = self.trade_goods.get(name) else {
+                return Err(Error::Invalid("unknown trade good in price impacts".into()));
+            };
+            let Some(base_price) = definition.base_price_milli else {
+                continue;
+            };
+            let base_price = i32::try_from(base_price).map_err(|_| {
+                Error::Invalid("trade-good base price exceeds runtime range".into())
+            })?;
+            let price = calculate_vanilla_trade_good_price_table(VanillaTradeGoodPriceTableInput {
+                base_price_milli: base_price,
+                price_impacts_milli: keyed.values().copied().collect(),
+            });
+            refreshed.insert(name.clone(), Some(i64::from(price.effective_price_milli)));
+        }
+        Ok(refreshed)
+    }
+
     pub(crate) fn validate(&self, world: &World) -> Result<(), Error> {
         let fail = |message: &str| Error::Invalid(message.into());
         let province = |id| -> Result<(), Error> {
@@ -838,6 +898,19 @@ impl Economy {
             })
         {
             return Err(fail("invalid current trade-good price"));
+        }
+        if self
+            .external_trade_good_price_impacts_milli
+            .keys()
+            .any(|name| !self.trade_goods.contains_key(name))
+            || self
+                .keyed_trade_good_price_impacts_milli
+                .iter()
+                .any(|(name, keyed)| {
+                    !self.trade_goods.contains_key(name) || keyed.keys().any(String::is_empty)
+                })
+        {
+            return Err(fail("invalid trade-good price impacts"));
         }
         let mut runtime_indices = BTreeSet::new();
         for definition in self.trade_goods.values() {
@@ -891,5 +964,40 @@ impl Economy {
             }
         }
         Ok(())
+    }
+}
+
+impl World {
+    pub(crate) fn set_trade_good_price_impact(
+        &mut self,
+        trade_good: &str,
+        key: &str,
+        value_milli: i32,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        if key.is_empty() || !self.economy().trade_goods.contains_key(trade_good) {
+            return Err(Error::Invalid("invalid trade-good price impact".into()));
+        }
+        let mut economy = self.economy().clone();
+        economy
+            .keyed_trade_good_price_impacts_milli
+            .entry(trade_good.into())
+            .or_default()
+            .insert(key.into(), value_milli);
+        self.set_economy(economy)
+    }
+
+    pub(crate) fn set_current_trade_good_prices(
+        &mut self,
+        prices: &BTreeMap<String, Option<i64>>,
+    ) -> Result<(), Error> {
+        if prices.is_empty() {
+            return Ok(());
+        }
+        let mut economy = self.economy().clone();
+        economy
+            .current_trade_good_prices_milli
+            .extend(prices.clone());
+        self.set_economy(economy)
     }
 }

@@ -1985,6 +1985,11 @@ impl World {
         world.events.clear();
         world.event_queue = crate::event_choices::EventQueue::default();
         world.economy.current_trade_good_prices_milli.clear();
+        world
+            .economy
+            .external_trade_good_price_impacts_milli
+            .clear();
+        world.economy.keyed_trade_good_price_impacts_milli.clear();
         world.save("")
     }
 
@@ -2614,6 +2619,11 @@ pub(crate) fn validate_plan(
                 slot.validate(schema, governments, metrics)?;
                 slot.validate_write()?;
                 operation.validate()?;
+            }
+            Action::SetTradeGoodPriceImpact {
+                trade_good, key, ..
+            } if trade_good.is_empty() || key.is_empty() => {
+                return Err(Error::Invalid("invalid trade-good price impact".into()));
             }
             Action::RecordCompletion { id } => completions.identifier(id)?,
             Action::RefreshObjectives => (),
