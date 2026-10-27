@@ -296,6 +296,55 @@ fn country_trade_steering_combines_idea_and_metric_sources_but_stays_incomplete(
 }
 
 #[test]
+fn country_trade_efficiency_reads_country_modifier_sources_and_stays_incomplete() {
+    let temp = copy_fixture();
+    let modifiers_path = temp
+        .path()
+        .join("common/event_modifiers/test_modifiers.txt");
+    let modifiers = fs::read_to_string(&modifiers_path).unwrap();
+    fs::write(
+        modifiers_path,
+        format!("{modifiers}\ntest_trade_efficiency = {{ trade_efficiency = 0.05 }}\n"),
+    )
+    .unwrap();
+
+    let history_path = temp.path().join("history/countries/AAA - Alpha.txt");
+    let history = fs::read_to_string(&history_path).unwrap();
+    fs::write(
+        history_path,
+        format!("{history}\n1440.1.2 = {{ add_country_modifier = {{ name = test_trade_efficiency duration = -1 }} }}\n"),
+    )
+    .unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let world = loaded.initial.world();
+    let country = loaded.initial.country_entity("AAA").unwrap();
+    let efficiency = world
+        .attributes()
+        .evaluate(world, country, "country_trade_efficiency")
+        .unwrap();
+
+    assert_eq!(
+        efficiency.known_subtotal_micros,
+        Some(50_000),
+        "{efficiency:?}"
+    );
+    assert_eq!(efficiency.value_micros, None);
+    assert!(
+        efficiency
+            .unresolved
+            .contains("country_trade_efficiency:remaining_sources_not_bound")
+    );
+    assert!(efficiency.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source == "modifier:AAA:test_trade_efficiency"
+                && contribution.property == "trade_efficiency"
+                && contribution.micros == 50_000
+        })
+    }));
+}
+
+#[test]
 fn country_fort_maintenance_modifier_reads_known_idea_value_and_keeps_unknown_sources() {
     let temp = copy_fixture();
     let ideas_path = temp.path().join("common/ideas/test_ideas.txt");

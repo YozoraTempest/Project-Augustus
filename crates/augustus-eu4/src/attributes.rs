@@ -39,6 +39,7 @@ pub(super) const ATTRIBUTE_NAMES: [&str; 12] = [
 ];
 pub(super) const COUNTRY_ANNUAL_TAX: &str = "country_annual_tax";
 pub(super) const COUNTRY_TRADE_STEERING: &str = "country_trade_steering";
+const COUNTRY_TRADE_EFFICIENCY: &str = "country_trade_efficiency";
 const COUNTRY_FORT_MAINTENANCE: &str = "fort_maintenance_modifier";
 const PROVINCE_FORT_MAINTENANCE: &str = "local_fort_maintenance_modifier";
 const COUNTRY_LAND_FORCE_LIMIT_FLAT: &str = "country_land_forcelimit_flat";
@@ -146,6 +147,7 @@ fn used_property(name: &str) -> bool {
             | "global_autonomy"
             | "local_development_cost"
             | "trade_steering"
+            | "trade_efficiency"
             | "trade_goods_size_modifier"
             | GLOBAL_TRADE_GOODS_SIZE_MODIFIER
             | "tolerance_own"
@@ -1445,6 +1447,13 @@ impl AttributeDraft {
                 country_modifier_formula(
                     "trade_steering",
                     "country_trade_steering:remaining_sources_not_bound",
+                ),
+            );
+            formulas.insert(
+                COUNTRY_TRADE_EFFICIENCY.into(),
+                country_modifier_formula(
+                    "trade_efficiency",
+                    "country_trade_efficiency:remaining_sources_not_bound",
                 ),
             );
             formulas.insert(
