@@ -780,6 +780,10 @@ pub struct Economy {
     /// Persistent script price impacts, grouped by trade good and effect key.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub keyed_trade_good_price_impacts_milli: BTreeMap<String, BTreeMap<String, i32>>,
+    /// Unsupported saved impacts prevent monthly refresh from replacing the
+    /// saved current price with a partial impact total.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub unresolved_trade_good_price_impacts_milli: BTreeMap<String, BTreeSet<String>>,
     pub trade_nodes: BTreeMap<String, TradeNode>,
     pub provinces: BTreeMap<EntityId, ProvinceEconomy>,
 }
@@ -791,6 +795,7 @@ impl Economy {
             && self.current_trade_good_prices_milli.is_empty()
             && self.external_trade_good_price_impacts_milli.is_empty()
             && self.keyed_trade_good_price_impacts_milli.is_empty()
+            && self.unresolved_trade_good_price_impacts_milli.is_empty()
             && self.trade_nodes.is_empty()
             && self.provinces.is_empty()
     }
@@ -826,6 +831,12 @@ impl Economy {
     ) -> Result<BTreeMap<String, Option<i64>>, Error> {
         let mut refreshed = BTreeMap::new();
         for (name, external_impacts) in &self.external_trade_good_price_impacts_milli {
+            if self
+                .unresolved_trade_good_price_impacts_milli
+                .contains_key(name)
+            {
+                continue;
+            }
             let Some(definition) = self.trade_goods.get(name) else {
                 return Err(Error::Invalid("unknown trade good in price impacts".into()));
             };
@@ -849,6 +860,12 @@ impl Economy {
             }
         }
         for (name, keyed) in &self.keyed_trade_good_price_impacts_milli {
+            if self
+                .unresolved_trade_good_price_impacts_milli
+                .contains_key(name)
+            {
+                continue;
+            }
             if self
                 .external_trade_good_price_impacts_milli
                 .contains_key(name)
@@ -908,6 +925,12 @@ impl Economy {
                 .iter()
                 .any(|(name, keyed)| {
                     !self.trade_goods.contains_key(name) || keyed.keys().any(String::is_empty)
+                })
+            || self
+                .unresolved_trade_good_price_impacts_milli
+                .iter()
+                .any(|(name, keys)| {
+                    !self.trade_goods.contains_key(name) || keys.iter().any(String::is_empty)
                 })
         {
             return Err(fail("invalid trade-good price impacts"));

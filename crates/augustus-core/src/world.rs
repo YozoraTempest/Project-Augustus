@@ -1990,6 +1990,10 @@ impl World {
             .external_trade_good_price_impacts_milli
             .clear();
         world.economy.keyed_trade_good_price_impacts_milli.clear();
+        world
+            .economy
+            .unresolved_trade_good_price_impacts_milli
+            .clear();
         world.save("")
     }
 

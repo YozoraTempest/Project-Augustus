@@ -1309,6 +1309,75 @@ fn keyed_price_impact_refreshes_before_monthly_production_and_survives_restore()
 }
 
 #[test]
+fn unresolved_saved_price_impacts_preserve_current_price_on_monthly_refresh() {
+    let mut world = world();
+    let country = EntityId(0);
+    let province = EntityId(1);
+    world.set_owner(province, country).unwrap();
+    world
+        .set_calendar(Calendar {
+            start: WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            },
+            month_lengths: [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31],
+        })
+        .unwrap();
+
+    let mut economy = economy();
+    economy
+        .trade_goods
+        .get_mut("grain")
+        .unwrap()
+        .base_price_milli = Some(2_500);
+    economy.provinces.get_mut(&province).unwrap().trade_good = Some("grain".into());
+    economy
+        .current_trade_good_prices_milli
+        .insert("grain".into(), Some(3_750));
+    economy.keyed_trade_good_price_impacts_milli.insert(
+        "grain".into(),
+        [("PK_TEST_GRAIN_IMPACT".into(), 500)].into(),
+    );
+    economy
+        .unresolved_trade_good_price_impacts_milli
+        .insert("grain".into(), ["temporary_test_impact".into()].into());
+    world.set_economy(economy).unwrap();
+    world
+        .set_monthly_production(MonthlyProduction::new(
+            [(
+                province,
+                VanillaProductionInputState {
+                    input: Some(VanillaProductionInput {
+                        base_value_milli: 3_750,
+                        country_modifier_milli: 0,
+                        legacy_province_modifier_milli: 0,
+                        queried_province_modifier_milli: 0,
+                    }),
+                    unresolved: Default::default(),
+                },
+            )]
+            .into(),
+        ))
+        .unwrap();
+
+    let saved = world.save("unresolved-price-impact").unwrap();
+    let mut resumed = World::restore(&saved, "unresolved-price-impact", world.schema()).unwrap();
+    world.advance_to(20).unwrap();
+    resumed.advance_to(20).unwrap();
+
+    assert_eq!(world, resumed);
+    assert_eq!(
+        resumed.economy().current_trade_good_price_milli("grain"),
+        Some(Some(3_750))
+    );
+    assert!(
+        resumed.economy().unresolved_trade_good_price_impacts_milli["grain"]
+            .contains("temporary_test_impact")
+    );
+}
+
+#[test]
 fn vanilla_trade_good_price_table_accumulates_impacts_before_the_lower_bound() {
     let result = calculate_vanilla_trade_good_price_table(VanillaTradeGoodPriceTableInput {
         base_price_milli: 2_500,

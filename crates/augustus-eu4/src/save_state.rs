@@ -435,6 +435,24 @@ impl VanillaSaveState {
                     .insert(trade_good.clone(), *price);
             }
         }
+        let trade_goods = &world.initial.world().economy().trade_goods;
+        for (trade_good, impacts) in &self.external_state.trade_good_keyed_price_impacts_milli {
+            if trade_goods.contains_key(trade_good) {
+                state
+                    .trade_good_keyed_price_impacts_milli
+                    .insert(trade_good.clone(), impacts.clone());
+            }
+        }
+        for (trade_good, keys) in &self
+            .external_state
+            .unresolved_trade_good_price_impacts_milli
+        {
+            if trade_goods.contains_key(trade_good) {
+                state
+                    .unresolved_trade_good_price_impacts_milli
+                    .insert(trade_good.clone(), keys.clone());
+            }
+        }
 
         for army in &self.external_state.armies {
             if countries.contains(army.owner.as_str())
@@ -1055,6 +1073,8 @@ fn read_vanilla_save_state_inner(
         }
     }
     if let Some(change_price) = optional_object(&parsed, &root, "change_price")? {
+        let permanent_price_impact_expiry =
+            Date::parse("1821.1.2").map_err(|error| Error::caused_by(parsed.source(), error))?;
         for (key, op, value) in change_price.fields() {
             if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
                 return Err(Error::message(
@@ -1063,7 +1083,8 @@ fn read_vanilla_save_state_inner(
                 ));
             }
             let name = key.read_string();
-            let price = optional_milli(&parsed, &object(&parsed, &value)?, "current_price")?;
+            let price_state = object(&parsed, &value)?;
+            let price = optional_milli(&parsed, &price_state, "current_price")?;
             if external_state
                 .trade_good_prices_milli
                 .insert(name.clone(), price)
@@ -1073,6 +1094,72 @@ fn read_vanilla_save_state_inner(
                     parsed.source(),
                     format!("duplicate saved trade-good price {name}"),
                 ));
+            }
+
+            let mut keyed_impacts = BTreeMap::new();
+            let mut unresolved_impacts = BTreeSet::new();
+            for (impact_field, impact_op, impact_value) in price_state.fields() {
+                let impact_name = impact_field.read_string();
+                if impact_name == "current_price" {
+                    continue;
+                }
+                if impact_name != "change_price"
+                    || impact_op.is_some_and(|operator| operator != jomini::text::Operator::Equal)
+                {
+                    unresolved_impacts.insert(impact_name);
+                    continue;
+                }
+
+                let impact = object(&parsed, &impact_value)?;
+                let mut parameters = BTreeSet::new();
+                let mut has_unsupported_parameter = false;
+                for (parameter, operator, _) in impact.fields() {
+                    let parameter = parameter.read_string();
+                    if !parameters.insert(parameter.clone())
+                        || !matches!(parameter.as_str(), "key" | "value" | "expiry_date")
+                        || operator
+                            .is_some_and(|operator| operator != jomini::text::Operator::Equal)
+                    {
+                        has_unsupported_parameter = true;
+                    }
+                }
+                let effect_key = optional_scalar(&parsed, &impact, "key")?;
+                let effect_value = optional_milli(&parsed, &impact, "value")?;
+                let expiry = optional_scalar(&parsed, &impact, "expiry_date")?;
+                let supported_expiry = expiry.as_deref().and_then(|value| Date::parse(value).ok())
+                    == Some(permanent_price_impact_expiry);
+                let Some(effect_key) = effect_key.filter(|key| !key.is_empty()) else {
+                    unresolved_impacts.insert("change_price".into());
+                    continue;
+                };
+                let Some(effect_value) = effect_value.and_then(|value| i32::try_from(value).ok())
+                else {
+                    unresolved_impacts.insert(effect_key);
+                    continue;
+                };
+                if !supported_expiry || has_unsupported_parameter {
+                    unresolved_impacts.insert(effect_key);
+                    continue;
+                }
+                if keyed_impacts
+                    .insert(effect_key.clone(), effect_value)
+                    .is_some()
+                {
+                    unresolved_impacts.insert(effect_key);
+                }
+            }
+            for key in &unresolved_impacts {
+                keyed_impacts.remove(key);
+            }
+            if !keyed_impacts.is_empty() {
+                external_state
+                    .trade_good_keyed_price_impacts_milli
+                    .insert(name.clone(), keyed_impacts);
+            }
+            if !unresolved_impacts.is_empty() {
+                external_state
+                    .unresolved_trade_good_price_impacts_milli
+                    .insert(name, unresolved_impacts);
             }
         }
     }
@@ -3534,7 +3621,17 @@ date=1444.11.11
 player="AAA"
 change_price={
 	grain={
-		current_price=3.500
+		current_price=3.750
+		change_price={
+			key="PK_TEST_GRAIN_IMPACT"
+			value=0.5
+			expiry_date=1821.1.2
+		}
+		change_price={
+			key="temporary_test_impact"
+			value=0.25
+			expiry_date=1445.1.1
+		}
 	}
 	missing_good={}
 }
@@ -3679,11 +3776,83 @@ provinces={
         );
         assert_eq!(
             state.external_state.trade_good_prices_milli["grain"],
-            Some(3_500)
+            Some(3_750)
+        );
+        assert_eq!(
+            state.external_state.trade_good_keyed_price_impacts_milli["grain"]["PK_TEST_GRAIN_IMPACT"],
+            500
+        );
+        assert_eq!(
+            state
+                .external_state
+                .unresolved_trade_good_price_impacts_milli["grain"],
+            BTreeSet::from(["temporary_test_impact".into()])
         );
         assert_eq!(
             state.external_state.trade_good_prices_milli["missing_good"],
             None
+        );
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let price_only_save = super::VanillaSaveState {
+            date: state.date.clone(),
+            player: state.player.clone(),
+            players: state.players.clone(),
+            external_state: VanillaExternalState {
+                trade_good_prices_milli: state.external_state.trade_good_prices_milli.clone(),
+                trade_good_keyed_price_impacts_milli: state
+                    .external_state
+                    .trade_good_keyed_price_impacts_milli
+                    .clone(),
+                unresolved_trade_good_price_impacts_milli: state
+                    .external_state
+                    .unresolved_trade_good_price_impacts_milli
+                    .clone(),
+                ..Default::default()
+            },
+        };
+        let filtered = price_only_save.state_for_world(&baseline).unwrap();
+        assert_eq!(
+            filtered.trade_good_keyed_price_impacts_milli["grain"]["PK_TEST_GRAIN_IMPACT"],
+            500
+        );
+        assert!(
+            !filtered
+                .trade_good_keyed_price_impacts_milli
+                .contains_key("missing_good")
+        );
+        let price_state = VanillaExternalState {
+            trade_good_prices_milli: filtered.trade_good_prices_milli,
+            trade_good_keyed_price_impacts_milli: filtered.trade_good_keyed_price_impacts_milli,
+            unresolved_trade_good_price_impacts_milli: filtered
+                .unresolved_trade_good_price_impacts_milli,
+            ..Default::default()
+        };
+        let restored = VanillaWorld::load_from_content_with_external_state(
+            &content,
+            "1444.11.11",
+            &price_state,
+        )
+        .unwrap();
+        assert_eq!(
+            restored
+                .initial
+                .world()
+                .economy()
+                .keyed_trade_good_price_impacts_milli["grain"]["PK_TEST_GRAIN_IMPACT"],
+            500
+        );
+        assert!(
+            restored
+                .initial
+                .world()
+                .economy()
+                .unresolved_trade_good_price_impacts_milli["grain"]
+                .contains("temporary_test_impact")
         );
         assert_eq!(
             state.external_state.country_resources["AAA"].treasury_milli,

@@ -628,6 +628,12 @@ pub struct VanillaExternalState {
     /// explicit `None` keeps a known trade good unresolved.
     #[serde(default)]
     pub trade_good_prices_milli: BTreeMap<String, Option<i64>>,
+    /// Persistent price effects recovered from EU4 saves, grouped by good and key.
+    #[serde(default)]
+    pub trade_good_keyed_price_impacts_milli: BTreeMap<String, BTreeMap<String, i32>>,
+    /// Save effects whose expiry or value is not supported by the current loader.
+    #[serde(default)]
+    pub unresolved_trade_good_price_impacts_milli: BTreeMap<String, BTreeSet<String>>,
     /// Verified annual country-tax sources keyed by EU4 country tag. A value
     /// overrides the content-derived country attribute for that country;
     /// `None` keeps its tax unresolved while retaining known province tax.
@@ -793,6 +799,8 @@ struct LoadOverrides<'a> {
     trade_good_price_impacts_milli: Option<&'a BTreeMap<u32, i32>>,
     trade_good_price_impact_entries_milli: Option<&'a BTreeMap<u32, Vec<i32>>>,
     trade_good_prices_milli: Option<&'a BTreeMap<String, Option<i64>>>,
+    trade_good_keyed_price_impacts_milli: Option<&'a BTreeMap<String, BTreeMap<String, i32>>>,
+    unresolved_trade_good_price_impacts_milli: Option<&'a BTreeMap<String, BTreeSet<String>>>,
     country_annual_tax_milli: Option<&'a BTreeMap<String, Option<i64>>>,
     province_annual_tax_milli: Option<&'a BTreeMap<u32, Option<i64>>>,
     province_owners: Option<&'a BTreeMap<u32, Option<String>>>,
@@ -884,6 +892,14 @@ impl<'a> LoadOverrides<'a> {
             .then_some(&state.trade_good_price_impact_entries_milli),
             trade_good_prices_milli: (!state.trade_good_prices_milli.is_empty())
                 .then_some(&state.trade_good_prices_milli),
+            trade_good_keyed_price_impacts_milli: (!state
+                .trade_good_keyed_price_impacts_milli
+                .is_empty())
+            .then_some(&state.trade_good_keyed_price_impacts_milli),
+            unresolved_trade_good_price_impacts_milli: (!state
+                .unresolved_trade_good_price_impacts_milli
+                .is_empty())
+            .then_some(&state.unresolved_trade_good_price_impacts_milli),
             country_annual_tax_milli: (!state.country_annual_tax_milli.is_empty())
                 .then_some(&state.country_annual_tax_milli),
             province_annual_tax_milli: (!state.province_annual_tax_milli.is_empty())
@@ -1093,6 +1109,16 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.trade_good_price_impact_entries_milli.clone());
     base.trade_good_prices_milli
         .extend(overlay.trade_good_prices_milli.clone());
+    overlay_nested_map(
+        &mut base.trade_good_keyed_price_impacts_milli,
+        &overlay.trade_good_keyed_price_impacts_milli,
+    );
+    for (trade_good, keys) in &overlay.unresolved_trade_good_price_impacts_milli {
+        base.unresolved_trade_good_price_impacts_milli
+            .entry(trade_good.clone())
+            .or_default()
+            .extend(keys.clone());
+    }
     base.country_annual_tax_milli
         .extend(overlay.country_annual_tax_milli.clone());
     base.province_annual_tax_milli
@@ -1966,8 +1992,10 @@ fn bind_external_trade_good_price_impacts(
     initial: &mut InitialWorld,
     totals: Option<&BTreeMap<u32, i32>>,
     entries: Option<&BTreeMap<u32, Vec<i32>>>,
+    keyed: Option<&BTreeMap<String, BTreeMap<String, i32>>>,
+    unresolved: Option<&BTreeMap<String, BTreeSet<String>>>,
 ) -> Result<(), Error> {
-    if totals.is_none() && entries.is_none() {
+    if totals.is_none() && entries.is_none() && keyed.is_none() && unresolved.is_none() {
         return Ok(());
     }
     let mut economy = initial.world().economy().clone();
@@ -1998,6 +2026,36 @@ fn bind_external_trade_good_price_impacts(
             economy
                 .external_trade_good_price_impacts_milli
                 .insert(name.into(), vec![*value]);
+        }
+    }
+    if let Some(keyed) = keyed {
+        for (name, values) in keyed {
+            if !economy.trade_goods.contains_key(name) {
+                return Err(Error::message(
+                    "external trade-good price impacts",
+                    format!("unknown EU4 trade good {name}"),
+                ));
+            }
+            economy
+                .keyed_trade_good_price_impacts_milli
+                .entry(name.clone())
+                .or_default()
+                .extend(values.clone());
+        }
+    }
+    if let Some(unresolved) = unresolved {
+        for (name, keys) in unresolved {
+            if !economy.trade_goods.contains_key(name) {
+                return Err(Error::message(
+                    "external trade-good price impacts",
+                    format!("unknown EU4 trade good {name}"),
+                ));
+            }
+            economy
+                .unresolved_trade_good_price_impacts_milli
+                .entry(name.clone())
+                .or_default()
+                .extend(keys.clone());
         }
     }
     initial
@@ -3837,6 +3895,8 @@ impl VanillaWorld {
             &mut initial,
             overrides.trade_good_price_impacts_milli,
             overrides.trade_good_price_impact_entries_milli,
+            overrides.trade_good_keyed_price_impacts_milli,
+            overrides.unresolved_trade_good_price_impacts_milli,
         )?;
         setup.bind(&mut initial, date, &mut report.setup)?;
         if let Some(saved_levels) = overrides.country_technology_levels {
