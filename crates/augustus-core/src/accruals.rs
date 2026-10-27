@@ -369,6 +369,7 @@ impl MonthlySystem for MonthlyEconomy {
                 world.monthly_stocks = Some(stocks);
             }
             world.country_ledgers.extend(ledger_income_updates);
+            world.flush_monthly_country_treasuries()?;
             Ok(())
         })();
         if result.is_err()

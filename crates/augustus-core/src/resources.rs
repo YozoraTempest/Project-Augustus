@@ -60,8 +60,14 @@ pub(crate) fn treasury_after_adjustment(
     before_milli: i64,
     adjustment_milli: i64,
 ) -> Result<i64, crate::Error> {
-    let value =
-        CountryResource::Treasury.bounded(i128::from(before_milli) + i128::from(adjustment_milli));
+    treasury_after_adjustment_wide(before_milli, i128::from(adjustment_milli))
+}
+
+pub(crate) fn treasury_after_adjustment_wide(
+    before_milli: i64,
+    adjustment_milli: i128,
+) -> Result<i64, crate::Error> {
+    let value = CountryResource::Treasury.bounded(i128::from(before_milli) + adjustment_milli);
     i64::try_from(value).map_err(|_| crate::Error::Overflow)
 }
 

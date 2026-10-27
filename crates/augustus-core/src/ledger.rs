@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::resources::treasury_after_adjustment;
+use crate::resources::{treasury_after_adjustment, treasury_after_adjustment_wide};
 use crate::{
     CashflowSettlement, EntityId, EntityKind, Error, ProductionSettlement, TaxSettlement, World,
 };
@@ -569,8 +569,9 @@ impl crate::MonthlySystem for CountryLedgerPendingFlush {
 }
 
 /// Applies the month's tax, production, external cashflow, and delayed ledger
-/// amounts with one treasury clamp before ledger consolidation. Place it after
-/// all monthly financial producers and before monthly ledger consolidation.
+/// amounts with one treasury clamp before ledger consolidation. The standard
+/// `MonthlyTax` and `MonthlyEconomy` systems perform this flush themselves;
+/// custom providers that replace them can place this after financial work.
 pub struct CountryLedgerMonthlyTreasuryFlush;
 
 impl crate::MonthlySystem for CountryLedgerMonthlyTreasuryFlush {
@@ -702,7 +703,7 @@ pub(crate) fn prepare_monthly_ledger_updates(
 struct MonthlyTreasuryFlow {
     opening_treasury_milli: Option<i64>,
     opening_recorded: bool,
-    amount_milli: i64,
+    amount_milli: i128,
     complete: bool,
 }
 
@@ -735,7 +736,7 @@ impl MonthlyTreasuryFlow {
         }
         self.amount_milli = self
             .amount_milli
-            .checked_add(amount_milli.expect("checked monthly amount"))
+            .checked_add(i128::from(amount_milli.expect("checked monthly amount")))
             .ok_or(Error::Overflow)?;
         Ok(())
     }
@@ -755,7 +756,7 @@ impl MonthlyTreasuryFlow {
         if self.complete {
             self.amount_milli = self
                 .amount_milli
-                .checked_add(pending_milli)
+                .checked_add(i128::from(pending_milli))
                 .ok_or(Error::Overflow)?;
         }
         Ok(())
@@ -798,6 +799,13 @@ impl World {
             .and_then(|production| production.last_settlement.as_ref())
         {
             for (&country, account) in &settlement.accounts {
+                // Unresolved production is not credited by its own commit path.
+                if account.treasury_before_milli.is_some()
+                    && account.monthly_value_milli.is_none()
+                    && !account.unresolved.is_empty()
+                {
+                    continue;
+                }
                 flows
                     .entry(country)
                     .or_insert_with(MonthlyTreasuryFlow::new)
@@ -851,7 +859,7 @@ impl World {
         for (country, flow) in flows {
             let balance = if flow.complete {
                 flow.opening_treasury_milli
-                    .map(|opening| treasury_after_adjustment(opening, flow.amount_milli))
+                    .map(|opening| treasury_after_adjustment_wide(opening, flow.amount_milli))
                     .transpose()?
             } else {
                 None

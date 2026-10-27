@@ -53,6 +53,30 @@ impl MonthlySystem for StandardTaxPhase {
     }
 }
 
+struct DelayedLedgerProducer {
+    country: EntityId,
+    amount_milli: i64,
+}
+
+impl MonthlySystem for DelayedLedgerProducer {
+    fn id(&self) -> &str {
+        "delayed-ledger-producer:test:v1"
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        if world.entity(self.country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "delayed ledger producer requires a country".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        world.record_delayed_country_income(self.country, 1, self.amount_milli)
+    }
+}
+
 fn world() -> (World, EntityId) {
     let mut world = World::new(Schema::new([] as [&str; 0]).unwrap());
     let country = world.add_entity("AAA", EntityKind::Country);
@@ -427,29 +451,8 @@ fn monthly_tax_production_and_cashflow_share_the_native_treasury_bounds() {
         .set_monthly_cashflows(Some(cashflows.clone()))
         .unwrap();
 
-    let economy = MonthlyEconomy;
-    let treasury_flush = CountryLedgerMonthlyTreasuryFlush;
-    let consolidation = CountryLedgerMonthlyConsolidation::default();
-    let ledger_tail = MonthlyPipeline::new(
-        "monthly-treasury-tail:test:v1",
-        Some(&treasury_flush),
-        None,
-        Some(&consolidation),
-    )
-    .unwrap();
-    let pipeline = MonthlyPipeline::new(
-        "monthly-treasury-flush:test:v1",
-        Some(&economy),
-        None,
-        Some(&ledger_tail),
-    )
-    .unwrap();
-    world.select_monthly_system(&pipeline).unwrap();
-    world.set_taxation(taxation).unwrap();
-    world.set_monthly_production(production).unwrap();
-    world.set_monthly_cashflows(Some(cashflows)).unwrap();
     world.record_delayed_country_income(country, 2, 50).unwrap();
-    world.advance_with_monthly_system(21, &pipeline).unwrap();
+    world.advance_to(21).unwrap();
 
     let tax = &world
         .taxation()
@@ -496,7 +499,7 @@ fn monthly_tax_production_and_cashflow_share_the_native_treasury_bounds() {
 }
 
 #[test]
-fn monthly_treasury_flush_preserves_pending_when_a_settlement_is_unresolved() {
+fn standard_monthly_economy_preserves_pending_when_a_settlement_is_unresolved() {
     let (mut world, country) = world();
     world
         .set_country_resources(
@@ -517,30 +520,144 @@ fn monthly_treasury_flush_preserves_pending_when_a_settlement_is_unresolved() {
         .unwrap();
     world.set_monthly_production(production.clone()).unwrap();
 
-    let economy = MonthlyEconomy;
-    let treasury_flush = CountryLedgerMonthlyTreasuryFlush;
-    let ledger_tail = MonthlyPipeline::new(
-        "unresolved-treasury-tail:test:v1",
-        Some(&treasury_flush),
-        None,
-        None,
-    )
-    .unwrap();
-    let pipeline = MonthlyPipeline::new(
-        "unresolved-treasury-flush:test:v1",
-        Some(&economy),
-        None,
-        Some(&ledger_tail),
-    )
-    .unwrap();
-    world.select_monthly_system(&pipeline).unwrap();
-    world.set_monthly_cashflows(Some(cashflows)).unwrap();
-    world.set_monthly_production(production).unwrap();
     world.record_delayed_country_income(country, 1, 40).unwrap();
-    world.advance_with_monthly_system(21, &pipeline).unwrap();
+    world.advance_to(21).unwrap();
 
     assert_eq!(world.country_resources()[&country].treasury_milli, None);
     assert_eq!(world.country_ledgers()[&country].pending_milli, 40);
+}
+
+#[test]
+fn standard_monthly_tax_combines_delayed_ledger_before_clamping() {
+    let mut world = World::new(Schema::new([] as [&str; 0]).unwrap());
+    let country = world.add_entity("AAA", EntityKind::Country);
+    let province = world.add_entity("North", EntityKind::Province);
+    world.set_owner(province, country).unwrap();
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(999_999_900),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    world
+        .set_calendar(Calendar {
+            start: WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            },
+            month_lengths: [31; 12],
+        })
+        .unwrap();
+    world
+        .set_taxation(
+            Taxation::new("annual_tax", [country].into_iter().collect())
+                .with_external_country_annual_milli(BTreeMap::from([(country, Some(2_400))]))
+                .with_external_province_annual_milli(BTreeMap::from([(province, Some(0))])),
+        )
+        .unwrap();
+    world
+        .record_delayed_country_expense(country, 23, 150)
+        .unwrap();
+
+    world.advance_to(21).unwrap();
+
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(999_999_950)
+    );
+    assert_eq!(world.country_ledgers()[&country].pending_milli, 0);
+    assert_eq!(
+        world
+            .taxation()
+            .unwrap()
+            .last_settlement
+            .as_ref()
+            .unwrap()
+            .accounts[&country]
+            .income_milli,
+        Some(200)
+    );
+}
+
+#[test]
+fn standard_monthly_economy_wide_sum_clamps_after_large_receipts() {
+    let (mut world, country) = world();
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(0),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    world
+        .set_monthly_production(MonthlyProduction::new(BTreeMap::new()))
+        .unwrap();
+    world
+        .set_monthly_cashflows(Some(MonthlyExternalCashflows::new(BTreeMap::from([(
+            country,
+            Some(i64::MAX),
+        )]))))
+        .unwrap();
+    world
+        .record_delayed_country_income(country, 1, i64::MAX)
+        .unwrap();
+
+    world.advance_to(21).unwrap();
+
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(1_000_000_000)
+    );
+    assert_eq!(world.country_ledgers()[&country].pending_milli, 0);
+}
+
+#[test]
+fn custom_monthly_pipeline_can_flush_its_delayed_financial_producer() {
+    let (mut world, country) = world();
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(100),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    let producer = DelayedLedgerProducer {
+        country,
+        amount_milli: 40,
+    };
+    let treasury_flush = CountryLedgerMonthlyTreasuryFlush;
+    let pipeline = MonthlyPipeline::new(
+        "custom-delayed-ledger-flush:test:v1",
+        Some(&producer),
+        None,
+        Some(&treasury_flush),
+    )
+    .unwrap();
+    world.select_monthly_system(&pipeline).unwrap();
+    world.advance_with_monthly_system(21, &pipeline).unwrap();
+
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(140)
+    );
+    assert_eq!(world.country_ledgers()[&country].pending_milli, 0);
 }
 
 #[test]

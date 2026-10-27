@@ -173,7 +173,8 @@ impl MonthlySystem for MonthlyTax {
                 .ok_or_else(|| Error::Invalid("missing taxation state".into()))?;
             let result = taxation.settle(world);
             world.taxation = Some(taxation);
-            result
+            result?;
+            world.flush_monthly_country_treasuries().map(|_| ())
         })();
         if result.is_err()
             && let Some(previous) = previous_administration
