@@ -684,11 +684,115 @@ pub struct VanillaTradeCountryPowerShareInput {
 pub fn calculate_vanilla_trade_country_power_share(
     input: VanillaTradeCountryPowerShareInput,
 ) -> i32 {
-    if input.collected_total_milli == 0 {
+    calculate_vanilla_trade_amount_share_milli(
+        input.effective_amount_milli,
+        input.collected_total_milli,
+    )
+}
+
+fn calculate_vanilla_trade_amount_share_milli(amount_milli: i32, total_milli: i32) -> i32 {
+    if total_milli == 0 {
         -1
     } else {
-        (i64::from(input.effective_amount_milli) * 1_000 / i64::from(input.collected_total_milli))
-            as i32
+        (i64::from(amount_milli) * 1_000 / i64::from(total_milli)) as i32
+    }
+}
+
+/// Inputs for a country's production-derived share of one trade node.
+///
+/// The compatibility layer resolves the native row-selection gate from its
+/// indices and flags. Missing values remain unknown instead of being treated
+/// as zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeNodeCountryValueShareInput {
+    pub row_is_eligible: Option<bool>,
+    pub base_production_value_milli: Option<i32>,
+    pub production_modifier_milli: Option<i32>,
+    pub production_cap_milli: Option<i32>,
+    pub value_added_milli: Option<i32>,
+    pub value_subtracted_milli: Option<i32>,
+    pub node_total_value_milli: Option<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaTradeNodeCountryValueShareResult {
+    /// `None` means row eligibility or a required input is unknown.
+    pub write_applied: Option<bool>,
+    pub production_flow_milli: Option<i32>,
+    pub effective_value_milli: Option<i32>,
+    /// A zero node total produces the native `-1` sentinel.
+    pub country_share_milli: Option<i32>,
+}
+
+/// Calculates one country row's production value and share in a trade node.
+///
+/// The eligibility threshold uses the row's cap plus added value minus
+/// subtracted value. The produced flow is then multiplied and truncated,
+/// floored at zero, capped, and adjusted before dividing by the node total.
+pub fn calculate_vanilla_trade_node_country_value_share(
+    input: VanillaTradeNodeCountryValueShareInput,
+) -> VanillaTradeNodeCountryValueShareResult {
+    let not_written = || VanillaTradeNodeCountryValueShareResult {
+        write_applied: Some(false),
+        production_flow_milli: None,
+        effective_value_milli: None,
+        country_share_milli: None,
+    };
+    let unresolved = || VanillaTradeNodeCountryValueShareResult {
+        write_applied: None,
+        production_flow_milli: None,
+        effective_value_milli: None,
+        country_share_milli: None,
+    };
+
+    match input.row_is_eligible {
+        Some(false) => return not_written(),
+        None => return unresolved(),
+        Some(true) => {}
+    }
+
+    let (
+        Some(base_production_value_milli),
+        Some(production_modifier_milli),
+        Some(production_cap_milli),
+        Some(value_added_milli),
+        Some(value_subtracted_milli),
+        Some(node_total_value_milli),
+    ) = (
+        input.base_production_value_milli,
+        input.production_modifier_milli,
+        input.production_cap_milli,
+        input.value_added_milli,
+        input.value_subtracted_milli,
+        input.node_total_value_milli,
+    )
+    else {
+        return unresolved();
+    };
+
+    let eligibility_value = production_cap_milli
+        .wrapping_add(value_added_milli)
+        .wrapping_sub(value_subtracted_milli);
+    if eligibility_value <= 0 {
+        return not_written();
+    }
+
+    let multiplied_flow = (i64::from(base_production_value_milli)
+        * i64::from(production_modifier_milli)
+        / 1_000) as i32;
+    let production_flow_milli = multiplied_flow.max(0).min(production_cap_milli);
+    let effective_value_milli = production_flow_milli
+        .wrapping_add(value_added_milli)
+        .wrapping_sub(value_subtracted_milli);
+    let country_share_milli =
+        calculate_vanilla_trade_amount_share_milli(effective_value_milli, node_total_value_milli);
+
+    VanillaTradeNodeCountryValueShareResult {
+        write_applied: Some(true),
+        production_flow_milli: Some(production_flow_milli),
+        effective_value_milli: Some(effective_value_milli),
+        country_share_milli: Some(country_share_milli),
     }
 }
 

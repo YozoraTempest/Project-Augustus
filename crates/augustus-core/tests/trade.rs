@@ -6,18 +6,19 @@ use augustus_core::{
     VanillaTradeCountryFlags, VanillaTradeCountryPowerShareInput,
     VanillaTradeDistributionCandidate, VanillaTradeDistributionCandidateInput,
     VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput,
-    VanillaTradeIncomePassInput, VanillaTradeNodePassInput, VanillaTradeNodeRouteInput,
-    VanillaTradeOutflowInput, VanillaTradePowerAmountInput, VanillaTradePowerModifierInput,
-    VanillaTradePropagationInput, VanillaTradeRetentionContributionRowInput,
-    VanillaTradeRetentionInput, VanillaTradeRetentionParticipantInput,
-    VanillaTradeRetentionPassInput, VanillaTradeRetentionPoolsInput,
-    VanillaTradeRetentionSequenceEntryInput, VanillaTradeRetentionSourcesInput,
-    VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightInput,
-    VanillaTradeRouteWeightPassFromRowsInput, VanillaTradeRouteWeightPassInput,
-    VanillaTradeRouteWeightSourceRowInput, VanillaTradeSteeringEligibilityInput,
-    VanillaTradeSteeringModifierInput, calculate_vanilla_trade_caravan,
-    calculate_vanilla_trade_country_power_share, calculate_vanilla_trade_distribution,
-    calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
+    VanillaTradeIncomePassInput, VanillaTradeNodeCountryValueShareInput, VanillaTradeNodePassInput,
+    VanillaTradeNodeRouteInput, VanillaTradeOutflowInput, VanillaTradePowerAmountInput,
+    VanillaTradePowerModifierInput, VanillaTradePropagationInput,
+    VanillaTradeRetentionContributionRowInput, VanillaTradeRetentionInput,
+    VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
+    VanillaTradeRetentionPoolsInput, VanillaTradeRetentionSequenceEntryInput,
+    VanillaTradeRetentionSourcesInput, VanillaTradeRouteWeightContributionInput,
+    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightPassFromRowsInput,
+    VanillaTradeRouteWeightPassInput, VanillaTradeRouteWeightSourceRowInput,
+    VanillaTradeSteeringEligibilityInput, VanillaTradeSteeringModifierInput,
+    calculate_vanilla_trade_caravan, calculate_vanilla_trade_country_power_share,
+    calculate_vanilla_trade_distribution, calculate_vanilla_trade_income,
+    calculate_vanilla_trade_income_pass, calculate_vanilla_trade_node_country_value_share,
     calculate_vanilla_trade_node_pass, calculate_vanilla_trade_outflow,
     calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
@@ -175,6 +176,109 @@ fn trade_country_power_share_keeps_the_zero_sentinel_and_signed_truncation() {
         }),
         2_400
     );
+}
+
+#[test]
+fn trade_node_country_value_share_matches_the_observed_production_row() {
+    let row =
+        calculate_vanilla_trade_node_country_value_share(VanillaTradeNodeCountryValueShareInput {
+            row_is_eligible: Some(true),
+            base_production_value_milli: Some(17_320),
+            production_modifier_milli: Some(1_059),
+            production_cap_milli: Some(18_341),
+            value_added_milli: Some(0),
+            value_subtracted_milli: Some(0),
+            node_total_value_milli: Some(135_144),
+        });
+
+    assert_eq!(row.write_applied, Some(true));
+    assert_eq!(row.production_flow_milli, Some(18_341));
+    assert_eq!(row.effective_value_milli, Some(18_341));
+    assert_eq!(row.country_share_milli, Some(135));
+}
+
+#[test]
+fn trade_node_country_value_share_preserves_unknown_and_nonwriting_states() {
+    let known_values = VanillaTradeNodeCountryValueShareInput {
+        row_is_eligible: Some(true),
+        base_production_value_milli: Some(1_000),
+        production_modifier_milli: Some(1_000),
+        production_cap_milli: Some(200),
+        value_added_milli: Some(0),
+        value_subtracted_milli: Some(100),
+        node_total_value_milli: Some(1_000),
+    };
+
+    let unknown_gate =
+        calculate_vanilla_trade_node_country_value_share(VanillaTradeNodeCountryValueShareInput {
+            row_is_eligible: None,
+            ..known_values
+        });
+    assert_eq!(unknown_gate.write_applied, None);
+    assert_eq!(unknown_gate.country_share_milli, None);
+
+    let ineligible =
+        calculate_vanilla_trade_node_country_value_share(VanillaTradeNodeCountryValueShareInput {
+            row_is_eligible: Some(false),
+            ..known_values
+        });
+    assert_eq!(ineligible.write_applied, Some(false));
+    assert_eq!(ineligible.country_share_milli, None);
+
+    let missing_source =
+        calculate_vanilla_trade_node_country_value_share(VanillaTradeNodeCountryValueShareInput {
+            production_modifier_milli: None,
+            ..known_values
+        });
+    assert_eq!(missing_source.write_applied, None);
+    assert_eq!(missing_source.effective_value_milli, None);
+
+    let row = calculate_vanilla_trade_node_country_value_share(known_values);
+    assert_eq!(row.write_applied, Some(true));
+    assert_eq!(row.production_flow_milli, Some(200));
+    assert_eq!(row.effective_value_milli, Some(100));
+    assert_eq!(row.country_share_milli, Some(100));
+
+    let no_write =
+        calculate_vanilla_trade_node_country_value_share(VanillaTradeNodeCountryValueShareInput {
+            production_cap_milli: Some(99),
+            ..known_values
+        });
+    assert_eq!(no_write.write_applied, Some(false));
+    assert_eq!(no_write.country_share_milli, None);
+}
+
+#[test]
+fn trade_node_country_value_share_keeps_zero_total_sentinel_and_negative_adjustment() {
+    let zero_total =
+        calculate_vanilla_trade_node_country_value_share(VanillaTradeNodeCountryValueShareInput {
+            row_is_eligible: Some(true),
+            base_production_value_milli: Some(0),
+            production_modifier_milli: Some(1_000),
+            production_cap_milli: Some(100),
+            value_added_milli: Some(0),
+            value_subtracted_milli: Some(0),
+            node_total_value_milli: Some(0),
+        });
+    assert_eq!(zero_total.write_applied, Some(true));
+    assert_eq!(zero_total.production_flow_milli, Some(0));
+    assert_eq!(zero_total.effective_value_milli, Some(0));
+    assert_eq!(zero_total.country_share_milli, Some(-1));
+
+    let negative_adjustment =
+        calculate_vanilla_trade_node_country_value_share(VanillaTradeNodeCountryValueShareInput {
+            row_is_eligible: Some(true),
+            base_production_value_milli: Some(0),
+            production_modifier_milli: Some(1_000),
+            production_cap_milli: Some(200),
+            value_added_milli: Some(0),
+            value_subtracted_milli: Some(100),
+            node_total_value_milli: Some(1_000),
+        });
+    assert_eq!(negative_adjustment.write_applied, Some(true));
+    assert_eq!(negative_adjustment.production_flow_milli, Some(0));
+    assert_eq!(negative_adjustment.effective_value_milli, Some(-100));
+    assert_eq!(negative_adjustment.country_share_milli, Some(-100));
 }
 
 #[test]
