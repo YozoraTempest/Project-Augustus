@@ -8,7 +8,9 @@ use augustus_core::{
     MonthlyExternalCashflows, MonthlyPipeline, MonthlyProduction, MonthlySystem, MonthlyTax,
     ProvinceAdministration, Schema, Taxation, VanillaProductionInput, VanillaProductionInputState,
     VanillaStateMaintenanceInput, VanillaStateMaintenanceProvinceInputState,
-    VanillaTradeIncomeInput, VanillaTradeIncomePassInput, World, WorldDate,
+    VanillaTradeIncomeContextInput, VanillaTradeNodeCountryValueShareInput,
+    VanillaTradeNodeIncomePassInput, VanillaTradeNodeIncomeRowInput, World, WorldDate,
+    calculate_vanilla_trade_node_income_pass,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -791,32 +793,88 @@ fn trade_income_records_feed_monthly_cashflow_and_native_ledger() {
             .into(),
         )
         .unwrap();
-    let breakdown = CashflowBreakdown {
-        trade_milli: None,
-        trade_income_pass: Some(VanillaTradeIncomePassInput {
-            eligible_records: vec![
-                VanillaTradeIncomeInput {
+    let trade_income = calculate_vanilla_trade_node_income_pass(VanillaTradeNodeIncomePassInput {
+        row_set_complete: Some(true),
+        rows: vec![
+            VanillaTradeNodeIncomeRowInput {
+                country_value_share: VanillaTradeNodeCountryValueShareInput {
+                    row_is_eligible: Some(true),
+                    base_production_value_milli: Some(349),
+                    production_modifier_milli: Some(1_000),
+                    production_cap_milli: Some(349),
+                    value_added_milli: Some(0),
+                    value_subtracted_milli: Some(0),
+                    node_total_value_milli: Some(1_000),
+                },
+                income_context: Some(VanillaTradeIncomeContextInput {
                     node_value_milli: 3_817,
-                    country_record_value_milli: 349,
                     base_context_modifier_milli: 20,
                     selected_context_modifier_milli: 50,
                     virtual_context_modifier_milli: None,
                     minimum_context_modifier_milli: 10,
                     maximum_context_modifier_milli: 2_000,
                     post_context_modifier_milli: 100,
+                }),
+            },
+            VanillaTradeNodeIncomeRowInput {
+                country_value_share: VanillaTradeNodeCountryValueShareInput {
+                    row_is_eligible: Some(true),
+                    base_production_value_milli: Some(305),
+                    production_modifier_milli: Some(1_000),
+                    production_cap_milli: Some(305),
+                    value_added_milli: Some(0),
+                    value_subtracted_milli: Some(0),
+                    node_total_value_milli: Some(1_000),
                 },
-                VanillaTradeIncomeInput {
+                income_context: Some(VanillaTradeIncomeContextInput {
                     node_value_milli: 5_390,
-                    country_record_value_milli: 305,
                     base_context_modifier_milli: 0,
                     selected_context_modifier_milli: 70,
                     virtual_context_modifier_milli: None,
                     minimum_context_modifier_milli: 10,
                     maximum_context_modifier_milli: 2_000,
                     post_context_modifier_milli: 0,
-                },
-            ],
-        }),
+                }),
+            },
+        ],
+    })
+    .unwrap();
+    assert!(trade_income.complete);
+    assert!(trade_income.unresolved_rows.is_empty());
+    assert_eq!(
+        trade_income
+            .trade_income_pass
+            .as_ref()
+            .unwrap()
+            .eligible_records
+            .iter()
+            .map(|record| record.country_record_value_milli)
+            .collect::<Vec<_>>(),
+        vec![349, 305]
+    );
+    assert_eq!(
+        trade_income
+            .trade_income_result
+            .as_ref()
+            .unwrap()
+            .records
+            .iter()
+            .map(|record| record.trade_income_milli)
+            .collect::<Vec<_>>(),
+        vec![1_558, 1_758]
+    );
+    assert_eq!(
+        trade_income
+            .trade_income_result
+            .as_ref()
+            .unwrap()
+            .total_income_milli,
+        3_316
+    );
+
+    let breakdown = CashflowBreakdown {
+        trade_milli: None,
+        trade_income_pass: trade_income.trade_income_pass,
         gold_milli: Some(0),
         expenses_milli: Some(0),
         expense_categories_milli: BTreeMap::new(),

@@ -5,20 +5,22 @@ use augustus_core::{
     VanillaTradeAttachedModifierGroup, VanillaTradeCandidate, VanillaTradeCaravanInput,
     VanillaTradeCountryFlags, VanillaTradeCountryPowerShareInput,
     VanillaTradeDistributionCandidate, VanillaTradeDistributionCandidateInput,
-    VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput, VanillaTradeIncomeInput,
-    VanillaTradeIncomePassInput, VanillaTradeNodeCountryValueShareInput, VanillaTradeNodePassInput,
-    VanillaTradeNodeRouteInput, VanillaTradeOutflowInput, VanillaTradePowerAmountInput,
-    VanillaTradePowerModifierInput, VanillaTradePropagationInput,
-    VanillaTradeRetentionContributionRowInput, VanillaTradeRetentionInput,
-    VanillaTradeRetentionParticipantInput, VanillaTradeRetentionPassInput,
-    VanillaTradeRetentionPoolsInput, VanillaTradeRetentionSequenceEntryInput,
-    VanillaTradeRetentionSourcesInput, VanillaTradeRouteWeightContributionInput,
-    VanillaTradeRouteWeightInput, VanillaTradeRouteWeightPassFromRowsInput,
-    VanillaTradeRouteWeightPassInput, VanillaTradeRouteWeightSourceRowInput,
-    VanillaTradeSteeringEligibilityInput, VanillaTradeSteeringModifierInput,
-    calculate_vanilla_trade_caravan, calculate_vanilla_trade_country_power_share,
-    calculate_vanilla_trade_distribution, calculate_vanilla_trade_income,
-    calculate_vanilla_trade_income_pass, calculate_vanilla_trade_node_country_value_share,
+    VanillaTradeDistributionInput, VanillaTradeDistributionRouteInput,
+    VanillaTradeIncomeContextInput, VanillaTradeIncomeInput, VanillaTradeIncomePassInput,
+    VanillaTradeNodeCountryValueShareInput, VanillaTradeNodeIncomePassInput,
+    VanillaTradeNodeIncomeRowInput, VanillaTradeNodePassInput, VanillaTradeNodeRouteInput,
+    VanillaTradeOutflowInput, VanillaTradePowerAmountInput, VanillaTradePowerModifierInput,
+    VanillaTradePropagationInput, VanillaTradeRetentionContributionRowInput,
+    VanillaTradeRetentionInput, VanillaTradeRetentionParticipantInput,
+    VanillaTradeRetentionPassInput, VanillaTradeRetentionPoolsInput,
+    VanillaTradeRetentionSequenceEntryInput, VanillaTradeRetentionSourcesInput,
+    VanillaTradeRouteWeightContributionInput, VanillaTradeRouteWeightInput,
+    VanillaTradeRouteWeightPassFromRowsInput, VanillaTradeRouteWeightPassInput,
+    VanillaTradeRouteWeightSourceRowInput, VanillaTradeSteeringEligibilityInput,
+    VanillaTradeSteeringModifierInput, calculate_vanilla_trade_caravan,
+    calculate_vanilla_trade_country_power_share, calculate_vanilla_trade_distribution,
+    calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
+    calculate_vanilla_trade_node_country_value_share, calculate_vanilla_trade_node_income_pass,
     calculate_vanilla_trade_node_pass, calculate_vanilla_trade_outflow,
     calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
     calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
@@ -279,6 +281,90 @@ fn trade_node_country_value_share_keeps_zero_total_sentinel_and_negative_adjustm
     assert_eq!(negative_adjustment.production_flow_milli, Some(0));
     assert_eq!(negative_adjustment.effective_value_milli, Some(-100));
     assert_eq!(negative_adjustment.country_share_milli, Some(-100));
+}
+
+#[test]
+fn trade_node_income_pass_keeps_incomplete_rows_out_of_cashflow_totals() {
+    let known_row = VanillaTradeNodeCountryValueShareInput {
+        row_is_eligible: Some(true),
+        base_production_value_milli: Some(349),
+        production_modifier_milli: Some(1_000),
+        production_cap_milli: Some(349),
+        value_added_milli: Some(0),
+        value_subtracted_milli: Some(0),
+        node_total_value_milli: Some(1_000),
+    };
+    let context = Some(VanillaTradeIncomeContextInput {
+        node_value_milli: 3_817,
+        base_context_modifier_milli: 20,
+        selected_context_modifier_milli: 50,
+        virtual_context_modifier_milli: None,
+        minimum_context_modifier_milli: 10,
+        maximum_context_modifier_milli: 2_000,
+        post_context_modifier_milli: 100,
+    });
+
+    let result = calculate_vanilla_trade_node_income_pass(VanillaTradeNodeIncomePassInput {
+        row_set_complete: Some(true),
+        rows: vec![
+            VanillaTradeNodeIncomeRowInput {
+                country_value_share: known_row,
+                income_context: context,
+            },
+            VanillaTradeNodeIncomeRowInput {
+                country_value_share: VanillaTradeNodeCountryValueShareInput {
+                    row_is_eligible: None,
+                    ..known_row
+                },
+                income_context: None,
+            },
+            VanillaTradeNodeIncomeRowInput {
+                country_value_share: VanillaTradeNodeCountryValueShareInput {
+                    row_is_eligible: Some(false),
+                    ..known_row
+                },
+                income_context: None,
+            },
+        ],
+    })
+    .unwrap();
+
+    assert!(!result.complete);
+    assert_eq!(result.unresolved_rows, vec![1]);
+    assert_eq!(result.trade_income_pass, None);
+    assert_eq!(result.trade_income_result, None);
+    assert_eq!(
+        result.rows[0].country_value_share.country_share_milli,
+        Some(349)
+    );
+    assert_eq!(result.rows[0].income, None);
+    assert_eq!(
+        result.rows[2].country_value_share.write_applied,
+        Some(false)
+    );
+
+    let missing_row_coverage =
+        calculate_vanilla_trade_node_income_pass(VanillaTradeNodeIncomePassInput {
+            row_set_complete: None,
+            rows: Vec::new(),
+        })
+        .unwrap();
+    assert_eq!(missing_row_coverage.row_set_complete, None);
+    assert!(!missing_row_coverage.complete);
+    assert_eq!(missing_row_coverage.trade_income_result, None);
+
+    let partial_row_coverage =
+        calculate_vanilla_trade_node_income_pass(VanillaTradeNodeIncomePassInput {
+            row_set_complete: Some(false),
+            rows: vec![VanillaTradeNodeIncomeRowInput {
+                country_value_share: known_row,
+                income_context: context,
+            }],
+        })
+        .unwrap();
+    assert_eq!(partial_row_coverage.row_set_complete, Some(false));
+    assert!(!partial_row_coverage.complete);
+    assert_eq!(partial_row_coverage.trade_income_pass, None);
 }
 
 #[test]

@@ -796,6 +796,145 @@ pub fn calculate_vanilla_trade_node_country_value_share(
     }
 }
 
+/// Resolved modifiers used after a country's share of node value is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeIncomeContextInput {
+    pub node_value_milli: i64,
+    pub base_context_modifier_milli: i64,
+    pub selected_context_modifier_milli: i64,
+    pub virtual_context_modifier_milli: Option<i64>,
+    pub minimum_context_modifier_milli: i64,
+    pub maximum_context_modifier_milli: i64,
+    pub post_context_modifier_milli: i64,
+}
+
+/// One candidate country row and its resolved income context, if available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeNodeIncomeRowInput {
+    pub country_value_share: VanillaTradeNodeCountryValueShareInput,
+    /// Missing context leaves an otherwise eligible row unresolved.
+    pub income_context: Option<VanillaTradeIncomeContextInput>,
+}
+
+/// Inputs for building a country income pass from ordered trade-node rows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaTradeNodeIncomePassInput {
+    /// `Some(false)` means known partial coverage; `None` means coverage is unknown.
+    pub row_set_complete: Option<bool>,
+    pub rows: Vec<VanillaTradeNodeIncomeRowInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VanillaTradeNodeIncomeRowResult {
+    pub country_value_share: VanillaTradeNodeCountryValueShareResult,
+    /// Income is populated only when the entire input pass is complete.
+    pub income: Option<VanillaTradeIncomeResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VanillaTradeNodeIncomePassResult {
+    /// Source row-set coverage, preserved from the input.
+    pub row_set_complete: Option<bool>,
+    /// True only when the row set is complete and every candidate is resolved.
+    pub complete: bool,
+    /// Zero-based source row indices whose eligibility, share, or context is unknown.
+    pub unresolved_rows: Vec<usize>,
+    pub rows: Vec<VanillaTradeNodeIncomeRowResult>,
+    /// Ready for `CashflowBreakdown::trade_income_pass` when `complete` is true.
+    pub trade_income_pass: Option<VanillaTradeIncomePassInput>,
+    pub trade_income_result: Option<VanillaTradeIncomePassResult>,
+}
+
+/// Builds the existing cashflow income pass from country rows in one trade-node sequence.
+///
+/// Known non-writing rows are skipped. If the source row set or any candidate
+/// row is incomplete, no partial income total is returned.
+pub fn calculate_vanilla_trade_node_income_pass(
+    input: VanillaTradeNodeIncomePassInput,
+) -> Result<VanillaTradeNodeIncomePassResult, Error> {
+    let row_set_complete = input.row_set_complete;
+    let mut eligible_records = Vec::new();
+    let mut eligible_row_indices = Vec::new();
+    let mut unresolved_rows = Vec::new();
+    let mut rows = Vec::with_capacity(input.rows.len());
+
+    for (index, row) in input.rows.into_iter().enumerate() {
+        let country_value_share =
+            calculate_vanilla_trade_node_country_value_share(row.country_value_share);
+        match country_value_share.write_applied {
+            Some(false) => {}
+            None => unresolved_rows.push(index),
+            Some(true) => {
+                let Some(country_record_value_milli) = country_value_share.country_share_milli
+                else {
+                    unresolved_rows.push(index);
+                    rows.push(VanillaTradeNodeIncomeRowResult {
+                        country_value_share,
+                        income: None,
+                    });
+                    continue;
+                };
+                let Some(context) = row.income_context else {
+                    unresolved_rows.push(index);
+                    rows.push(VanillaTradeNodeIncomeRowResult {
+                        country_value_share,
+                        income: None,
+                    });
+                    continue;
+                };
+                eligible_records.push(VanillaTradeIncomeInput {
+                    node_value_milli: context.node_value_milli,
+                    country_record_value_milli: i64::from(country_record_value_milli),
+                    base_context_modifier_milli: context.base_context_modifier_milli,
+                    selected_context_modifier_milli: context.selected_context_modifier_milli,
+                    virtual_context_modifier_milli: context.virtual_context_modifier_milli,
+                    minimum_context_modifier_milli: context.minimum_context_modifier_milli,
+                    maximum_context_modifier_milli: context.maximum_context_modifier_milli,
+                    post_context_modifier_milli: context.post_context_modifier_milli,
+                });
+                eligible_row_indices.push(index);
+            }
+        }
+        rows.push(VanillaTradeNodeIncomeRowResult {
+            country_value_share,
+            income: None,
+        });
+    }
+
+    let complete = row_set_complete == Some(true) && unresolved_rows.is_empty();
+    if !complete {
+        return Ok(VanillaTradeNodeIncomePassResult {
+            row_set_complete,
+            complete,
+            unresolved_rows,
+            rows,
+            trade_income_pass: None,
+            trade_income_result: None,
+        });
+    }
+
+    let trade_income_pass = VanillaTradeIncomePassInput { eligible_records };
+    let trade_income_result = calculate_vanilla_trade_income_pass(trade_income_pass.clone())?;
+    for (row_index, income) in eligible_row_indices
+        .into_iter()
+        .zip(trade_income_result.records.iter().copied())
+    {
+        rows[row_index].income = Some(income);
+    }
+
+    Ok(VanillaTradeNodeIncomePassResult {
+        row_set_complete,
+        complete,
+        unresolved_rows,
+        rows,
+        trade_income_pass: Some(trade_income_pass),
+        trade_income_result: Some(trade_income_result),
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VanillaTradeRouteWeightInput {
