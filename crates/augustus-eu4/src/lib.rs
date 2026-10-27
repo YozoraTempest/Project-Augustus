@@ -26,6 +26,7 @@ mod economy;
 mod estates;
 mod eu4_rng;
 mod event_ai;
+mod force_limit;
 mod geography;
 mod governments;
 mod ideas;

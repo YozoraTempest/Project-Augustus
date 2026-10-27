@@ -544,6 +544,254 @@ fn overlord_force_limit_modifiers_follow_subject_type_inheritance_and_clear() {
 }
 
 #[test]
+fn subject_force_limit_shares_use_the_full_subject_limit_and_overlord_bonus() {
+    let fixture = copy_fixture();
+    let subject_types_path = fixture.path().join("common/subject_types/test.txt");
+    let subject_types = fs::read_to_string(&subject_types_path).unwrap();
+    let subject_types = subject_types.replace(
+        "default = { max_government_rank = 0 }",
+        "default = { max_government_rank = 0 forcelimit_to_overlord = 0.1 naval_forcelimit_to_overlord = 0.2 }",
+    );
+    assert!(subject_types.contains("test_vassal = { copy_from = default }"));
+    fs::write(subject_types_path, subject_types).unwrap();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "all_nations = { land_forcelimit = 10.99 naval_forcelimit = 20.99 }",
+    );
+    append_fixture(
+        fixture.path(),
+        "common/event_modifiers/test_modifiers.txt",
+        "test_force_limit_bonus = { vassal_forcelimit_bonus = 0.5 vassal_naval_forcelimit_bonus = 0.25 }\ntest_subject_force_rate = { land_forcelimit_modifier = 0.5 naval_forcelimit_modifier = 0.25 }",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/countries/AAA - Alpha.txt",
+        "add_country_modifier = { name = test_force_limit_bonus duration = -1 }",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/countries/BBB - Beta.txt",
+        "add_country_modifier = { name = test_subject_force_rate duration = -1 }",
+    );
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let overlord = loaded.initial.country_entity("AAA").unwrap();
+    let land = loaded
+        .country_attributes("AAA")
+        .unwrap()
+        .remove("country_land_forcelimit_flat")
+        .unwrap();
+    let naval = loaded
+        .country_attributes("AAA")
+        .unwrap()
+        .remove("country_naval_forcelimit_flat")
+        .unwrap();
+    let transfer_for = |evaluation: &augustus_core::AttributeEvaluation, property: &str| {
+        evaluation
+            .steps
+            .iter()
+            .flat_map(|step| &step.contributions)
+            .find(|contribution| {
+                contribution.source == "subject_force_limit:BBB"
+                    && contribution.property == format!("test_vassal:{property}")
+            })
+            .map(|contribution| contribution.micros)
+    };
+
+    assert_eq!(
+        transfer_for(&land, "country_land_forcelimit_flat"),
+        Some(2_400_000),
+        "{land:?}"
+    );
+    assert_eq!(
+        transfer_for(&naval, "country_naval_forcelimit_flat"),
+        Some(6_500_000),
+        "{naval:?}"
+    );
+
+    let world = loaded.initial.world();
+    let saved = world.save("subject-force-limit-transfer").unwrap();
+    let restored =
+        augustus_core::World::restore(&saved, "subject-force-limit-transfer", world.schema())
+            .unwrap();
+    let restored_land = restored
+        .attributes()
+        .evaluate(&restored, overlord, "country_land_forcelimit_flat")
+        .unwrap();
+    assert!(restored_land.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source == "subject_force_limit:BBB" && contribution.micros == 2_400_000
+        })
+    }));
+}
+
+#[test]
+fn nested_subject_force_limit_shares_are_included_in_the_subject_total() {
+    let fixture = copy_fixture();
+    let subject_types_path = fixture.path().join("common/subject_types/test.txt");
+    let subject_types = fs::read_to_string(&subject_types_path).unwrap();
+    let subject_types = subject_types.replace(
+        "default = { max_government_rank = 0 }",
+        "default = { max_government_rank = 0 forcelimit_to_overlord = 0.1 }",
+    );
+    fs::write(subject_types_path, subject_types).unwrap();
+    append_fixture(
+        fixture.path(),
+        "common/country_tags/test.txt",
+        "CCC = \"countries/Gamma.txt\"",
+    );
+    fs::write(
+        fixture.path().join("common/countries/Gamma.txt"),
+        "color = { 60 180 120 }\ncapital = 5\nprimary_culture = beta\nreligion = test_faith\ngovernment = monarchy\ntechnology_group = test_group",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("history/countries/CCC - Gamma.txt"),
+        "monarch = { name = Gamma adm = 2 dip = 2 mil = 2 }",
+    )
+    .unwrap();
+    append_fixture(
+        fixture.path(),
+        "history/diplomacy/test.txt",
+        "dependency = { first = BBB second = CCC subject_type = test_vassal start_date = 1430.1.1 end_date = 1450.1.1 }",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/provinces/1 - North.txt",
+        "1444.1.1 = { owner = AAA controller = AAA }",
+    );
+    append_fixture(
+        fixture.path(),
+        "common/event_modifiers/test_modifiers.txt",
+        "test_force_limit_base = { land_forcelimit = 10.99 }\ntest_force_limit_bonus = { vassal_forcelimit_bonus = 0.5 }",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/countries/AAA - Alpha.txt",
+        "add_country_modifier = { name = test_force_limit_base duration = -1 }\nadd_country_modifier = { name = test_force_limit_bonus duration = -1 }",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/countries/BBB - Beta.txt",
+        "add_country_modifier = { name = test_force_limit_base duration = -1 }",
+    );
+    append_fixture(
+        fixture.path(),
+        "history/countries/CCC - Gamma.txt",
+        "add_country_modifier = { name = test_force_limit_base duration = -1 }",
+    );
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let alpha = loaded.initial.country_entity("AAA").unwrap();
+    let beta = loaded.initial.country_entity("BBB").unwrap();
+    let beta_attributes = loaded.country_attributes("BBB").unwrap();
+    let nested_share = &beta_attributes["country_land_forcelimit_flat"];
+    assert!(nested_share.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source == "subject_force_limit:CCC" && contribution.micros == 1_000_000
+        })
+    }));
+
+    let alpha_attributes = loaded.country_attributes("AAA").unwrap();
+    let alpha_land = &alpha_attributes["country_land_forcelimit_flat"];
+    assert!(
+        alpha_land.steps.iter().any(|step| {
+            step.contributions.iter().any(|contribution| {
+                contribution.source == "subject_force_limit:BBB" && contribution.micros == 1_650_000
+            })
+        }),
+        "{alpha_land:?}"
+    );
+    assert_eq!(
+        loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(
+                loaded.initial.world(),
+                alpha,
+                "country_land_forcelimit_flat"
+            )
+            .unwrap()
+            .steps
+            .iter()
+            .flat_map(|step| &step.contributions)
+            .filter(|contribution| contribution.source == "subject_force_limit:BBB")
+            .map(|contribution| contribution.micros)
+            .next(),
+        Some(1_650_000)
+    );
+    assert!(
+        loaded
+            .initial
+            .world()
+            .subject_countries(beta)
+            .unwrap()
+            .contains(&loaded.initial.country_entity("CCC").unwrap())
+    );
+}
+
+#[test]
+fn subject_overlord_naval_flat_and_rate_modifiers_reach_the_matching_country_inputs() {
+    let fixture = copy_fixture();
+    let subject_types_path = fixture.path().join("common/subject_types/test.txt");
+    let subject_types = fs::read_to_string(&subject_types_path).unwrap();
+    let subject_types = subject_types.replace(
+        "test_vassal = { copy_from = default }",
+        "test_vassal = { copy_from = default modifier_overlord = { modifier = test_naval_overlord } }",
+    );
+    assert!(subject_types.contains("modifier = test_naval_overlord"));
+    fs::write(subject_types_path, subject_types).unwrap();
+    append_fixture(
+        fixture.path(),
+        "common/static_modifiers/test_static.txt",
+        "test_naval_overlord = { overlord_naval_forcelimit = 5 overlord_naval_forcelimit_modifier = 0.2 }",
+    );
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let overlord = loaded.initial.country_entity("AAA").unwrap();
+    let world = loaded.initial.world();
+    let flat = world
+        .attributes()
+        .evaluate(world, overlord, "country_naval_forcelimit_flat")
+        .unwrap();
+    let rate = world
+        .attributes()
+        .evaluate(world, overlord, "country_naval_forcelimit_modifier")
+        .unwrap();
+
+    assert_eq!(flat.known_subtotal_micros, Some(5_000_000), "{flat:?}");
+    assert_eq!(rate.known_subtotal_micros, Some(200_000), "{rate:?}");
+}
+
+#[test]
+fn unresolved_subject_force_limit_transfer_is_reported_for_matching_subjects() {
+    let fixture = copy_fixture();
+    let subject_types_path = fixture.path().join("common/subject_types/test.txt");
+    let subject_types = fs::read_to_string(&subject_types_path).unwrap();
+    let subject_types = subject_types.replace(
+        "test_vassal = { copy_from = default }",
+        "test_vassal = { copy_from = default forcelimit_to_overlord = unresolved }",
+    );
+    assert!(subject_types.contains("forcelimit_to_overlord = unresolved"));
+    fs::write(subject_types_path, subject_types).unwrap();
+
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let land = loaded
+        .country_attributes("AAA")
+        .unwrap()
+        .remove("country_land_forcelimit_flat")
+        .unwrap();
+    assert!(
+        land.unresolved
+            .iter()
+            .any(|reason| reason.contains("subject_force_limit_transfer_unresolved:test_vassal")),
+        "{land:?}"
+    );
+}
+
+#[test]
 fn conditional_pirate_subject_modifier_updates_the_overlords_naval_force_limit() {
     let fixture = copy_fixture();
     let subject_types_path = fixture.path().join("common/subject_types/test.txt");

@@ -45,6 +45,8 @@ const COUNTRY_LAND_FORCE_LIMIT_FLAT: &str = "country_land_forcelimit_flat";
 const COUNTRY_NAVAL_FORCE_LIMIT_FLAT: &str = "country_naval_forcelimit_flat";
 const COUNTRY_LAND_FORCE_LIMIT_MODIFIER: &str = "country_land_forcelimit_modifier";
 const COUNTRY_NAVAL_FORCE_LIMIT_MODIFIER: &str = "country_naval_forcelimit_modifier";
+const COUNTRY_VASSAL_LAND_FORCE_LIMIT_BONUS: &str = "country_vassal_forcelimit_bonus";
+const COUNTRY_VASSAL_NAVAL_FORCE_LIMIT_BONUS: &str = "country_vassal_naval_forcelimit_bonus";
 const PROVINCE_LAND_FORCE_LIMIT_LOCAL_RAW: &str = "province_land_forcelimit_local_raw";
 const PROVINCE_NAVAL_FORCE_LIMIT_LOCAL_RAW: &str = "province_naval_forcelimit_local_raw";
 const PROVINCE_LAND_FORCE_LIMIT_LOCAL: &str = "province_land_forcelimit_local";
@@ -113,6 +115,7 @@ pub(super) struct AttributeDraft {
     attributes: Attributes,
     static_unresolved: BTreeMap<String, BTreeSet<String>>,
     subject_modifiers: SubjectModifierDraft,
+    subject_force_limit_transfers: crate::force_limit::SubjectForceLimitTransfers,
     manpower_per_base: i64,
 }
 
@@ -150,6 +153,8 @@ fn used_property(name: &str) -> bool {
             | "tolerance_heathen"
             | "fort_maintenance_modifier"
             | "local_fort_maintenance_modifier"
+            | "vassal_forcelimit_bonus"
+            | "vassal_naval_forcelimit_bonus"
     )
 }
 
@@ -180,6 +185,8 @@ fn mapped_property(
                     | "naval_forcelimit"
                     | "land_forcelimit_modifier"
                     | "naval_forcelimit_modifier"
+                    | "overlord_naval_forcelimit"
+                    | "overlord_naval_forcelimit_modifier"
             ))
         || (kind == "buildings" && matches!(property, "land_forcelimit" | "naval_forcelimit"))
 }
@@ -343,6 +350,8 @@ impl AttributeDraft {
         let mut attributes = Attributes::default();
         let mut static_unresolved: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let subject_modifiers = SubjectModifierDraft::load(root, files)?;
+        let subject_force_limit_transfers =
+            crate::force_limit::SubjectForceLimitTransfers::load(root, files)?;
         for kind in ["static_modifiers", "buildings", "tradegoods"] {
             for file in files
                 .iter()
@@ -570,6 +579,7 @@ impl AttributeDraft {
             attributes,
             static_unresolved,
             subject_modifiers,
+            subject_force_limit_transfers,
             manpower_per_base,
         })
     }
@@ -1444,6 +1454,20 @@ impl AttributeDraft {
                     "fort_maintenance_modifier:remaining_sources_not_bound",
                 ),
             );
+            formulas.insert(
+                COUNTRY_VASSAL_LAND_FORCE_LIMIT_BONUS.into(),
+                country_modifier_formula(
+                    "vassal_forcelimit_bonus",
+                    "vassal_forcelimit_bonus:remaining_sources_not_bound",
+                ),
+            );
+            formulas.insert(
+                COUNTRY_VASSAL_NAVAL_FORCE_LIMIT_BONUS.into(),
+                country_modifier_formula(
+                    "vassal_naval_forcelimit_bonus",
+                    "vassal_naval_forcelimit_bonus:remaining_sources_not_bound",
+                ),
+            );
             for (attribute, property) in [
                 (COUNTRY_LAND_FORCE_LIMIT_FLAT, "land_forcelimit"),
                 (COUNTRY_NAVAL_FORCE_LIMIT_FLAT, "naval_forcelimit"),
@@ -1475,11 +1499,86 @@ impl AttributeDraft {
                     COUNTRY_NAVAL_FORCE_LIMIT_MODIFIER,
                     "naval_forcelimit_modifier",
                 ),
+                (COUNTRY_NAVAL_FORCE_LIMIT_FLAT, "overlord_naval_forcelimit"),
+                (
+                    COUNTRY_NAVAL_FORCE_LIMIT_MODIFIER,
+                    "overlord_naval_forcelimit_modifier",
+                ),
             ] {
                 let terms = self.subject_modifier_terms(initial, property, report);
                 Self::append_formula_flat_terms(&mut formulas, attribute, terms);
                 let terms = self.overlord_modifier_terms(initial, property, report);
                 Self::append_formula_flat_terms(&mut formulas, attribute, terms);
+            }
+            for subject_type in &initial.world().subjects().types {
+                let transfer = self.subject_force_limit_transfers.for_type(subject_type);
+                match transfer {
+                    Some(Some(transfer)) => {
+                        for (
+                            attribute,
+                            share_micros,
+                            local_attribute,
+                            modifier_attribute,
+                            bonus_attribute,
+                        ) in [
+                            (
+                                COUNTRY_LAND_FORCE_LIMIT_FLAT,
+                                transfer.land_micros,
+                                PROVINCE_LAND_FORCE_LIMIT_LOCAL,
+                                COUNTRY_LAND_FORCE_LIMIT_MODIFIER,
+                                COUNTRY_VASSAL_LAND_FORCE_LIMIT_BONUS,
+                            ),
+                            (
+                                COUNTRY_NAVAL_FORCE_LIMIT_FLAT,
+                                transfer.naval_micros,
+                                PROVINCE_NAVAL_FORCE_LIMIT_LOCAL,
+                                COUNTRY_NAVAL_FORCE_LIMIT_MODIFIER,
+                                COUNTRY_VASSAL_NAVAL_FORCE_LIMIT_BONUS,
+                            ),
+                        ] {
+                            if share_micros != 0 {
+                                Self::append_formula_flat_terms(
+                                    &mut formulas,
+                                    attribute,
+                                    vec![AttributeTerm::SubjectCountryForceLimitShare {
+                                        subject_type: subject_type.clone(),
+                                        subject_flat_attribute: attribute.into(),
+                                        subject_local_attribute: local_attribute.into(),
+                                        subject_modifier_attribute: modifier_attribute.into(),
+                                        transfer_micros: share_micros,
+                                        overlord_bonus_attribute: bonus_attribute.into(),
+                                    }],
+                                );
+                            }
+                        }
+                    }
+                    Some(None) | None => {
+                        for attribute in [
+                            COUNTRY_LAND_FORCE_LIMIT_FLAT,
+                            COUNTRY_NAVAL_FORCE_LIMIT_FLAT,
+                        ] {
+                            Self::append_formula_flat_terms(
+                                &mut formulas,
+                                attribute,
+                                vec![AttributeTerm::Conditional {
+                                    condition: Box::new(Condition::AnySubjectCountry {
+                                        target: Target::Current,
+                                        condition: Box::new(Condition::SubjectType {
+                                            target: Target::Current,
+                                            subject_type: subject_type.clone(),
+                                        }),
+                                    }),
+                                    then: vec![AttributeTerm::Unknown {
+                                        reason: format!(
+                                            "subject_force_limit_transfer_unresolved:{subject_type}:{attribute}"
+                                        ),
+                                    }],
+                                    otherwise: Vec::new(),
+                                }],
+                            );
+                        }
+                    }
+                }
             }
             if has_all_nations_source {
                 for (attribute, property) in [

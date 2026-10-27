@@ -236,6 +236,15 @@ pub enum AttributeTerm {
         source_unresolved: bool,
         trigger_unresolved: bool,
     },
+    /// Add a share of each direct subject's complete force limit to its overlord.
+    SubjectCountryForceLimitShare {
+        subject_type: String,
+        subject_flat_attribute: String,
+        subject_local_attribute: String,
+        subject_modifier_attribute: String,
+        transfer_micros: i64,
+        overlord_bonus_attribute: String,
+    },
     Buildings {
         property: String,
     },
@@ -483,7 +492,50 @@ impl Attributes {
         entity: EntityId,
         name: &str,
     ) -> Result<AttributeEvaluation, Error> {
+        self.evaluate_inner(world, entity, name, &mut BTreeSet::new())
+    }
+
+    fn evaluate_inner(
+        &self,
+        world: &World,
+        entity: EntityId,
+        name: &str,
+        stack: &mut BTreeSet<(EntityId, String)>,
+    ) -> Result<AttributeEvaluation, Error> {
         world.entity(entity)?;
+        let key = (entity, name.to_owned());
+        let unresolved_reason = if stack.contains(&key) {
+            Some("attribute_recursive_cycle")
+        } else if stack.len() >= 64 {
+            Some("attribute_recursion_limit")
+        } else {
+            None
+        };
+        if let Some(reason) = unresolved_reason {
+            return Ok(AttributeEvaluation {
+                base_micros: None,
+                known_subtotal_micros: None,
+                value_micros: None,
+                unresolved: BTreeSet::from([format!(
+                    "{reason}:{}:{name}",
+                    world.entity(entity)?.name
+                )]),
+                steps: Vec::new(),
+            });
+        }
+        stack.insert(key.clone());
+        let result = self.evaluate_formula(world, entity, name, stack);
+        stack.remove(&key);
+        result
+    }
+
+    fn evaluate_formula(
+        &self,
+        world: &World,
+        entity: EntityId,
+        name: &str,
+        stack: &mut BTreeSet<(EntityId, String)>,
+    ) -> Result<AttributeEvaluation, Error> {
         let formula = self
             .formulas
             .get(&entity)
@@ -513,7 +565,7 @@ impl Attributes {
             for (terms, is_rate) in [(&channel.flat, false), (&channel.rates, true)] {
                 for term in terms {
                     let (resolved, known) =
-                        self.resolve(world, entity, term, &mut unresolved, 0)?;
+                        self.resolve(world, entity, term, &mut unresolved, 0, stack)?;
                     if !known {
                         value = None;
                     }
@@ -661,6 +713,7 @@ impl Attributes {
         term: &AttributeTerm,
         unresolved: &mut BTreeSet<String>,
         depth: usize,
+        stack: &mut BTreeSet<(EntityId, String)>,
     ) -> Result<ResolvedContributions, Error> {
         if depth > 64 {
             return Err(Error::Invalid(
@@ -740,7 +793,7 @@ impl Attributes {
                 term,
             } => {
                 let (contributions, known) =
-                    self.resolve(world, entity, term, unresolved, depth + 1)?;
+                    self.resolve(world, entity, term, unresolved, depth + 1, stack)?;
                 let mut total = 0_i128;
                 let mut scaled_total = 0_i128;
                 for (source, property, micros) in contributions {
@@ -768,7 +821,7 @@ impl Attributes {
                     return Err(Error::Invalid("invalid attribute minimum clamp".into()));
                 }
                 let (contributions, known) =
-                    self.resolve(world, entity, term, unresolved, depth + 1)?;
+                    self.resolve(world, entity, term, unresolved, depth + 1, stack)?;
                 let mut total = 0_i128;
                 for (source, property, micros) in contributions {
                     total = total
@@ -793,7 +846,7 @@ impl Attributes {
                     return Err(Error::Invalid("invalid attribute maximum clamp".into()));
                 }
                 let (contributions, known) =
-                    self.resolve(world, entity, term, unresolved, depth + 1)?;
+                    self.resolve(world, entity, term, unresolved, depth + 1, stack)?;
                 let mut total = 0_i128;
                 for (source, property, micros) in contributions {
                     total = total
@@ -824,7 +877,7 @@ impl Attributes {
                 let mut known = true;
                 for term in if applies { then } else { otherwise } {
                     let (contributions, complete) =
-                        self.resolve(world, entity, term, unresolved, depth + 1)?;
+                        self.resolve(world, entity, term, unresolved, depth + 1, stack)?;
                     values.extend(contributions);
                     known &= complete;
                 }
@@ -838,7 +891,7 @@ impl Attributes {
                 if holder != entity {
                     return Ok((values, true));
                 }
-                return self.resolve(world, entity, term, unresolved, depth + 1);
+                return self.resolve(world, entity, term, unresolved, depth + 1, stack);
             }
             AttributeTerm::Threshold {
                 target,
@@ -879,7 +932,7 @@ impl Attributes {
                 let mut total = 0_i128;
                 for term in terms {
                     let (contributions, complete) =
-                        self.resolve(world, entity, term, unresolved, depth + 1)?;
+                        self.resolve(world, entity, term, unresolved, depth + 1, stack)?;
                     known &= complete;
                     for contribution in contributions {
                         total += i128::from(contribution.2);
@@ -907,6 +960,7 @@ impl Attributes {
                     },
                     unresolved,
                     depth,
+                    stack,
                 );
             }
             AttributeTerm::Product {
@@ -925,6 +979,7 @@ impl Attributes {
                     },
                     unresolved,
                     depth,
+                    stack,
                 );
             }
             AttributeTerm::RulerSkill {
@@ -1165,7 +1220,7 @@ impl Attributes {
                 let mut known = true;
                 for term in selected {
                     let (contributions, complete) =
-                        self.resolve(world, entity, term, unresolved, depth + 1)?;
+                        self.resolve(world, entity, term, unresolved, depth + 1, stack)?;
                     known &= complete;
                     values.extend(contributions);
                 }
@@ -1421,6 +1476,27 @@ impl Attributes {
                 }
                 return Ok((values, complete));
             }
+            AttributeTerm::SubjectCountryForceLimitShare {
+                subject_type,
+                subject_flat_attribute,
+                subject_local_attribute,
+                subject_modifier_attribute,
+                transfer_micros,
+                overlord_bonus_attribute,
+            } => {
+                return self.resolve_subject_force_limit_share(
+                    world,
+                    entity,
+                    subject_type,
+                    subject_flat_attribute,
+                    subject_local_attribute,
+                    subject_modifier_attribute,
+                    *transfer_micros,
+                    overlord_bonus_attribute,
+                    unresolved,
+                    stack,
+                );
+            }
             AttributeTerm::Buildings { property } => {
                 if let Some(state) = world.economy().provinces.get(&entity) {
                     for name in &state.buildings {
@@ -1504,6 +1580,138 @@ impl Attributes {
         Ok((values, true))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_subject_force_limit_share(
+        &self,
+        world: &World,
+        overlord: EntityId,
+        subject_type: &str,
+        flat_attribute: &str,
+        local_attribute: &str,
+        modifier_attribute: &str,
+        transfer_micros: i64,
+        bonus_attribute: &str,
+        unresolved: &mut BTreeSet<String>,
+        stack: &mut BTreeSet<(EntityId, String)>,
+    ) -> Result<ResolvedContributions, Error> {
+        if world.entity(overlord)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "subject force-limit transfer requires a country attribute".into(),
+            ));
+        }
+        if transfer_micros == 0 {
+            return Ok((Vec::new(), true));
+        }
+        let subjects = match world.subject_countries(overlord) {
+            Ok(subjects) => subjects,
+            Err(error) => {
+                unresolved.insert(format!(
+                    "subject_force_limit:unknown_relations:{subject_type}:{error}"
+                ));
+                return Ok((Vec::new(), false));
+            }
+        };
+        let mut matching_subjects = Vec::new();
+        for &subject in subjects {
+            match world.is_subject_of_type(subject, subject_type) {
+                Ok(true) => matching_subjects.push(subject),
+                Ok(false) => {}
+                Err(error) => {
+                    unresolved.insert(format!(
+                        "subject_force_limit:unknown_type:{subject_type}:{error}"
+                    ));
+                    return Ok((Vec::new(), false));
+                }
+            }
+        }
+        if matching_subjects.is_empty() {
+            return Ok((Vec::new(), true));
+        }
+        let bonus = self.evaluate_inner(world, overlord, bonus_attribute, stack)?;
+        let mut complete = bonus.known_subtotal_micros.is_some();
+        unresolved.extend(
+            bonus
+                .unresolved
+                .iter()
+                .map(|reason| format!("subject_force_limit:overlord_bonus:{reason}")),
+        );
+        let Some(bonus_micros) = bonus.known_subtotal_micros else {
+            unresolved.insert(format!(
+                "subject_force_limit:unknown_overlord_bonus:{bonus_attribute}"
+            ));
+            return Ok((Vec::new(), false));
+        };
+        let mut values = Vec::with_capacity(matching_subjects.len());
+        for subject in matching_subjects {
+            let flat = self.evaluate_inner(world, subject, flat_attribute, stack)?;
+            let local = self.sum_owned(world, subject, local_attribute)?;
+            let modifier = self.evaluate_inner(world, subject, modifier_attribute, stack)?;
+            let subject_name = world.entity(subject)?.name.clone();
+            unresolved.extend(
+                flat.unresolved
+                    .iter()
+                    .map(|reason| format!("subject_force_limit:{subject_name}:{reason}")),
+            );
+            unresolved.extend(
+                local
+                    .unresolved
+                    .iter()
+                    .map(|reason| format!("subject_force_limit:{subject_name}:{reason}")),
+            );
+            unresolved.extend(
+                modifier
+                    .unresolved
+                    .iter()
+                    .map(|reason| format!("subject_force_limit:{subject_name}:{reason}")),
+            );
+            complete &= flat.known_subtotal_micros.is_some()
+                && local.value_micros.is_some()
+                && modifier.known_subtotal_micros.is_some();
+            let Some(flat_micros) = flat.known_subtotal_micros else {
+                unresolved.insert(format!(
+                    "subject_force_limit:{subject_name}:unknown_flat:{flat_attribute}"
+                ));
+                complete = false;
+                continue;
+            };
+            let Some(modifier_micros) = modifier.known_subtotal_micros else {
+                unresolved.insert(format!(
+                    "subject_force_limit:{subject_name}:unknown_modifier:{modifier_attribute}"
+                ));
+                complete = false;
+                continue;
+            };
+            let subject_base = i128::from(flat_micros)
+                .checked_add(i128::from(local.known_subtotal_micros))
+                .ok_or(Error::Overflow)?;
+            let subject_base_milli =
+                i32::try_from(subject_base / 1_000).map_err(|_| Error::Overflow)?;
+            let percentage_modifier_milli =
+                i32::try_from(modifier_micros / 1_000).map_err(|_| Error::Overflow)?;
+            let subject_limit = i128::from(
+                crate::calculate_vanilla_force_limit(crate::VanillaForceLimitInput {
+                    base_milli: subject_base_milli,
+                    flat_modifier_milli: 0,
+                    percentage_modifier_milli,
+                })
+                .force_limit_milli,
+            )
+            .checked_mul(1_000)
+            .ok_or(Error::Overflow)?;
+            let contribution = subject_limit
+                .checked_mul(i128::from(transfer_micros))
+                .and_then(|value| value.checked_mul(ONE + i128::from(bonus_micros)))
+                .ok_or(Error::Overflow)?
+                / (ONE * ONE);
+            values.push((
+                format!("subject_force_limit:{subject_name}"),
+                format!("{subject_type}:{flat_attribute}"),
+                narrow(contribution)?,
+            ));
+        }
+        Ok((values, complete))
+    }
+
     fn resolve_product(
         &self,
         world: &World,
@@ -1511,6 +1719,7 @@ impl Attributes {
         spec: ProductSpec<'_>,
         unresolved: &mut BTreeSet<String>,
         depth: usize,
+        stack: &mut BTreeSet<(EntityId, String)>,
     ) -> Result<ResolvedContributions, Error> {
         if spec.source.is_empty()
             || spec.quantum_micros <= 0
@@ -1527,7 +1736,7 @@ impl Attributes {
             let mut factor_total = 0_i128;
             for term in factor {
                 let (contributions, complete) =
-                    self.resolve(world, entity, term, unresolved, depth + 1)?;
+                    self.resolve(world, entity, term, unresolved, depth + 1, stack)?;
                 known &= complete;
                 for contribution in contributions {
                     factor_total = factor_total
@@ -1825,6 +2034,22 @@ impl Attributes {
                                     || self.static_modifiers.get(definition).is_some_and(|data| {
                                         data.values_micros.contains_key(property)
                                     }))
+                        }
+                        AttributeTerm::SubjectCountryForceLimitShare {
+                            subject_type,
+                            subject_flat_attribute,
+                            subject_local_attribute,
+                            subject_modifier_attribute,
+                            overlord_bonus_attribute,
+                            ..
+                        } => {
+                            !is_rate
+                                && world.entity(entity)?.kind == EntityKind::Country
+                                && world.subjects().types.contains(subject_type)
+                                && !subject_flat_attribute.is_empty()
+                                && !subject_local_attribute.is_empty()
+                                && !subject_modifier_attribute.is_empty()
+                                && !overlord_bonus_attribute.is_empty()
                         }
                         AttributeTerm::Buildings { property }
                         | AttributeTerm::TradeGood { property } => {
