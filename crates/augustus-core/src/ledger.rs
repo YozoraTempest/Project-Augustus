@@ -568,6 +568,33 @@ impl crate::MonthlySystem for CountryLedgerPendingFlush {
     }
 }
 
+/// Applies the month's tax, production, external cashflow, and delayed ledger
+/// amounts with one treasury clamp before ledger consolidation. Place it after
+/// all monthly financial producers and before monthly ledger consolidation.
+pub struct CountryLedgerMonthlyTreasuryFlush;
+
+impl crate::MonthlySystem for CountryLedgerMonthlyTreasuryFlush {
+    fn id(&self) -> &str {
+        "country-ledger-monthly-treasury-flush:1"
+    }
+
+    fn preserves_standard_state(&self) -> bool {
+        true
+    }
+
+    fn validate(&self, world: &World) -> Result<(), Error> {
+        for (&country, ledger) in world.country_ledgers() {
+            world.require_country(country)?;
+            ledger.validate()?;
+        }
+        Ok(())
+    }
+
+    fn settle(&self, world: &mut World) -> Result<(), Error> {
+        world.flush_monthly_country_treasuries().map(|_| ())
+    }
+}
+
 pub(crate) fn prepare_monthly_ledger_updates(
     world: &World,
     taxes: Option<&TaxSettlement>,
@@ -672,7 +699,177 @@ pub(crate) fn prepare_monthly_ledger_updates(
     Ok(updates)
 }
 
+struct MonthlyTreasuryFlow {
+    opening_treasury_milli: Option<i64>,
+    opening_recorded: bool,
+    amount_milli: i64,
+    complete: bool,
+}
+
+impl MonthlyTreasuryFlow {
+    fn new() -> Self {
+        Self {
+            opening_treasury_milli: None,
+            opening_recorded: false,
+            amount_milli: 0,
+            complete: true,
+        }
+    }
+
+    fn include(
+        &mut self,
+        opening_treasury_milli: Option<i64>,
+        amount_milli: Option<i64>,
+        unresolved: &BTreeSet<String>,
+    ) -> Result<(), Error> {
+        if !self.opening_recorded {
+            self.opening_treasury_milli = opening_treasury_milli;
+            self.opening_recorded = true;
+            if opening_treasury_milli.is_none() {
+                self.complete = false;
+            }
+        }
+        if !unresolved.is_empty() || amount_milli.is_none() {
+            self.complete = false;
+            return Ok(());
+        }
+        self.amount_milli = self
+            .amount_milli
+            .checked_add(amount_milli.expect("checked monthly amount"))
+            .ok_or(Error::Overflow)?;
+        Ok(())
+    }
+
+    fn include_pending(
+        &mut self,
+        opening_treasury_milli: Option<i64>,
+        pending_milli: i64,
+    ) -> Result<(), Error> {
+        if !self.opening_recorded {
+            self.opening_treasury_milli = opening_treasury_milli;
+            self.opening_recorded = true;
+            if opening_treasury_milli.is_none() {
+                self.complete = false;
+            }
+        }
+        if self.complete {
+            self.amount_milli = self
+                .amount_milli
+                .checked_add(pending_milli)
+                .ok_or(Error::Overflow)?;
+        }
+        Ok(())
+    }
+}
+
 impl World {
+    /// Flushes current-month financial settlements and delayed ledger entries
+    /// as one signed treasury adjustment per country.
+    pub fn flush_monthly_country_treasuries(
+        &mut self,
+    ) -> Result<BTreeMap<EntityId, Option<i64>>, Error> {
+        self.require_running()?;
+        let calendar = self
+            .calendar()
+            .ok_or_else(|| Error::Invalid("monthly treasury flush requires a calendar".into()))?;
+        let month_count = calendar.elapsed_months(self.day())?;
+        let mut flows = BTreeMap::<EntityId, MonthlyTreasuryFlow>::new();
+
+        if let Some(settlement) = self
+            .taxation()
+            .filter(|taxation| taxation.settlement_count == month_count)
+            .and_then(|taxation| taxation.last_settlement.as_ref())
+        {
+            for (&country, account) in &settlement.accounts {
+                flows
+                    .entry(country)
+                    .or_insert_with(MonthlyTreasuryFlow::new)
+                    .include(
+                        account.treasury_before_milli,
+                        account.income_milli,
+                        &account.unresolved,
+                    )?;
+            }
+        }
+
+        if let Some(settlement) = self
+            .monthly_production()
+            .filter(|production| production.settlement_count == month_count)
+            .and_then(|production| production.last_settlement.as_ref())
+        {
+            for (&country, account) in &settlement.accounts {
+                flows
+                    .entry(country)
+                    .or_insert_with(MonthlyTreasuryFlow::new)
+                    .include(
+                        account.treasury_before_milli,
+                        account.monthly_value_milli,
+                        &account.unresolved,
+                    )?;
+            }
+        }
+
+        if let Some(settlement) = self
+            .monthly_cashflows()
+            .filter(|cashflows| cashflows.settlement_count == month_count)
+            .and_then(|cashflows| cashflows.last_settlement.as_ref())
+        {
+            for (&country, account) in &settlement.accounts {
+                flows
+                    .entry(country)
+                    .or_insert_with(MonthlyTreasuryFlow::new)
+                    .include(
+                        account.treasury_before_milli,
+                        account.amount_milli,
+                        &account.unresolved,
+                    )?;
+            }
+        }
+
+        for (&country, ledger) in &self.country_ledgers {
+            if ledger.pending_milli == 0 {
+                continue;
+            }
+            flows
+                .entry(country)
+                .or_insert_with(MonthlyTreasuryFlow::new)
+                .include_pending(
+                    self.country_resources
+                        .get(&country)
+                        .and_then(|resources| resources.treasury_milli),
+                    ledger.pending_milli,
+                )?;
+        }
+
+        for &country in flows.keys() {
+            self.require_country(country)?;
+        }
+
+        let mut resources = self.country_resources.clone();
+        let mut ledgers = self.country_ledgers.clone();
+        let mut balances = BTreeMap::new();
+        for (country, flow) in flows {
+            let balance = if flow.complete {
+                flow.opening_treasury_milli
+                    .map(|opening| treasury_after_adjustment(opening, flow.amount_milli))
+                    .transpose()?
+            } else {
+                None
+            };
+            resources.entry(country).or_default().treasury_milli = balance;
+            if flow.complete
+                && let Some(ledger) = ledgers.get_mut(&country)
+            {
+                ledger.pending_milli = 0;
+            }
+            balances.insert(country, balance);
+        }
+
+        self.country_resources = resources;
+        self.country_ledgers = ledgers;
+        Ok(balances)
+    }
+
     pub fn country_ledgers(&self) -> &BTreeMap<EntityId, CountryLedger> {
         &self.country_ledgers
     }
