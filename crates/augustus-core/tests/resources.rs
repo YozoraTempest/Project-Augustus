@@ -160,6 +160,121 @@ fn treasury_adjustments_use_signed_native_bounds() {
 }
 
 #[test]
+fn treasury_assignment_uses_native_integer_range_without_adjustment_clamp() {
+    let mut world = world();
+    let treasury = NumericSlot::Resource(CountryResource::Treasury);
+
+    for assigned in [
+        i64::from(i32::MIN),
+        -1_500_000_000,
+        0,
+        1_500_000_000,
+        i64::from(i32::MAX),
+    ] {
+        world
+            .update_numeric(EntityId(0), &treasury, NumericOperation::Set, assigned)
+            .unwrap();
+        assert_eq!(
+            world
+                .resource_value(EntityId(0), CountryResource::Treasury)
+                .unwrap(),
+            assigned
+        );
+    }
+
+    let saved = world.save("resources:treasury-assignment").unwrap();
+    let resumed = World::restore(&saved, "resources:treasury-assignment", world.schema()).unwrap();
+    assert_eq!(resumed, world);
+
+    for invalid in [
+        i64::MIN,
+        i64::from(i32::MIN) - 1,
+        i64::from(i32::MAX) + 1,
+        i64::MAX,
+    ] {
+        let before = world.clone();
+        assert!(matches!(
+            world.update_numeric(EntityId(0), &treasury, NumericOperation::Set, invalid),
+            Err(Error::Overflow)
+        ));
+        assert_eq!(world, before);
+    }
+}
+
+#[test]
+fn rejected_treasury_assignment_preserves_unknown_stock_and_unbased_delta() {
+    let mut world = world();
+    let treasury = NumericSlot::Resource(CountryResource::Treasury);
+    world
+        .update_numeric(EntityId(1), &treasury, NumericOperation::Add, 750)
+        .unwrap();
+    let before = world.clone();
+    assert!(matches!(
+        world.update_numeric(
+            EntityId(1),
+            &treasury,
+            NumericOperation::Set,
+            i64::from(i32::MAX) + 1,
+        ),
+        Err(Error::Overflow)
+    ));
+    assert_eq!(world, before);
+    assert_eq!(
+        world.unbased_numeric_delta(EntityId(1), &treasury),
+        Some(750)
+    );
+
+    world
+        .update_numeric(EntityId(1), &treasury, NumericOperation::Set, 1_500_000_000)
+        .unwrap();
+    assert_eq!(world.unbased_numeric_delta(EntityId(1), &treasury), None);
+    assert_eq!(
+        world.country_resources()[&EntityId(1)].treasury_milli,
+        Some(1_500_000_000)
+    );
+}
+
+#[test]
+fn treasury_adjustments_clamp_after_unclamped_assignment() {
+    let mut world = world();
+    let treasury = NumericSlot::Resource(CountryResource::Treasury);
+    for (assigned, operation, adjustment, expected) in [
+        (1_500_000_000, NumericOperation::Add, 1, 1_000_000_000),
+        (
+            -1_500_000_000,
+            NumericOperation::Subtract,
+            1,
+            -1_000_000_000,
+        ),
+        (
+            1_500_000_000,
+            NumericOperation::Subtract,
+            600_000_000,
+            900_000_000,
+        ),
+        (
+            -1_500_000_000,
+            NumericOperation::Add,
+            600_000_000,
+            -900_000_000,
+        ),
+    ] {
+        world
+            .update_numeric(EntityId(0), &treasury, NumericOperation::Set, assigned)
+            .unwrap();
+        world
+            .update_numeric(EntityId(0), &treasury, operation, adjustment)
+            .unwrap();
+        assert_eq!(
+            world
+                .resource_value(EntityId(0), CountryResource::Treasury)
+                .unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn mercantilism_thresholds_read_live_known_state_and_keep_unknown_unknown() {
     let mut world = world();
     let condition = Condition::NumericCompare {

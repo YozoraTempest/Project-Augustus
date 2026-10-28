@@ -436,7 +436,8 @@ impl World {
         } else {
             false
         };
-        let previous = if operation == NumericOperation::Set && !growth_ceiling {
+        let is_assignment = operation == NumericOperation::Set;
+        let previous = if is_assignment && !growth_ceiling {
             0
         } else {
             self.numeric_value(entity, slot)?
@@ -462,7 +463,11 @@ impl World {
                 value
             }
         } else if let NumericSlot::Resource(resource) = slot {
-            resource.bounded(value)
+            if is_assignment {
+                resource.assigned(value)?
+            } else {
+                resource.bounded(value)
+            }
         } else {
             value
         };

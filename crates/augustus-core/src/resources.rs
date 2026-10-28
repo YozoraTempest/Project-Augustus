@@ -19,6 +19,7 @@ pub struct CountryResources {
 /// A selected stock in the authoritative country resource state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum CountryResource {
+    /// Assignment accepts signed 32-bit values; adjustments clamp to +/-1,000,000,000.
     Treasury,
     Manpower,
     Mercantilism,
@@ -52,6 +53,15 @@ impl CountryResource {
                 i128::from(TREASURY_MAX_MILLI),
             ),
             Self::Manpower | Self::Mercantilism => value.max(0),
+        }
+    }
+
+    pub(crate) fn assigned(self, value: i128) -> Result<i128, crate::Error> {
+        match self {
+            Self::Treasury => i32::try_from(value)
+                .map(i128::from)
+                .map_err(|_| crate::Error::Overflow),
+            Self::Manpower | Self::Mercantilism => Ok(value.max(0)),
         }
     }
 }
