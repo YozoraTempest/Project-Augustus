@@ -106,6 +106,11 @@ pub fn calculate_vanilla_native_growth_cache(
             .ok_or(Error::Overflow)?
             / SCALE_MILLI;
         let progress_milli = i32::try_from(progress_milli).map_err(|_| Error::Overflow)?;
+        if progress_milli < 0 {
+            return Err(Error::Invalid(
+                "negative native growth progress is unsupported".into(),
+            ));
+        }
         (Some(ratio_milli), progress_milli)
     } else {
         (None, combined_base_progress_milli)
@@ -128,5 +133,83 @@ pub fn calculate_vanilla_native_growth_cache(
         ratio_milli,
         progress_milli,
         cache_milli,
+    })
+}
+
+/// Explicit inputs for applying the verified native province and country
+/// growth stages after the cache has been calculated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaNativeGrowthApplicationInput {
+    pub selected_native_development_milli: i32,
+    pub province_cache_milli: i32,
+    pub national_growth_milli: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VanillaNativeGrowthApplicationResult {
+    pub province_write_milli: Option<i32>,
+    pub component_after_province_milli: i32,
+    pub country_write_milli: i32,
+    pub final_component_milli: i32,
+}
+
+/// Applies the verified order of native province and country growth writes.
+///
+/// A positive province cache is added first and reported as the province
+/// write. The resulting component is then used as the denominator for the
+/// country growth path when it is at least 1000; a zero cache skips the
+/// province write. Eligibility, selectors, sources, and monthly scheduling
+/// remain explicit caller responsibilities.
+pub fn calculate_vanilla_native_growth_application(
+    input: VanillaNativeGrowthApplicationInput,
+) -> Result<VanillaNativeGrowthApplicationResult, Error> {
+    if input.selected_native_development_milli <= 0 {
+        return Err(Error::Invalid(
+            "native growth component must be positive".into(),
+        ));
+    }
+    if input.province_cache_milli < 0 {
+        return Err(Error::Invalid(
+            "native growth province cache must be nonnegative".into(),
+        ));
+    }
+    if input.national_growth_milli < 0 {
+        return Err(Error::Invalid(
+            "native growth national amount must be nonnegative".into(),
+        ));
+    }
+
+    let component_after_province_milli = i32::try_from(
+        i64::from(input.selected_native_development_milli)
+            .checked_add(i64::from(input.province_cache_milli))
+            .ok_or(Error::Overflow)?,
+    )
+    .map_err(|_| Error::Overflow)?;
+    let province_write_milli =
+        (input.province_cache_milli > 0).then_some(input.province_cache_milli);
+    let country_write_milli = if component_after_province_milli >= 1_000 {
+        i32::try_from(
+            i64::from(input.national_growth_milli)
+                .checked_mul(SCALE_MILLI)
+                .ok_or(Error::Overflow)?
+                / i64::from(component_after_province_milli),
+        )
+        .map_err(|_| Error::Overflow)?
+    } else {
+        input.national_growth_milli
+    };
+    let final_component_milli = i32::try_from(
+        i64::from(component_after_province_milli)
+            .checked_add(i64::from(country_write_milli))
+            .ok_or(Error::Overflow)?,
+    )
+    .map_err(|_| Error::Overflow)?;
+
+    Ok(VanillaNativeGrowthApplicationResult {
+        province_write_milli,
+        component_after_province_milli,
+        country_write_milli,
+        final_component_milli,
     })
 }

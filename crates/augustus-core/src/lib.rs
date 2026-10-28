@@ -173,8 +173,9 @@ pub use metrics::{MetricContribution, MetricDefinition, MetricEffect, MetricEval
 pub use modifiers::{ModifierDefinition, ModifierInstance, ModifierRenewal, Modifiers};
 pub use named_values::{NamedValues, NumericComparison, NumericOperation, NumericSlot};
 pub use native_growth::{
+    VanillaNativeGrowthApplicationInput, VanillaNativeGrowthApplicationResult,
     VanillaNativeGrowthCacheInput, VanillaNativeGrowthCacheResult,
-    calculate_vanilla_native_growth_cache,
+    calculate_vanilla_native_growth_application, calculate_vanilla_native_growth_cache,
 };
 pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId, NavalUnitState};
 pub use naval_constructions::{

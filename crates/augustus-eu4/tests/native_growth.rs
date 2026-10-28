@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use augustus_core::VanillaNativeGrowthCacheInput;
+use augustus_core::{VanillaNativeGrowthApplicationInput, VanillaNativeGrowthCacheInput};
 use augustus_eu4::VanillaWorld;
 use std::path::Path;
 
@@ -43,4 +43,23 @@ fn vanilla_world_native_growth_method_rejects_unknown_province() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("unknown native-growth province"));
+}
+
+#[test]
+fn vanilla_world_native_growth_application_preserves_write_order() {
+    let world = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let result = world
+        .calculate_vanilla_province_native_growth_application(
+            1,
+            VanillaNativeGrowthApplicationInput {
+                selected_native_development_milli: 1_275,
+                province_cache_milli: 6_692,
+                national_growth_milli: 16,
+            },
+        )
+        .unwrap();
+    assert_eq!(result.province_write_milli, Some(6_692));
+    assert_eq!(result.component_after_province_milli, 7_967);
+    assert_eq!(result.country_write_milli, 2);
+    assert_eq!(result.final_component_milli, 7_969);
 }

@@ -13,16 +13,17 @@ use augustus_core::{
     NumericOperation, NumericSlot, ProvinceClass, ProvinceState, Target, Taxation,
     TechnologyProperty, VanillaGoldBaseInput, VanillaGoldBaseResult,
     VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
-    VanillaGoldProductionInputState, VanillaGoldProductionResult, VanillaNativeGrowthCacheInput,
-    VanillaNativeGrowthCacheResult, VanillaProductionBaseValueInput,
+    VanillaGoldProductionInputState, VanillaGoldProductionResult,
+    VanillaNativeGrowthApplicationInput, VanillaNativeGrowthApplicationResult,
+    VanillaNativeGrowthCacheInput, VanillaNativeGrowthCacheResult, VanillaProductionBaseValueInput,
     VanillaProductionBaseValueResult, VanillaProductionInput, VanillaStateMaintenanceDistanceInput,
     VanillaStateMaintenanceInput, VanillaStateMaintenanceResult, VanillaTradeGoodPriceInput,
     VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, WorldDate, YearlyEventRules,
     calculate_vanilla_gold_base, calculate_vanilla_gold_production,
-    calculate_vanilla_gold_production_for_country, calculate_vanilla_native_growth_cache,
-    calculate_vanilla_production_base_value, calculate_vanilla_state_maintenance,
-    calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
-    calculate_vanilla_trade_goods_size,
+    calculate_vanilla_gold_production_for_country, calculate_vanilla_native_growth_application,
+    calculate_vanilla_native_growth_cache, calculate_vanilla_production_base_value,
+    calculate_vanilla_state_maintenance, calculate_vanilla_trade_good_price,
+    calculate_vanilla_trade_good_price_table, calculate_vanilla_trade_goods_size,
 };
 use jomini::{
     Encoding,
@@ -5155,6 +5156,24 @@ impl VanillaWorld {
             ));
         }
         calculate_vanilla_native_growth_cache(input)
+    }
+
+    /// Applies native province and country growth from caller-resolved inputs.
+    ///
+    /// The method only validates the province identity and delegates the
+    /// explicit write-order calculation. It does not mutate metrics, perform
+    /// selector or eligibility checks, or install a monthly system.
+    pub fn calculate_vanilla_province_native_growth_application(
+        &self,
+        id: u32,
+        input: VanillaNativeGrowthApplicationInput,
+    ) -> Result<VanillaNativeGrowthApplicationResult, augustus_core::Error> {
+        if self.initial.province(id).is_none() {
+            return Err(augustus_core::Error::Invalid(
+                "unknown native-growth province".into(),
+            ));
+        }
+        calculate_vanilla_native_growth_application(input)
     }
 
     pub fn province(&self, id: u32) -> Option<ProvinceView<'_>> {
