@@ -36,6 +36,7 @@ mod load;
 mod localisation;
 mod missions;
 mod monarch_power;
+mod native_development;
 mod naval_construction_requests;
 mod naval_constructions;
 mod navy_tradition;

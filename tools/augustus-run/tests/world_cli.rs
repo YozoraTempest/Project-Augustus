@@ -314,6 +314,137 @@ fn world_cli_reports_live_production_contribution_to_ship_recruit_speed() {
     }
 }
 
+#[test]
+fn world_cli_imports_overlays_exports_and_restores_native_development() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let save_path = temp.path().join("native-development.eu4");
+    fs::write(
+        &save_path,
+        r#"EU4txt
+date=1444.11.11
+player="AAA"
+countries={
+    AAA={
+        human=yes
+        native={ adm_dev=1.112 dip_dev=1.146 mil_dev=1.275 }
+        history={ native={ adm_dev=9.999 } }
+    }
+    BBB={ human=no }
+}
+provinces={ -1={ owner="AAA" controller="AAA" } }
+"#,
+    )
+    .unwrap();
+    let overlay_path = temp.path().join("overlay.json");
+    fs::write(
+        &overlay_path,
+        r#"{"country_metric_values":{"AAA":{"native_dip_development":2146,"native_mil_development":null}}}"#,
+    )
+    .unwrap();
+    let run = |overlay: Option<&Path>,
+               load: Option<&Path>,
+               save: Option<&Path>,
+               export: Option<&Path>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+        command
+            .arg("--game-root")
+            .arg(&fixture)
+            .arg("--eu4-save")
+            .arg(&save_path)
+            .args([
+                "--country",
+                "AAA",
+                "--days",
+                if load.is_some() { "1" } else { "0" },
+            ]);
+        for (flag, path) in [
+            ("--external-state", overlay),
+            ("--load", load),
+            ("--save", save),
+            ("--export-external-state", export),
+        ] {
+            if let Some(path) = path {
+                command.arg(flag).arg(path);
+            }
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    let original = run(None, None, None, None);
+    assert_eq!(
+        original["country"]["metrics"]["native_adm_development"],
+        1112
+    );
+    assert_eq!(
+        original["country"]["metrics"]["native_dip_development"],
+        1146
+    );
+    assert_eq!(
+        original["country"]["metrics"]["native_mil_development"],
+        1275
+    );
+
+    let snapshot_path = temp.path().join("snapshot.json");
+    let export_path = temp.path().join("external.json");
+    let overlaid = run(
+        Some(&overlay_path),
+        None,
+        Some(&snapshot_path),
+        Some(&export_path),
+    );
+    let resumed = run(Some(&overlay_path), Some(&snapshot_path), None, None);
+    for output in [&overlaid, &resumed] {
+        let metrics = output["country"]["metrics"].as_object().unwrap();
+        assert_eq!(metrics["native_adm_development"], 1112);
+        assert_eq!(metrics["native_dip_development"], 2146);
+        assert!(metrics.contains_key("native_mil_development"));
+        assert!(metrics["native_mil_development"].is_null());
+    }
+    let external: serde_json::Value =
+        serde_json::from_slice(&fs::read(&export_path).unwrap()).unwrap();
+    for name in [
+        "native_adm_development",
+        "native_dip_development",
+        "native_mil_development",
+    ] {
+        assert_eq!(
+            external["country_metric_values"]["AAA"][name],
+            overlaid["country"]["metrics"][name]
+        );
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&export_path)
+        .args(["--country", "AAA", "--seed", "7", "--ai-only"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let imported: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    for name in [
+        "native_adm_development",
+        "native_dip_development",
+        "native_mil_development",
+    ] {
+        assert_eq!(
+            imported["country"]["metrics"][name],
+            overlaid["country"]["metrics"][name]
+        );
+    }
+}
+
 fn copy_directory(source: &Path, destination: &Path) {
     fs::create_dir_all(destination).unwrap();
     for entry in fs::read_dir(source).unwrap() {

@@ -4195,6 +4195,7 @@ impl VanillaWorld {
             metrics.entities.entry(entity).or_default().extend(values);
         }
         metrics.ceilings.extend(power.ceilings);
+        crate::native_development::register_metrics(&mut metrics, overrides.country_metric_values);
         initial
             .set_metrics(metrics)
             .map_err(|e| Error::caused_by("world metrics", e))?;

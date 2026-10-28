@@ -168,7 +168,10 @@ impl VanillaSaveState {
             if let Some(values) = self.external_state.country_metric_values.get(*country) {
                 let filtered = values
                     .iter()
-                    .filter(|(name, _)| definitions.contains_key(name.as_str()))
+                    .filter(|(name, _)| {
+                        definitions.contains_key(name.as_str())
+                            || crate::native_development::is_metric(name.as_str())
+                    })
                     .map(|(name, value)| (name.clone(), *value))
                     .collect::<BTreeMap<_, _>>();
                 if !filtered.is_empty() {
@@ -1456,6 +1459,13 @@ fn read_vanilla_save_state_inner(
                 .entry(tag.clone())
                 .or_default()
                 .insert("navy_tradition".into(), Some(value));
+        }
+        if let Some(native_metrics) = saved_native_development_metrics(&parsed, &country, &tag)? {
+            external_state
+                .country_metric_values
+                .entry(tag.clone())
+                .or_default()
+                .extend(native_metrics);
         }
 
         if let Some(value) = optional_scalar(&parsed, &country, "is_at_war")? {
@@ -2777,6 +2787,73 @@ fn optional_milli(
         .transpose()
 }
 
+fn saved_native_development_metrics(
+    parsed: &ParsedText<'_>,
+    country: &Object<'_, '_>,
+    tag: &str,
+) -> Result<Option<BTreeMap<String, Option<i64>>>, Error> {
+    let mut native = None;
+    for (_, operator, value) in country
+        .fields()
+        .filter(|(key, _, _)| key.read_string() == "native")
+    {
+        if operator.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {tag} has an invalid native block"),
+            ));
+        }
+        if native.is_some() {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {tag} repeats its native block"),
+            ));
+        }
+        native = Some(value);
+    }
+    let Some(native) = native else {
+        return Ok(None);
+    };
+    let native = object(parsed, &native)?;
+    let mut metrics = BTreeMap::new();
+    let mut seen = BTreeSet::new();
+    for (key, operator, value) in native.fields() {
+        let field = key.read_string();
+        let Some((_, metric)) = crate::native_development::FIELDS
+            .iter()
+            .find(|(native_field, _)| *native_field == field)
+        else {
+            continue;
+        };
+        if operator.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {tag} has an invalid native field {field}"),
+            ));
+        }
+        if !seen.insert(field.clone()) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {tag} repeats native field {field}"),
+            ));
+        }
+        let milli = signed_milli(&scalar(parsed, &value)?)
+            .and_then(|value| i32::try_from(value).ok())
+            .map(i64::from)
+            .ok_or_else(|| {
+                Error::message(
+                    parsed.source(),
+                    format!("country {tag} has invalid native development field {field}"),
+                )
+            })?;
+        metrics.insert((*metric).to_owned(), Some(milli));
+    }
+    for &(_, metric) in crate::native_development::FIELDS.iter() {
+        metrics.entry(metric.to_owned()).or_insert(None);
+    }
+    Ok(Some(metrics))
+}
+
 fn saved_trade_node_runtime_state(
     parsed: &ParsedText<'_>,
     reader: &Object<'_, '_>,
@@ -4027,6 +4104,139 @@ provinces={
             std::fs::write(&path, text).unwrap();
             assert!(read_vanilla_save_state(&path).is_err(), "{ship}");
         }
+    }
+
+    fn read_native_test_save(
+        country_blocks: &str,
+        extra_root_fields: &str,
+    ) -> Result<super::VanillaSaveState, crate::Error> {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("native-development.eu4");
+        let text = format!(
+            "EU4txt\ndate=1444.11.11\ncountries={{{country_blocks}}}\n{extra_root_fields}\nprovinces={{}}\n"
+        );
+        std::fs::write(path, text).unwrap();
+        read_vanilla_save_state(directory.path().join("native-development.eu4"))
+    }
+
+    #[test]
+    fn saved_native_development_metrics_preserve_block_and_missing_field_semantics() {
+        let absent = read_native_test_save("AAA={}", "").unwrap();
+        assert!(
+            !absent
+                .external_state
+                .country_metric_values
+                .contains_key("AAA")
+        );
+
+        let empty = read_native_test_save("AAA={native={}}", "").unwrap();
+        assert_eq!(
+            empty.external_state.country_metric_values["AAA"],
+            BTreeMap::from([
+                ("native_adm_development".into(), None),
+                ("native_dip_development".into(), None),
+                ("native_mil_development".into(), None),
+            ])
+        );
+
+        let partial = read_native_test_save(
+            "AAA={native={adm_dev=1.25 mil_dev=-2 other_native_field=yes}}",
+            "",
+        )
+        .unwrap();
+        assert_eq!(
+            partial.external_state.country_metric_values["AAA"],
+            BTreeMap::from([
+                ("native_adm_development".into(), Some(1_250)),
+                ("native_dip_development".into(), None),
+                ("native_mil_development".into(), Some(-2_000)),
+            ])
+        );
+        assert!(
+            !partial
+                .external_state
+                .country_government_metric_values
+                .contains_key("AAA")
+        );
+
+        let history_only = read_native_test_save(
+            "AAA={}",
+            "history={AAA={native={adm_dev=8 dip_dev=9 mil_dev=10}}}",
+        )
+        .unwrap();
+        assert!(
+            !history_only
+                .external_state
+                .country_metric_values
+                .contains_key("AAA")
+        );
+    }
+
+    #[test]
+    fn saved_native_development_metrics_enforce_signed_milli_i32_range() {
+        let boundaries = read_native_test_save(
+            "AAA={native={adm_dev=2147483.647 dip_dev=-2147483.648 mil_dev=0.001}}",
+            "",
+        )
+        .unwrap();
+        assert_eq!(
+            boundaries.external_state.country_metric_values["AAA"],
+            BTreeMap::from([
+                ("native_adm_development".into(), Some(i64::from(i32::MAX))),
+                ("native_dip_development".into(), Some(i64::from(i32::MIN))),
+                ("native_mil_development".into(), Some(1)),
+            ])
+        );
+
+        for invalid in [
+            "AAA={native={} native={}}",
+            "AAA={native={adm_dev=1 adm_dev=2}}",
+            "AAA={native={adm_dev += 1}}",
+            "AAA={native += {}}",
+            "AAA={native={adm_dev=invalid}}",
+            "AAA={native={adm_dev=0.0001}}",
+            "AAA={native={adm_dev=2147483.648}}",
+            "AAA={native={adm_dev=-2147483.649}}",
+        ] {
+            assert!(
+                read_native_test_save(invalid, "").is_err(),
+                "accepted invalid native development input: {invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_development_filter_keeps_supported_metrics_only_for_known_countries() {
+        let mut save =
+            read_native_test_save("AAA={native={adm_dev=1}} ZZZ={native={dip_dev=2}}", "").unwrap();
+        save.external_state
+            .country_metric_values
+            .get_mut("AAA")
+            .unwrap()
+            .insert("unregistered_metric".into(), Some(3));
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let baseline = VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        let filtered = save.state_for_world(&baseline).unwrap();
+
+        assert_eq!(
+            filtered.country_metric_values["AAA"]["native_adm_development"],
+            Some(1_000)
+        );
+        assert_eq!(
+            filtered.country_metric_values["AAA"]["native_dip_development"],
+            None
+        );
+        assert_eq!(
+            filtered.country_metric_values["AAA"]["native_mil_development"],
+            None
+        );
+        assert!(!filtered.country_metric_values["AAA"].contains_key("unregistered_metric"));
+        assert!(!filtered.country_metric_values.contains_key("ZZZ"));
     }
 
     #[test]
