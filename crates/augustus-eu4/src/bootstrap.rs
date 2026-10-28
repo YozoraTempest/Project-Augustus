@@ -13,14 +13,16 @@ use augustus_core::{
     NumericOperation, NumericSlot, ProvinceClass, ProvinceState, Target, Taxation,
     TechnologyProperty, VanillaGoldBaseInput, VanillaGoldBaseResult,
     VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
-    VanillaGoldProductionInputState, VanillaGoldProductionResult, VanillaProductionBaseValueInput,
+    VanillaGoldProductionInputState, VanillaGoldProductionResult, VanillaNativeGrowthCacheInput,
+    VanillaNativeGrowthCacheResult, VanillaProductionBaseValueInput,
     VanillaProductionBaseValueResult, VanillaProductionInput, VanillaStateMaintenanceDistanceInput,
     VanillaStateMaintenanceInput, VanillaStateMaintenanceResult, VanillaTradeGoodPriceInput,
     VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, WorldDate, YearlyEventRules,
     calculate_vanilla_gold_base, calculate_vanilla_gold_production,
-    calculate_vanilla_gold_production_for_country, calculate_vanilla_production_base_value,
-    calculate_vanilla_state_maintenance, calculate_vanilla_trade_good_price,
-    calculate_vanilla_trade_good_price_table, calculate_vanilla_trade_goods_size,
+    calculate_vanilla_gold_production_for_country, calculate_vanilla_native_growth_cache,
+    calculate_vanilla_production_base_value, calculate_vanilla_state_maintenance,
+    calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
+    calculate_vanilla_trade_goods_size,
 };
 use jomini::{
     Encoding,
@@ -5133,6 +5135,26 @@ impl VanillaWorld {
             .world()
             .trade_node_current_value_milli(node)
             .flatten()
+    }
+
+    /// Calculates the native province-growth cache from caller-resolved inputs.
+    ///
+    /// The compatibility layer must resolve native eligibility, current
+    /// devastation, the net monthly change, burn, territory contribution, and
+    /// the selected native development component. This method only validates
+    /// the province identity and delegates the fixed-point calculation; it does
+    /// not read or mutate metrics and does not install a monthly producer.
+    pub fn calculate_vanilla_province_native_growth_cache(
+        &self,
+        id: u32,
+        input: VanillaNativeGrowthCacheInput,
+    ) -> Result<VanillaNativeGrowthCacheResult, augustus_core::Error> {
+        if self.initial.province(id).is_none() {
+            return Err(augustus_core::Error::Invalid(
+                "unknown native-growth province".into(),
+            ));
+        }
+        calculate_vanilla_native_growth_cache(input)
     }
 
     pub fn province(&self, id: u32) -> Option<ProvinceView<'_>> {

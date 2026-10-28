@@ -38,6 +38,7 @@ mod markers;
 mod metrics;
 mod modifiers;
 mod named_values;
+mod native_growth;
 mod naval;
 mod naval_constructions;
 mod objectives;
@@ -171,6 +172,10 @@ pub use markers::{GlobalMarkers, Markers};
 pub use metrics::{MetricContribution, MetricDefinition, MetricEffect, MetricEvaluation, Metrics};
 pub use modifiers::{ModifierDefinition, ModifierInstance, ModifierRenewal, Modifiers};
 pub use named_values::{NamedValues, NumericComparison, NumericOperation, NumericSlot};
+pub use native_growth::{
+    VanillaNativeGrowthCacheInput, VanillaNativeGrowthCacheResult,
+    calculate_vanilla_native_growth_cache,
+};
 pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId, NavalUnitState};
 pub use naval_constructions::{
     NavalConstructionId, NavalConstructionInput, NavalConstructionOrder, PaidNavalConstructionInput,
