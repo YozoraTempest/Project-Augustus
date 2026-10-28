@@ -15,15 +15,17 @@ use augustus_core::{
     VanillaGoldProductionCountryResult, VanillaGoldProductionInput,
     VanillaGoldProductionInputState, VanillaGoldProductionResult,
     VanillaNativeGrowthApplicationInput, VanillaNativeGrowthApplicationResult,
-    VanillaNativeGrowthCacheInput, VanillaNativeGrowthCacheResult, VanillaProductionBaseValueInput,
+    VanillaNativeGrowthCacheInput, VanillaNativeGrowthCacheResult, VanillaNativeMigrationCostInput,
+    VanillaNativeMigrationCostResult, VanillaProductionBaseValueInput,
     VanillaProductionBaseValueResult, VanillaProductionInput, VanillaStateMaintenanceDistanceInput,
     VanillaStateMaintenanceInput, VanillaStateMaintenanceResult, VanillaTradeGoodPriceInput,
     VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, WorldDate, YearlyEventRules,
     calculate_vanilla_gold_base, calculate_vanilla_gold_production,
     calculate_vanilla_gold_production_for_country, calculate_vanilla_native_growth_application,
-    calculate_vanilla_native_growth_cache, calculate_vanilla_production_base_value,
-    calculate_vanilla_state_maintenance, calculate_vanilla_trade_good_price,
-    calculate_vanilla_trade_good_price_table, calculate_vanilla_trade_goods_size,
+    calculate_vanilla_native_growth_cache, calculate_vanilla_native_migration_cost,
+    calculate_vanilla_production_base_value, calculate_vanilla_state_maintenance,
+    calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
+    calculate_vanilla_trade_goods_size,
 };
 use jomini::{
     Encoding,
@@ -5174,6 +5176,25 @@ impl VanillaWorld {
             ));
         }
         calculate_vanilla_native_growth_application(input)
+    }
+
+    /// Calculates native migration costs and the explicit power gate for a
+    /// caller-resolved destination.
+    ///
+    /// This method only validates that the destination province exists and
+    /// delegates the fixed-point calculation. It does not inspect native
+    /// membership, submit a command, or mutate country resources.
+    pub fn calculate_vanilla_native_migration_cost(
+        &self,
+        destination: u32,
+        input: VanillaNativeMigrationCostInput,
+    ) -> Result<VanillaNativeMigrationCostResult, augustus_core::Error> {
+        if self.initial.province(destination).is_none() {
+            return Err(augustus_core::Error::Invalid(
+                "unknown native-migration destination province".into(),
+            ));
+        }
+        calculate_vanilla_native_migration_cost(input)
     }
 
     pub fn province(&self, id: u32) -> Option<ProvinceView<'_>> {

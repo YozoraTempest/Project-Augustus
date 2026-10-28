@@ -39,6 +39,7 @@ mod metrics;
 mod modifiers;
 mod named_values;
 mod native_growth;
+mod native_migration;
 mod naval;
 mod naval_constructions;
 mod objectives;
@@ -176,6 +177,10 @@ pub use native_growth::{
     VanillaNativeGrowthApplicationInput, VanillaNativeGrowthApplicationResult,
     VanillaNativeGrowthCacheInput, VanillaNativeGrowthCacheResult,
     calculate_vanilla_native_growth_application, calculate_vanilla_native_growth_cache,
+};
+pub use native_migration::{
+    VanillaNativeMigrationCostInput, VanillaNativeMigrationCostResult,
+    calculate_vanilla_native_migration_cost,
 };
 pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId, NavalUnitState};
 pub use naval_constructions::{
