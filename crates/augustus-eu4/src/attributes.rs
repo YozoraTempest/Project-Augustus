@@ -52,6 +52,9 @@ const PROVINCE_LAND_FORCE_LIMIT_LOCAL_RAW: &str = "province_land_forcelimit_loca
 const PROVINCE_NAVAL_FORCE_LIMIT_LOCAL_RAW: &str = "province_naval_forcelimit_local_raw";
 const PROVINCE_LAND_FORCE_LIMIT_LOCAL: &str = "province_land_forcelimit_local";
 const PROVINCE_NAVAL_FORCE_LIMIT_LOCAL: &str = "province_naval_forcelimit_local";
+const PROVINCE_SHIP_RECRUIT_SPEED_MODIFIER: &str = "province_ship_recruit_speed_modifier";
+const PROVINCIAL_PRODUCTION_SIZE: &str = "provincial_production_size";
+const SHIP_RECRUIT_SPEED: &str = "ship_recruit_speed";
 
 const GLOBAL_TAX_INCOME: &str = "global_tax_income";
 const GLOBAL_TRADE_GOODS_SIZE_MODIFIER: &str = "global_trade_goods_size_modifier";
@@ -179,6 +182,9 @@ fn mapped_property(
         || (kind == "static_modifiers"
             && definition == "states_in_hre"
             && property == "land_forcelimit")
+        || (kind == "static_modifiers"
+            && definition == PROVINCIAL_PRODUCTION_SIZE
+            && property == SHIP_RECRUIT_SPEED)
         || (kind == "static_modifiers"
             && subject_modifier_source
             && matches!(
@@ -620,6 +626,38 @@ impl AttributeDraft {
             .into_iter()
             .collect(),
         );
+        let ship_recruit_definition_key = format!("static_modifiers:{PROVINCIAL_PRODUCTION_SIZE}");
+        let ship_recruit_property_key =
+            format!("{ship_recruit_definition_key}:{SHIP_RECRUIT_SPEED}");
+        let ship_recruit_definition_ambiguous = report
+            .ambiguous_definitions
+            .contains_key(&ship_recruit_definition_key);
+        let ship_recruit_property_ambiguous = report
+            .ambiguous_properties
+            .contains_key(&ship_recruit_property_key);
+        let ship_recruit_property_unresolved = self
+            .static_unresolved
+            .get(PROVINCIAL_PRODUCTION_SIZE)
+            .is_some_and(|properties| properties.contains(SHIP_RECRUIT_SPEED));
+        let ship_recruit_definition = self
+            .attributes
+            .static_modifiers
+            .get(PROVINCIAL_PRODUCTION_SIZE);
+        let ship_recruit_coefficient = ship_recruit_definition
+            .and_then(|definition| definition.values_micros.get(SHIP_RECRUIT_SPEED))
+            .copied();
+        let ship_recruit_property_flag = ship_recruit_definition
+            .is_some_and(|definition| definition.flags.contains_key(SHIP_RECRUIT_SPEED));
+        let ship_recruit_source_present = ship_recruit_coefficient.is_some()
+            || ship_recruit_definition_ambiguous
+            || ship_recruit_property_ambiguous
+            || ship_recruit_property_unresolved
+            || ship_recruit_property_flag;
+        let production_field = initial
+            .world()
+            .schema()
+            .field("province.production_base")
+            .expect("registered province production field");
         for province in initial
             .provinces()
             .iter()
@@ -808,6 +846,94 @@ impl AttributeDraft {
                     unresolved: BTreeSet::new(),
                 },
             );
+            if ship_recruit_source_present {
+                let mut source_unresolved = BTreeSet::new();
+                let source_term = if ship_recruit_definition_ambiguous {
+                    let reason = format!("ambiguous:{ship_recruit_definition_key}");
+                    source_unresolved.insert(reason.clone());
+                    AttributeTerm::Unknown { reason }
+                } else if ship_recruit_property_ambiguous {
+                    let reason = format!("ambiguous:{ship_recruit_property_key}");
+                    source_unresolved.insert(reason.clone());
+                    AttributeTerm::Unknown { reason }
+                } else if ship_recruit_property_unresolved {
+                    let reason = format!("{ship_recruit_property_key}:unknown_property");
+                    source_unresolved.insert(reason.clone());
+                    AttributeTerm::Unknown { reason }
+                } else if ship_recruit_property_flag {
+                    let reason = format!("{ship_recruit_property_key}:non_numeric_property");
+                    source_unresolved.insert(reason.clone());
+                    AttributeTerm::Unknown { reason }
+                } else if let Some(coefficient_micros) = ship_recruit_coefficient {
+                    if coefficient_micros % 1_000 != 0 {
+                        let reason = format!(
+                            "{PROVINCE_SHIP_RECRUIT_SPEED_MODIFIER}:coefficient_precision_unverified"
+                        );
+                        source_unresolved.insert(reason.clone());
+                        AttributeTerm::Unknown { reason }
+                    } else if province.production_milli.is_none() {
+                        let reason = format!(
+                            "province:{}:missing_base:province.production_base",
+                            province.id
+                        );
+                        source_unresolved.insert(reason.clone());
+                        AttributeTerm::Unknown { reason }
+                    } else {
+                        let contribution = AttributeTerm::TruncatedSum {
+                            source: ship_recruit_property_key.clone(),
+                            quantum_micros: 1_000,
+                            terms: vec![AttributeTerm::Scale {
+                                factor_micros: coefficient_micros,
+                                term: Box::new(AttributeTerm::Numeric {
+                                    source: "province.production_base".into(),
+                                    target: Target::Current,
+                                    slot: augustus_core::NumericSlot::Field(production_field),
+                                    micros_per_unit: 1_000,
+                                }),
+                            }],
+                        };
+                        AttributeTerm::Conditional {
+                            condition: Box::new(Condition::NumericCompare {
+                                target: Target::Current,
+                                slot: augustus_core::NumericSlot::Field(production_field),
+                                comparison: augustus_core::NumericComparison::AtLeast,
+                                value: 0,
+                            }),
+                            then: vec![contribution],
+                            otherwise: vec![AttributeTerm::Unknown {
+                                reason: format!(
+                                    "{PROVINCE_SHIP_RECRUIT_SPEED_MODIFIER}:negative_base_production_unresolved"
+                                ),
+                            }],
+                        }
+                    }
+                } else {
+                    let reason = format!("{ship_recruit_property_key}:unknown_source");
+                    source_unresolved.insert(reason.clone());
+                    AttributeTerm::Unknown { reason }
+                };
+                source_unresolved.extend([
+                    format!("{PROVINCE_SHIP_RECRUIT_SPEED_MODIFIER}:remaining_sources_not_bound"),
+                    format!(
+                        "{PROVINCE_SHIP_RECRUIT_SPEED_MODIFIER}:additional_development_not_bound"
+                    ),
+                    format!("{PROVINCE_SHIP_RECRUIT_SPEED_MODIFIER}:source_activation_not_bound"),
+                ]);
+                formulas.insert(
+                    PROVINCE_SHIP_RECRUIT_SPEED_MODIFIER.into(),
+                    AttributeFormula {
+                        base: AttributeBase::Constant { micros: 0 },
+                        channels: vec![AttributeChannel {
+                            flat: vec![source_term],
+                            rates: Vec::new(),
+                        }],
+                        minimum_micros: None,
+                        maximum_micros: None,
+                        result_quantum_micros: None,
+                        unresolved: source_unresolved,
+                    },
+                );
+            }
             for (name, base, field, scale, local_rate, global_rate) in [
                 (
                     "tax_basis",

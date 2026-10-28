@@ -40,6 +40,10 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
 
 未完成订单、内部标识和完成日保存在 Augustus 快照中。恢复后继续推进，与从相同输入连续运行的结果一致；完工后的订单不会重新入队。导入报告描述 EU4 基线的载入结果，恢复快照后的当前订单数以 `simulation.pending_naval_constructions` 为准。`--export-external-state` 仍导出既有状态包字段，不携带这组独立订单数据；需要保存续建进度时使用 `--save` / `--load`，并提供相同的 EU4 存档基线。
 
+省份查询中的 `attributes.province_ship_recruit_speed_modifier` 可显示静态来源 `provincial_production_size` 的基础生产分支缩放结果。识别到该来源的 `ship_recruit_speed` 属性或相关定义歧义时建立该查询；系数来自实际加载的内容，数量读取实时基础生产值。例如系数 `-0.01`、基础生产为 3 和 4 时，已知小计分别为 `-30000` 和 `-40000` micros。来源缩放按千分精度向零截断，修改基础生产后会重新求值，并随世界快照保存恢复。
+
+这个字段仍保留其余来源、额外发展度和完整来源激活资格未接入的未决原因，`value_micros` 保持未决。缺失或变为负数的基础生产、歧义或不支持的来源属性不会当作零贡献；目前只绑定能用千分精度精确表示的系数，精度更细的系数也保留未决。该查询提供基础分支的诊断结果，不据此计算完整建船工期或安排订单完成日。
+
 新舰船请求可由调用者提供明确费用和完成日，通过 `--naval-constructions requests.json` 提交。文件是 JSON 数组，例如以下自制输入：
 
 ```json

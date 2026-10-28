@@ -261,6 +261,59 @@ fn world_cli_classifies_naval_order_expenses_once_and_restores_progress() {
     check_priced_naval_cli_round_trip(true);
 }
 
+#[test]
+fn world_cli_reports_live_production_contribution_to_ship_recruit_speed() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let game_root = temp.path().join("game");
+    copy_directory(&fixture, &game_root);
+    fs::write(
+        game_root.join("common/static_modifiers/ship_speed.txt"),
+        "provincial_production_size = { ship_recruit_speed = -0.01 }\n",
+    )
+    .unwrap();
+    let province_path = game_root.join("history/provinces/1 - North.txt");
+    let history = fs::read_to_string(&province_path).unwrap();
+    let run = |production: &str| {
+        fs::write(
+            &province_path,
+            history.replace(
+                "base_production = 2",
+                &format!("base_production = {production}"),
+            ),
+        )
+        .unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+            .arg("--game-root")
+            .arg(&game_root)
+            .args(["--province", "1", "--seed", "7", "--ai-only"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        output["province"]["attributes"]["province_ship_recruit_speed_modifier"].clone()
+    };
+    for (production, expected) in [("3", -30000), ("4", -40000)] {
+        let attribute = run(production);
+        assert_eq!(attribute["known_subtotal_micros"], expected);
+        assert!(attribute["value_micros"].is_null());
+        assert!(
+            attribute["unresolved"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|reason| reason
+                    .as_str()
+                    .unwrap()
+                    .contains("remaining_sources_not_bound"))
+        );
+    }
+}
+
 fn copy_directory(source: &Path, destination: &Path) {
     fs::create_dir_all(destination).unwrap();
     for entry in fs::read_dir(source).unwrap() {

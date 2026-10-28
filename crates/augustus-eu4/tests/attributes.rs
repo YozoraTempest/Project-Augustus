@@ -36,6 +36,30 @@ fn copy_fixture() -> tempfile::TempDir {
     temp
 }
 
+fn load_ship_recruit_speed_modifier(
+    modifier: &str,
+    production: Option<&str>,
+) -> (tempfile::TempDir, VanillaWorld) {
+    let temp = copy_fixture();
+    let static_modifiers = temp.path().join("common/static_modifiers/ship_speed.txt");
+    fs::write(&static_modifiers, modifier).unwrap();
+
+    let history_path = temp.path().join("history/provinces/1 - North.txt");
+    let history = fs::read_to_string(&history_path).unwrap();
+    let updated = match production {
+        Some(production) => history.replace(
+            "base_production = 2",
+            &format!("base_production = {production}"),
+        ),
+        None => history.replace("base_production = 2", ""),
+    };
+    assert_ne!(updated, history);
+    fs::write(history_path, updated).unwrap();
+
+    let loaded = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    (temp, loaded)
+}
+
 fn load_state_edict(identifier: Option<&str>) -> (tempfile::TempDir, VanillaWorld) {
     let temp = copy_fixture();
     let state_edicts = temp.path().join("common/state_edicts");
@@ -232,6 +256,235 @@ fn translated_attributes_explain_sources_and_keep_incomplete_state_explicit() {
     assert_eq!(
         occupied.province(1).unwrap().attributes["tax_basis"].known_subtotal_micros,
         Some(0)
+    );
+}
+
+#[test]
+fn province_ship_recruit_speed_modifier_reads_live_production_and_restores() {
+    let modifier = "provincial_production_size = { ship_recruit_speed = -0.01 }\n";
+    let (_temp, loaded) = load_ship_recruit_speed_modifier(modifier, Some("3.333"));
+    let province = loaded.initial.province_entity(1).unwrap();
+    let mut world = loaded.initial.world().clone();
+    let field = world.schema().field("province.production_base").unwrap();
+    let slot = augustus_core::NumericSlot::Field(field);
+    let evaluate = |world: &World| {
+        world
+            .attributes()
+            .evaluate(world, province, "province_ship_recruit_speed_modifier")
+            .unwrap()
+    };
+
+    let initial = evaluate(&world);
+    assert_eq!(initial.known_subtotal_micros, Some(-33_000));
+    assert_eq!(initial.value_micros, None);
+    assert!(
+        initial
+            .unresolved
+            .contains("province_ship_recruit_speed_modifier:remaining_sources_not_bound")
+    );
+    assert!(
+        initial
+            .unresolved
+            .contains("province_ship_recruit_speed_modifier:additional_development_not_bound")
+    );
+    assert!(
+        initial
+            .unresolved
+            .contains("province_ship_recruit_speed_modifier:source_activation_not_bound")
+    );
+    assert!(initial.steps[0].contributions.iter().any(|contribution| {
+        contribution.source == "province.production_base"
+            && contribution.property == "quantity"
+            && contribution.micros == -33_330
+    }));
+    assert!(initial.steps[0].contributions.iter().any(|contribution| {
+        contribution.source == "static_modifiers:provincial_production_size:ship_recruit_speed"
+            && contribution.property == "truncation"
+            && contribution.micros == 330
+    }));
+
+    world
+        .update_numeric(province, &slot, augustus_core::NumericOperation::Set, 4_000)
+        .unwrap();
+    let updated = evaluate(&world);
+    assert_eq!(updated.known_subtotal_micros, Some(-40_000));
+    assert_eq!(updated.value_micros, None);
+
+    let saved = world.save("ship-recruit-speed").unwrap();
+    let restored = World::restore(&saved, "ship-recruit-speed", world.schema()).unwrap();
+    assert_eq!(evaluate(&restored), updated);
+
+    world
+        .update_numeric(
+            province,
+            &slot,
+            augustus_core::NumericOperation::Set,
+            -1_000,
+        )
+        .unwrap();
+    let negative_base = evaluate(&world);
+    assert_eq!(negative_base.known_subtotal_micros, None);
+    assert!(
+        negative_base
+            .unresolved
+            .contains("province_ship_recruit_speed_modifier:negative_base_production_unresolved")
+    );
+
+    world
+        .update_numeric(province, &slot, augustus_core::NumericOperation::Set, 0)
+        .unwrap();
+    let zero_base = evaluate(&world);
+    assert_eq!(zero_base.known_subtotal_micros, Some(0));
+    assert_eq!(zero_base.value_micros, None);
+}
+
+#[test]
+fn province_ship_recruit_speed_modifier_truncates_positive_coefficients_toward_zero() {
+    let modifier = "provincial_production_size = { ship_recruit_speed = 0.01 }\n";
+    let (_temp, loaded) = load_ship_recruit_speed_modifier(modifier, Some("3.333"));
+    let world = loaded.initial.world();
+    let province = loaded.initial.province_entity(1).unwrap();
+    let result = world
+        .attributes()
+        .evaluate(world, province, "province_ship_recruit_speed_modifier")
+        .unwrap();
+
+    assert_eq!(result.known_subtotal_micros, Some(33_000));
+    assert_eq!(result.value_micros, None);
+    assert!(result.steps[0].contributions.iter().any(|contribution| {
+        contribution.source == "province.production_base"
+            && contribution.property == "quantity"
+            && contribution.micros == 33_330
+    }));
+    assert!(result.steps[0].contributions.iter().any(|contribution| {
+        contribution.source == "static_modifiers:provincial_production_size:ship_recruit_speed"
+            && contribution.property == "truncation"
+            && contribution.micros == -330
+    }));
+}
+
+#[test]
+fn province_ship_recruit_speed_modifier_keeps_missing_base_production_unknown() {
+    let modifier = "provincial_production_size = { ship_recruit_speed = -0.01 }\n";
+    let (_temp, loaded) = load_ship_recruit_speed_modifier(modifier, None);
+    let province_state = loaded.initial.province(1).unwrap();
+    assert_eq!(province_state.production_milli, None);
+    let world = loaded.initial.world();
+    let province = loaded.initial.province_entity(1).unwrap();
+    let result = world
+        .attributes()
+        .evaluate(world, province, "province_ship_recruit_speed_modifier")
+        .unwrap();
+
+    assert_eq!(result.known_subtotal_micros, None);
+    assert_eq!(result.value_micros, None);
+    assert!(
+        result
+            .unresolved
+            .contains("province:1:missing_base:province.production_base")
+    );
+}
+
+#[test]
+fn province_ship_recruit_speed_modifier_requires_the_exact_source_property() {
+    let baseline = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let baseline_province = baseline.initial.province_entity(1).unwrap();
+    assert!(
+        !baseline
+            .initial
+            .world()
+            .attributes()
+            .formulas
+            .get(&baseline_province)
+            .is_some_and(|formulas| formulas.contains_key("province_ship_recruit_speed_modifier"))
+    );
+
+    let modifier = "provincial_production_size = { ship_recruit_speed = -0.01 }\nother_static = { ship_recruit_speed = 0.02 }\n";
+    let (_temp, loaded) = load_ship_recruit_speed_modifier(modifier, Some("3.000"));
+    let province = loaded.initial.province_entity(1).unwrap();
+    assert!(
+        loaded
+            .initial
+            .world()
+            .attributes()
+            .formulas
+            .get(&province)
+            .is_some_and(|formulas| formulas.contains_key("province_ship_recruit_speed_modifier"))
+    );
+    assert_eq!(
+        loaded
+            .report
+            .attributes
+            .unmapped_properties
+            .get("static_modifiers:ship_recruit_speed"),
+        Some(&1)
+    );
+
+    let unrelated = "provincial_production_size = { local_tax_modifier = 0.1 }\n";
+    let (_temp, loaded) = load_ship_recruit_speed_modifier(unrelated, Some("3.000"));
+    let province = loaded.initial.province_entity(1).unwrap();
+    assert!(
+        !loaded
+            .initial
+            .world()
+            .attributes()
+            .formulas
+            .get(&province)
+            .is_some_and(|formulas| formulas.contains_key("province_ship_recruit_speed_modifier"))
+    );
+}
+
+#[test]
+fn province_ship_recruit_speed_modifier_does_not_guess_ambiguous_or_fine_precision_sources() {
+    let ambiguous_sources = [
+        (
+            "provincial_production_size = { ship_recruit_speed = -0.01 ship_recruit_speed = 0.01 }\n",
+            "ambiguous:static_modifiers:provincial_production_size:ship_recruit_speed",
+        ),
+        (
+            "provincial_production_size = { ship_recruit_speed = -0.01 }\nprovincial_production_size = { ship_recruit_speed = 0.01 }\n",
+            "ambiguous:static_modifiers:provincial_production_size",
+        ),
+        (
+            "provincial_production_size = { ship_recruit_speed = yes }\n",
+            "static_modifiers:provincial_production_size:ship_recruit_speed:non_numeric_property",
+        ),
+    ];
+    for (modifier, reason) in ambiguous_sources {
+        let (_temp, loaded) = load_ship_recruit_speed_modifier(modifier, Some("3.000"));
+        let province = loaded.initial.province_entity(1).unwrap();
+        let result = loaded
+            .initial
+            .world()
+            .attributes()
+            .evaluate(
+                loaded.initial.world(),
+                province,
+                "province_ship_recruit_speed_modifier",
+            )
+            .unwrap();
+        assert_eq!(result.known_subtotal_micros, None);
+        assert!(result.unresolved.contains(reason), "{reason}");
+    }
+
+    let fine_precision = "provincial_production_size = { ship_recruit_speed = -0.0001 }\n";
+    let (_temp, unresolved) = load_ship_recruit_speed_modifier(fine_precision, Some("3.000"));
+    let province = unresolved.initial.province_entity(1).unwrap();
+    let result = unresolved
+        .initial
+        .world()
+        .attributes()
+        .evaluate(
+            unresolved.initial.world(),
+            province,
+            "province_ship_recruit_speed_modifier",
+        )
+        .unwrap();
+    assert_eq!(result.known_subtotal_micros, None);
+    assert!(
+        result
+            .unresolved
+            .contains("province_ship_recruit_speed_modifier:coefficient_precision_unverified")
     );
 }
 
