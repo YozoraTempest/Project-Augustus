@@ -16,7 +16,7 @@ use augustus_core::{
     VanillaGoldProductionInputState, VanillaGoldProductionResult, VanillaProductionBaseValueInput,
     VanillaProductionBaseValueResult, VanillaProductionInput, VanillaStateMaintenanceDistanceInput,
     VanillaStateMaintenanceInput, VanillaStateMaintenanceResult, VanillaTradeGoodPriceInput,
-    VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, WorldDate,
+    VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, WorldDate, YearlyEventRules,
     calculate_vanilla_gold_base, calculate_vanilla_gold_production,
     calculate_vanilla_gold_production_for_country, calculate_vanilla_production_base_value,
     calculate_vanilla_state_maintenance, calculate_vanilla_trade_good_price,
@@ -4884,6 +4884,11 @@ impl VanillaWorld {
 
     pub fn event_text(&self, event: &str) -> Option<&crate::EventText> {
         self.event_texts.get(event)
+    }
+
+    /// Returns the translated yearly pulse rules when they are available.
+    pub fn yearly_event_rules(&self) -> Option<&YearlyEventRules> {
+        self.yearly_event_rules.as_ref()
     }
 
     /// Returns the raw EU4 province `mothball_status` byte without assigning

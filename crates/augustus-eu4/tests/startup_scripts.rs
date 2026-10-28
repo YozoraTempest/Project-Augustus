@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, EntityId, EntityKind, Error, EventChoice, MonthlySystem, PendingEventId, World,
+    Action, CountryLedgerAnnualRollover, CountryResources, EntityId, EntityKind, Error,
+    EventChoice, MonthlySystem, PendingEventId, World, YearlyPipeline,
 };
 use augustus_eu4::{VanillaExternalState, VanillaSaveState, VanillaWorld};
 use std::{
@@ -1044,6 +1045,138 @@ fn yearly_pulse_events_run_on_year_boundary_and_survive_restore() {
             .count(),
         1
     );
+}
+
+#[test]
+fn yearly_pulse_rules_compose_with_ledger_rollover_and_resume() {
+    let temp = fixture();
+    write_yearly_pulse_content(temp.path());
+    let country_resources = || {
+        BTreeMap::from([(
+            String::from("AAA"),
+            CountryResources {
+                treasury_milli: Some(1_000),
+                ..Default::default()
+            },
+        )])
+    };
+    let mut continuous = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    continuous
+        .set_country_resources(country_resources())
+        .unwrap();
+    let rules = continuous
+        .yearly_event_rules()
+        .expect("yearly pulse rules are translated")
+        .clone();
+    let rollover = CountryLedgerAnnualRollover;
+    let pipeline =
+        YearlyPipeline::new("yearly-pulse-ledger:test:v1", Some(&rollover), Some(&rules)).unwrap();
+    continuous.select_yearly_system(&pipeline).unwrap();
+    assert_eq!(
+        continuous
+            .yearly_event_rules()
+            .map(|selected| selected.id.as_str()),
+        Some(rules.id.as_str())
+    );
+    continuous.record_country_income("AAA", 2, 40).unwrap();
+
+    let first_boundary = {
+        let world = continuous.initial.world();
+        world.calendar().unwrap().next_year(world.day()).unwrap() - world.day()
+    };
+    continuous
+        .advance_with_yearly_system(first_boundary - 1, &pipeline)
+        .unwrap();
+    let country = continuous.initial.country_entity("AAA").unwrap();
+    assert_eq!(
+        continuous.initial.world().country_ledgers()[&country].income_rollover_milli[2],
+        0
+    );
+    assert!(
+        continuous
+            .initial
+            .world()
+            .pending_events()
+            .iter()
+            .all(|event| !event.event.starts_with("yearly."))
+    );
+
+    continuous.advance_with_yearly_system(1, &pipeline).unwrap();
+    let ledger = &continuous.initial.world().country_ledgers()[&country];
+    assert_eq!(ledger.income_rollover_milli[2], 40);
+    assert_eq!(ledger.income_accumulator_milli[2], 0);
+    assert_eq!(
+        continuous
+            .initial
+            .world()
+            .pending_events()
+            .iter()
+            .filter(|event| event.event.starts_with("yearly."))
+            .map(|event| event.event.as_str())
+            .collect::<Vec<_>>(),
+        ["yearly.first", "yearly.second"]
+    );
+
+    let snapshot = continuous.save().unwrap();
+    let mut resumed = VanillaWorld::load(temp.path(), "1444.11.11").unwrap();
+    let resumed_rules = resumed
+        .yearly_event_rules()
+        .expect("yearly pulse rules are translated")
+        .clone();
+    let resumed_rollover = CountryLedgerAnnualRollover;
+    let resumed_pipeline = YearlyPipeline::new(
+        "yearly-pulse-ledger:test:v1",
+        Some(&resumed_rollover),
+        Some(&resumed_rules),
+    )
+    .unwrap();
+    resumed.select_yearly_system(&resumed_pipeline).unwrap();
+    resumed.restore(&snapshot).unwrap();
+    assert_eq!(resumed.save().unwrap(), snapshot);
+
+    continuous
+        .set_country_resources(country_resources())
+        .unwrap();
+    resumed.set_country_resources(country_resources()).unwrap();
+    continuous.record_country_income("AAA", 2, 50).unwrap();
+    resumed.record_country_income("AAA", 2, 50).unwrap();
+    let next_boundary = {
+        let world = continuous.initial.world();
+        world.calendar().unwrap().next_year(world.day()).unwrap() - world.day()
+    };
+    continuous
+        .advance_with_yearly_system(next_boundary, &pipeline)
+        .unwrap();
+    resumed
+        .advance_with_yearly_system(next_boundary, &resumed_pipeline)
+        .unwrap();
+
+    assert_eq!(
+        continuous.initial.world().country_ledgers()[&country].income_rollover_milli[2],
+        50
+    );
+    assert_eq!(
+        resumed.initial.world().country_ledgers()[&country].income_rollover_milli[2],
+        50
+    );
+    for world in [&continuous, &resumed] {
+        let events = &world.initial.world().events();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.2 == "yearly_first")
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.2 == "yearly_second")
+                .count(),
+            1
+        );
+    }
+    assert_eq!(resumed.save().unwrap(), continuous.save().unwrap());
 }
 
 #[test]
