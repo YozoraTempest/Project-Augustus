@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, Calendar, EntityId, EntityKind, EntityRef, NavalConstructionId, NavalConstructionInput,
-    Schema, ScopeContext, ScopeSelector, World, WorldDate,
+    Action, Calendar, CountryLedger, CountryResource, CountryResources, EntityId, EntityKind,
+    EntityRef, NavalConstructionId, NavalConstructionInput, NumericOperation, NumericSlot,
+    PaidNavalConstructionInput, Schema, ScopeContext, ScopeSelector, World, WorldDate,
 };
 
 fn fixture() -> (World, EntityId, EntityId) {
@@ -35,6 +36,19 @@ fn input(
         location,
         unit_type: unit_type.into(),
         completion_day,
+    }
+}
+
+fn paid_input(
+    owner: EntityId,
+    location: EntityId,
+    unit_type: &str,
+    completion_day: u64,
+    cost_milli: i64,
+) -> PaidNavalConstructionInput {
+    PaidNavalConstructionInput {
+        construction: input(owner, location, unit_type, completion_day),
+        cost_milli,
     }
 }
 
@@ -85,6 +99,178 @@ fn construction_uses_explicit_day_and_round_trips_without_duplicate_completion()
             .enqueue_naval_constructions(&[input(owner, port, "next_hull", 7)])
             .unwrap(),
         [NavalConstructionId(1)]
+    );
+}
+
+#[test]
+fn paid_batch_subtracts_once_round_trips_and_completes_without_ledger_changes() {
+    let (mut continuous, owner, port) = fixture();
+    let other = continuous.add_entity("NOR", EntityKind::Country);
+    continuous
+        .set_country_resources(
+            [(
+                owner,
+                CountryResources {
+                    treasury_milli: Some(100),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    continuous
+        .set_country_ledgers([(owner, CountryLedger::default())].into())
+        .unwrap();
+    let starting_ledger = continuous.country_ledgers()[&owner].clone();
+    let treasury = NumericSlot::Resource(CountryResource::Treasury);
+    continuous
+        .update_numeric(other, &treasury, NumericOperation::Add, 20)
+        .unwrap();
+
+    assert_eq!(
+        continuous
+            .enqueue_paid_naval_constructions(&[
+                paid_input(owner, port, "first_hull", 3, 75),
+                paid_input(owner, port, "second_hull", 3, 50),
+                paid_input(other, port, "third_hull", 3, 40),
+            ])
+            .unwrap(),
+        [
+            NavalConstructionId(0),
+            NavalConstructionId(1),
+            NavalConstructionId(2)
+        ]
+    );
+    assert_eq!(
+        continuous.country_resources()[&owner].treasury_milli,
+        Some(-25)
+    );
+    assert_eq!(continuous.country_resources().get(&other), None);
+    assert_eq!(
+        continuous.unbased_numeric_delta(other, &treasury),
+        Some(-20)
+    );
+    assert_eq!(continuous.country_ledgers()[&owner], starting_ledger);
+    assert_eq!(continuous.naval_constructions().len(), 3);
+
+    let saved = continuous.save("paid-naval-construction").unwrap();
+    let mut resumed =
+        World::restore(&saved, "paid-naval-construction", continuous.schema()).unwrap();
+    assert_eq!(resumed, continuous);
+    continuous.advance_to(3).unwrap();
+    resumed.advance_to(3).unwrap();
+    assert_eq!(resumed, continuous);
+    assert!(continuous.naval_constructions().is_empty());
+    assert_eq!(continuous.naval_units().len(), 3);
+    assert_eq!(
+        continuous.country_resources()[&owner].treasury_milli,
+        Some(-25)
+    );
+    assert_eq!(
+        continuous.unbased_numeric_delta(other, &treasury),
+        Some(-20)
+    );
+    assert_eq!(continuous.country_ledgers()[&owner], starting_ledger);
+}
+
+#[test]
+fn paid_batch_errors_preserve_balances_deltas_and_order_ids() {
+    let (mut world, owner, port) = fixture();
+    let other = world.add_entity("NOR", EntityKind::Country);
+    world
+        .set_country_resources(
+            [(
+                owner,
+                CountryResources {
+                    treasury_milli: Some(100),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    let treasury = NumericSlot::Resource(CountryResource::Treasury);
+    world
+        .update_numeric(other, &treasury, NumericOperation::Subtract, i64::MAX)
+        .unwrap();
+    let before = world.save("paid-naval-construction").unwrap();
+
+    assert!(
+        world
+            .enqueue_paid_naval_constructions(&[
+                paid_input(owner, port, "first_hull", 3, 10),
+                paid_input(port, port, "invalid_owner", 3, 1),
+            ])
+            .is_err()
+    );
+    assert_eq!(world.save("paid-naval-construction").unwrap(), before);
+
+    assert!(
+        world
+            .enqueue_paid_naval_constructions(&[
+                paid_input(owner, port, "first_hull", 3, -1),
+                paid_input(owner, port, "second_hull", 3, 1),
+            ])
+            .is_err()
+    );
+    assert_eq!(world.save("paid-naval-construction").unwrap(), before);
+
+    assert!(
+        world
+            .enqueue_paid_naval_constructions(&[
+                paid_input(owner, port, "first_hull", 3, i64::MAX),
+                paid_input(owner, port, "second_hull", 3, 1),
+            ])
+            .is_err()
+    );
+    assert_eq!(world.save("paid-naval-construction").unwrap(), before);
+
+    assert!(
+        world
+            .enqueue_paid_naval_constructions(&[
+                paid_input(owner, port, "first_hull", 3, 10),
+                paid_input(other, port, "second_hull", 3, 2),
+            ])
+            .is_err()
+    );
+    assert_eq!(world.save("paid-naval-construction").unwrap(), before);
+    assert_eq!(world.naval_constructions().len(), 0);
+    assert_eq!(world.country_resources()[&owner].treasury_milli, Some(100));
+    assert_eq!(
+        world.unbased_numeric_delta(other, &treasury),
+        Some(-i64::MAX)
+    );
+    assert_eq!(
+        world
+            .enqueue_paid_naval_constructions(&[paid_input(owner, port, "valid_hull", 3, 10)])
+            .unwrap(),
+        [NavalConstructionId(0)]
+    );
+
+    let mut exhausted: serde_json::Value = before.parse().unwrap();
+    exhausted["naval_constructions"] = serde_json::json!({
+        "next_id": u64::MAX,
+        "orders": []
+    });
+    let mut exhausted = World::restore(
+        &exhausted.to_string(),
+        "paid-naval-construction",
+        world.schema(),
+    )
+    .unwrap();
+    let exhausted_before = exhausted.save("paid-naval-construction").unwrap();
+    assert!(
+        exhausted
+            .enqueue_paid_naval_constructions(&[paid_input(owner, port, "cannot_allocate", 3, 25)])
+            .is_err()
+    );
+    assert_eq!(
+        exhausted.save("paid-naval-construction").unwrap(),
+        exhausted_before
+    );
+    assert_eq!(
+        exhausted.country_resources()[&owner].treasury_milli,
+        Some(100)
     );
 }
 

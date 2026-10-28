@@ -156,6 +156,75 @@ provinces={
     );
 }
 
+#[test]
+fn world_cli_submits_priced_naval_orders_once_and_restores_progress() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let game_root = temp.path().join("game");
+    copy_directory(&fixture, &game_root);
+    let map_path = game_root.join("map/default.map");
+    let map = fs::read_to_string(&map_path).unwrap();
+    fs::write(map_path, format!("{map}\nforce_coastal={{1}}\n")).unwrap();
+    let save = temp.path().join("baseline.eu4");
+    fs::write(&save, "EU4txt\ndate=1444.11.11\nplayer=AAA\ncountries={AAA={human=yes treasury=20.000} BBB={human=no}}\nprovinces={-1={owner=AAA controller=AAA}}\n").unwrap();
+    let requests = temp.path().join("requests.json");
+    fs::write(
+        &requests,
+        serde_json::to_vec(&serde_json::json!([{
+            "country": "AAA", "province_id": 1, "unit_type": "sample_light_ship",
+            "completion_day": 3, "cost_milli": 5000
+        }]))
+        .unwrap(),
+    )
+    .unwrap();
+    let run = |days: &str, submit: bool, load: Option<&Path>, output: Option<&Path>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+        command
+            .arg("--game-root")
+            .arg(&game_root)
+            .arg("--eu4-save")
+            .arg(&save)
+            .args(["--country", "AAA", "--days", days]);
+        if submit {
+            command.arg("--naval-constructions").arg(&requests);
+        }
+        if let Some(load) = load {
+            command.arg("--load").arg(load);
+        }
+        if let Some(output) = output {
+            command.arg("--save").arg(output);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    let pending_path = temp.path().join("pending.json");
+    let pending = run("1", true, None, Some(&pending_path));
+    assert_eq!(
+        pending["submitted_naval_constructions"],
+        serde_json::json!([0])
+    );
+    assert_eq!(pending["simulation"]["pending_naval_constructions"], 1);
+    assert_eq!(pending["simulation"]["naval_units"], 0);
+    assert_eq!(pending["country"]["resources"]["treasury_milli"], 15000);
+    let resumed_path = temp.path().join("resumed.json");
+    let resumed = run("2", false, Some(&pending_path), Some(&resumed_path));
+    assert!(resumed.get("submitted_naval_constructions").is_none());
+    assert_eq!(resumed["simulation"]["pending_naval_constructions"], 0);
+    assert_eq!(resumed["simulation"]["naval_units"], 1);
+    assert_eq!(resumed["country"]["resources"]["treasury_milli"], 15000);
+    let continuous_path = temp.path().join("continuous.json");
+    run("3", true, None, Some(&continuous_path));
+    assert_eq!(
+        fs::read_to_string(resumed_path).unwrap(),
+        fs::read_to_string(continuous_path).unwrap()
+    );
+}
+
 fn copy_directory(source: &Path, destination: &Path) {
     fs::create_dir_all(destination).unwrap();
     for entry in fs::read_dir(source).unwrap() {

@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntityKind, Error, World};
+use crate::{
+    CountryResource, CountryResources, EntityId, EntityKind, Error, NumericOperation, NumericSlot,
+    World,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NavalConstructionId(pub u64);
@@ -19,6 +22,13 @@ pub struct NavalConstructionInput {
     pub location: EntityId,
     pub unit_type: String,
     pub completion_day: u64,
+}
+
+/// One independent construction request with an explicit treasury deduction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaidNavalConstructionInput {
+    pub construction: NavalConstructionInput,
+    pub cost_milli: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,6 +161,98 @@ impl World {
         &mut self,
         inputs: &[NavalConstructionInput],
     ) -> Result<Vec<NavalConstructionId>, Error> {
+        self.validate_naval_construction_inputs(inputs)?;
+        self.naval_constructions.enqueue_validated(inputs)
+    }
+
+    /// Atomically subtract caller-supplied costs and enqueue the corresponding orders.
+    ///
+    /// Costs use the existing Treasury `Subtract` bounds and unknown-balance
+    /// delta behavior. Costs are checked-summed per country and each total is
+    /// applied in one subtraction; this need not match separately clamped
+    /// deductions. No ledger category or price, eligibility, loan, or refund
+    /// policy is inferred.
+    pub fn enqueue_paid_naval_constructions(
+        &mut self,
+        inputs: &[PaidNavalConstructionInput],
+    ) -> Result<Vec<NavalConstructionId>, Error> {
+        let constructions = inputs
+            .iter()
+            .map(|input| input.construction.clone())
+            .collect::<Vec<_>>();
+        self.validate_naval_construction_inputs(&constructions)?;
+
+        let mut expenses = BTreeMap::<EntityId, i64>::new();
+        for input in inputs {
+            if input.cost_milli < 0 {
+                return Err(Error::Invalid(
+                    "naval construction cost must be nonnegative".into(),
+                ));
+            }
+            let total = expenses.entry(input.construction.owner).or_default();
+            *total = total.checked_add(input.cost_milli).ok_or(Error::Overflow)?;
+        }
+
+        let mut constructions_state = self.naval_constructions.clone();
+        let ids = constructions_state.enqueue_validated(&constructions)?;
+        let treasury = NumericSlot::Resource(CountryResource::Treasury);
+        let mut resource_updates = BTreeMap::<EntityId, CountryResources>::new();
+        let mut unbased_updates =
+            BTreeMap::<EntityId, Option<BTreeMap<CountryResource, i64>>>::new();
+
+        for (&country, &cost_milli) in &expenses {
+            let mut resources = self
+                .country_resources
+                .get(&country)
+                .cloned()
+                .unwrap_or_default();
+            let mut deltas = self
+                .unbased_resource_deltas
+                .get(&country)
+                .cloned()
+                .unwrap_or_default();
+            if resources.treasury_milli.is_some() {
+                let next = self.preview_numeric_update(
+                    country,
+                    &treasury,
+                    NumericOperation::Subtract,
+                    cost_milli,
+                )?;
+                CountryResource::Treasury.set(&mut resources, next);
+                deltas.remove(&CountryResource::Treasury);
+                resource_updates.insert(country, resources);
+            } else {
+                // Match update_numeric's unknown-resource path while staging its delta.
+                let adjustment = cost_milli.checked_neg().ok_or(Error::Overflow)?;
+                let current = deltas.get(&CountryResource::Treasury).copied().unwrap_or(0);
+                let next = current.checked_add(adjustment).ok_or(Error::Overflow)?;
+                if next == 0 {
+                    deltas.remove(&CountryResource::Treasury);
+                } else {
+                    deltas.insert(CountryResource::Treasury, next);
+                }
+            }
+            unbased_updates.insert(country, (!deltas.is_empty()).then_some(deltas));
+        }
+
+        for (country, resources) in resource_updates {
+            self.country_resources.insert(country, resources);
+        }
+        for (country, deltas) in unbased_updates {
+            if let Some(deltas) = deltas {
+                self.unbased_resource_deltas.insert(country, deltas);
+            } else {
+                self.unbased_resource_deltas.remove(&country);
+            }
+        }
+        self.naval_constructions = constructions_state;
+        Ok(ids)
+    }
+
+    fn validate_naval_construction_inputs(
+        &self,
+        inputs: &[NavalConstructionInput],
+    ) -> Result<(), Error> {
         self.require_running()?;
         for input in inputs {
             if input.completion_day <= self.day() {
@@ -163,7 +265,7 @@ impl World {
             }
             validate_construction_location(self, input.owner, input.location, &input.unit_type)?;
         }
-        self.naval_constructions.enqueue_validated(inputs)
+        Ok(())
     }
 
     pub(crate) fn complete_due_naval_constructions(&mut self, day: u64) -> Result<(), Error> {

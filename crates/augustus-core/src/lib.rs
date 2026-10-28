@@ -173,7 +173,7 @@ pub use modifiers::{ModifierDefinition, ModifierInstance, ModifierRenewal, Modif
 pub use named_values::{NamedValues, NumericComparison, NumericOperation, NumericSlot};
 pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId, NavalUnitState};
 pub use naval_constructions::{
-    NavalConstructionId, NavalConstructionInput, NavalConstructionOrder,
+    NavalConstructionId, NavalConstructionInput, NavalConstructionOrder, PaidNavalConstructionInput,
 };
 pub use objectives::{ObjectiveGroup, Objectives};
 pub use owner_area_adjacencies::{OwnerAreaAdjacencyCounts, OwnerAreaAdjacencyEntry};

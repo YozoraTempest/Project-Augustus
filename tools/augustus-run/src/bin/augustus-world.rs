@@ -44,6 +44,14 @@ struct Cli {
     /// Export the translated state from --eu4-save as a VanillaExternalState JSON file.
     #[arg(long, value_name = "FILE", requires = "eu4_save")]
     export_external_state: Option<PathBuf>,
+    /// Submit new naval orders with caller-supplied prices and absolute core completion days.
+    /// Requests execute once per invocation, after --load and before --days.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    naval_constructions: Option<PathBuf>,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
     /// Explicit seed for a new world; EU4 saves carry their own random state.
@@ -337,6 +345,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     if cli.load.is_some() {
         loaded.restore(load_snapshot.as_deref().expect("snapshot was loaded"))?;
     }
+    let submitted_naval_constructions = cli
+        .naval_constructions
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let requests: Vec<augustus_eu4::VanillaNavalConstructionRequest> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            Ok(loaded.submit_naval_constructions(&requests)?)
+        })
+        .transpose()?;
     if monthly_pipeline.is_some() || cli.annual_ledger_rollover {
         let monthly =
             monthly_pipeline.map(|pipeline| pipeline as &dyn augustus_core::MonthlySystem);
@@ -379,6 +396,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             output["naval_construction_import"] =
                 serde_json::to_value(loaded.naval_construction_import_report())?;
         }
+    }
+    if let Some(ids) = submitted_naval_constructions {
+        output["submitted_naval_constructions"] = serde_json::to_value(ids)?;
     }
     if !loaded.initial.world().country_controllers().is_empty() {
         output["country_controllers"] = serde_json::json!(

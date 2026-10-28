@@ -109,6 +109,48 @@ fn initial_world_can_enqueue_explicit_naval_construction_orders() {
 }
 
 #[test]
+fn initial_world_can_enqueue_paid_naval_construction_orders() {
+    use augustus_core::{CountryResources, PaidNavalConstructionInput};
+
+    let mut provinces = provinces();
+    provinces[0].has_port = Some(true);
+    let mut initial = InitialWorld::new(countries(), provinces).unwrap();
+    let owner = initial.country_entity("AAA").unwrap();
+    let port = initial.province_entity(2).unwrap();
+    initial
+        .set_country_resources(
+            [(
+                owner,
+                CountryResources {
+                    treasury_milli: Some(50),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+
+    let ids = initial
+        .enqueue_paid_naval_constructions(&[PaidNavalConstructionInput {
+            construction: augustus_core::NavalConstructionInput {
+                owner,
+                location: port,
+                unit_type: "light_ship".into(),
+                completion_day: 3,
+            },
+            cost_milli: 100,
+        }])
+        .unwrap();
+
+    assert_eq!(ids, [augustus_core::NavalConstructionId(0)]);
+    assert_eq!(
+        initial.world().country_resources()[&owner].treasury_milli,
+        Some(-50)
+    );
+    assert_eq!(initial.world().naval_constructions().len(), 1);
+}
+
+#[test]
 fn initial_world_binds_grouped_fleets_at_non_port_locations() {
     let mut provinces = provinces();
     provinces[0].has_port = Some(false);
