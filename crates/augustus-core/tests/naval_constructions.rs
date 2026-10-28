@@ -2,9 +2,10 @@
 // Copyright (C) 2026 Project Augustus contributors
 
 use augustus_core::{
-    Action, Calendar, CountryLedger, CountryResource, CountryResources, EntityId, EntityKind,
-    EntityRef, NavalConstructionId, NavalConstructionInput, NumericOperation, NumericSlot,
-    PaidNavalConstructionInput, Schema, ScopeContext, ScopeSelector, World, WorldDate,
+    Action, COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT, Calendar, CountryLedger, CountryResource,
+    CountryResources, EntityId, EntityKind, EntityRef, NavalConstructionId, NavalConstructionInput,
+    NumericOperation, NumericSlot, PaidNavalConstructionInput, Schema, ScopeContext, ScopeSelector,
+    World, WorldDate,
 };
 
 fn fixture() -> (World, EntityId, EntityId) {
@@ -171,6 +172,228 @@ fn paid_batch_subtracts_once_round_trips_and_completes_without_ledger_changes() 
         Some(-20)
     );
     assert_eq!(continuous.country_ledgers()[&owner], starting_ledger);
+}
+
+#[test]
+fn categorized_paid_batch_records_once_and_preserves_pending_through_restore_and_flush() {
+    let (mut continuous, owner, port) = fixture();
+    let expense_category = 27;
+    continuous
+        .set_country_resources(
+            [(
+                owner,
+                CountryResources {
+                    treasury_milli: Some(1_000),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    continuous
+        .set_country_ledgers(
+            [(
+                owner,
+                CountryLedger {
+                    pending_milli: 40,
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+
+    assert_eq!(
+        continuous
+            .enqueue_naval_constructions_with_expenses(
+                &[
+                    paid_input(owner, port, "first_hull", 3, 75),
+                    paid_input(owner, port, "second_hull", 3, 25),
+                ],
+                expense_category,
+            )
+            .unwrap(),
+        [NavalConstructionId(0), NavalConstructionId(1)]
+    );
+    let ledger = &continuous.country_ledgers()[&owner];
+    assert_eq!(ledger.pending_milli, 40);
+    assert_eq!(ledger.expense_sources_milli[expense_category as usize], 100);
+    assert_eq!(
+        ledger.expense_accumulator_milli[expense_category as usize],
+        100
+    );
+    assert_eq!(
+        ledger.expense_auxiliary_milli[expense_category as usize],
+        100
+    );
+    assert_eq!(ledger.categories[&expense_category].expense_milli, 100);
+    assert_eq!(
+        continuous.country_resources()[&owner].treasury_milli,
+        Some(900)
+    );
+    assert_eq!(continuous.naval_constructions().len(), 2);
+
+    let saved = continuous.save("categorized-naval-construction").unwrap();
+    let mut resumed = World::restore(
+        &saved,
+        "categorized-naval-construction",
+        continuous.schema(),
+    )
+    .unwrap();
+    continuous.advance_to(3).unwrap();
+    resumed.advance_to(3).unwrap();
+    assert_eq!(resumed, continuous);
+    assert_eq!(continuous.naval_constructions().len(), 0);
+    assert_eq!(continuous.naval_units().len(), 2);
+    assert_eq!(
+        continuous.country_ledgers()[&owner].categories[&expense_category].expense_milli,
+        100
+    );
+    assert_eq!(continuous.country_ledgers()[&owner].pending_milli, 40);
+
+    assert_eq!(continuous.flush_country_pending(owner).unwrap(), 940);
+    assert_eq!(resumed.flush_country_pending(owner).unwrap(), 940);
+    assert_eq!(resumed, continuous);
+    assert_eq!(continuous.country_ledgers()[&owner].pending_milli, 0);
+    assert_eq!(
+        continuous.country_resources()[&owner].treasury_milli,
+        Some(940)
+    );
+    assert_eq!(
+        continuous.country_ledgers()[&owner].categories[&expense_category].expense_milli,
+        100
+    );
+}
+
+#[test]
+fn categorized_paid_batch_errors_preserve_full_world_state() {
+    let (mut world, owner, port) = fixture();
+    let other = world.add_entity("NOR", EntityKind::Country);
+    let expense_category = 27;
+    world
+        .set_country_resources(
+            [
+                (
+                    owner,
+                    CountryResources {
+                        treasury_milli: Some(100),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    other,
+                    CountryResources {
+                        treasury_milli: Some(100),
+                        ..Default::default()
+                    },
+                ),
+            ]
+            .into(),
+        )
+        .unwrap();
+
+    let before = world.save("categorized-naval-construction").unwrap();
+    assert!(
+        world
+            .enqueue_naval_constructions_with_expenses(
+                &[paid_input(owner, port, "first_hull", 3, 10)],
+                COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT,
+            )
+            .is_err()
+    );
+    assert_eq!(
+        world.save("categorized-naval-construction").unwrap(),
+        before
+    );
+
+    let mut unknown_treasury = world.clone();
+    unknown_treasury
+        .set_country_resources([(owner, CountryResources::default())].into())
+        .unwrap();
+    let unknown_before = unknown_treasury
+        .save("categorized-naval-construction")
+        .unwrap();
+    assert!(
+        unknown_treasury
+            .enqueue_naval_constructions_with_expenses(
+                &[paid_input(owner, port, "first_hull", 3, 10)],
+                expense_category,
+            )
+            .is_err()
+    );
+    assert_eq!(
+        unknown_treasury
+            .save("categorized-naval-construction")
+            .unwrap(),
+        unknown_before
+    );
+
+    let mut overflowing_ledger = CountryLedger {
+        expense_sources_milli: vec![0; COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize],
+        ..Default::default()
+    };
+    overflowing_ledger.expense_sources_milli[expense_category as usize] = i64::MAX;
+    world
+        .set_country_ledgers(
+            [
+                (owner, CountryLedger::default()),
+                (other, overflowing_ledger),
+            ]
+            .into(),
+        )
+        .unwrap();
+    let ledger_before = world.save("categorized-naval-construction").unwrap();
+    assert!(
+        world
+            .enqueue_naval_constructions_with_expenses(
+                &[
+                    paid_input(owner, port, "first_hull", 3, 10),
+                    paid_input(other, port, "second_hull", 3, 10),
+                ],
+                expense_category,
+            )
+            .is_err()
+    );
+    assert_eq!(
+        world.save("categorized-naval-construction").unwrap(),
+        ledger_before
+    );
+    assert_eq!(world.country_ledgers()[&owner], CountryLedger::default());
+    assert_eq!(world.country_resources()[&owner].treasury_milli, Some(100));
+    assert!(world.naval_constructions().is_empty());
+
+    let mut exhausted: serde_json::Value = ledger_before.parse().unwrap();
+    exhausted["naval_constructions"] = serde_json::json!({
+        "next_id": u64::MAX,
+        "orders": []
+    });
+    let mut exhausted = World::restore(
+        &exhausted.to_string(),
+        "categorized-naval-construction",
+        world.schema(),
+    )
+    .unwrap();
+    let exhausted_before = exhausted.save("categorized-naval-construction").unwrap();
+    assert!(
+        exhausted
+            .enqueue_naval_constructions_with_expenses(
+                &[paid_input(owner, port, "first_hull", 3, 10)],
+                expense_category,
+            )
+            .is_err()
+    );
+    assert_eq!(
+        exhausted.save("categorized-naval-construction").unwrap(),
+        exhausted_before
+    );
+    assert_eq!(
+        exhausted.country_ledgers()[&owner],
+        CountryLedger::default()
+    );
+    assert_eq!(
+        exhausted.country_resources()[&owner].treasury_milli,
+        Some(100)
+    );
 }
 
 #[test]

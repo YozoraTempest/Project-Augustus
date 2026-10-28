@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CountryResource, CountryResources, EntityId, EntityKind, Error, NumericOperation, NumericSlot,
-    World,
+    COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT, CountryLedger, CountryResource, CountryResources,
+    EntityId, EntityKind, Error, NumericOperation, NumericSlot, World,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -246,6 +246,67 @@ impl World {
             }
         }
         self.naval_constructions = constructions_state;
+        Ok(ids)
+    }
+
+    /// Atomically subtracts caller-supplied costs, records a generic ledger
+    /// expense category, and enqueues the corresponding orders.
+    ///
+    /// The category is a core expense-vector index in `0..38`; its meaning is
+    /// supplied by the caller. Every affected country must have a known
+    /// treasury, matching the immediate ledger expense API. Costs are summed
+    /// per country and recorded once per country. The ledger's pending balance
+    /// is left unchanged, and ledger overflow or a failed order enqueue leaves
+    /// both the ledger and world resources untouched.
+    pub fn enqueue_naval_constructions_with_expenses(
+        &mut self,
+        inputs: &[PaidNavalConstructionInput],
+        expense_category: u32,
+    ) -> Result<Vec<NavalConstructionId>, Error> {
+        if expense_category >= COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT {
+            return Err(Error::Invalid(
+                "country ledger expense category is outside 0..38".into(),
+            ));
+        }
+
+        let constructions = inputs
+            .iter()
+            .map(|input| input.construction.clone())
+            .collect::<Vec<_>>();
+        self.validate_naval_construction_inputs(&constructions)?;
+
+        let mut expenses = BTreeMap::<EntityId, i64>::new();
+        for input in inputs {
+            if input.cost_milli < 0 {
+                return Err(Error::Invalid(
+                    "naval construction cost must be nonnegative".into(),
+                ));
+            }
+            let total = expenses.entry(input.construction.owner).or_default();
+            *total = total.checked_add(input.cost_milli).ok_or(Error::Overflow)?;
+        }
+
+        let mut staged_ledgers = BTreeMap::<EntityId, CountryLedger>::new();
+        for (&country, &amount_milli) in &expenses {
+            if self
+                .country_resources
+                .get(&country)
+                .and_then(|resources| resources.treasury_milli)
+                .is_none()
+            {
+                return Err(Error::Invalid("country treasury is unknown".into()));
+            }
+            let mut ledger = self
+                .country_ledgers
+                .get(&country)
+                .cloned()
+                .unwrap_or_default();
+            ledger.add_expense(expense_category, amount_milli)?;
+            staged_ledgers.insert(country, ledger);
+        }
+
+        let ids = self.enqueue_paid_naval_constructions(inputs)?;
+        self.country_ledgers.extend(staged_ledgers);
         Ok(ids)
     }
 

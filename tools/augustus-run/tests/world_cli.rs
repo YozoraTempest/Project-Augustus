@@ -156,8 +156,7 @@ provinces={
     );
 }
 
-#[test]
-fn world_cli_submits_priced_naval_orders_once_and_restores_progress() {
+fn check_priced_naval_cli_round_trip(classified: bool) {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();
     let game_root = temp.path().join("game");
@@ -187,6 +186,9 @@ fn world_cli_submits_priced_naval_orders_once_and_restores_progress() {
             .args(["--country", "AAA", "--days", days]);
         if submit {
             command.arg("--naval-constructions").arg(&requests);
+            if classified {
+                command.arg("--naval-construction-ledger");
+            }
         }
         if let Some(load) = load {
             command.arg("--load").arg(load);
@@ -202,6 +204,7 @@ fn world_cli_submits_priced_naval_orders_once_and_restores_progress() {
         );
         serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
     };
+    let baseline = run("0", false, None, None);
     let pending_path = temp.path().join("pending.json");
     let pending = run("1", true, None, Some(&pending_path));
     assert_eq!(
@@ -211,18 +214,51 @@ fn world_cli_submits_priced_naval_orders_once_and_restores_progress() {
     assert_eq!(pending["simulation"]["pending_naval_constructions"], 1);
     assert_eq!(pending["simulation"]["naval_units"], 0);
     assert_eq!(pending["country"]["resources"]["treasury_milli"], 15000);
+    if classified {
+        assert_eq!(
+            pending["country"]["ledger"]["expense_sources_milli"][12],
+            5000
+        );
+        assert_eq!(
+            pending["country"]["ledger"]["expense_accumulator_milli"][12],
+            5000
+        );
+        assert_eq!(
+            pending["country"]["ledger"]["expense_auxiliary_milli"][12],
+            5000
+        );
+        assert_eq!(pending["country"]["ledger"]["pending_milli"], 0);
+    } else {
+        assert_eq!(
+            pending["country"].get("ledger"),
+            baseline["country"].get("ledger")
+        );
+    }
     let resumed_path = temp.path().join("resumed.json");
     let resumed = run("2", false, Some(&pending_path), Some(&resumed_path));
     assert!(resumed.get("submitted_naval_constructions").is_none());
     assert_eq!(resumed["simulation"]["pending_naval_constructions"], 0);
     assert_eq!(resumed["simulation"]["naval_units"], 1);
     assert_eq!(resumed["country"]["resources"]["treasury_milli"], 15000);
+    if classified {
+        assert_eq!(resumed["country"]["ledger"], pending["country"]["ledger"]);
+    }
     let continuous_path = temp.path().join("continuous.json");
     run("3", true, None, Some(&continuous_path));
     assert_eq!(
         fs::read_to_string(resumed_path).unwrap(),
         fs::read_to_string(continuous_path).unwrap()
     );
+}
+
+#[test]
+fn world_cli_submits_priced_naval_orders_once_and_restores_progress() {
+    check_priced_naval_cli_round_trip(false);
+}
+
+#[test]
+fn world_cli_classifies_naval_order_expenses_once_and_restores_progress() {
+    check_priced_naval_cli_round_trip(true);
 }
 
 fn copy_directory(source: &Path, destination: &Path) {

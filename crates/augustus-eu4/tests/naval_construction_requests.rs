@@ -7,8 +7,9 @@ use std::{
 };
 
 use augustus_eu4::{
-    ContentSet, TextEncoding, VanillaNavalConstructionReport, VanillaNavalConstructionRequest,
-    VanillaWorld, read_vanilla_save_state,
+    COUNTRY_LEDGER_EXPENSE_KEYS, ContentSet, TextEncoding, VanillaNavalConstructionReport,
+    VanillaNavalConstructionRequest, VanillaWorld, country_ledger_expense_key,
+    read_vanilla_save_state,
 };
 use tempfile::TempDir;
 use walkdir::WalkDir;
@@ -44,6 +45,13 @@ fn write_save(directory: &Path, name: &str, province_one_orders: &str) -> PathBu
     let text = format!(
         "EU4txt\ndate = 1444.11.11\nplayer = AAA\ncountries = {{ AAA = {{ treasury = 20.000 }} BBB = {{ }} }}\nprovinces = {{ -1 = {{ owner = AAA controller = AAA {province_one_orders} }} -2 = {{ owner = AAA controller = AAA }} }}\n"
     );
+    fs::write(&path, text).unwrap();
+    path
+}
+
+fn write_save_without_treasury(directory: &Path, name: &str) -> PathBuf {
+    let path = directory.join(name);
+    let text = "EU4txt\ndate = 1444.11.11\nplayer = AAA\ncountries = { AAA = { } BBB = { } }\nprovinces = { -1 = { owner = AAA controller = AAA } -2 = { owner = AAA controller = AAA } }\n";
     fs::write(&path, text).unwrap();
     path
 }
@@ -113,6 +121,101 @@ fn explicit_paid_order_is_charged_once_and_survives_snapshot_restore() {
         assert_eq!(current.initial.naval_units().len(), 1);
         assert_eq!(treasury(current), Some(15_000));
     }
+}
+
+#[test]
+fn ledger_submit_records_fleet_expense_once_and_survives_restore() {
+    let (directory, content) = fixture_with_content();
+    let save_path = write_save(directory.path(), "baseline-ledger.eu4", "");
+    let mut world = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+    let category = COUNTRY_LEDGER_EXPENSE_KEYS
+        .iter()
+        .position(|key| *key == "EXPENSEFLEET")
+        .unwrap();
+    assert_eq!(category, 12);
+    assert_eq!(
+        country_ledger_expense_key(category as u32),
+        Some("EXPENSEFLEET")
+    );
+
+    world
+        .submit_naval_constructions_with_ledger(&[request(1, 5_000)])
+        .unwrap();
+    let country = world.initial.country_entity("AAA").unwrap();
+    let ledger = &world.initial.world().country_ledgers()[&country];
+    assert_eq!(treasury(&world), Some(15_000));
+    assert_eq!(pending_count(&world), 1);
+    assert_eq!(ledger.categories[&(category as u32)].expense_milli, 5_000);
+    assert_eq!(ledger.expense_sources_milli[category], 5_000);
+    assert_eq!(ledger.expense_accumulator_milli[category], 5_000);
+    assert_eq!(ledger.expense_auxiliary_milli[category], 5_000);
+    assert_eq!(ledger.pending_milli, 0);
+    let recorded_ledger = ledger.clone();
+
+    let snapshot = world.save().unwrap();
+    let mut resumed = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+    resumed.restore(&snapshot).unwrap();
+    assert_eq!(
+        resumed.initial.world().country_ledgers()[&country],
+        recorded_ledger
+    );
+    world.advance(3).unwrap();
+    resumed.advance(3).unwrap();
+    for current in [&world, &resumed] {
+        assert_eq!(pending_count(current), 0);
+        assert_eq!(current.initial.naval_units().len(), 1);
+        assert_eq!(treasury(current), Some(15_000));
+        assert_eq!(
+            current.initial.world().country_ledgers()[&country],
+            recorded_ledger
+        );
+    }
+}
+
+#[test]
+fn ledger_submit_requires_known_treasury_without_partial_mutation() {
+    let (directory, content) = fixture_with_content();
+    let save_path = write_save_without_treasury(directory.path(), "unknown-treasury.eu4");
+    let mut world = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+    let country = world.initial.country_entity("AAA").unwrap();
+    assert_eq!(treasury(&world), None);
+
+    let baseline = world.save().unwrap();
+    assert!(
+        world
+            .submit_naval_constructions_with_ledger(&[request(1, 5_000)])
+            .is_err()
+    );
+    assert_eq!(world.save().unwrap(), baseline);
+    assert!(
+        !world
+            .initial
+            .world()
+            .country_ledgers()
+            .contains_key(&country)
+    );
+    assert_eq!(pending_count(&world), 0);
+}
+
+#[test]
+fn ordinary_submit_still_does_not_create_a_country_ledger() {
+    let (directory, content) = fixture_with_content();
+    let save_path = write_save(directory.path(), "baseline-ordinary.eu4", "");
+    let mut world = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+    let country = world.initial.country_entity("AAA").unwrap();
+
+    world
+        .submit_naval_constructions(&[request(1, 5_000)])
+        .unwrap();
+    assert_eq!(treasury(&world), Some(15_000));
+    assert_eq!(pending_count(&world), 1);
+    assert!(
+        !world
+            .initial
+            .world()
+            .country_ledgers()
+            .contains_key(&country)
+    );
 }
 
 #[test]

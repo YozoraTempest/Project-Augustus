@@ -333,7 +333,7 @@ impl CountryLedger {
         Ok(())
     }
 
-    fn add_expense(&mut self, category: u32, amount: i64) -> Result<(), Error> {
+    pub(crate) fn add_expense(&mut self, category: u32, amount: i64) -> Result<(), Error> {
         if category >= COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT {
             return Err(Error::Invalid(
                 "country ledger expense category is outside 0..38".into(),

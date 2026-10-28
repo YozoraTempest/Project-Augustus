@@ -52,6 +52,9 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     naval_constructions: Option<PathBuf>,
+    /// Record submitted naval costs in the EXPENSEFLEET ledger category; requires known treasury.
+    #[arg(long, requires = "naval_constructions")]
+    naval_construction_ledger: bool,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
     /// Explicit seed for a new world; EU4 saves carry their own random state.
@@ -351,7 +354,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         .map(|path| -> Result<_, Box<dyn std::error::Error>> {
             let requests: Vec<augustus_eu4::VanillaNavalConstructionRequest> =
                 serde_json::from_slice(&std::fs::read(path)?)?;
-            Ok(loaded.submit_naval_constructions(&requests)?)
+            Ok(if cli.naval_construction_ledger {
+                loaded.submit_naval_constructions_with_ledger(&requests)?
+            } else {
+                loaded.submit_naval_constructions(&requests)?
+            })
         })
         .transpose()?;
     if monthly_pipeline.is_some() || cli.annual_ledger_rollover {

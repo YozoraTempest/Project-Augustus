@@ -3,10 +3,15 @@
 
 use std::collections::BTreeSet;
 
-use augustus_core::{NavalConstructionId, NavalConstructionInput, PaidNavalConstructionInput};
+use augustus_core::{
+    COUNTRY_LEDGER_EXPENSE_KEYS, NavalConstructionId, NavalConstructionInput,
+    PaidNavalConstructionInput,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{Error, VanillaWorld};
+
+const NAVAL_CONSTRUCTION_EXPENSE_KEY: &str = "EXPENSEFLEET";
 
 /// A caller-priced naval order with an explicit absolute core completion day.
 ///
@@ -31,6 +36,41 @@ impl VanillaWorld {
         &mut self,
         requests: &[VanillaNavalConstructionRequest],
     ) -> Result<Vec<NavalConstructionId>, Error> {
+        let inputs = self.resolve_naval_construction_requests(requests)?;
+        self.initial
+            .enqueue_paid_naval_constructions(&inputs)
+            .map_err(|error| Error::caused_by("naval construction request", error))
+    }
+
+    /// Atomically submits caller-priced naval orders under EU4's fleet expense key.
+    ///
+    /// The request cost is explicit; this method does not quote prices or model
+    /// EU4 eligibility, loans, pauses, or construction queues. The ordinary
+    /// [`Self::submit_naval_constructions`] entry point remains unclassified.
+    pub fn submit_naval_constructions_with_ledger(
+        &mut self,
+        requests: &[VanillaNavalConstructionRequest],
+    ) -> Result<Vec<NavalConstructionId>, Error> {
+        let inputs = self.resolve_naval_construction_requests(requests)?;
+        let category = COUNTRY_LEDGER_EXPENSE_KEYS
+            .iter()
+            .position(|key| *key == NAVAL_CONSTRUCTION_EXPENSE_KEY)
+            .and_then(|index| u32::try_from(index).ok())
+            .ok_or_else(|| {
+                Error::message(
+                    "naval construction request",
+                    format!("missing country ledger expense key {NAVAL_CONSTRUCTION_EXPENSE_KEY}"),
+                )
+            })?;
+        self.initial
+            .enqueue_naval_constructions_with_expenses(&inputs, category)
+            .map_err(|error| Error::caused_by("naval construction request", error))
+    }
+
+    fn resolve_naval_construction_requests(
+        &self,
+        requests: &[VanillaNavalConstructionRequest],
+    ) -> Result<Vec<PaidNavalConstructionInput>, Error> {
         let world = self.initial.world();
         let pending_locations = world
             .naval_constructions()
@@ -139,8 +179,6 @@ impl VanillaWorld {
             });
         }
 
-        self.initial
-            .enqueue_paid_naval_constructions(&inputs)
-            .map_err(|error| Error::caused_by("naval construction request", error))
+        Ok(inputs)
     }
 }
