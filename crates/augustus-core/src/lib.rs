@@ -39,6 +39,7 @@ mod metrics;
 mod modifiers;
 mod named_values;
 mod naval;
+mod naval_constructions;
 mod objectives;
 mod owner_area_adjacencies;
 mod ownership;
@@ -171,6 +172,9 @@ pub use metrics::{MetricContribution, MetricDefinition, MetricEffect, MetricEval
 pub use modifiers::{ModifierDefinition, ModifierInstance, ModifierRenewal, Modifiers};
 pub use named_values::{NamedValues, NumericComparison, NumericOperation, NumericSlot};
 pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId, NavalUnitState};
+pub use naval_constructions::{
+    NavalConstructionId, NavalConstructionInput, NavalConstructionOrder,
+};
 pub use objectives::{ObjectiveGroup, Objectives};
 pub use owner_area_adjacencies::{OwnerAreaAdjacencyCounts, OwnerAreaAdjacencyEntry};
 pub use plan::{Action, Condition, Plan, SchoolOpinionTarget, Target};

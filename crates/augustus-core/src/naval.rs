@@ -255,6 +255,30 @@ impl NavalUnits {
     }
 }
 
+pub(crate) fn insert_constructed_ship(
+    naval_units: &mut NavalUnits,
+    fleets: &mut Fleets,
+    owner: EntityId,
+    location: EntityId,
+    unit_type: &str,
+) -> Result<NavalUnitId, Error> {
+    let fleet_id = fleets.next_id()?;
+    let ship_type = unit_type.to_owned();
+    let ship_id = naval_units
+        .create_many(
+            owner,
+            location,
+            std::slice::from_ref(&ship_type),
+            Some(&[NavalUnitState {
+                home_province: Some(location),
+                ..Default::default()
+            }]),
+        )?
+        .remove(0);
+    fleets.push(fleet_id, owner, location, None, vec![ship_id]);
+    Ok(ship_id)
+}
+
 impl World {
     pub fn fleets(&self) -> &[Fleet] {
         &self.fleets.fleets

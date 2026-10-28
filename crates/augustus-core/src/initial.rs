@@ -813,6 +813,12 @@ impl InitialWorld {
     pub fn naval_units(&self) -> &[crate::NavalUnit] {
         self.world.naval_units()
     }
+    pub fn enqueue_naval_constructions(
+        &mut self,
+        inputs: &[crate::NavalConstructionInput],
+    ) -> Result<Vec<crate::NavalConstructionId>, Error> {
+        self.world.enqueue_naval_constructions(inputs)
+    }
     pub fn create_naval_unit(
         &mut self,
         owner: EntityId,

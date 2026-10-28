@@ -97,6 +97,7 @@ pub struct World {
     pub(crate) armies: crate::army::Armies,
     pub(crate) naval_units: crate::naval::NavalUnits,
     pub(crate) fleets: crate::naval::Fleets,
+    pub(crate) naval_constructions: crate::naval_constructions::NavalConstructions,
     pub(crate) ownership: Arc<crate::ownership::OwnershipIndex>,
     pub(crate) province_connectivity: Option<crate::ProvinceConnectivity>,
     pub(crate) entity_names: BTreeMap<String, Vec<EntityId>>,
@@ -176,6 +177,11 @@ struct Snapshot {
     naval_units: crate::naval::NavalUnits,
     #[serde(default, skip_serializing_if = "crate::naval::Fleets::is_empty")]
     fleets: crate::naval::Fleets,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::naval_constructions::NavalConstructions::is_initial_empty"
+    )]
+    naval_constructions: crate::naval_constructions::NavalConstructions,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     owned_province_order: BTreeMap<EntityId, Vec<EntityId>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -308,6 +314,7 @@ impl World {
             armies: crate::army::Armies::default(),
             naval_units: crate::naval::NavalUnits::default(),
             fleets: crate::naval::Fleets::default(),
+            naval_constructions: crate::naval_constructions::NavalConstructions::default(),
             ownership: Arc::default(),
             province_connectivity: None,
             entity_names: BTreeMap::new(),
@@ -1256,6 +1263,7 @@ impl World {
             ));
         }
         calendar.date(0)?;
+        self.naval_constructions.validate_calendar(&calendar)?;
         let previous = self.calendar.replace(calendar);
         match self.truces.validate(self) {
             Ok(index) => self.truce_expirations = index,
@@ -1808,6 +1816,7 @@ impl World {
                 .truce_expirations
                 .first_key_value()
                 .map(|(&day, _)| day);
+            let naval_construction_day = self.naval_constructions.next_due_day();
             let grant_tick = if self.justifications.active.is_empty() {
                 None
             } else {
@@ -1830,6 +1839,7 @@ impl World {
                 .chain(year)
                 .chain(expiration)
                 .chain(truce_retirement)
+                .chain(naval_construction_day)
                 .chain(grant_tick)
                 .chain(daily_estate_tick)
                 .chain(daily_system_tick)
@@ -1848,6 +1858,10 @@ impl World {
             self.expire_modifiers(next);
             self.retire_truces(next, false);
             if let Err(error) = self.maintain_justifications(false) {
+                self.failed = true;
+                return Err(error);
+            }
+            if let Err(error) = self.complete_due_naval_constructions(next) {
                 self.failed = true;
                 return Err(error);
             }
@@ -1909,6 +1923,7 @@ impl World {
             armies: self.armies.clone(),
             naval_units: self.naval_units.clone(),
             fleets: self.fleets.clone(),
+            naval_constructions: self.naval_constructions.clone(),
             owned_province_order: self.ownership.order_overrides(),
             subject_country_order: self.subject_country_order.clone(),
             day: self.day,
@@ -2059,6 +2074,7 @@ impl World {
             armies: snapshot.armies,
             naval_units: snapshot.naval_units,
             fleets: snapshot.fleets,
+            naval_constructions: snapshot.naval_constructions,
             ownership: Arc::default(),
             entity_names: BTreeMap::new(),
             day: snapshot.day,
@@ -2137,6 +2153,7 @@ impl World {
         world.fleets.validate(&world.entities, &world.naval_units)?;
         world.fleets.ensure_singleton_fleets(&world.naval_units)?;
         world.fleets.validate(&world.entities, &world.naval_units)?;
+        world.naval_constructions.validate(&world)?;
         world.unit_templates.validate()?;
         world.unit_selections.validate(&world)?;
         for rule in &world.rules {

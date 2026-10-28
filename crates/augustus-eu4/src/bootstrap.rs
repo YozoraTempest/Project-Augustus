@@ -37,6 +37,9 @@ use crate::economy::{EconomyDraft, EconomyReport};
 use crate::estates::{EstateDraft, EstateReport};
 use crate::governments::{GovernmentDraft, GovernmentReport};
 use crate::ideas::{IdeaDraft, IdeaReport};
+use crate::naval_constructions::{
+    VanillaNavalConstructionImportReport, VanillaNavalConstructionReport,
+};
 use crate::politics::{self, CountryDraft, RelationSource, RelationView};
 use crate::setup::{SetupDraft, SetupReport};
 use crate::state_edicts::VanillaExternalStateEdicts;
@@ -449,6 +452,7 @@ pub struct VanillaWorld {
     monthly_event_system_id: Option<String>,
     monthly_event_base: Option<MonthlyEventBase>,
     yearly_event_rules: Option<augustus_core::YearlyEventRules>,
+    naval_construction_import_report: VanillaNavalConstructionImportReport,
     content: String,
 }
 
@@ -815,6 +819,7 @@ struct LoadOverrides<'a> {
     province_development: Option<&'a BTreeMap<u32, VanillaExternalProvinceDevelopment>>,
     province_metric_values: Option<&'a BTreeMap<u32, BTreeMap<String, Option<i64>>>>,
     state_edicts: Option<&'a VanillaExternalStateEdicts>,
+    naval_construction_report: Option<&'a VanillaNavalConstructionReport>,
     province_is_city: Option<&'a BTreeMap<u32, Option<bool>>>,
     province_in_empire: Option<&'a BTreeMap<u32, Option<bool>>>,
     province_mothball_status: Option<&'a BTreeMap<u32, u8>>,
@@ -840,6 +845,7 @@ impl<'a> LoadOverrides<'a> {
         Self {
             country_metric_values: (!state.country_metric_values.is_empty())
                 .then_some(&state.country_metric_values),
+            naval_construction_report: None,
             country_national_focus: (!state.country_national_focus.is_empty())
                 .then_some(&state.country_national_focus),
             country_capitals: (!state.country_capitals.is_empty())
@@ -2553,8 +2559,15 @@ impl VanillaWorld {
         content: &ContentSet,
         path: impl AsRef<Path>,
     ) -> Result<Self, Error> {
+        let path = path.as_ref();
         let save = crate::read_vanilla_save_state_with_state_edicts(path)?;
-        Self::load_from_content_with_state_edicts(content, &save)
+        let constructions = crate::read_vanilla_naval_constructions(path)?;
+        Self::load_from_content_with_state_edicts_and_naval_constructions(
+            content,
+            &save,
+            None,
+            Some(&constructions),
+        )
     }
 
     /// Loads a plaintext EU4 save and overlays supplemental translated state
@@ -2567,8 +2580,15 @@ impl VanillaWorld {
         path: impl AsRef<Path>,
         overlay: &VanillaExternalState,
     ) -> Result<Self, Error> {
+        let path = path.as_ref();
         let save = crate::read_vanilla_save_state_with_state_edicts(path)?;
-        Self::load_from_content_with_state_edicts_and_external_state(content, &save, Some(overlay))
+        let constructions = crate::read_vanilla_naval_constructions(path)?;
+        Self::load_from_content_with_state_edicts_and_naval_constructions(
+            content,
+            &save,
+            Some(overlay),
+            Some(&constructions),
+        )
     }
 
     /// Loads a save together with its current state edicts before startup effects execute.
@@ -2585,8 +2605,20 @@ impl VanillaWorld {
         save: &crate::VanillaSaveStateWithStateEdicts,
         overlay: Option<&VanillaExternalState>,
     ) -> Result<Self, Error> {
+        Self::load_from_content_with_state_edicts_and_naval_constructions(
+            content, save, overlay, None,
+        )
+    }
+
+    fn load_from_content_with_state_edicts_and_naval_constructions(
+        content: &ContentSet,
+        save: &crate::VanillaSaveStateWithStateEdicts,
+        overlay: Option<&VanillaExternalState>,
+        constructions: Option<&VanillaNavalConstructionReport>,
+    ) -> Result<Self, Error> {
         let save = save.clone();
         let overlay = overlay.cloned();
+        let constructions = constructions.cloned();
         let root = content.base_root();
         std::thread::scope(|scope| {
             let handle = std::thread::Builder::new()
@@ -2598,6 +2630,7 @@ impl VanillaWorld {
                         &save.save,
                         overlay.as_ref(),
                         Some(&save.state_edicts),
+                        constructions.as_ref(),
                     )
                 })
                 .map_err(|error| Error::caused_by(root.path(), error))?;
@@ -2640,6 +2673,39 @@ impl VanillaWorld {
                         &save,
                         overlay.as_ref(),
                         None,
+                        None,
+                    )
+                })
+                .map_err(|error| Error::caused_by(root.path(), error))?;
+            handle
+                .join()
+                .map_err(|_| Error::message(root.path(), "EU4 save loader thread panicked"))?
+        })
+    }
+
+    /// Binds independently translated naval orders with a save state before
+    /// startup effects execute. The report date must match `save.date`.
+    pub fn load_from_content_with_save_state_and_naval_constructions(
+        content: &ContentSet,
+        save: &crate::VanillaSaveState,
+        constructions: &VanillaNavalConstructionReport,
+        overlay: Option<&VanillaExternalState>,
+    ) -> Result<Self, Error> {
+        let save = save.clone();
+        let constructions = constructions.clone();
+        let overlay = overlay.cloned();
+        let root = content.base_root();
+        std::thread::scope(|scope| {
+            let handle = std::thread::Builder::new()
+                .name("augustus-eu4-save-loader".into())
+                .stack_size(32 * 1024 * 1024)
+                .spawn_scoped(scope, || {
+                    Self::load_from_content_with_save_state_inner(
+                        content,
+                        &save,
+                        overlay.as_ref(),
+                        None,
+                        Some(&constructions),
                     )
                 })
                 .map_err(|error| Error::caused_by(root.path(), error))?;
@@ -2654,6 +2720,7 @@ impl VanillaWorld {
         save: &crate::VanillaSaveState,
         overlay: Option<&VanillaExternalState>,
         state_edicts: Option<&VanillaExternalStateEdicts>,
+        naval_constructions: Option<&VanillaNavalConstructionReport>,
     ) -> Result<Self, Error> {
         let baseline = Self::load_from_content(content, &save.date)?;
         let (players, mut state) = save.for_world(&baseline)?;
@@ -2662,6 +2729,7 @@ impl VanillaWorld {
         }
         let mut overrides = LoadOverrides::from_external_state(&state);
         overrides.state_edicts = state_edicts;
+        overrides.naval_construction_report = naval_constructions;
         Self::load_from_view(
             content,
             content.base_root(),
@@ -3899,6 +3967,34 @@ impl VanillaWorld {
             overrides.unresolved_trade_good_price_impacts_milli,
         )?;
         setup.bind(&mut initial, date, &mut report.setup)?;
+        let mut naval_construction_import_report = VanillaNavalConstructionImportReport::default();
+        if let Some(construction_report) = overrides.naval_construction_report {
+            let loaded_date = format!(
+                "{}.{}.{}",
+                report.start_date.year, report.start_date.month, report.start_date.day
+            );
+            let (mut inputs, mut import_report) =
+                crate::naval_constructions::bind_naval_constructions(
+                    construction_report,
+                    &initial,
+                    &loaded_date,
+                );
+            inputs.sort_by(|left, right| {
+                left.location
+                    .0
+                    .cmp(&right.location.0)
+                    .then_with(|| left.owner.0.cmp(&right.owner.0))
+                    .then_with(|| left.unit_type.cmp(&right.unit_type))
+                    .then_with(|| left.completion_day.cmp(&right.completion_day))
+            });
+            if !inputs.is_empty() {
+                let ids = initial
+                    .enqueue_naval_constructions(&inputs)
+                    .map_err(|error| Error::caused_by(root.path(), error))?;
+                import_report.imported_count = ids.len();
+            }
+            naval_construction_import_report = import_report;
+        }
         if let Some(saved_levels) = overrides.country_technology_levels {
             let mut technology = initial.world().technology().clone();
             for (tag, levels) in saved_levels {
@@ -4878,6 +4974,7 @@ impl VanillaWorld {
             monthly_event_system_id,
             monthly_event_base,
             yearly_event_rules,
+            naval_construction_import_report,
             content,
         })
     }
@@ -4889,6 +4986,11 @@ impl VanillaWorld {
     /// Returns the translated yearly pulse rules when they are available.
     pub fn yearly_event_rules(&self) -> Option<&YearlyEventRules> {
         self.yearly_event_rules.as_ref()
+    }
+
+    /// Returns the save-order import count and any construction records left unresolved.
+    pub fn naval_construction_import_report(&self) -> &VanillaNavalConstructionImportReport {
+        &self.naval_construction_import_report
     }
 
     /// Returns the raw EU4 province `mothball_status` byte without assigning

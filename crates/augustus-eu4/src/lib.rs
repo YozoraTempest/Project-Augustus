@@ -36,12 +36,19 @@ mod load;
 mod localisation;
 mod missions;
 mod monarch_power;
+mod naval_constructions;
 mod navy_tradition;
 mod power_income;
 mod prestige;
 mod truces;
 mod unit_templates;
 pub use missions::MissionReport;
+pub use naval_constructions::{
+    VanillaNavalConstructionImportReport, VanillaNavalConstructionRecord,
+    VanillaNavalConstructionReport, VanillaNavalConstructionUnresolved,
+    read_vanilla_naval_constructions, read_vanilla_naval_constructions_with_token_map,
+    read_vanilla_naval_constructions_with_token_resolver,
+};
 mod politics;
 mod province_map;
 mod province_metrics;

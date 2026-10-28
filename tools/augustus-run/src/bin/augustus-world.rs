@@ -176,6 +176,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             None => augustus_eu4::read_vanilla_save_state_and_trade_node_runtime_states(path),
         })
         .transpose()?;
+    let naval_constructions = cli
+        .eu4_save
+        .as_ref()
+        .map(|path| match cli.eu4_token_map.as_ref() {
+            Some(token_map) => {
+                augustus_eu4::read_vanilla_naval_constructions_with_token_map(path, token_map)
+            }
+            None => augustus_eu4::read_vanilla_naval_constructions(path),
+        })
+        .transpose()?;
     let load_snapshot = cli.load.as_ref().map(std::fs::read_to_string).transpose()?;
     let loaded_monthly_system_id = load_snapshot
         .as_deref()
@@ -191,9 +201,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         let save = save_state
             .as_ref()
             .expect("save state loaded from the selected EU4 save");
-        VanillaWorld::load_from_content_with_save_state_and_external_state(
+        VanillaWorld::load_from_content_with_save_state_and_naval_constructions(
             &content,
             &save.state,
+            naval_constructions
+                .as_ref()
+                .expect("naval constructions read from the selected EU4 save"),
             external_state.as_ref(),
         )?
     } else {
@@ -350,6 +363,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 serde_json::json!({"seed": seed, "count": count, "index": index})
             }),
             "pending_tasks": loaded.initial.world().pending_tasks(),
+            "pending_naval_constructions": loaded.initial.world().naval_constructions().len(),
             "tax_settlements": loaded.initial.world().taxation().map(|t| t.settlement_count),
             "last_tax_day": loaded.initial.world().taxation().and_then(|t| t.last_settlement.as_ref().map(|s| s.day)),
             "production_settlements": loaded.initial.world().monthly_production().map(|p| p.settlement_count),
@@ -361,6 +375,10 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             "naval_units": loaded.initial.naval_units().len()}});
     if !cli.omit_load_report {
         output["report"] = serde_json::to_value(&loaded.report)?;
+        if naval_constructions.is_some() {
+            output["naval_construction_import"] =
+                serde_json::to_value(loaded.naval_construction_import_report())?;
+        }
     }
     if !loaded.initial.world().country_controllers().is_empty() {
         output["country_controllers"] = serde_json::json!(

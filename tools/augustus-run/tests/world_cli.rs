@@ -49,6 +49,113 @@ provinces={
 "#
 }
 
+#[test]
+fn world_cli_resumes_saved_naval_construction_without_charging_or_completing_twice() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let game_root = temp.path().join("game");
+    copy_directory(&fixture, &game_root);
+    let map_path = game_root.join("map/default.map");
+    let map = fs::read_to_string(&map_path).unwrap();
+    fs::write(&map_path, format!("{map}\nforce_coastal={{1}}\n")).unwrap();
+    let save_path = temp.path().join("naval-order.eu4");
+    fs::write(
+        &save_path,
+        r#"EU4txt
+date=1444.11.11
+player="AAA"
+countries={ AAA={ human=yes treasury=20.000 } BBB={ human=no } }
+provinces={
+    -1={
+        owner="AAA" controller="AAA"
+        military_construction={
+            country="AAA" type="sample_light_ship"
+            start_date=1444.11.10 total=3 original_total=3
+            progress=0.333 date=1444.11.13 cost=5.000
+        }
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let run = |days: &str, load: Option<&Path>, save: Option<&Path>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+        command
+            .arg("--game-root")
+            .arg(&game_root)
+            .arg("--eu4-save")
+            .arg(&save_path)
+            .args(["--days", days, "--country", "AAA"]);
+        if let Some(load) = load {
+            command.arg("--load").arg(load);
+        }
+        if let Some(save) = save {
+            command.arg("--save").arg(save);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    let before_path = temp.path().join("before.json");
+    let before = run("2", None, Some(&before_path));
+    assert_eq!(before["naval_construction_import"]["imported_count"], 1);
+    assert!(
+        before["naval_construction_import"]["unresolved"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(before["simulation"]["pending_naval_constructions"], 1);
+    assert_eq!(before["simulation"]["pending_tasks"], 0);
+    assert_eq!(before["simulation"]["naval_units"], 0);
+    assert_eq!(before["country"]["resources"]["treasury_milli"], 20_000);
+
+    let resumed_path = temp.path().join("resumed.json");
+    let resumed = run("1", Some(&before_path), Some(&resumed_path));
+    assert_eq!(resumed["simulation"]["pending_naval_constructions"], 0);
+    assert_eq!(resumed["simulation"]["naval_units"], 1);
+    assert_eq!(resumed["simulation"]["fleets"], 1);
+    assert_eq!(resumed["country"]["resources"]["treasury_milli"], 20_000);
+    let continuous_path = temp.path().join("continuous.json");
+    run("3", None, Some(&continuous_path));
+    assert_eq!(
+        fs::read_to_string(&resumed_path).unwrap(),
+        fs::read_to_string(&continuous_path).unwrap()
+    );
+    let later = run("4", Some(&resumed_path), None);
+    assert_eq!(later["simulation"]["pending_naval_constructions"], 0);
+    assert_eq!(later["simulation"]["naval_units"], 1);
+    assert_eq!(later["country"]["resources"]["treasury_milli"], 20_000);
+
+    let unsupported = fs::read_to_string(&save_path)
+        .unwrap()
+        .replace("sample_light_ship", "unavailable_hull");
+    fs::write(&save_path, unsupported).unwrap();
+    let unsupported = run("0", None, None);
+    assert_eq!(
+        unsupported["naval_construction_import"]["imported_count"],
+        0
+    );
+    assert_eq!(unsupported["simulation"]["pending_naval_constructions"], 0);
+    assert_eq!(unsupported["simulation"]["naval_units"], 0);
+    assert!(
+        unsupported["naval_construction_import"]["unresolved"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["province_id"] == 1
+                && entry["reason"]
+                    .as_str()
+                    .unwrap()
+                    .contains("unavailable_hull"))
+    );
+}
+
 fn copy_directory(source: &Path, destination: &Path) {
     fs::create_dir_all(destination).unwrap();
     for entry in fs::read_dir(source).unwrap() {
