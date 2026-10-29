@@ -1015,6 +1015,51 @@ impl InitialWorld {
     pub fn province(&self, id: u32) -> Option<&ProvinceState> {
         self.province_index.get(&id).map(|&i| &self.provinces[i])
     }
+
+    /// Atomically updates a province owner in both the core ownership graph
+    /// and the EU4-facing province projection.
+    pub fn set_province_owner(&mut self, province: u32, owner: Option<&str>) -> Result<(), Error> {
+        let province_index = self
+            .province_index
+            .get(&province)
+            .copied()
+            .ok_or_else(|| Error::Invalid(format!("unknown province {province}")))?;
+        let mut staged = self.clone();
+        let province_entity = staged
+            .province_entity(province)
+            .expect("validated province");
+        match owner {
+            Some(owner) => {
+                let country_entity = staged
+                    .country_entity(owner)
+                    .ok_or_else(|| Error::Invalid(format!("unknown province owner {owner}")))?;
+                if staged.world.entity(province_entity)?.owner != Some(country_entity)
+                    && staged
+                        .world
+                        .entity(province_entity)?
+                        .owner
+                        .is_some_and(|previous| {
+                            staged
+                                .world
+                                .entity(previous)
+                                .ok()
+                                .is_some_and(|country| country.capital == Some(province_entity))
+                        })
+                {
+                    return Err(Error::Invalid(
+                        "cannot transfer a country's current capital without moving it first"
+                            .into(),
+                    ));
+                }
+                staged.world.set_owner(province_entity, country_entity)?;
+            }
+            None => staged.world.clear_owner(province_entity)?,
+        }
+        staged.provinces[province_index].owner = owner.map(str::to_owned);
+        staged.projected_ownership = Arc::clone(&staged.world.ownership);
+        *self = staged;
+        Ok(())
+    }
     pub fn country_entity(&self, id: &str) -> Option<EntityId> {
         self.country_index.get(id).copied().map(EntityId)
     }

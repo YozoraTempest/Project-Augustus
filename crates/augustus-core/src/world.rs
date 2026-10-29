@@ -1380,6 +1380,40 @@ impl World {
         Ok(())
     }
 
+    /// Clears a province owner and records confirmed absence separately from
+    /// an owner value that is still unknown.
+    pub fn clear_owner(&mut self, province: EntityId) -> Result<(), Error> {
+        self.require_running()?;
+        if self.entity(province)?.kind != EntityKind::Province {
+            return Err(Error::Invalid("owner relation requires a province".into()));
+        }
+        if self
+            .entities
+            .iter()
+            .any(|entity| entity.kind == EntityKind::Country && entity.capital == Some(province))
+        {
+            return Err(Error::Invalid(
+                "cannot clear a country's current capital owner without moving it first".into(),
+            ));
+        }
+        let previous = self.entities[province.0].owner;
+        if let Some(previous) = previous {
+            Arc::make_mut(&mut self.ownership).unassign(province, previous);
+        } else if !self
+            .known_absent_targets
+            .get(&province)
+            .is_some_and(|targets| targets.contains(&Target::Owner))
+        {
+            Arc::make_mut(&mut self.ownership).resolve_absence();
+        }
+        self.entities[province.0].owner = None;
+        self.known_absent_targets
+            .entry(province)
+            .or_default()
+            .insert(Target::Owner);
+        Ok(())
+    }
+
     pub fn set_capital(&mut self, country: EntityId, province: EntityId) -> Result<(), Error> {
         if self.entity(country)?.kind != EntityKind::Country
             || self.entity(province)?.owner != Some(country)

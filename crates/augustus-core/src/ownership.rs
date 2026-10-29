@@ -54,6 +54,14 @@ impl OwnershipIndex {
         self.members.entry(country).or_default().push(province);
     }
 
+    pub(crate) fn unassign(&mut self, province: EntityId, previous: EntityId) {
+        let members = self.members.get_mut(&previous).expect("indexed owner");
+        members.retain(|&member| member != province);
+        if members.is_empty() {
+            self.members.remove(&previous);
+        }
+    }
+
     pub(crate) fn order_overrides(&self) -> BTreeMap<EntityId, Vec<EntityId>> {
         self.members
             .iter()
