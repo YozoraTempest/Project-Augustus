@@ -547,3 +547,7 @@ core 还提供纯计算的 `calculate_vanilla_native_migration_score` 与 `selec
 score query 的 JSON 解析和计算在 `--save` 文件创建之前完成。未知字段、负距离惩罚或其他计算错误会使命令失败且不留下 snapshot 文件。
 
 native migration transfer CLI 也在保存前完成请求解析和 adapter 校验。未知 transfer 字段、未知国家或未知目的地会失败且不创建 snapshot；已提交的前序请求只在整个请求调用成功后才会出现在保存结果中。
+
+score core 输入和候选结构使用 `serde(deny_unknown_fields)`；JSON roundtrip 会保留 `migration_steps = null` 与归一化距离向量，未知嵌套字段直接拒绝。CLI 的 score query 解析复用这份契约。
+
+EU4 country history 中 `capital=0` 会保留为显式无值；`CountryView.capital_history` JSON 输出为日期键对应的 `null`，并在 Augustus snapshot reload 后保持该三态信息。

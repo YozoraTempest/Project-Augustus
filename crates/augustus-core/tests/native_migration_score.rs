@@ -104,3 +104,33 @@ fn invalid_inputs_and_arithmetic_overflow_are_rejected() {
     overflow.a0d180_result = i64::MAX;
     assert!(calculate_vanilla_native_migration_score(overflow).is_err());
 }
+
+#[test]
+fn score_inputs_roundtrip_through_json_and_reject_unknown_fields() {
+    let mut score = input();
+    score.migration_steps = None;
+    score.normalized_distance_penalties = vec![7, 11, 13];
+    let encoded = serde_json::to_value(&score).unwrap();
+    let decoded: VanillaNativeMigrationScoreInput = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded, score);
+
+    let candidate = VanillaNativeMigrationScoreCandidateInput {
+        candidate_id: 42,
+        score,
+    };
+    let encoded = serde_json::to_value(&candidate).unwrap();
+    let decoded: VanillaNativeMigrationScoreCandidateInput =
+        serde_json::from_value(encoded.clone()).unwrap();
+    assert_eq!(decoded, candidate);
+
+    let mut score_object = encoded["score"].as_object().unwrap().clone();
+    score_object.insert("unexpected".into(), serde_json::json!(true));
+    let mut invalid_candidate = encoded.as_object().unwrap().clone();
+    invalid_candidate.insert("score".into(), serde_json::Value::Object(score_object));
+    assert!(
+        serde_json::from_value::<VanillaNativeMigrationScoreCandidateInput>(
+            serde_json::Value::Object(invalid_candidate)
+        )
+        .is_err()
+    );
+}
