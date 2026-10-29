@@ -2511,3 +2511,89 @@ fn native_migration_transfer_cli_restores_snapshot_before_execution() {
     let reloaded: serde_json::Value = serde_json::from_slice(&reloaded.stdout).unwrap();
     assert_eq!(reloaded["country"]["bound_capital"], 1);
 }
+
+#[test]
+fn world_cli_roundtrips_combined_post_migration_relations() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+    let source_save = temp.path().join("post-migration.eu4");
+    fs::write(
+        &source_save,
+        r#"EU4txt
+date=1444.11.11
+player="AAA"
+countries={
+    AAA={
+        capital=4
+        original_capital=2
+        powers={140 126 150}
+        native={provinces={2} migration_steps=1}
+        history={1444.11.11={capital=4}}
+    }
+}
+provinces={
+    -1={previous_controller="AAA" tribal_owner="AAA"}
+    -2={owner="BBB" controller="BBB" tribal_owner="AAA"}
+    -4={owner="AAA" controller="AAA" previous_controller="BBB" tribal_owner="AAA"}
+}
+"#,
+    )
+    .unwrap();
+    let snapshot = temp.path().join("post-migration.json");
+    let first = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--import-native-migration-state")
+        .arg("--country")
+        .arg("AAA")
+        .arg("--province")
+        .arg("1")
+        .arg("--save")
+        .arg(&snapshot)
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let first: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(first["country"]["bound_capital"], 4);
+    assert_eq!(first["country"]["original_capital"], 2);
+    assert_eq!(first["country"]["capital_history"]["1444.11.11"], 4);
+    assert_eq!(first["province"]["previous_controller"], "AAA");
+    assert_eq!(first["province"]["tribal_owner"], "AAA");
+
+    let second = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--load")
+        .arg(&snapshot)
+        .arg("--country")
+        .arg("AAA")
+        .arg("--province")
+        .arg("1")
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(second["country"]["bound_capital"], 4);
+    assert_eq!(second["country"]["original_capital"], 2);
+    assert_eq!(second["country"]["capital_history"]["1444.11.11"], 4);
+    assert_eq!(second["province"]["previous_controller"], "AAA");
+    assert_eq!(second["province"]["tribal_owner"], "AAA");
+}

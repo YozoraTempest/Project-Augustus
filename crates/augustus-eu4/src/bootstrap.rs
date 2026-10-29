@@ -33,7 +33,7 @@ use jomini::{
     common::{Date, PdsDate},
     text::{ObjectReader, Operator},
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 
 use crate::administration::{AdministrationDraft, AdministrationReport};
@@ -143,6 +143,28 @@ pub struct ProvinceView<'a> {
     pub administration: Option<augustus_core::AdministrationEvaluation>,
 }
 
+fn serialize_capital_history<S>(
+    history: &Option<BTreeMap<WorldDate, Option<u32>>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let Some(history) = history else {
+        return serializer.serialize_none();
+    };
+    let values = history
+        .iter()
+        .map(|(date, capital)| {
+            (
+                format!("{:04}.{:02}.{:02}", date.year, date.month, date.day),
+                *capital,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    values.serialize(serializer)
+}
+
 #[derive(Debug, Serialize)]
 pub struct CountryView<'a> {
     pub metrics: Option<&'a BTreeMap<String, Option<i64>>>,
@@ -177,7 +199,10 @@ pub struct CountryView<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub original_capital: Option<Option<u32>>,
     /// Dated capital events imported from the save history block.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_capital_history"
+    )]
     pub capital_history: Option<BTreeMap<WorldDate, Option<u32>>>,
     pub politics: Option<&'a augustus_core::CountryPolitics>,
     pub diplomacy: Vec<RelationView<'a>>,
