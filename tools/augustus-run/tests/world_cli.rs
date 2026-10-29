@@ -2683,6 +2683,110 @@ fn world_cli_reports_caller_resolved_native_migration_scores_without_mutation() 
 }
 
 #[test]
+fn world_cli_reports_no_native_migration_score_winner_without_mutation() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+    let scores = temp.path().join("no-winner-scores.json");
+    fs::write(
+        &scores,
+        serde_json::to_vec(&serde_json::json!([
+            {
+                "candidate_id": 10,
+                "score": {
+                    "eligible": false,
+                    "trade_factor": 1519919863,
+                    "a0d180_result": 6000,
+                    "devastation": 0,
+                    "destination_in_native_membership": true,
+                    "migration_steps": null,
+                    "normalized_distance_penalties": []
+                }
+            },
+            {
+                "candidate_id": 20,
+                "score": {
+                    "eligible": true,
+                    "trade_factor": 1519919863,
+                    "a0d180_result": 6000,
+                    "devastation": 0,
+                    "destination_in_native_membership": false,
+                    "migration_steps": null,
+                    "normalized_distance_penalties": [1264]
+                }
+            },
+            {
+                "candidate_id": 30,
+                "score": {
+                    "eligible": true,
+                    "trade_factor": 1519919863,
+                    "a0d180_result": 6000,
+                    "devastation": 0,
+                    "destination_in_native_membership": false,
+                    "migration_steps": 2,
+                    "normalized_distance_penalties": []
+                }
+            }
+        ]))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let score_snapshot = temp.path().join("no-winner-score.json");
+    let scored = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .args(["--seed", "7", "--ai-only", "--omit-load-report"])
+        .arg("--native-migration-score-queries")
+        .arg(&scores)
+        .arg("--save")
+        .arg(&score_snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        scored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scored.stderr)
+    );
+    let scored: serde_json::Value = serde_json::from_slice(&scored.stdout).unwrap();
+    assert_eq!(
+        scored["native_migration_score_queries"]["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|candidate| candidate["score"].clone())
+            .collect::<Vec<_>>(),
+        vec![serde_json::Value::Null; 3]
+    );
+    assert_eq!(
+        scored["native_migration_score_queries"]["winner"],
+        serde_json::Value::Null
+    );
+
+    let plain_snapshot = temp.path().join("no-winner-plain.json");
+    let plain = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .args(["--seed", "7", "--ai-only", "--omit-load-report"])
+        .arg("--save")
+        .arg(&plain_snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert_eq!(
+        fs::read(&score_snapshot).unwrap(),
+        fs::read(&plain_snapshot).unwrap()
+    );
+}
+
+#[test]
 fn world_cli_rejects_invalid_score_queries_before_creating_snapshot() {
     let temp = tempfile::tempdir().unwrap();
     let fixture = temp.path().join("world");
