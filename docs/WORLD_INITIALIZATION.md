@@ -545,3 +545,5 @@ core 还提供纯计算的 `calculate_vanilla_native_migration_score` 与 `selec
 `augustus-world` 还提供只读的 `--native-migration-score-queries FILE`。输入是 caller-resolved `VanillaNativeMigrationScoreCandidateInput` 数组，输出每个候选的分数和严格大于规则选出的 winner；它不读取世界状态来补全 trade factor、`a0d180`、距离或随机源，也不修改 snapshot 或提交迁徙命令。
 
 score query 的 JSON 解析和计算在 `--save` 文件创建之前完成。未知字段、负距离惩罚或其他计算错误会使命令失败且不留下 snapshot 文件。
+
+native migration transfer CLI 也在保存前完成请求解析和 adapter 校验。未知 transfer 字段、未知国家或未知目的地会失败且不创建 snapshot；已提交的前序请求只在整个请求调用成功后才会出现在保存结果中。

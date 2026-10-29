@@ -2761,3 +2761,90 @@ fn world_cli_rejects_invalid_score_queries_before_creating_snapshot() {
     );
     assert!(!negative_snapshot.exists());
 }
+
+#[test]
+fn world_cli_rejects_invalid_transfer_requests_before_creating_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+    let defines_path = fixture.join("common/defines.lua");
+    let defines = fs::read_to_string(&defines_path).unwrap();
+    fs::write(
+        &defines_path,
+        format!(
+            "{defines}\nNDefines.NCountry.DEBT_LIMIT_DIP=-100\nNDefines.NCountry.TRIBE_MIGRATION_ADM_COST=0\nNDefines.NCountry.TRIBE_MIGRATION_DIP_COST=0\nNDefines.NCountry.TRIBE_MIGRATION_MIL_COST=50\n"
+        ),
+    )
+    .unwrap();
+    let source_save = temp.path().join("native.eu4");
+    fs::write(
+        &source_save,
+        "EU4txt\ndate=1444.11.11\nplayer=AAA\ncountries={AAA={capital=2 powers={140 126 350} native={provinces={2} migration_steps=2}}}\nprovinces={-1={tribal_owner=AAA} -2={owner=AAA controller=AAA}}\n",
+    )
+    .unwrap();
+    let request = || {
+        serde_json::json!({
+            "country":"AAA","destination":1,
+            "pricing":{"all_power_cost_modifier_milli":0,"country_migration_cost_modifier_milli":0,"province_migration_cost_modifier_milli":0},
+            "expected_current_capital":2,"expected_migration_steps":2,"next_migration_steps":3,
+            "native_mode_eligible":true,"owner_eligible":true,"controller_eligible":true,"tribal_owner_eligible":true,"additional_gate_eligible":true
+        })
+    };
+
+    let unknown = temp.path().join("unknown-transfer.json");
+    let mut unknown_request = request();
+    unknown_request["unexpected"] = serde_json::json!(true);
+    fs::write(
+        &unknown,
+        serde_json::to_vec(&serde_json::json!([unknown_request])).unwrap(),
+    )
+    .unwrap();
+    let unknown_snapshot = temp.path().join("unknown-transfer-snapshot.json");
+    let unknown_run = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--import-native-migration-state")
+        .arg("--native-migration-transfers")
+        .arg(&unknown)
+        .arg("--save")
+        .arg(&unknown_snapshot)
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(!unknown_run.status.success());
+    assert!(String::from_utf8_lossy(&unknown_run.stderr).contains("unknown field"));
+    assert!(!unknown_snapshot.exists());
+
+    let unknown_country = temp.path().join("unknown-country-transfer.json");
+    let mut unknown_country_request = request();
+    unknown_country_request["country"] = serde_json::json!("ZZZ");
+    fs::write(
+        &unknown_country,
+        serde_json::to_vec(&serde_json::json!([unknown_country_request])).unwrap(),
+    )
+    .unwrap();
+    let unknown_country_snapshot = temp.path().join("unknown-country-snapshot.json");
+    let unknown_country_run = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--import-native-migration-state")
+        .arg("--native-migration-transfers")
+        .arg(&unknown_country)
+        .arg("--save")
+        .arg(&unknown_country_snapshot)
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(!unknown_country_run.status.success());
+    assert!(
+        String::from_utf8_lossy(&unknown_country_run.stderr).contains("unknown EU4 country ZZZ")
+    );
+    assert!(!unknown_country_snapshot.exists());
+}
