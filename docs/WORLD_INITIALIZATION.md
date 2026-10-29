@@ -541,3 +541,5 @@ godot --headless --path godot --script res://tests/session.gd
 core 还提供纯计算的 `calculate_vanilla_native_migration_score` 与 `select_vanilla_native_migration_candidate`。它们只接收调用方已经解析的贸易因子、`a0d180` 结果、荒废度、native membership、migration steps 和归一化距离惩罚；非成员候选按 `steps * 10000` 与最小距离惩罚扣分，成员候选保留基础分，winner 只有在分数严格更高时才替换。该模块不从地图、随机源或 EU4 脚本推导输入，也不接入命令队列、扣款或自动迁徙。
 
 `CountryView.capital_history` 在 Rust 内部继续使用 `WorldDate`，JSON view 序列化时将日期键编码为 `YYYY.MM.DD` 字符串，避免 `serde_json` 对非字符串 map key 的拒绝。CLI 组合 roundtrip 已覆盖当前 capital、original capital、dated history、previous controller 与 tribal owner 的保存和恢复。
+
+`augustus-world` 还提供只读的 `--native-migration-score-queries FILE`。输入是 caller-resolved `VanillaNativeMigrationScoreCandidateInput` 数组，输出每个候选的分数和严格大于规则选出的 winner；它不读取世界状态来补全 trade factor、`a0d180`、距离或随机源，也不修改 snapshot 或提交迁徙命令。

@@ -3,7 +3,8 @@
 
 use augustus_core::{
     CountryLedgerAnnualRollover, CountryLedgerMonthlyConsolidation, CountryLedgerPendingFlush,
-    MonthlyEconomy, MonthlyPipeline,
+    MonthlyEconomy, MonthlyPipeline, VanillaNativeMigrationScoreCandidateInput,
+    calculate_vanilla_native_migration_score, select_vanilla_native_migration_candidate,
 };
 use augustus_eu4::{ContentSet, TextEncoding, VanillaExternalState, VanillaWorld};
 use clap::Parser;
@@ -85,6 +86,13 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     native_migration_state_queries: Option<PathBuf>,
+    /// Evaluate caller-resolved native migration AI scores without mutating the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    native_migration_score_queries: Option<PathBuf>,
     /// Import native membership and migration steps from the selected EU4 save.
     #[arg(long, requires = "eu4_save", conflicts_with = "native_migration_state")]
     import_native_migration_state: bool,
@@ -487,6 +495,32 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let native_migration_score_queries = cli
+        .native_migration_score_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let candidates: Vec<VanillaNativeMigrationScoreCandidateInput> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            let candidate_reports = candidates
+                .iter()
+                .map(|candidate| {
+                    let score =
+                        calculate_vanilla_native_migration_score(candidate.score.clone())
+                            .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+                    Ok::<_, Box<dyn std::error::Error>>(serde_json::json!({
+                        "candidate_id": candidate.candidate_id,
+                        "score": score,
+                    }))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let winner = select_vanilla_native_migration_candidate(&candidates)
+                .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            Ok(serde_json::json!({
+                "candidates": candidate_reports,
+                "winner": winner,
+            }))
+        })
+        .transpose()?;
     if let Some(path) = cli.save {
         let snapshot = loaded.save()?;
         let mut file = std::fs::OpenOptions::new()
@@ -522,6 +556,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = native_migration_state_queries {
         output["native_migration_state_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(report) = native_migration_score_queries {
+        output["native_migration_score_queries"] = report;
     }
     if let Some(queries) = native_migration_content_queries {
         output["native_migration_content_queries"] = serde_json::to_value(queries)?;

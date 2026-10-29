@@ -2597,3 +2597,87 @@ provinces={
     assert_eq!(second["province"]["previous_controller"], "AAA");
     assert_eq!(second["province"]["tribal_owner"], "AAA");
 }
+
+#[test]
+fn world_cli_reports_caller_resolved_native_migration_scores_without_mutation() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+    let scores = temp.path().join("scores.json");
+    let score_input = |candidate_id: u32, member: bool, steps: serde_json::Value| {
+        serde_json::json!({
+            "candidate_id": candidate_id,
+            "score": {
+                "eligible": true,
+                "trade_factor": 1519919863,
+                "a0d180_result": 6000,
+                "devastation": 0,
+                "destination_in_native_membership": member,
+                "migration_steps": steps,
+                "normalized_distance_penalties": [1264, 1910]
+            }
+        })
+    };
+    fs::write(
+        &scores,
+        serde_json::to_vec(&serde_json::json!([
+            score_input(10, false, serde_json::json!(2)),
+            score_input(20, true, serde_json::json!(2)),
+            score_input(30, false, serde_json::Value::Null)
+        ]))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let score_snapshot = temp.path().join("score.json");
+    let scored = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .args(["--seed", "7", "--ai-only", "--omit-load-report"])
+        .arg("--native-migration-score-queries")
+        .arg(&scores)
+        .arg("--save")
+        .arg(&score_snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        scored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scored.stderr)
+    );
+    let scored: serde_json::Value = serde_json::from_slice(&scored.stdout).unwrap();
+    assert_eq!(
+        scored["native_migration_score_queries"]["candidates"][0]["score"]["score"],
+        201736
+    );
+    assert_eq!(
+        scored["native_migration_score_queries"]["candidates"][2]["score"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        scored["native_migration_score_queries"]["winner"]["candidate_id"],
+        20
+    );
+
+    let plain_snapshot = temp.path().join("plain.json");
+    let plain = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .args(["--seed", "7", "--ai-only", "--omit-load-report"])
+        .arg("--save")
+        .arg(&plain_snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert_eq!(
+        fs::read(&score_snapshot).unwrap(),
+        fs::read(&plain_snapshot).unwrap()
+    );
+}
