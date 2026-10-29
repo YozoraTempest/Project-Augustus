@@ -145,6 +145,10 @@ pub use augustus_core::{
     is_vanilla_trade_steering_eligible, select_vanilla_trade_distribution_candidates,
     sort_vanilla_trade_candidates,
 };
+pub use augustus_core::{
+    VanillaNativeMigrationGateInput, VanillaNativeMigrationGateResult,
+    calculate_vanilla_native_migration_gate,
+};
 pub use bootstrap::{
     BootstrapReport, CountryView, LoadedSource, MapEntry, ProvinceView,
     VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,

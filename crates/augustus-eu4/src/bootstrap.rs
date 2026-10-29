@@ -16,16 +16,17 @@ use augustus_core::{
     VanillaGoldProductionInputState, VanillaGoldProductionResult,
     VanillaNativeGrowthApplicationInput, VanillaNativeGrowthApplicationResult,
     VanillaNativeGrowthCacheInput, VanillaNativeGrowthCacheResult, VanillaNativeMigrationCostInput,
-    VanillaNativeMigrationCostResult, VanillaProductionBaseValueInput,
+    VanillaNativeMigrationCostResult, VanillaNativeMigrationGateInput,
+    VanillaNativeMigrationGateResult, VanillaProductionBaseValueInput,
     VanillaProductionBaseValueResult, VanillaProductionInput, VanillaStateMaintenanceDistanceInput,
     VanillaStateMaintenanceInput, VanillaStateMaintenanceResult, VanillaTradeGoodPriceInput,
     VanillaTradeGoodPriceTableInput, VanillaTradeGoodsSizeInput, WorldDate, YearlyEventRules,
     calculate_vanilla_gold_base, calculate_vanilla_gold_production,
     calculate_vanilla_gold_production_for_country, calculate_vanilla_native_growth_application,
     calculate_vanilla_native_growth_cache, calculate_vanilla_native_migration_cost,
-    calculate_vanilla_production_base_value, calculate_vanilla_state_maintenance,
-    calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
-    calculate_vanilla_trade_goods_size,
+    calculate_vanilla_native_migration_gate, calculate_vanilla_production_base_value,
+    calculate_vanilla_state_maintenance, calculate_vanilla_trade_good_price,
+    calculate_vanilla_trade_good_price_table, calculate_vanilla_trade_goods_size,
 };
 use jomini::{
     Encoding,
@@ -5195,6 +5196,57 @@ impl VanillaWorld {
             ));
         }
         calculate_vanilla_native_migration_cost(input)
+    }
+
+    /// Calculates a read-only native migration command-gate report.
+    ///
+    /// The destination is validated against the loaded province index. An
+    /// omitted input destination is filled with that explicit target; a
+    /// conflicting target is rejected. No command, resource, or migration
+    /// state is changed.
+    pub fn calculate_vanilla_native_migration_gate(
+        &self,
+        destination: u32,
+        mut input: VanillaNativeMigrationGateInput,
+    ) -> Result<VanillaNativeMigrationGateResult, augustus_core::Error> {
+        if self.initial.province(destination).is_none() {
+            return Err(augustus_core::Error::Invalid(
+                "unknown native-migration destination province".into(),
+            ));
+        }
+        if let Some(input_destination) = input.destination_province {
+            if input_destination != destination {
+                return Err(augustus_core::Error::Invalid(
+                    "native-migration destination does not match input".into(),
+                ));
+            }
+        } else {
+            input.destination_province = Some(destination);
+        }
+        let source_country = input
+            .source_country
+            .map(|country| self.initial.world().entity(country))
+            .transpose()?;
+        if let Some(country) = source_country
+            && country.kind != augustus_core::EntityKind::Country
+        {
+            return Err(augustus_core::Error::Invalid(
+                "native-migration source requires country scope".into(),
+            ));
+        }
+        if let Some(capital) = input.current_capital {
+            let capital_entity = self.initial.province_entity(capital).ok_or_else(|| {
+                augustus_core::Error::Invalid("unknown native-migration current capital".into())
+            })?;
+            if let Some(country) = source_country
+                && country.capital != Some(capital_entity)
+            {
+                return Err(augustus_core::Error::Invalid(
+                    "native-migration current capital does not match country".into(),
+                ));
+            }
+        }
+        calculate_vanilla_native_migration_gate(input)
     }
 
     pub fn province(&self, id: u32) -> Option<ProvinceView<'_>> {
