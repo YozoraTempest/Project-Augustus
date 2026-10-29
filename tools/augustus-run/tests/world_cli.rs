@@ -2396,3 +2396,118 @@ fn native_migration_transfer_cli_orders_reports_and_preserves_applied_snapshot()
     let restored: serde_json::Value = serde_json::from_slice(&restored.stdout).unwrap();
     assert_eq!(restored["country"]["bound_capital"], 1);
 }
+
+#[test]
+fn native_migration_transfer_cli_restores_snapshot_before_execution() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+    let defines_path = fixture.join("common/defines.lua");
+    let defines = fs::read_to_string(&defines_path).unwrap();
+    fs::write(
+        &defines_path,
+        format!(
+            "{defines}\nNDefines.NCountry.DEBT_LIMIT_DIP=-100\nNDefines.NCountry.TRIBE_MIGRATION_ADM_COST=0\nNDefines.NCountry.TRIBE_MIGRATION_DIP_COST=0\nNDefines.NCountry.TRIBE_MIGRATION_MIL_COST=50\n"
+        ),
+    )
+    .unwrap();
+    let source_save = temp.path().join("native.eu4");
+    fs::write(
+        &source_save,
+        "EU4txt\ndate=1444.11.11\nplayer=AAA\ncountries={AAA={capital=2 powers={140 126 350}}}\nprovinces={-1={tribal_owner=AAA} -2={owner=AAA controller=AAA}}\n",
+    )
+    .unwrap();
+    let native_state = temp.path().join("native-state.json");
+    fs::write(
+        &native_state,
+        r#"{"AAA":{"provinces":[2],"migration_steps":2}}"#,
+    )
+    .unwrap();
+    let transfer = temp.path().join("transfer.json");
+    fs::write(
+        &transfer,
+        serde_json::to_vec(&serde_json::json!([{
+            "country":"AAA","destination":1,
+            "pricing":{"all_power_cost_modifier_milli":0,"country_migration_cost_modifier_milli":0,"province_migration_cost_modifier_milli":0},
+            "expected_current_capital":2,"expected_migration_steps":2,"next_migration_steps":3,
+            "native_mode_eligible":true,"owner_eligible":true,"controller_eligible":true,"tribal_owner_eligible":true,"additional_gate_eligible":true
+        }]))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let initial_snapshot = temp.path().join("initial.json");
+    let initial = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--native-migration-state")
+        .arg(&native_state)
+        .arg("--save")
+        .arg(&initial_snapshot)
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        initial.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initial.stderr)
+    );
+
+    // The selected EU4 save has no native block and this invocation omits the
+    // explicit state file. A transfer can succeed only if restore runs before
+    // the request and restores the native state component.
+    let restored_snapshot = temp.path().join("restored-transfer.json");
+    let restored = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--load")
+        .arg(&initial_snapshot)
+        .arg("--native-migration-transfers")
+        .arg(&transfer)
+        .arg("--save")
+        .arg(&restored_snapshot)
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        restored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restored.stderr)
+    );
+    let restored_output: serde_json::Value = serde_json::from_slice(&restored.stdout).unwrap();
+    assert_eq!(
+        restored_output["native_migration_transfers"][0]["status"],
+        "applied"
+    );
+    assert_eq!(
+        restored_output["native_migration_transfers"][0]["transfer"]["migration_steps_after"],
+        3
+    );
+
+    let reloaded = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--load")
+        .arg(&restored_snapshot)
+        .arg("--country")
+        .arg("AAA")
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        reloaded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reloaded.stderr)
+    );
+    let reloaded: serde_json::Value = serde_json::from_slice(&reloaded.stdout).unwrap();
+    assert_eq!(reloaded["country"]["bound_capital"], 1);
+}
