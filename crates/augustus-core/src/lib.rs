@@ -53,6 +53,7 @@ mod plan;
 mod politics;
 mod production;
 mod province_connectivity;
+mod province_controllers;
 mod province_cores;
 mod resources;
 mod rng;
@@ -212,6 +213,7 @@ pub use production::{
     MonthlyProduction, ProductionCountryAccount, ProductionProvinceAccount, ProductionSettlement,
 };
 pub use province_connectivity::ProvinceConnectivity;
+pub use province_controllers::ProvinceControllerStates;
 pub use resources::{CountryResource, CountryResources};
 pub use rng::Eu4Random;
 pub use school_opinions::SchoolOpinions;

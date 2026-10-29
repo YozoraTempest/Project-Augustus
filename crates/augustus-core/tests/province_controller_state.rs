@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Project Augustus contributors
+
+use augustus_core::{CountryState, EntityId, InitialWorld, ProvinceClass, ProvinceState};
+
+fn fixture() -> (InitialWorld, EntityId, EntityId) {
+    let initial = InitialWorld::new(
+        vec![CountryState {
+            id: "AAA".into(),
+            name: "Alpha".into(),
+            color: [1, 2, 3],
+            declared_capital: Some(1),
+            primary_culture: None,
+            religion: None,
+            government: None,
+            technology_group: None,
+            unit_type: None,
+        }],
+        vec![ProvinceState {
+            id: 1,
+            name: "Capital".into(),
+            color: [4, 5, 6],
+            class: ProvinceClass::Land,
+            has_port: None,
+            owner: Some("AAA".into()),
+            controller: None,
+            cores: Vec::new(),
+            culture: None,
+            religion: None,
+            trade_good: None,
+            tax_milli: None,
+            production_milli: None,
+            manpower_milli: None,
+            is_city: None,
+            in_empire: None,
+        }],
+    )
+    .unwrap();
+    let country = initial.country_entity("AAA").unwrap();
+    let province = initial.province_entity(1).unwrap();
+    (initial, country, province)
+}
+
+#[test]
+fn controller_state_distinguishes_unknown_present_and_known_absent_through_restore() {
+    let (mut initial, country, province) = fixture();
+    assert_eq!(
+        initial.world().province_controller_state(province).unwrap(),
+        None
+    );
+
+    initial.set_province_controller(1, Some("AAA")).unwrap();
+    assert_eq!(
+        initial.world().province_controller_state(province).unwrap(),
+        Some(Some(country))
+    );
+    assert_eq!(
+        initial.province(1).unwrap().controller.as_deref(),
+        Some("AAA")
+    );
+
+    initial.set_province_controller(1, None).unwrap();
+    assert_eq!(
+        initial.world().province_controller_state(province).unwrap(),
+        Some(None)
+    );
+    assert_eq!(initial.province(1).unwrap().controller, None);
+
+    let saved = initial.world().save("province-controller-state").unwrap();
+    initial
+        .restore(&saved, "province-controller-state")
+        .unwrap();
+    assert_eq!(
+        initial.world().province_controller_state(province).unwrap(),
+        Some(None)
+    );
+    assert_eq!(initial.province(1).unwrap().controller, None);
+}
+
+#[test]
+fn invalid_controller_update_is_atomic_and_old_snapshots_keep_unknown_state() {
+    let (mut initial, _country, province) = fixture();
+    let before = initial.world().save("province-controller-state").unwrap();
+    assert!(initial.set_province_controller(1, Some("ZZZ")).is_err());
+    assert_eq!(
+        initial.world().save("province-controller-state").unwrap(),
+        before
+    );
+    assert_eq!(
+        initial.world().province_controller_state(province).unwrap(),
+        None
+    );
+
+    let mut old_snapshot: serde_json::Value = serde_json::from_str(&before).unwrap();
+    old_snapshot
+        .as_object_mut()
+        .unwrap()
+        .remove("province_controllers");
+    initial
+        .restore(&old_snapshot.to_string(), "province-controller-state")
+        .unwrap();
+    assert_eq!(
+        initial.world().province_controller_state(province).unwrap(),
+        None
+    );
+}

@@ -4820,6 +4820,24 @@ provinces={
         assert_eq!(loaded.initial.province(2).unwrap().controller, None);
         assert!(loaded.initial.province(999).is_none());
         let province_one = loaded.initial.province_entity(1).unwrap();
+        let country_aaa = loaded.initial.country_entity("AAA").unwrap();
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .province_controller_state(province_one)
+                .unwrap(),
+            Some(Some(country_aaa))
+        );
+        let province_two = loaded.initial.province_entity(2).unwrap();
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .province_controller_state(province_two)
+                .unwrap(),
+            Some(None)
+        );
         assert_eq!(
             loaded.initial.world().metrics().entities[&province_one]["devastation"],
             Some(12_345)

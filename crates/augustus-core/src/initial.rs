@@ -697,6 +697,16 @@ impl InitialWorld {
     }
 
     fn refresh_province_relations(&mut self) {
+        for (index, province) in self.provinces.iter_mut().enumerate() {
+            let entity = EntityId(self.countries.len() + index);
+            if let Some(controller) = self
+                .world
+                .province_controller_state(entity)
+                .expect("registered province")
+            {
+                province.controller = controller.map(|id| self.countries[id.0].id.clone());
+            }
+        }
         let cores_changed =
             !Arc::ptr_eq(&self.projected_administration, &self.world.administration);
         let owners_changed = !Arc::ptr_eq(&self.projected_ownership, &self.world.ownership);
@@ -1061,6 +1071,38 @@ impl InitialWorld {
         Ok(())
     }
 
+    /// Atomically records an explicit province controller state and updates
+    /// the EU4-facing projection. `None` means known controller absence;
+    /// omitted entries remain unknown.
+    pub fn set_province_controller(
+        &mut self,
+        province: u32,
+        controller: Option<&str>,
+    ) -> Result<(), Error> {
+        let province_index = self
+            .province_index
+            .get(&province)
+            .copied()
+            .ok_or_else(|| Error::Invalid(format!("unknown province {province}")))?;
+        let mut staged = self.clone();
+        let province_entity = staged
+            .province_entity(province)
+            .expect("validated province");
+        let controller_entity = controller
+            .map(|controller| {
+                staged.country_entity(controller).ok_or_else(|| {
+                    Error::Invalid(format!("unknown province controller {controller}"))
+                })
+            })
+            .transpose()?;
+        staged
+            .world
+            .set_province_controller(province_entity, controller_entity)?;
+        staged.provinces[province_index].controller = controller.map(str::to_owned);
+        *self = staged;
+        Ok(())
+    }
+
     pub(crate) fn commit_native_migration_transfer(
         &mut self,
         source_country: EntityId,
@@ -1103,15 +1145,33 @@ impl InitialWorld {
                 "native migration owner projection is stale".into(),
             ));
         }
-        if old_projection.controller.is_some() || destination_projection.controller.is_some() {
+        if destination_projection.controller.is_some() {
             return Err(Error::Invalid(
                 "native migration controller relation is unresolved".into(),
             ));
+        }
+        for (entity, projection) in [
+            (old_capital, old_projection.controller.as_deref()),
+            (destination, destination_projection.controller.as_deref()),
+        ] {
+            if let Some(known) = self.world.province_controller_state(entity)? {
+                let expected = known
+                    .and_then(|controller| self.countries.get(controller.0))
+                    .map(|country| country.id.as_str());
+                if projection != expected {
+                    return Err(Error::Invalid(
+                        "native migration controller projection is stale".into(),
+                    ));
+                }
+            }
         }
 
         self.world.set_owner(destination, source_country)?;
         self.world.set_capital(source_country, destination)?;
         self.world.clear_owner(old_capital)?;
+        self.world.set_province_controller(old_capital, None)?;
+        self.world
+            .set_province_controller(destination, Some(source_country))?;
         let metric_values = ["adm_power", "dip_power", "mil_power"]
             .into_iter()
             .zip(power_after)

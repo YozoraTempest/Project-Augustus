@@ -11,7 +11,8 @@ use augustus_core::{
 
 fn fixture(
     mark_destination_absent: bool,
-    known_controller: bool,
+    old_controller: bool,
+    destination_controller: bool,
 ) -> (InitialWorld, EntityId, EntityId, EntityId) {
     let mut initial = InitialWorld::new(
         vec![CountryState {
@@ -33,7 +34,7 @@ fn fixture(
                 class: ProvinceClass::Land,
                 has_port: None,
                 owner: Some("AAA".into()),
-                controller: known_controller.then(|| "AAA".into()),
+                controller: old_controller.then(|| "AAA".into()),
                 cores: Vec::new(),
                 culture: None,
                 religion: None,
@@ -51,7 +52,7 @@ fn fixture(
                 class: ProvinceClass::Land,
                 has_port: None,
                 owner: None,
-                controller: known_controller.then(|| "AAA".into()),
+                controller: destination_controller.then(|| "AAA".into()),
                 cores: Vec::new(),
                 culture: None,
                 religion: None,
@@ -138,7 +139,7 @@ fn input(
 
 #[test]
 fn transfer_moves_owner_capital_steps_and_power_atomically() {
-    let (mut initial, country, old, destination) = fixture(true, false);
+    let (mut initial, country, old, destination) = fixture(true, false, false);
     let result = initial
         .execute_vanilla_native_migration_transfer(input(country, old, destination))
         .unwrap();
@@ -158,6 +159,11 @@ fn transfer_moves_owner_capital_steps_and_power_atomically() {
     assert_eq!(initial.owned_provinces("AAA"), vec![2]);
     assert_eq!(initial.province(1).unwrap().owner, None);
     assert_eq!(initial.province(2).unwrap().owner.as_deref(), Some("AAA"));
+    assert_eq!(initial.province(1).unwrap().controller, None);
+    assert_eq!(
+        initial.province(2).unwrap().controller.as_deref(),
+        Some("AAA")
+    );
 
     let saved = initial.world().save("native-migration-transfer").unwrap();
     initial
@@ -167,11 +173,16 @@ fn transfer_moves_owner_capital_steps_and_power_atomically() {
     assert_eq!(initial.owned_provinces("AAA"), vec![2]);
     assert_eq!(initial.province(1).unwrap().owner, None);
     assert_eq!(initial.province(2).unwrap().owner.as_deref(), Some("AAA"));
+    assert_eq!(initial.province(1).unwrap().controller, None);
+    assert_eq!(
+        initial.province(2).unwrap().controller.as_deref(),
+        Some("AAA")
+    );
 }
 
 #[test]
 fn transfer_rejects_unknown_destination_and_stale_capital_without_mutation() {
-    let (mut unknown, country, old, destination) = fixture(false, false);
+    let (mut unknown, country, old, destination) = fixture(false, false, false);
     let before_unknown = unknown.world().save("native-migration-transfer").unwrap();
     assert!(
         unknown
@@ -183,7 +194,7 @@ fn transfer_rejects_unknown_destination_and_stale_capital_without_mutation() {
         before_unknown
     );
 
-    let (mut stale, country, old, destination) = fixture(true, false);
+    let (mut stale, country, old, destination) = fixture(true, false, false);
     let before_stale = stale.world().save("native-migration-transfer").unwrap();
     let mut request = input(country, old, destination);
     request.expected_current_capital = destination;
@@ -200,7 +211,7 @@ fn transfer_rejects_unknown_destination_and_stale_capital_without_mutation() {
 
 #[test]
 fn transfer_rejects_known_controller_projection_without_mutation() {
-    let (mut initial, country, old, destination) = fixture(true, true);
+    let (mut initial, country, old, destination) = fixture(true, false, true);
     let before = initial.world().save("native-migration-transfer").unwrap();
     assert!(
         initial
@@ -210,5 +221,39 @@ fn transfer_rejects_known_controller_projection_without_mutation() {
     assert_eq!(
         initial.world().save("native-migration-transfer").unwrap(),
         before
+    );
+}
+
+#[test]
+fn transfer_clears_old_controller_and_assigns_destination_controller_atomically() {
+    let (mut initial, country, old, destination) = fixture(true, true, false);
+    let result = initial
+        .execute_vanilla_native_migration_transfer(input(country, old, destination))
+        .unwrap();
+    assert_eq!(result.destination_province, destination);
+    assert_eq!(initial.province(1).unwrap().controller, None);
+    assert_eq!(
+        initial.province(2).unwrap().controller.as_deref(),
+        Some("AAA")
+    );
+    assert_eq!(
+        initial.world().province_controller_state(old).unwrap(),
+        Some(None)
+    );
+    assert_eq!(
+        initial
+            .world()
+            .province_controller_state(destination)
+            .unwrap(),
+        Some(Some(country))
+    );
+    let saved = initial.world().save("native-migration-transfer").unwrap();
+    initial
+        .restore(&saved, "native-migration-transfer")
+        .unwrap();
+    assert_eq!(initial.province(1).unwrap().controller, None);
+    assert_eq!(
+        initial.province(2).unwrap().controller.as_deref(),
+        Some("AAA")
     );
 }

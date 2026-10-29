@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn transfer_adapter_applies_core_transaction_and_restores() {
-        let mut world = load_world(true, false);
+        let mut world = load_world(false, false);
         let report = world
             .execute_native_migration_transfer_from_state(&request(4))
             .unwrap();
@@ -281,6 +281,11 @@ mod tests {
             world.initial.province(4).unwrap().owner.as_deref(),
             Some("AAA")
         );
+        assert_eq!(world.initial.province(2).unwrap().controller, None);
+        assert_eq!(
+            world.initial.province(4).unwrap().controller.as_deref(),
+            Some("AAA")
+        );
         assert_eq!(
             world.initial.world().native_migration_states().countries[&country].provinces,
             Some(vec![world.initial.province_entity(1).unwrap()])
@@ -293,6 +298,11 @@ mod tests {
         assert_eq!(world.initial.province(2).unwrap().owner, None);
         assert_eq!(
             world.initial.province(4).unwrap().owner.as_deref(),
+            Some("AAA")
+        );
+        assert_eq!(world.initial.province(2).unwrap().controller, None);
+        assert_eq!(
+            world.initial.province(4).unwrap().controller.as_deref(),
             Some("AAA")
         );
     }

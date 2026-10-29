@@ -3832,6 +3832,13 @@ impl VanillaWorld {
             seed,
         )
         .map_err(|e| Error::caused_by(root.path(), e))?;
+        if let Some(controllers) = overrides.province_controllers {
+            for (&province, controller) in controllers {
+                initial
+                    .set_province_controller(province, controller.as_deref())
+                    .map_err(|e| Error::caused_by(root.path(), e))?;
+            }
+        }
         let country_tag_registry = crate::country_tags::build_registry(&country_order)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         report.country_tag_slots = country_tag_registry.slots().len();
