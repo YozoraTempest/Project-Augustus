@@ -38,9 +38,14 @@ mod missions;
 mod monarch_power;
 mod native_development;
 mod native_migration_defines;
+mod native_migration_execution;
 mod native_migration_queries;
 mod native_migration_state;
 mod native_migration_state_queries;
+pub use native_migration_execution::{
+    VanillaNativeMigrationExecutionReport, VanillaNativeMigrationExecutionRequest,
+    VanillaNativeMigrationExecutionStatus,
+};
 pub use native_migration_state_queries::{
     VanillaNativeMigrationContext, VanillaNativeMigrationStatePricing,
     VanillaNativeMigrationStateQuery, VanillaNativeMigrationStateQueryReport,

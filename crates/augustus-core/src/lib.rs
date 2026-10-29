@@ -40,6 +40,7 @@ mod modifiers;
 mod named_values;
 mod native_growth;
 mod native_migration;
+mod native_migration_execution;
 mod native_migration_gate;
 mod native_migration_state;
 mod naval;
@@ -183,6 +184,9 @@ pub use native_growth::{
 pub use native_migration::{
     VanillaNativeMigrationCostInput, VanillaNativeMigrationCostResult,
     calculate_vanilla_native_migration_cost,
+};
+pub use native_migration_execution::{
+    VanillaNativeMigrationExecutionInput, VanillaNativeMigrationExecutionResult,
 };
 pub use native_migration_gate::{
     VanillaNativeMigrationGateInput, VanillaNativeMigrationGateResult,

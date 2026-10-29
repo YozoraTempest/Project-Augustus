@@ -92,11 +92,13 @@ impl InitialWorld {
         &mut self,
         values: BTreeMap<EntityId, BTreeMap<String, Option<i64>>>,
     ) -> Result<(), Error> {
-        let mut metrics = self.world.metrics().clone();
+        let mut staged = self.clone();
         for (&entity, entries) in &values {
-            let kind = self.world.entity(entity)?.kind;
+            let kind = staged.world.entity(entity)?.kind;
             for (name, &value) in entries {
-                let definition = metrics
+                let definition = staged
+                    .world
+                    .metrics()
                     .definitions
                     .get(name)
                     .ok_or_else(|| Error::Invalid(format!("unknown metric {name}")))?;
@@ -104,14 +106,11 @@ impl InitialWorld {
                     return Err(Error::Invalid("metric scope does not match entity".into()));
                 }
                 definition.validate_value(value)?;
-                metrics
-                    .entities
-                    .entry(entity)
-                    .or_default()
-                    .insert(name.clone(), value);
+                staged.world.set_metric_value(entity, name, value)?;
             }
         }
-        self.world.set_metrics(metrics)
+        *self = staged;
+        Ok(())
     }
 
     /// Applies externally resolved growth ceilings atomically while preserving
