@@ -77,7 +77,7 @@ pub struct VanillaNativeMigrationQueryReport {
     pub unresolved: Vec<String>,
 }
 
-struct PreparedNativeMigrationQuery {
+pub(super) struct PreparedNativeMigrationQuery {
     country_entity: augustus_core::EntityId,
     current_capital: Option<u32>,
     available_power: BTreeMap<String, Option<i64>>,
@@ -86,7 +86,7 @@ struct PreparedNativeMigrationQuery {
 }
 
 impl PreparedNativeMigrationQuery {
-    fn report(
+    pub(super) fn report(
         &self,
         country: &str,
         destination: u32,
@@ -236,7 +236,7 @@ impl crate::VanillaWorld {
         })
     }
 
-    fn prepare_native_migration_query(
+    pub(super) fn prepare_native_migration_query(
         &self,
         country: &str,
         destination: u32,
@@ -810,5 +810,123 @@ mod tests {
         assert!(
             serde_json::from_value::<VanillaNativeMigrationQuery>(with_capital_override).is_err()
         );
+    }
+
+    fn state_query() -> crate::VanillaNativeMigrationStateQuery {
+        crate::VanillaNativeMigrationStateQuery {
+            country: "AAA".into(),
+            destination: 4,
+            pricing: crate::VanillaNativeMigrationStatePricing {
+                all_power_cost_modifier_milli: 0,
+                country_migration_cost_modifier_milli: 0,
+                province_migration_cost_modifier_milli: 0,
+            },
+            native_mode_eligible: Some(true),
+            owner_eligible: Some(true),
+            controller_eligible: Some(true),
+            tribal_owner_eligible: Some(true),
+            additional_gate_eligible: Some(true),
+        }
+    }
+
+    #[test]
+    fn state_query_rechecks_current_membership_steps_and_snapshot_values() {
+        let fixture = fixture();
+        add_migration_cost_defines(fixture.path(), "0", "0", "50");
+        let mut world = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+        set_power(&mut world, Some(140), Some(126), Some(150));
+        let request = state_query();
+        let set_state = |world: &mut VanillaWorld, provinces, migration_steps| {
+            world
+                .set_country_native_migration(BTreeMap::from([(
+                    "AAA".into(),
+                    crate::VanillaExternalNativeMigrationState {
+                        provinces,
+                        migration_steps,
+                    },
+                )]))
+                .unwrap();
+        };
+        set_state(&mut world, Some(vec![4, 2]), Some(2));
+        let snapshot = world.save().unwrap();
+        let member = world.query_native_migration_from_state(&request).unwrap();
+        assert_eq!(member.context.provinces, Some(vec![4, 2]));
+        assert_eq!(member.context.destination_in_native_membership, Some(true));
+        assert_eq!(member.query.evaluation.unwrap().cost.unwrap().mil_cost, 50);
+        assert_eq!(world.save().unwrap(), snapshot);
+
+        set_state(&mut world, Some(vec![]), Some(2));
+        let nonmember = world.query_native_migration_from_state(&request).unwrap();
+        assert_eq!(
+            nonmember.context.destination_in_native_membership,
+            Some(false)
+        );
+        assert_eq!(
+            nonmember.query.evaluation.unwrap().cost.unwrap().mil_cost,
+            150
+        );
+        set_state(&mut world, Some(vec![]), Some(3));
+        let more_steps = world.query_native_migration_from_state(&request).unwrap();
+        let evaluation = more_steps.query.evaluation.unwrap();
+        assert_eq!(evaluation.cost.unwrap().mil_cost, 200);
+        assert_eq!(evaluation.resolved_gate, Some(false));
+
+        world.restore(&snapshot).unwrap();
+        let restored = world.query_native_migration_from_state(&request).unwrap();
+        assert_eq!(restored.context.provinces, Some(vec![4, 2]));
+        assert_eq!(
+            restored.query.evaluation.unwrap().cost.unwrap().mil_cost,
+            50
+        );
+    }
+
+    #[test]
+    fn state_query_preserves_unknown_fields_and_rejects_caller_overrides() {
+        let fixture = fixture();
+        add_migration_cost_defines(fixture.path(), "0", "0", "50");
+        let mut world = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+        set_power(&mut world, Some(140), Some(126), Some(150));
+        let request = state_query();
+        for (provinces, steps, expected_missing) in [
+            (None, Some(0), "native_migration:provinces_unknown"),
+            (Some(vec![]), None, "native_migration:steps_unknown"),
+            (Some(vec![4]), None, "native_migration:steps_unknown"),
+        ] {
+            world
+                .set_country_native_migration(BTreeMap::from([(
+                    "AAA".into(),
+                    crate::VanillaExternalNativeMigrationState {
+                        provinces: provinces.clone(),
+                        migration_steps: steps,
+                    },
+                )]))
+                .unwrap();
+            let report = world.query_native_migration_from_state(&request).unwrap();
+            assert_eq!(report.context.provinces, provinces);
+            assert_eq!(report.context.migration_steps, steps);
+            assert!(report.query.evaluation.is_none());
+            assert!(report.query.unresolved.contains(&expected_missing.into()));
+            assert_eq!(report.query.available_power["mil_power"], Some(150));
+        }
+        let json = serde_json::to_value(&request).unwrap();
+        for field in [
+            "migration_steps",
+            "destination_in_native_membership",
+            "define_mil_power_milli",
+            "available_mil_power",
+        ] {
+            let mut overridden = json.clone();
+            overridden["pricing"][field] = serde_json::json!(0);
+            assert!(
+                serde_json::from_value::<crate::VanillaNativeMigrationStateQuery>(overridden)
+                    .is_err()
+            );
+        }
+        let mut invalid = request.clone();
+        invalid.country = "ZZZ".into();
+        assert!(world.query_native_migration_from_state(&invalid).is_err());
+        invalid.country = "AAA".into();
+        invalid.destination = 999;
+        assert!(world.query_native_migration_from_state(&invalid).is_err());
     }
 }

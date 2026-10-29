@@ -70,6 +70,23 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     native_migration_content_queries: Option<PathBuf>,
+    /// Query migration with current native membership/steps and loaded costs.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    native_migration_state_queries: Option<PathBuf>,
+    /// Import native membership and migration steps from the selected EU4 save.
+    #[arg(long, requires = "eu4_save", conflicts_with = "native_migration_state")]
+    import_native_migration_state: bool,
+    /// Bind explicit country native migration states before restoring a snapshot.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    native_migration_state: Option<PathBuf>,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
     /// Explicit seed for a new world; EU4 saves carry their own random state.
@@ -212,6 +229,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             None => augustus_eu4::read_vanilla_naval_constructions(path),
         })
         .transpose()?;
+    let native_migration_import = if cli.import_native_migration_state {
+        let path = cli.eu4_save.as_ref().expect("required by clap");
+        Some(match cli.eu4_token_map.as_ref() {
+            Some(token_map) => {
+                augustus_eu4::read_vanilla_native_migration_states_with_token_map(path, token_map)?
+            }
+            None => augustus_eu4::read_vanilla_native_migration_states(path)?,
+        })
+    } else {
+        None
+    };
     let load_snapshot = cli.load.as_ref().map(std::fs::read_to_string).transpose()?;
     let loaded_monthly_system_id = load_snapshot
         .as_deref()
@@ -269,6 +297,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             (None, None, None) => VanillaWorld::load_from_content(&content, &cli.date)?,
         }
     };
+    if let Some(import) = native_migration_import.as_ref() {
+        let states = import.states_for_world(&loaded);
+        loaded.set_country_native_migration(states)?;
+    }
+    if let Some(path) = cli.native_migration_state.as_ref() {
+        let states = serde_json::from_slice::<
+            std::collections::BTreeMap<String, augustus_eu4::VanillaExternalNativeMigrationState>,
+        >(&std::fs::read(path)?)?;
+        loaded.set_country_native_migration(states)?;
+    }
     if let Some(save) = save_state.as_ref() {
         let trade_node_states = save.trade_node_runtime_states_for_world(&loaded);
         loaded.set_vanilla_trade_node_runtime_states(&trade_node_states)?;
@@ -412,6 +450,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let native_migration_state_queries = cli
+        .native_migration_state_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<augustus_eu4::VanillaNativeMigrationStateQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_native_migration_from_state(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     if let Some(path) = cli.save {
         let snapshot = loaded.save()?;
         let mut file = std::fs::OpenOptions::new()
@@ -444,6 +495,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             output["naval_construction_import"] =
                 serde_json::to_value(loaded.naval_construction_import_report())?;
         }
+    }
+    if let Some(queries) = native_migration_state_queries {
+        output["native_migration_state_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = native_migration_content_queries {
         output["native_migration_content_queries"] = serde_json::to_value(queries)?;

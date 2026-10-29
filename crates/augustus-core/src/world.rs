@@ -145,6 +145,7 @@ pub struct World {
     pub(crate) administration: Arc<Administration>,
     pub(crate) affiliations: Affiliations,
     pub(crate) map_knowledge: crate::MapKnowledge,
+    pub(crate) native_migration_states: crate::NativeMigrationStates,
     pub(crate) school_opinions: crate::SchoolOpinions,
     pub(crate) governments: Governments,
     pub(crate) metrics: crate::Metrics,
@@ -270,6 +271,11 @@ struct Snapshot {
     affiliations: Affiliations,
     #[serde(default, skip_serializing_if = "crate::MapKnowledge::is_empty")]
     map_knowledge: crate::MapKnowledge,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::NativeMigrationStates::is_empty"
+    )]
+    native_migration_states: crate::NativeMigrationStates,
     #[serde(default, skip_serializing_if = "crate::SchoolOpinions::is_empty")]
     school_opinions: crate::SchoolOpinions,
     #[serde(default, skip_serializing_if = "Governments::is_empty")]
@@ -362,6 +368,7 @@ impl World {
             administration: Arc::default(),
             affiliations: Affiliations::default(),
             map_knowledge: crate::MapKnowledge::default(),
+            native_migration_states: crate::NativeMigrationStates::default(),
             school_opinions: crate::SchoolOpinions::default(),
             governments: Governments::default(),
             metrics: crate::Metrics::default(),
@@ -1972,6 +1979,7 @@ impl World {
             administration: self.administration.as_ref().clone(),
             affiliations: self.affiliations.clone(),
             map_knowledge: self.map_knowledge.clone(),
+            native_migration_states: self.native_migration_states.clone(),
             school_opinions: self.school_opinions.clone(),
             governments: self.governments.clone(),
             metrics: self.metrics.clone(),
@@ -1991,6 +1999,7 @@ impl World {
         world.random = ChaCha8Rng::from_seed([0; 32]);
         world.eu4_random = None;
         world.eu4_event_seed = None;
+        world.native_migration_states = crate::NativeMigrationStates::default();
         // These fields describe the running session, not immutable content. In
         // particular, AI event choices can vary with the session seed and must
         // not make an otherwise identical save refuse to load.
@@ -2126,6 +2135,7 @@ impl World {
             administration: Arc::new(snapshot.administration),
             affiliations: snapshot.affiliations,
             map_knowledge: snapshot.map_knowledge,
+            native_migration_states: snapshot.native_migration_states,
             school_opinions: snapshot.school_opinions,
             governments: snapshot.governments,
             metrics: snapshot.metrics,
@@ -2245,6 +2255,7 @@ impl World {
         world.administration.validate(&world)?;
         world.affiliations.validate(&world)?;
         world.map_knowledge.validate(&world)?;
+        world.native_migration_states.validate(&world)?;
         world.school_opinions.validate(&world)?;
         world.governments.validate(&world)?;
         world.metrics.validate(&world)?;

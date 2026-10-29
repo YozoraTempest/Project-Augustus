@@ -25,6 +25,9 @@ use crate::bootstrap::{
     VanillaExternalPerson, VanillaExternalProvinceDevelopment, VanillaExternalRegimentState,
     VanillaExternalShipState, VanillaExternalState, VanillaWorld,
 };
+use crate::native_migration_state::{
+    VanillaExternalNativeMigrationState, VanillaNativeMigrationImport,
+};
 use crate::state_edicts::VanillaExternalStateEdicts;
 use crate::{Error, ParsedText, TextEncoding};
 
@@ -712,6 +715,192 @@ impl VanillaSaveState {
 pub fn read_vanilla_save_state(path: impl AsRef<Path>) -> Result<VanillaSaveState, Error> {
     read_vanilla_save_state_inner_thread(path.as_ref(), None, None, false, false)
         .map(|(save, _)| save.save.state)
+}
+
+/// Read current native migration records from an EU4 text or ZIP-wrapped text save.
+pub fn read_vanilla_native_migration_states(
+    path: impl AsRef<Path>,
+) -> Result<VanillaNativeMigrationImport, Error> {
+    read_vanilla_native_migration_states_inner_thread(path.as_ref(), None, None)
+}
+
+/// Read current native migration records using a player-provided binary token map.
+pub fn read_vanilla_native_migration_states_with_token_map(
+    path: impl AsRef<Path>,
+    token_map_path: impl AsRef<Path>,
+) -> Result<VanillaNativeMigrationImport, Error> {
+    read_vanilla_native_migration_states_inner_thread(
+        path.as_ref(),
+        Some(token_map_path.as_ref()),
+        None,
+    )
+}
+
+/// Read current native migration records using an integration-provided token resolver.
+pub fn read_vanilla_native_migration_states_with_token_resolver<R>(
+    path: impl AsRef<Path>,
+    resolver: R,
+) -> Result<VanillaNativeMigrationImport, Error>
+where
+    R: TokenResolver + Send + 'static,
+{
+    read_vanilla_native_migration_states_inner_thread(path.as_ref(), None, Some(Box::new(resolver)))
+}
+
+fn read_vanilla_native_migration_states_inner_thread(
+    path: &Path,
+    token_map_path: Option<&Path>,
+    token_resolver: Option<SaveTokenResolver>,
+) -> Result<VanillaNativeMigrationImport, Error> {
+    let path = path.to_path_buf();
+    let parser_path = path.clone();
+    let token_map_path = token_map_path.map(Path::to_path_buf);
+    let mut token_resolver = token_resolver;
+    std::thread::Builder::new()
+        .name("augustus-eu4-native-migration-parser".into())
+        .stack_size(32 * 1024 * 1024)
+        .spawn(move || {
+            read_vanilla_native_migration_states_inner(
+                &parser_path,
+                token_map_path.as_deref(),
+                &mut token_resolver,
+            )
+        })
+        .map_err(|error| Error::caused_by(&path, error))?
+        .join()
+        .map_err(|_| Error::message(&path, "EU4 native migration parser thread panicked"))?
+}
+
+fn read_vanilla_native_migration_states_inner(
+    path: &Path,
+    token_map_path: Option<&Path>,
+    token_resolver: &mut Option<SaveTokenResolver>,
+) -> Result<VanillaNativeMigrationImport, Error> {
+    let documents = read_eu4_save_documents(path, token_map_path, token_resolver)?;
+    let parsed = documents.game_state.parse()?;
+    let root = parsed.reader();
+    let countries = object(&parsed, &required(&parsed, &root, "countries")?)?;
+    let mut import = VanillaNativeMigrationImport::default();
+    for (key, operator, value) in countries.fields() {
+        if operator.is_some_and(|operator| operator != Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                "invalid saved country block",
+            ));
+        }
+        let tag = key.read_string();
+        if !is_country_tag(&tag) {
+            continue;
+        }
+        let country = object(&parsed, &value)?;
+        if let Some(state) = saved_native_migration_state(&parsed, &country, &tag)?
+            && import.countries.insert(tag.clone(), state).is_some()
+        {
+            return Err(Error::message(
+                parsed.source(),
+                format!("duplicate saved native migration country {tag}"),
+            ));
+        }
+    }
+    Ok(import)
+}
+
+fn saved_native_migration_state(
+    parsed: &ParsedText<'_>,
+    country: &Object<'_, '_>,
+    tag: &str,
+) -> Result<Option<VanillaExternalNativeMigrationState>, Error> {
+    let mut native = None;
+    for (_, operator, value) in country
+        .fields()
+        .filter(|(key, _, _)| key.read_string() == "native")
+    {
+        if operator.is_some_and(|operator| operator != Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {tag} has an invalid native block"),
+            ));
+        }
+        if native.is_some() {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {tag} repeats its native block"),
+            ));
+        }
+        native = Some(value);
+    }
+    let Some(native) = native else {
+        return Ok(None);
+    };
+    let native = object(parsed, &native)?;
+    let mut state = VanillaExternalNativeMigrationState::default();
+    let mut seen = BTreeSet::new();
+    for (key, operator, value) in native.fields() {
+        let field = key.read_string();
+        if !matches!(field.as_str(), "provinces" | "migration_steps") {
+            continue;
+        }
+        if operator.is_some_and(|operator| operator != Operator::Equal) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {tag} has an invalid native field {field}"),
+            ));
+        }
+        if !seen.insert(field.clone()) {
+            return Err(Error::message(
+                parsed.source(),
+                format!("country {tag} repeats native field {field}"),
+            ));
+        }
+        match field.as_str() {
+            "provinces" => {
+                if !matches!(value.token(), TextToken::Array { mixed: false, .. }) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {tag} native provinces must be an array"),
+                    ));
+                }
+                let array = value
+                    .read_array()
+                    .map_err(|error| Error::caused_by(parsed.source(), error))?;
+                let mut provinces = Vec::new();
+                let mut province_ids = BTreeSet::new();
+                for item in array.values() {
+                    let province = scalar(parsed, &item)?.parse::<u32>().map_err(|error| {
+                        Error::message(
+                            parsed.source(),
+                            format!("country {tag} has an invalid native province: {error}"),
+                        )
+                    })?;
+                    if province == 0 {
+                        return Err(Error::message(
+                            parsed.source(),
+                            format!("country {tag} native provinces must be positive"),
+                        ));
+                    }
+                    if !province_ids.insert(province) {
+                        return Err(Error::message(
+                            parsed.source(),
+                            format!("country {tag} repeats native province {province}"),
+                        ));
+                    }
+                    provinces.push(province);
+                }
+                state.provinces = Some(provinces);
+            }
+            "migration_steps" => {
+                state.migration_steps =
+                    Some(scalar(parsed, &value)?.parse::<u32>().map_err(|error| {
+                        Error::message(
+                            parsed.source(),
+                            format!("country {tag} has invalid native migration_steps: {error}"),
+                        )
+                    })?);
+            }
+            _ => unreachable!(),
+        }
+    }
+    Ok(Some(state))
 }
 
 /// Read supported state and active state edicts from an EU4 save.
@@ -3148,7 +3337,8 @@ fn saved_government_mechanic_powers(
 #[cfg(test)]
 mod tests {
     use super::{
-        NationalFocus, RulerSkill, read_vanilla_save_state,
+        NationalFocus, RulerSkill, read_vanilla_native_migration_states,
+        read_vanilla_native_migration_states_with_token_resolver, read_vanilla_save_state,
         read_vanilla_save_state_and_ordered_trade_node_runtime_states,
         read_vanilla_save_state_and_trade_node_runtime_states,
         read_vanilla_save_state_and_trade_nodes,
@@ -3157,7 +3347,8 @@ mod tests {
     };
     use crate::{
         ContentRoot, ContentSet, ContentSource, VanillaExternalEu4RandomState,
-        VanillaExternalProvinceDevelopment, VanillaExternalState, VanillaWorld,
+        VanillaExternalNativeMigrationState, VanillaExternalProvinceDevelopment,
+        VanillaExternalState, VanillaNativeMigrationImport, VanillaWorld,
     };
     use augustus_core::CountryRelationState;
     use jomini::{
@@ -3182,6 +3373,8 @@ mod tests {
                 0x3002 => Some("countries"),
                 0x3003 => Some("AAA"),
                 0x3004 => Some("provinces"),
+                0x3007 => Some("native"),
+                0x3008 => Some("migration_steps"),
                 _ => None,
             }
         }
@@ -3215,6 +3408,36 @@ mod tests {
             Token::Id(0x3003),
             Token::Equal,
             Token::Open,
+            Token::Close,
+        ] {
+            token.write(&mut bytes).unwrap();
+        }
+        bytes
+    }
+
+    fn binary_native_migration_save() -> Vec<u8> {
+        let mut bytes = b"EU4bin".to_vec();
+        for token in [
+            Token::Id(0x3002),
+            Token::Equal,
+            Token::Open,
+            Token::Id(0x3003),
+            Token::Equal,
+            Token::Open,
+            Token::Id(0x3007),
+            Token::Equal,
+            Token::Open,
+            Token::Id(0x3004),
+            Token::Equal,
+            Token::Open,
+            Token::I32(4),
+            Token::I32(2),
+            Token::Close,
+            Token::Id(0x3008),
+            Token::Equal,
+            Token::I32(0),
+            Token::Close,
+            Token::Close,
             Token::Close,
         ] {
             token.write(&mut bytes).unwrap();
@@ -4117,6 +4340,126 @@ provinces={
         );
         std::fs::write(path, text).unwrap();
         read_vanilla_save_state(directory.path().join("native-development.eu4"))
+    }
+
+    fn read_native_migration_test_save(
+        country_blocks: &str,
+        extra_root_fields: &str,
+    ) -> Result<VanillaNativeMigrationImport, crate::Error> {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("native-migration.eu4");
+        let text = format!(
+            "EU4txt\ndate=1444.11.11\ncountries={{{country_blocks}}}\n{extra_root_fields}\nprovinces={{}}\n"
+        );
+        std::fs::write(&path, text).unwrap();
+        read_vanilla_native_migration_states(path)
+    }
+
+    #[test]
+    fn saved_native_migration_state_preserves_presence_and_list_order() {
+        let absent = read_native_migration_test_save("AAA={}", "").unwrap();
+        assert!(!absent.countries.contains_key("AAA"));
+
+        let empty = read_native_migration_test_save("AAA={native={}}", "").unwrap();
+        assert_eq!(
+            empty.countries["AAA"],
+            VanillaExternalNativeMigrationState::default()
+        );
+
+        let steps_only = read_native_migration_test_save(
+            "AAA={native={migration_steps=0 other_native_field=yes}}",
+            "",
+        )
+        .unwrap();
+        assert_eq!(steps_only.countries["AAA"].provinces, None);
+        assert_eq!(steps_only.countries["AAA"].migration_steps, Some(0));
+
+        let provinces_only =
+            read_native_migration_test_save("AAA={native={provinces={}}}", "").unwrap();
+        assert_eq!(provinces_only.countries["AAA"].provinces, Some(Vec::new()));
+        assert_eq!(provinces_only.countries["AAA"].migration_steps, None);
+
+        let known = read_native_migration_test_save(
+            "AAA={native={provinces={4 2 9} migration_steps=3 unknown=yes}}",
+            "",
+        )
+        .unwrap();
+        assert_eq!(known.countries["AAA"].provinces, Some(vec![4, 2, 9]));
+        assert_eq!(known.countries["AAA"].migration_steps, Some(3));
+
+        let history_only = read_native_migration_test_save(
+            "AAA={}",
+            "history={AAA={native={provinces={8} migration_steps=9}}}",
+        )
+        .unwrap();
+        assert!(!history_only.countries.contains_key("AAA"));
+    }
+
+    #[test]
+    fn saved_native_migration_state_rejects_invalid_shapes_and_values() {
+        for invalid in [
+            "AAA={native += {}}",
+            "AAA={native=1}",
+            "AAA={native={provinces += {1}}}",
+            "AAA={native={provinces=1}}",
+            "AAA={native={provinces={foo=1}}}",
+            "AAA={native={provinces={1 foo=2}}}",
+            "AAA={native={provinces={0}}}",
+            "AAA={native={provinces={-1}}}",
+            "AAA={native={provinces={1.5}}}",
+            "AAA={native={provinces={4294967296}}}",
+            "AAA={native={provinces={1 1}}}",
+            "AAA={native={provinces={1} provinces={2}}}",
+            "AAA={native={migration_steps=-1}}",
+            "AAA={native={migration_steps=1.5}}",
+            "AAA={native={migration_steps={}}}",
+            "AAA={native={migration_steps=4294967296}}",
+            "AAA={native={migration_steps=1 migration_steps=2}}",
+            "AAA={native={}} AAA={native={}}",
+            "AAA={native={} native={}}",
+        ] {
+            assert!(
+                read_native_migration_test_save(invalid, "").is_err(),
+                "accepted invalid native migration input: {invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn reads_native_migration_state_from_zip_gamestate() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("native-migration.eu4");
+        let mut archive = ZipWriter::new(File::create(&path).unwrap());
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        archive.start_file("gamestate", options).unwrap();
+        archive
+            .write_all(
+                br#"EU4txt
+countries={ AAA={ native={ provinces={ 7 3 } migration_steps=2 } } }
+provinces={}
+"#,
+            )
+            .unwrap();
+        archive.finish().unwrap();
+
+        let import = read_vanilla_native_migration_states(&path).unwrap();
+
+        assert_eq!(import.countries["AAA"].provinces, Some(vec![7, 3]));
+        assert_eq!(import.countries["AAA"].migration_steps, Some(2));
+    }
+
+    #[test]
+    fn reads_native_migration_state_from_binary_save_with_token_resolver() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("native-migration.eu4");
+        std::fs::write(&path, binary_native_migration_save()).unwrap();
+
+        let import =
+            read_vanilla_native_migration_states_with_token_resolver(&path, TestTokenResolver)
+                .unwrap();
+
+        assert_eq!(import.countries["AAA"].provinces, Some(vec![4, 2]));
+        assert_eq!(import.countries["AAA"].migration_steps, Some(0));
     }
 
     #[test]

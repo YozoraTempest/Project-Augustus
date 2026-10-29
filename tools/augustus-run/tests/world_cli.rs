@@ -2050,3 +2050,163 @@ fn migration_content_queries_bind_effective_defines_and_keep_missing_values_unkn
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("define_mil_power_milli"));
 }
+
+#[test]
+fn migration_state_import_drives_membership_costs_and_survives_snapshot_restore() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+    let defines_path = fixture.join("common/defines.lua");
+    let defines = fs::read_to_string(&defines_path).unwrap();
+    fs::write(&defines_path, format!("{defines}\nNDefines.NCountry.DEBT_LIMIT_DIP=-100\nNDefines.NCountry.TRIBE_MIGRATION_ADM_COST=0\nNDefines.NCountry.TRIBE_MIGRATION_DIP_COST=0\nNDefines.NCountry.TRIBE_MIGRATION_MIL_COST=50\n")).unwrap();
+    let source_save = temp.path().join("native.eu4");
+    let make_save = |members: &str| {
+        format!(
+            "EU4txt\ndate=1444.11.11\nplayer=AAA\ncountries={{AAA={{capital=2 powers={{140 126 150}} native={{provinces={{{members}}} migration_steps=2}}}}}}\nprovinces={{-1={{owner=BBB controller=BBB tribal_owner=AAA}} -2={{owner=AAA controller=AAA}}}}\n"
+        )
+    };
+    fs::write(&source_save, make_save("2")).unwrap();
+    let queries = temp.path().join("query.json");
+    let request = serde_json::json!([{
+        "country":"AAA","destination":1,
+        "pricing":{"all_power_cost_modifier_milli":0,"country_migration_cost_modifier_milli":0,"province_migration_cost_modifier_milli":0},
+        "native_mode_eligible":true,"owner_eligible":true,"controller_eligible":true,"tribal_owner_eligible":true,"additional_gate_eligible":true
+    },{
+        "country":"AAA","destination":2,
+        "pricing":{"all_power_cost_modifier_milli":0,"country_migration_cost_modifier_milli":0,"province_migration_cost_modifier_milli":0},
+        "native_mode_eligible":true,"owner_eligible":true,"controller_eligible":true,"tribal_owner_eligible":true,"additional_gate_eligible":true
+    }]);
+    fs::write(&queries, serde_json::to_vec(&request).unwrap()).unwrap();
+    let run = |import: bool, load: Option<&Path>, save: Option<&Path>, query: bool| {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+        cmd.arg("--game-root")
+            .arg(&fixture)
+            .arg("--eu4-save")
+            .arg(&source_save)
+            .arg("--omit-load-report");
+        if import {
+            cmd.arg("--import-native-migration-state");
+        }
+        if let Some(path) = load {
+            cmd.arg("--load").arg(path);
+        }
+        if let Some(path) = save {
+            cmd.arg("--save").arg(path);
+        }
+        if query {
+            cmd.arg("--native-migration-state-queries").arg(&queries);
+        }
+        let output = cmd.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    let unknown = run(false, None, None, true);
+    assert_eq!(
+        unknown["native_migration_state_queries"][0]["query"]["evaluation"],
+        serde_json::Value::Null
+    );
+    let snapshot = temp.path().join("state.json");
+    let imported = run(true, None, Some(&snapshot), true);
+    let report = &imported["native_migration_state_queries"];
+    assert_eq!(report[0]["context"]["provinces"], serde_json::json!([2]));
+    assert_eq!(report[0]["context"]["migration_steps"], 2);
+    assert_eq!(
+        report[0]["context"]["destination_in_native_membership"],
+        false
+    );
+    assert_eq!(report[0]["query"]["evaluation"]["cost"]["mil_cost"], 150);
+    assert_eq!(
+        report[1]["context"]["destination_in_native_membership"],
+        true
+    );
+    assert_eq!(report[1]["query"]["evaluation"]["cost"]["mil_cost"], 50);
+    // Snapshots retain the imported component even without re-importing it.
+    let restored = run(false, Some(&snapshot), None, true);
+    assert_eq!(restored["native_migration_state_queries"], *report);
+    let plain = temp.path().join("plain.json");
+    run(true, None, Some(&plain), false);
+    assert_eq!(fs::read(&plain).unwrap(), fs::read(&snapshot).unwrap());
+
+    let explicit_state = temp.path().join("explicit-state.json");
+    fs::write(
+        &explicit_state,
+        r#"{"AAA":{"provinces":[],"migration_steps":3}}"#,
+    )
+    .unwrap();
+    let explicit_command = || {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+        cmd.arg("--game-root")
+            .arg(&fixture)
+            .arg("--eu4-save")
+            .arg(&source_save)
+            .arg("--native-migration-state")
+            .arg(&explicit_state)
+            .arg("--native-migration-state-queries")
+            .arg(&queries)
+            .arg("--omit-load-report");
+        cmd
+    };
+    let explicit = explicit_command().output().unwrap();
+    assert!(
+        explicit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&explicit.stderr)
+    );
+    let explicit: serde_json::Value = serde_json::from_slice(&explicit.stdout).unwrap();
+    assert_eq!(
+        explicit["native_migration_state_queries"][0]["query"]["evaluation"]["cost"]["mil_cost"],
+        200
+    );
+    let restored = explicit_command()
+        .arg("--load")
+        .arg(&snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        restored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restored.stderr)
+    );
+    let restored: serde_json::Value = serde_json::from_slice(&restored.stdout).unwrap();
+    assert_eq!(restored["native_migration_state_queries"], *report);
+    let conflict = explicit_command()
+        .arg("--import-native-migration-state")
+        .output()
+        .unwrap();
+    assert!(!conflict.status.success());
+
+    fs::write(&source_save, make_save("999")).unwrap();
+    let filtered = run(true, None, None, true);
+    assert_eq!(
+        filtered["native_migration_state_queries"][0]["context"]["provinces"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        filtered["native_migration_state_queries"][0]["context"]["migration_steps"],
+        2
+    );
+    assert_eq!(
+        filtered["native_migration_state_queries"][0]["query"]["evaluation"],
+        serde_json::Value::Null
+    );
+    fs::write(&source_save, make_save("1 1")).unwrap();
+    // The existing save reader continues to ignore this separate component.
+    run(false, None, None, false);
+    let strict = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--import-native-migration-state")
+        .output()
+        .unwrap();
+    assert!(!strict.status.success());
+    assert!(String::from_utf8_lossy(&strict.stderr).contains("repeats native province"));
+}

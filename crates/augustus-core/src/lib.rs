@@ -41,6 +41,7 @@ mod named_values;
 mod native_growth;
 mod native_migration;
 mod native_migration_gate;
+mod native_migration_state;
 mod naval;
 mod naval_constructions;
 mod objectives;
@@ -187,6 +188,7 @@ pub use native_migration_gate::{
     VanillaNativeMigrationGateInput, VanillaNativeMigrationGateResult,
     calculate_vanilla_native_migration_gate,
 };
+pub use native_migration_state::{NativeMigrationCountryState, NativeMigrationStates};
 pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId, NavalUnitState};
 pub use naval_constructions::{
     NavalConstructionId, NavalConstructionInput, NavalConstructionOrder, PaidNavalConstructionInput,

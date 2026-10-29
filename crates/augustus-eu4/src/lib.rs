@@ -39,6 +39,12 @@ mod monarch_power;
 mod native_development;
 mod native_migration_defines;
 mod native_migration_queries;
+mod native_migration_state;
+mod native_migration_state_queries;
+pub use native_migration_state_queries::{
+    VanillaNativeMigrationContext, VanillaNativeMigrationStatePricing,
+    VanillaNativeMigrationStateQuery, VanillaNativeMigrationStateQueryReport,
+};
 mod naval_construction_requests;
 mod naval_constructions;
 mod navy_tradition;
@@ -182,12 +188,17 @@ pub use native_migration_queries::{
     VanillaNativeMigrationContentPricing, VanillaNativeMigrationContentQuery,
     VanillaNativeMigrationPricing, VanillaNativeMigrationQuery, VanillaNativeMigrationQueryReport,
 };
+pub use native_migration_state::{
+    VanillaExternalNativeMigrationState, VanillaNativeMigrationImport,
+};
 pub use politics::{RelationSource, RelationView};
 pub use religious_schools::ReligiousSchoolReport;
 pub use save_state::{
     VanillaSaveState, VanillaSaveStateWithOrderedTradeNodeRuntimeStates,
     VanillaSaveStateWithStateEdicts, VanillaSaveStateWithTradeNodeRuntimeStates,
-    VanillaSaveStateWithTradeNodes, read_vanilla_save_state,
+    VanillaSaveStateWithTradeNodes, read_vanilla_native_migration_states,
+    read_vanilla_native_migration_states_with_token_map,
+    read_vanilla_native_migration_states_with_token_resolver, read_vanilla_save_state,
     read_vanilla_save_state_and_ordered_trade_node_runtime_states,
     read_vanilla_save_state_and_ordered_trade_node_runtime_states_with_token_map,
     read_vanilla_save_state_and_ordered_trade_node_runtime_states_with_token_resolver,

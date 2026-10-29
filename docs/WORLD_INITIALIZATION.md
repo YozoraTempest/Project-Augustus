@@ -360,6 +360,29 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 三项费用只供当前内容查询使用，不写入世界快照；恢复匹配的世界快照后，内容查询使用本次加载的有效定义。其余迁移修正、成员关系、步数和资格仍须显式提供。既有 `--native-migration-queries` 保持消费完整显式费用输入，不会被内容定义覆盖；两个入口都在推进之后只读评估，不预留资源或授权未来执行。
 
+
+国家 `native` 块中的原始 `provinces` 列表与 `migration_steps` 可通过独立导入组件持久保存。CLI 同时传入 `--eu4-save save.eu4 --import-native-migration-state` 时启用该读取；也可用 `--native-migration-state states.json` 提供按国家标签索引的独立状态表，例如 `{"AAA":{"provinces":[2],"migration_steps":2}}`。两种输入互斥，在 `--load` 恢复前绑定，恢复快照后以快照状态为准。普通 `--eu4-save` 和既有外部状态包格式保持原约定，`--export-external-state` 不包含该独立组件；保存此状态使用 Augustus `--save`/`--load`。
+
+原始块缺失时不声明该国家状态，块存在但字段缺失时对应值为未知；`provinces={}` 是明确空列表，`migration_steps=0` 是明确零。列表保留顺序，重复成员、无效整数、重复字段及无效结构会拒绝导入。读取后按目标世界过滤未知国家；如果名单包含目标世界中不存在的省份，整份成员列表保持未知，保留已知步数，不通过删除单个成员制造非成员结论。显式状态文件和运行时 `set_country_native_migration` 则严格拒绝未知国家或省份，整批验证后更新。成员关系独立于所有权、控制权及 `tribal_owner`，不会据这些字段重建列表。该运行状态随核心快照保存，不参与不可变内容身份计算；旧快照缺少组件时保持未知，不推断为已知空列表。
+
+`--native-migration-state-queries queries.json` 或 `query_native_migration_from_state` 可进一步自动读取当前成员关系和步数，费用使用已加载内容 define，点数及首都使用当前世界。请求不再接收 `native_membership_known`，`pricing` 仅提供三个有效修正：
+
+```json
+[{
+  "country":"AAA", "destination":1,
+  "pricing":{
+    "all_power_cost_modifier_milli":0,
+    "country_migration_cost_modifier_milli":0,
+    "province_migration_cost_modifier_milli":0
+  },
+  "native_mode_eligible":true, "owner_eligible":true,
+  "controller_eligible":true, "tribal_owner_eligible":true,
+  "additional_gate_eligible":true
+}]
+```
+
+输出 `native_migration_state_queries` 的每项包含 `context` 与 `query`：前者列出当前原始名单、步数和目标成员关系；后者沿用实时费用查询报告。列表或步数未知时费用评估保持 `null` 并列出原因。查询不会修改状态、消耗随机流或执行迁移；模式、有效修正及其他资格仍须调用方解析。迁移后的名单维护、步数更新和完整命令生命周期尚未接通。
+
 如果另一套游戏实例能够提供多类状态，可以使用 `VanillaExternalState` 一次性注入国家指标、每项指标的增长上限、国库与人力、当前国家焦点、已确认的阶层特权和忠诚度目标、当前省份原始自治度、已经翻译好的国家级月度现金流、已经核实的月度君主点数收入、开局陆军和舰船，以及按 EU4 省份编号给出的生产输入和税收输入。`country_national_focus` 省略国家表示未知，`{"skill": null}` 表示明确清除焦点；存档读取器会把未压缩 `EU4txt` 中的当前焦点翻译到这个字段。存档中的 `current_power_projection` 会进入国家指标 `power_projection`，单位为千分位；缺少字段不补零。`country_metric_ceilings` 只写入提供者已经确认的动态增长上限；省略的国家或指标继续保持未知，Augustus 不会把 `POWER_MAX` 或其他基础定义自动当成每个国家的最终上限。`country_monthly_power_income` 按国家标签和 `adm_power`、`dip_power`、`mil_power` 绑定已经核实的月度收入；显式的 `null` 保持该项收入未知，未列出的国家或指标继续使用本地内容公式。它只替换收入公式，不替代点数库存和增长上限；战役运行中可以调用 `VanillaWorld::set_country_monthly_power_income` 刷新同一边界。`estate_privileges` 使用国家标签、阶层标识和特权集合绑定当前已授予特权；`Some([])` 表示明确没有特权，省略或 `null` 仍表示未知。`province_raw_autonomy_milli` 使用千分位比例绑定当前行政状态，之后的月度自治规则会从这份状态继续运行；`country_annual_tax_milli` 替换国家级年税来源；`province_annual_tax_milli` 按省份替换 `tax_after_autonomy` 的年化值，显式的 `null` 表示该省份仍未知，未列出的省份继续使用本地内容计算。税收输入使用年化千分位整数，月结时统一换算为月收入。月度现金流使用千分位整数，正数表示收入，负数表示支出；Augustus 会在税收和普通生产之后应用它，并保留每个国家的结算记录。`production_inputs` 接收已经算好的最终生产基础值；`production_value_inputs` 则接收货物数量、价值阶段修正和月结修正，由兼容层从当前 EU4 内容读取商品基础价格后生成最终输入。两种生产格式不能同时声明同一省份。开局单位在启动事件之前绑定，因此启动脚本可以读取这些单位；单位来源仍由提供者负责翻译，Augustus 不从其他游戏复制脚本或规则。该对象在启动事件之前绑定，核心只接收已经翻译好的数值；缺少的国家、指标或省份仍保持未知，错误的标签、省份编号或无港口舰船位置会拒绝整个输入。命令行可直接读取 JSON 状态包：
 
 ```json

@@ -380,6 +380,13 @@ impl InitialWorld {
         self.world.set_map_knowledge(map_knowledge)
     }
 
+    pub fn set_native_migration_states(
+        &mut self,
+        states: crate::NativeMigrationStates,
+    ) -> Result<(), Error> {
+        self.world.set_native_migration_states(states)
+    }
+
     pub fn set_estates(&mut self, estates: crate::Estates) -> Result<(), Error> {
         self.world.set_estates(estates)
     }
