@@ -42,6 +42,7 @@ mod native_migration_execution;
 mod native_migration_queries;
 mod native_migration_state;
 mod native_migration_state_queries;
+mod native_migration_transfer;
 pub use native_migration_execution::{
     VanillaNativeMigrationExecutionReport, VanillaNativeMigrationExecutionRequest,
     VanillaNativeMigrationExecutionStatus,
@@ -49,6 +50,10 @@ pub use native_migration_execution::{
 pub use native_migration_state_queries::{
     VanillaNativeMigrationContext, VanillaNativeMigrationStatePricing,
     VanillaNativeMigrationStateQuery, VanillaNativeMigrationStateQueryReport,
+};
+pub use native_migration_transfer::{
+    VanillaNativeMigrationTransferReport, VanillaNativeMigrationTransferRequest,
+    VanillaNativeMigrationTransferStatus,
 };
 mod naval_construction_requests;
 mod naval_constructions;
