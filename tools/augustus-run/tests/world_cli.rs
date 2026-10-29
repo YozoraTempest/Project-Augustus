@@ -2209,4 +2209,71 @@ fn migration_state_import_drives_membership_costs_and_survives_snapshot_restore(
         .unwrap();
     assert!(!strict.status.success());
     assert!(String::from_utf8_lossy(&strict.stderr).contains("repeats native province"));
+
+    // Transfer execution runs after snapshot restore and before the optional
+    // day advance, then persists its report and resulting snapshot.
+    fs::write(
+        &source_save,
+        "EU4txt\ndate=1444.11.11\nplayer=AAA\ncountries={AAA={capital=2 powers={140 126 150} native={provinces={2} migration_steps=2}}}\nprovinces={-1={tribal_owner=AAA} -2={owner=AAA controller=AAA}}\n",
+    )
+    .unwrap();
+    let transfers = temp.path().join("transfers.json");
+    fs::write(
+        &transfers,
+        serde_json::to_vec(&serde_json::json!([{
+            "country":"AAA","destination":1,
+            "pricing":{"all_power_cost_modifier_milli":0,"country_migration_cost_modifier_milli":0,"province_migration_cost_modifier_milli":0},
+            "expected_current_capital":2,"expected_migration_steps":2,"next_migration_steps":3,
+            "native_mode_eligible":true,"owner_eligible":true,"controller_eligible":true,"tribal_owner_eligible":true,"additional_gate_eligible":true
+        }]))
+        .unwrap(),
+    )
+    .unwrap();
+    let transfer_snapshot = temp.path().join("transfer.json");
+    let transfer = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--import-native-migration-state")
+        .arg("--native-migration-transfers")
+        .arg(&transfers)
+        .arg("--save")
+        .arg(&transfer_snapshot)
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        transfer.status.success(),
+        "{}",
+        String::from_utf8_lossy(&transfer.stderr)
+    );
+    let transfer_output: serde_json::Value = serde_json::from_slice(&transfer.stdout).unwrap();
+    assert_eq!(
+        transfer_output["native_migration_transfers"][0]["status"],
+        "applied"
+    );
+    assert_eq!(
+        transfer_output["native_migration_transfers"][0]["transfer"]["migration_steps_after"],
+        3
+    );
+    let restored = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--load")
+        .arg(&transfer_snapshot)
+        .arg("--country")
+        .arg("AAA")
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        restored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restored.stderr)
+    );
+    let restored: serde_json::Value = serde_json::from_slice(&restored.stdout).unwrap();
+    assert_eq!(restored["country"]["bound_capital"], 1);
 }

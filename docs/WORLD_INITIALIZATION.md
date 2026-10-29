@@ -533,3 +533,7 @@ godot --headless --path godot --script res://tests/session.gd
 最后两项界面检查分别验证真实渲染中的国家颜色，以及原有建造演示。`installation.gd` 使用指定的本地安装检查 Godot 到 Rust 的加载、日期和国家省份查询；也接受重复的 `--mod`、`--user-directory` 和 `--launcher-config`。Windows x86_64 已验证，其他平台尚未验证。报告和截图只保存在本地，不提交原版资源或其生成数据。
 
 未压缩 EU4 存档中的省份 `is_city=yes/no` 会通过 `VanillaExternalState.province_is_city` 绑定到省份状态，供税收属性读取城市修正；字段缺失时保持未知，不补默认值。
+
+
+
+`augustus-world` 通过 `--native-migration-transfers FILE` 接收请求数组，在 restore 后、`--days` 推进前按数组顺序调用 native migration transfer adapter；输出放在 `native_migration_transfers`，`--save` 会保存执行后的 Augustus 快照。请求仍需提供 caller-resolved gate 输入、当前首都、旧步骤和 next steps；CLI 执行结果不等同于原版 EU4 save writer。

@@ -52,6 +52,14 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     naval_constructions: Option<PathBuf>,
+    /// Execute caller-resolved native migration transfers after restore and
+    /// before --days, then include their reports in the JSON output.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    native_migration_transfers: Option<PathBuf>,
     /// Record submitted naval costs in the EXPENSEFLEET ledger category; requires known treasury.
     #[arg(long, requires = "naval_constructions")]
     naval_construction_ledger: bool,
@@ -414,6 +422,22 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             })
         })
         .transpose()?;
+    let native_migration_transfers = cli
+        .native_migration_transfers
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let requests: Vec<augustus_eu4::VanillaNativeMigrationTransferRequest> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            requests
+                .iter()
+                .map(|request| {
+                    loaded
+                        .execute_native_migration_transfer_from_state(request)
+                        .map_err(Into::into)
+                })
+                .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()
+        })
+        .transpose()?;
     if monthly_pipeline.is_some() || cli.annual_ledger_rollover {
         let monthly =
             monthly_pipeline.map(|pipeline| pipeline as &dyn augustus_core::MonthlySystem);
@@ -504,6 +528,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = native_migration_queries {
         output["native_migration_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(reports) = native_migration_transfers {
+        output["native_migration_transfers"] = serde_json::to_value(reports)?;
     }
     if let Some(ids) = submitted_naval_constructions {
         output["submitted_naval_constructions"] = serde_json::to_value(ids)?;
