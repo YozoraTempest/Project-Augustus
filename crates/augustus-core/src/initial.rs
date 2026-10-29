@@ -1060,6 +1060,74 @@ impl InitialWorld {
         *self = staged;
         Ok(())
     }
+
+    pub(crate) fn commit_native_migration_transfer(
+        &mut self,
+        source_country: EntityId,
+        old_capital: EntityId,
+        destination: EntityId,
+        power_after: [i64; 3],
+        next_migration_steps: u32,
+    ) -> Result<(), Error> {
+        let source_tag = self
+            .countries
+            .get(source_country.0)
+            .ok_or_else(|| Error::Invalid("native migration source country is unknown".into()))?
+            .id
+            .clone();
+        let old_index = old_capital
+            .0
+            .checked_sub(self.countries.len())
+            .ok_or_else(|| {
+                Error::Invalid("native migration old capital is not a province".into())
+            })?;
+        let destination_index =
+            destination
+                .0
+                .checked_sub(self.countries.len())
+                .ok_or_else(|| {
+                    Error::Invalid("native migration destination is not a province".into())
+                })?;
+        let old_projection = self
+            .provinces
+            .get(old_index)
+            .ok_or_else(|| Error::Invalid("native migration old capital is unknown".into()))?;
+        let destination_projection = self
+            .provinces
+            .get(destination_index)
+            .ok_or_else(|| Error::Invalid("native migration destination is unknown".into()))?;
+        if old_projection.owner.as_deref() != Some(source_tag.as_str())
+            || destination_projection.owner.is_some()
+        {
+            return Err(Error::Invalid(
+                "native migration owner projection is stale".into(),
+            ));
+        }
+        if old_projection.controller.is_some() || destination_projection.controller.is_some() {
+            return Err(Error::Invalid(
+                "native migration controller relation is unresolved".into(),
+            ));
+        }
+
+        self.world.set_owner(destination, source_country)?;
+        self.world.set_capital(source_country, destination)?;
+        self.world.clear_owner(old_capital)?;
+        let metric_values = ["adm_power", "dip_power", "mil_power"]
+            .into_iter()
+            .zip(power_after)
+            .map(|(name, value)| (name.to_owned(), Some(value)))
+            .collect();
+        self.set_metric_values(BTreeMap::from([(source_country, metric_values)]))?;
+        let mut states = self.world.native_migration_states().clone();
+        states
+            .countries
+            .get_mut(&source_country)
+            .ok_or_else(|| Error::Invalid("native migration state is unknown".into()))?
+            .migration_steps = Some(next_migration_steps);
+        self.world.set_native_migration_states(states)?;
+        self.refresh_province_relations();
+        Ok(())
+    }
     pub fn country_entity(&self, id: &str) -> Option<EntityId> {
         self.country_index.get(id).copied().map(EntityId)
     }
