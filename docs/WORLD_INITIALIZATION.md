@@ -387,6 +387,8 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 `VanillaNativeMigrationExecutionRequest` 与 `VanillaNativeMigrationStateQuery` 都是严格的 JSON 请求契约：保留显式 `null` eligibility，`pricing` 与步数字段经过 roundtrip 后不变；顶层或嵌套 `pricing` 中出现未知字段会直接拒绝。执行请求中的 `expected_migration_steps` 和 `next_migration_steps` 始终由调用方提供，不能通过省略字段让适配层推断迁移步数。
 
+`VanillaNativeMigrationTransferRequest` 使用相同的严格 JSON 边界：`expected_current_capital`、`expected_migration_steps` 和 `next_migration_steps` 经过 roundtrip 后保持不变，顶层或嵌套 `pricing` 的未知字段直接拒绝。transfer adapter 仍要求调用方显式提供这些前置值，不从当前世界状态猜测迁移目标或步数。
+
 core 还提供 `World::clear_owner` 和 `InitialWorld::set_province_owner`，用于已经被调用方确认的省份所有权边界。清除 owner 会把关系记录为已知缺失并维护 OwnershipIndex；重新设置 owner 会移除该缺失标记。InitialWorld 入口在暂存副本中同时更新 core 所有权图和 EU4 省份投影，失败时保持原状态。它不推断资本、controller 或 `tribal_owner`，也不会把单独的 owner edge 更新描述成完整领土转移；native 迁徙仍需后续专用 transfer transaction。
 
 core 的 `InitialWorld::execute_vanilla_native_migration_transfer` 进一步把已确认的目标省份、当前首都、三项 power 费用和显式步数更新放入同一个 staged transaction。它要求目标 owner 已明确为 known-absent，检查当前首都和旧步数没有变化，然后按“目标 owner → 新 capital → 旧 capital known-absent → controller/previous_controller → power/steps”一次提交；目标是未知 owner、第三方 capital、同一省份、owner 投影不一致、已知 controller 投影或任一前置值过期时整笔拒绝。`next_migration_steps` 始终由调用方显式提供，既支持 `2→3` 也支持已核验的 `2→0`；事务保留 raw native province list，不根据目标或步骤自动增删；已有 `tribal_owner` 关系也保持不变。

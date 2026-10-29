@@ -380,4 +380,53 @@ mod tests {
         );
         assert_eq!(controller.save().unwrap(), before_controller);
     }
+
+    #[test]
+    fn transfer_request_roundtrips_and_rejects_unknown_fields() {
+        let mut request = request(4);
+        request.pricing.all_power_cost_modifier_milli = -50;
+        request.pricing.country_migration_cost_modifier_milli = 25;
+        request.pricing.province_migration_cost_modifier_milli = 75;
+        request.owner_eligible = None;
+        request.controller_eligible = Some(false);
+        let encoded = serde_json::to_value(&request).unwrap();
+        assert_eq!(encoded["owner_eligible"], serde_json::Value::Null);
+        let decoded: VanillaNativeMigrationTransferRequest =
+            serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(decoded, request);
+
+        for field in [
+            "expected_current_capital",
+            "expected_migration_steps",
+            "next_migration_steps",
+        ] {
+            let mut missing = encoded.as_object().unwrap().clone();
+            missing.remove(field);
+            let error = serde_json::from_value::<VanillaNativeMigrationTransferRequest>(
+                serde_json::Value::Object(missing),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains(field), "{error}");
+        }
+
+        let mut unknown = encoded.as_object().unwrap().clone();
+        unknown.insert("unexpected".into(), serde_json::json!(true));
+        assert!(
+            serde_json::from_value::<VanillaNativeMigrationTransferRequest>(
+                serde_json::Value::Object(unknown)
+            )
+            .is_err()
+        );
+
+        let mut nested_unknown = encoded.as_object().unwrap().clone();
+        let mut pricing = nested_unknown["pricing"].as_object().unwrap().clone();
+        pricing.insert("unexpected".into(), serde_json::json!(true));
+        nested_unknown.insert("pricing".into(), serde_json::Value::Object(pricing));
+        assert!(
+            serde_json::from_value::<VanillaNativeMigrationTransferRequest>(
+                serde_json::Value::Object(nested_unknown)
+            )
+            .is_err()
+        );
+    }
 }
