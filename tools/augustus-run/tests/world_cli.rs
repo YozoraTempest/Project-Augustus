@@ -2681,3 +2681,83 @@ fn world_cli_reports_caller_resolved_native_migration_scores_without_mutation() 
         fs::read(&plain_snapshot).unwrap()
     );
 }
+
+#[test]
+fn world_cli_rejects_invalid_score_queries_before_creating_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+
+    let unknown = temp.path().join("unknown.json");
+    fs::write(
+        &unknown,
+        serde_json::to_vec(&serde_json::json!([{
+            "candidate_id": 1,
+            "score": {
+                "eligible": true,
+                "trade_factor": 1519919863,
+                "a0d180_result": 6000,
+                "devastation": 0,
+                "destination_in_native_membership": true,
+                "migration_steps": null,
+                "normalized_distance_penalties": [],
+                "unexpected": true
+            }
+        }]))
+        .unwrap(),
+    )
+    .unwrap();
+    let unknown_snapshot = temp.path().join("unknown-snapshot.json");
+    let unknown_run = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .args(["--seed", "7", "--ai-only", "--omit-load-report"])
+        .arg("--native-migration-score-queries")
+        .arg(&unknown)
+        .arg("--save")
+        .arg(&unknown_snapshot)
+        .output()
+        .unwrap();
+    assert!(!unknown_run.status.success());
+    assert!(String::from_utf8_lossy(&unknown_run.stderr).contains("unknown field"));
+    assert!(!unknown_snapshot.exists());
+
+    let negative = temp.path().join("negative.json");
+    fs::write(
+        &negative,
+        serde_json::to_vec(&serde_json::json!([{
+            "candidate_id": 1,
+            "score": {
+                "eligible": true,
+                "trade_factor": 1519919863,
+                "a0d180_result": 6000,
+                "devastation": 0,
+                "destination_in_native_membership": false,
+                "migration_steps": 2,
+                "normalized_distance_penalties": [-1]
+            }
+        }]))
+        .unwrap(),
+    )
+    .unwrap();
+    let negative_snapshot = temp.path().join("negative-snapshot.json");
+    let negative_run = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .args(["--seed", "7", "--ai-only", "--omit-load-report"])
+        .arg("--native-migration-score-queries")
+        .arg(&negative)
+        .arg("--save")
+        .arg(&negative_snapshot)
+        .output()
+        .unwrap();
+    assert!(!negative_run.status.success());
+    assert!(
+        String::from_utf8_lossy(&negative_run.stderr)
+            .contains("distance penalties must be nonnegative")
+    );
+    assert!(!negative_snapshot.exists());
+}
