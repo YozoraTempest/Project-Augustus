@@ -121,6 +121,10 @@ pub struct BootstrapReport {
 pub struct ProvinceView<'a> {
     #[serde(flatten)]
     pub state: &'a ProvinceState,
+    /// Persisted previous-controller history. The outer `None` is unknown;
+    /// `Some(None)` is an explicit known absence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_controller: Option<Option<&'a str>>,
     pub terrain: Option<&'a str>,
     pub metrics: Option<&'a BTreeMap<String, Option<i64>>>,
     pub buildings: Option<Vec<&'a str>>,
@@ -691,6 +695,10 @@ pub struct VanillaExternalState {
     /// province remains content-derived; `None` keeps its controller unknown.
     #[serde(default)]
     pub province_controllers: BTreeMap<u32, Option<String>>,
+    /// Previous province controller supplied by a save reader. An omitted
+    /// province remains history-unknown; `None` records known absence.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub province_previous_controllers: BTreeMap<u32, Option<String>>,
     /// Current base tax, production, and manpower values supplied by a save
     /// reader. An omitted province or value remains content-derived.
     #[serde(default)]
@@ -822,6 +830,7 @@ struct LoadOverrides<'a> {
     province_cultures: Option<&'a BTreeMap<u32, Option<String>>>,
     province_religions: Option<&'a BTreeMap<u32, Option<String>>>,
     province_controllers: Option<&'a BTreeMap<u32, Option<String>>>,
+    province_previous_controllers: Option<&'a BTreeMap<u32, Option<String>>>,
     province_development: Option<&'a BTreeMap<u32, VanillaExternalProvinceDevelopment>>,
     province_metric_values: Option<&'a BTreeMap<u32, BTreeMap<String, Option<i64>>>>,
     state_edicts: Option<&'a VanillaExternalStateEdicts>,
@@ -932,6 +941,8 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.province_religions),
             province_controllers: (!state.province_controllers.is_empty())
                 .then_some(&state.province_controllers),
+            province_previous_controllers: (!state.province_previous_controllers.is_empty())
+                .then_some(&state.province_previous_controllers),
             province_development: (!state.province_development.is_empty())
                 .then_some(&state.province_development),
             province_metric_values: (!state.province_metric_values.is_empty())
@@ -1151,6 +1162,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.province_religions.clone());
     base.province_controllers
         .extend(overlay.province_controllers.clone());
+    base.province_previous_controllers
+        .extend(overlay.province_previous_controllers.clone());
     overlay_province_development(
         &mut base.province_development,
         &overlay.province_development,
@@ -3839,6 +3852,13 @@ impl VanillaWorld {
                     .map_err(|e| Error::caused_by(root.path(), e))?;
             }
         }
+        if let Some(previous_controllers) = overrides.province_previous_controllers {
+            for (&province, controller) in previous_controllers {
+                initial
+                    .set_province_previous_controller(province, controller.as_deref())
+                    .map_err(|e| Error::caused_by(root.path(), e))?;
+            }
+        }
         let country_tag_registry = crate::country_tags::build_registry(&country_order)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         report.country_tag_slots = country_tag_registry.slots().len();
@@ -5265,6 +5285,21 @@ impl VanillaWorld {
         let trade_node = economy.province_node(entity);
         Some(ProvinceView {
             state,
+            previous_controller: self
+                .initial
+                .world()
+                .province_previous_controller_state(entity)
+                .expect("registered province")
+                .map(|controller| {
+                    controller.map(|country| {
+                        self.initial
+                            .world()
+                            .entity(country)
+                            .expect("validated country")
+                            .name
+                            .as_str()
+                    })
+                }),
             terrain: self
                 .initial
                 .world()

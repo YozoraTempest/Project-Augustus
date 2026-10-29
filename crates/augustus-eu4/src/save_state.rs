@@ -648,6 +648,23 @@ impl VanillaSaveState {
             state.province_controllers.insert(*province, controller);
         }
 
+        for (province, previous_controller) in &self.external_state.province_previous_controllers {
+            if world.initial.province_entity(*province).is_none() {
+                continue;
+            }
+            match previous_controller {
+                None => {
+                    state.province_previous_controllers.insert(*province, None);
+                }
+                Some(tag) if countries.contains(tag.as_str()) => {
+                    state
+                        .province_previous_controllers
+                        .insert(*province, Some(tag.clone()));
+                }
+                Some(_) => {}
+            }
+        }
+
         for (province, culture) in &self.external_state.province_cultures {
             if world.initial.province_entity(*province).is_some() {
                 state.province_cultures.insert(*province, culture.clone());
@@ -1994,6 +2011,19 @@ fn read_vanilla_save_state_inner(
             external_state
                 .province_controllers
                 .insert(id, Some(controller));
+        }
+        if let Some(previous_controller) =
+            optional_scalar(&parsed, &province, "previous_controller")?
+        {
+            if !is_country_tag(&previous_controller) {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("province {id} has an invalid previous controller tag"),
+                ));
+            }
+            external_state
+                .province_previous_controllers
+                .insert(id, Some(previous_controller));
         }
         let development = VanillaExternalProvinceDevelopment {
             base_tax_milli: optional_milli(&parsed, &province, "base_tax")?,
@@ -4682,6 +4712,7 @@ provinces={
     -1={
         owner="AAA"
         controller="AAA"
+        previous_controller="AAA"
         center_of_trade=3
         base_tax=12.345
         base_production=7.890
@@ -4699,7 +4730,7 @@ provinces={
         mothball_status=2
     }
     -4={
-        owner="AAA"
+        previous_controller="AAA"
     }
     -999={
         center_of_trade=1
@@ -4747,6 +4778,14 @@ provinces={
         );
         assert!(!save.external_state.province_controllers.contains_key(&2));
         assert_eq!(
+            save.external_state.province_previous_controllers[&1].as_deref(),
+            Some("AAA")
+        );
+        assert_eq!(
+            save.external_state.province_previous_controllers[&4].as_deref(),
+            Some("AAA")
+        );
+        assert_eq!(
             save.external_state.province_center_of_trade_levels[&1],
             Some(3)
         );
@@ -4790,6 +4829,37 @@ provinces={
         assert_eq!(filtered.province_controllers[&1].as_deref(), Some("AAA"));
         assert!(filtered.province_controllers.contains_key(&2));
         assert_eq!(filtered.province_controllers[&2], None);
+        assert_eq!(
+            filtered.province_previous_controllers[&1].as_deref(),
+            Some("AAA")
+        );
+        assert_eq!(
+            filtered.province_previous_controllers[&4].as_deref(),
+            Some("AAA")
+        );
+        let mut ownerless_save = save.clone();
+        ownerless_save.external_state.province_owners.remove(&4);
+        let (_, ownerless_filtered) = ownerless_save.for_world(&baseline).unwrap();
+        assert_eq!(
+            ownerless_filtered.province_previous_controllers[&4].as_deref(),
+            Some("AAA")
+        );
+        let mut relation_filter = save.clone();
+        relation_filter
+            .external_state
+            .province_previous_controllers
+            .insert(3, None);
+        relation_filter
+            .external_state
+            .province_previous_controllers
+            .insert(1, Some("ZZZ".into()));
+        let (_, relation_filtered) = relation_filter.for_world(&baseline).unwrap();
+        assert_eq!(relation_filtered.province_previous_controllers[&3], None);
+        assert!(
+            !relation_filtered
+                .province_previous_controllers
+                .contains_key(&1)
+        );
         assert_eq!(filtered.province_center_of_trade_levels[&1], Some(3));
         assert_eq!(filtered.province_center_of_trade_levels[&2], Some(0));
         assert!(!filtered.province_center_of_trade_levels.contains_key(&999));
@@ -4837,6 +4907,45 @@ provinces={
                 .province_controller_state(province_two)
                 .unwrap(),
             Some(None)
+        );
+        let province_four = loaded.initial.province_entity(4).unwrap();
+        assert_eq!(
+            loaded
+                .initial
+                .world()
+                .province_previous_controller_state(province_four)
+                .unwrap(),
+            Some(Some(country_aaa))
+        );
+        let view = loaded.province(4).unwrap();
+        assert_eq!(view.previous_controller, Some(Some("AAA")));
+        let serialized = serde_json::to_value(view).unwrap();
+        assert_eq!(serialized["previous_controller"], "AAA");
+        let overlay = VanillaExternalState {
+            province_previous_controllers: BTreeMap::from([(3, None)]),
+            ..Default::default()
+        };
+        let loaded_absent =
+            crate::VanillaWorld::load_from_content_with_save_state_and_external_state(
+                &content,
+                &save,
+                Some(&overlay),
+            )
+            .unwrap();
+        let province_three = loaded_absent.initial.province_entity(3).unwrap();
+        assert_eq!(
+            loaded_absent
+                .initial
+                .world()
+                .province_previous_controller_state(province_three)
+                .unwrap(),
+            Some(None)
+        );
+        let absent_view = loaded_absent.province(3).unwrap();
+        assert_eq!(absent_view.previous_controller, Some(None));
+        assert_eq!(
+            serde_json::to_value(absent_view).unwrap()["previous_controller"],
+            serde_json::Value::Null
         );
         assert_eq!(
             loaded.initial.world().metrics().entities[&province_one]["devastation"],
