@@ -37,6 +37,7 @@ mod localisation;
 mod missions;
 mod monarch_power;
 mod native_development;
+mod native_migration_queries;
 mod naval_construction_requests;
 mod naval_constructions;
 mod navy_tradition;
@@ -176,6 +177,9 @@ pub use ideas::IdeaReport;
 pub use jomini::binary::TokenResolver as Eu4TokenResolver;
 pub use load::{ContentSet, ContentSource, FileCandidate, FileOrigin, FileTrace, Suppression};
 pub use localisation::EventText;
+pub use native_migration_queries::{
+    VanillaNativeMigrationPricing, VanillaNativeMigrationQuery, VanillaNativeMigrationQueryReport,
+};
 pub use politics::{RelationSource, RelationView};
 pub use religious_schools::ReligiousSchoolReport;
 pub use save_state::{

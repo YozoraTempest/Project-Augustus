@@ -28,7 +28,7 @@ pub struct VanillaNativeMigrationGateInput {
     pub additional_gate_eligible: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct VanillaNativeMigrationGateResult {
     pub source_country: Option<crate::EntityId>,
     pub current_capital: Option<u32>,

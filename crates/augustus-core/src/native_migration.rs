@@ -29,7 +29,7 @@ pub struct VanillaNativeMigrationCostInput {
     pub available_mil_power: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct VanillaNativeMigrationCostResult {
     pub adm_cost: i32,
     pub dip_cost: i32,
