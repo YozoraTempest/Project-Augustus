@@ -46,8 +46,10 @@ pub struct VanillaNativeMigrationTransferReport {
 
 impl VanillaWorld {
     /// Rechecks the live gate, then applies the represented owner, capital,
-    /// power and migration-step transaction. Controller, tribal-owner and raw
-    /// native-list lifecycle remain outside this adapter's model.
+    /// power and migration-step transaction. Current and previous controller
+    /// relations are synchronized by core, existing tribal-owner relations are
+    /// preserved, and raw native-list lifecycle remains outside this adapter's
+    /// model.
     pub fn execute_native_migration_transfer_from_state(
         &mut self,
         request: &VanillaNativeMigrationTransferRequest,

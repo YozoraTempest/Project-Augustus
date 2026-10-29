@@ -316,3 +316,33 @@ fn transfer_keeps_previous_controller_unknown_when_old_controller_is_unknown() {
         Some(Some(country))
     );
 }
+
+#[test]
+fn transfer_accepts_explicit_zero_migration_steps_and_preserves_native_relations() {
+    let (mut initial, country, old, destination) = fixture(true, true, false);
+    let mut transfer = input(country, old, destination);
+    transfer.next_migration_steps = 0;
+    initial
+        .execute_vanilla_native_migration_transfer(transfer)
+        .unwrap();
+
+    assert_eq!(
+        initial.world().native_migration_states().countries[&country].migration_steps,
+        Some(0)
+    );
+    assert_eq!(
+        initial.world().native_migration_states().countries[&country].provinces,
+        Some(vec![old])
+    );
+    assert_eq!(
+        initial.world().province_tribal_owner_state(old).unwrap(),
+        Some(Some(country))
+    );
+    assert_eq!(
+        initial
+            .world()
+            .province_tribal_owner_state(destination)
+            .unwrap(),
+        Some(Some(country))
+    );
+}

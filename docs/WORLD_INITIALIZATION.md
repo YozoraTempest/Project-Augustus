@@ -387,7 +387,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 core 还提供 `World::clear_owner` 和 `InitialWorld::set_province_owner`，用于已经被调用方确认的省份所有权边界。清除 owner 会把关系记录为已知缺失并维护 OwnershipIndex；重新设置 owner 会移除该缺失标记。InitialWorld 入口在暂存副本中同时更新 core 所有权图和 EU4 省份投影，失败时保持原状态。它不推断资本、controller 或 `tribal_owner`，也不会把单独的 owner edge 更新描述成完整领土转移；native 迁徙仍需后续专用 transfer transaction。
 
-core 的 `InitialWorld::execute_vanilla_native_migration_transfer` 进一步把已确认的目标省份、当前首都、三项 power 费用和显式步数更新放入同一个 staged transaction。它要求目标 owner 已明确为 known-absent，检查当前首都和旧步数没有变化，然后按“目标 owner → 新 capital → 旧 capital known-absent → controller/previous_controller → power/steps”一次提交；目标是未知 owner、第三方 capital、同一省份、owner 投影不一致、已知 controller 投影或任一前置值过期时整笔拒绝。该事务只覆盖 core 已表示的 owner/capital/steps/power/controller/previous_controller，不触碰 `tribal_owner` 或 raw native 名单。
+core 的 `InitialWorld::execute_vanilla_native_migration_transfer` 进一步把已确认的目标省份、当前首都、三项 power 费用和显式步数更新放入同一个 staged transaction。它要求目标 owner 已明确为 known-absent，检查当前首都和旧步数没有变化，然后按“目标 owner → 新 capital → 旧 capital known-absent → controller/previous_controller → power/steps”一次提交；目标是未知 owner、第三方 capital、同一省份、owner 投影不一致、已知 controller 投影或任一前置值过期时整笔拒绝。`next_migration_steps` 始终由调用方显式提供，既支持 `2→3` 也支持已核验的 `2→0`；事务保留 raw native province list，不根据目标或步骤自动增删；已有 `tribal_owner` 关系也保持不变。
 
 core 现在还保存省份 controller 的三态关系：缺少 map key 表示未知，`Some(None)` 表示已知无 controller，`Some(Some(country))` 表示已知 controller。`InitialWorld::set_province_controller` 在暂存副本中同步关系和投影；旧快照缺少该字段时仍恢复为未知。native migration transfer 会在同一 staged transaction 中把旧首都 controller 记为 known absent，并把目标省份 controller 记为 source country。
 
