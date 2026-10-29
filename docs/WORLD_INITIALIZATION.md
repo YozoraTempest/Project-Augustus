@@ -537,3 +537,5 @@ godot --headless --path godot --script res://tests/session.gd
 
 
 `augustus-world` 通过 `--native-migration-transfers FILE` 接收请求数组，在 restore 后、`--days` 推进前按数组顺序调用 native migration transfer adapter；输出放在 `native_migration_transfers`，`--save` 会保存执行后的 Augustus 快照。请求仍需提供 caller-resolved gate 输入、当前首都、旧步骤和 next steps；CLI 执行结果不等同于原版 EU4 save writer。请求数组中的后续请求读取前一个请求提交后的实时状态；`rejected` 和 `unresolved` 报告不写入 core transaction，因此保存结果只保留此前成功请求的状态。CLI 还验证了显式 native state 先写入 snapshot、随后省略该输入并 restore 后再执行 transfer 的路径，证明 snapshot restore 在 transfer request 之前生效。
+
+core 还提供纯计算的 `calculate_vanilla_native_migration_score` 与 `select_vanilla_native_migration_candidate`。它们只接收调用方已经解析的贸易因子、`a0d180` 结果、荒废度、native membership、migration steps 和归一化距离惩罚；非成员候选按 `steps * 10000` 与最小距离惩罚扣分，成员候选保留基础分，winner 只有在分数严格更高时才替换。该模块不从地图、随机源或 EU4 脚本推导输入，也不接入命令队列、扣款或自动迁徙。

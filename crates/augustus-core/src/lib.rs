@@ -44,6 +44,7 @@ mod native_growth;
 mod native_migration;
 mod native_migration_execution;
 mod native_migration_gate;
+mod native_migration_score;
 mod native_migration_state;
 mod native_migration_transfer;
 mod naval;
@@ -199,6 +200,11 @@ pub use native_migration_execution::{
 pub use native_migration_gate::{
     VanillaNativeMigrationGateInput, VanillaNativeMigrationGateResult,
     calculate_vanilla_native_migration_gate,
+};
+pub use native_migration_score::{
+    VanillaNativeMigrationScoreCandidateInput, VanillaNativeMigrationScoreCandidateResult,
+    VanillaNativeMigrationScoreInput, VanillaNativeMigrationScoreResult,
+    calculate_vanilla_native_migration_score, select_vanilla_native_migration_candidate,
 };
 pub use native_migration_state::{NativeMigrationCountryState, NativeMigrationStates};
 pub use native_migration_transfer::{
