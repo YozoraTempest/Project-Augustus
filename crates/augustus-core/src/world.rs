@@ -117,6 +117,7 @@ pub struct World {
     pub(crate) subject_country_order: Vec<EntityId>,
     pub(crate) country_controllers: BTreeMap<EntityId, crate::CountryController>,
     pub(crate) country_original_capitals: crate::CountryOriginalCapitalStates,
+    pub(crate) country_capital_history: crate::CountryCapitalHistory,
     pub(crate) province_controllers: crate::ProvinceControllerStates,
     pub(crate) province_previous_controllers: crate::ProvincePreviousControllerStates,
     pub(crate) province_tribal_owners: crate::ProvinceTribalOwnerStates,
@@ -215,6 +216,8 @@ struct Snapshot {
     country_controllers: BTreeMap<EntityId, crate::CountryController>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     country_original_capitals: crate::CountryOriginalCapitalStates,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    country_capital_history: crate::CountryCapitalHistory,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     province_controllers: crate::ProvinceControllerStates,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -352,6 +355,7 @@ impl World {
             subject_country_order: Vec::new(),
             country_controllers: BTreeMap::new(),
             country_original_capitals: BTreeMap::new(),
+            country_capital_history: BTreeMap::new(),
             province_controllers: BTreeMap::new(),
             province_previous_controllers: BTreeMap::new(),
             province_tribal_owners: BTreeMap::new(),
@@ -1997,6 +2001,7 @@ impl World {
             subjects: self.subjects.clone(),
             country_controllers: self.country_controllers.clone(),
             country_original_capitals: self.country_original_capitals.clone(),
+            country_capital_history: self.country_capital_history.clone(),
             province_controllers: self.province_controllers.clone(),
             province_previous_controllers: self.province_previous_controllers.clone(),
             province_tribal_owners: self.province_tribal_owners.clone(),
@@ -2058,6 +2063,7 @@ impl World {
         world.province_previous_controllers = crate::ProvincePreviousControllerStates::new();
         world.province_tribal_owners = crate::ProvinceTribalOwnerStates::new();
         world.country_original_capitals = crate::CountryOriginalCapitalStates::new();
+        world.country_capital_history = crate::CountryCapitalHistory::new();
         // These fields describe the running session, not immutable content. In
         // particular, AI event choices can vary with the session seed and must
         // not make an otherwise identical save refuse to load.
@@ -2165,6 +2171,7 @@ impl World {
             subject_country_order: Vec::new(),
             country_controllers: snapshot.country_controllers,
             country_original_capitals: snapshot.country_original_capitals,
+            country_capital_history: snapshot.country_capital_history,
             province_controllers: snapshot.province_controllers,
             province_previous_controllers: snapshot.province_previous_controllers,
             province_tribal_owners: snapshot.province_tribal_owners,
@@ -2253,6 +2260,7 @@ impl World {
         )?;
         crate::province_tribal_owners::validate(&world.province_tribal_owners, &world)?;
         crate::country_original_capitals::validate(&world.country_original_capitals, &world)?;
+        crate::country_capital_history::validate(&world.country_capital_history, &world)?;
         for &country in world.country_controllers.keys() {
             world.country_controller(country)?;
         }

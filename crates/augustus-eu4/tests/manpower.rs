@@ -251,6 +251,7 @@ fn external_state_bundle_binds_resources_metrics_and_production_together() {
         country_national_focus: Default::default(),
         country_capitals: Default::default(),
         country_original_capitals: Default::default(),
+        country_capital_history: Default::default(),
         country_persons: Default::default(),
         eu4_random_state: None,
         country_technology_levels: Default::default(),

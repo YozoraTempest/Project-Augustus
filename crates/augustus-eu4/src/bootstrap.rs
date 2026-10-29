@@ -176,6 +176,9 @@ pub struct CountryView<'a> {
     /// absence is serialized as null.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub original_capital: Option<Option<u32>>,
+    /// Dated capital events imported from the save history block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capital_history: Option<BTreeMap<WorldDate, Option<u32>>>,
     pub politics: Option<&'a augustus_core::CountryPolitics>,
     pub diplomacy: Vec<RelationView<'a>>,
     pub political_offices: Vec<&'a str>,
@@ -572,6 +575,9 @@ pub struct VanillaExternalState {
     /// unknown; `None` records explicit absence.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub country_original_capitals: BTreeMap<String, Option<u32>>,
+    /// Dated country capital events supplied by a save reader.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub country_capital_history: BTreeMap<String, BTreeMap<WorldDate, Option<u32>>>,
     /// Current ruler, heir, or consort supplied by a save reader. Missing
     /// roles keep their content-derived state; a present `None` clears a role.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -809,6 +815,7 @@ struct LoadOverrides<'a> {
     country_national_focus: Option<&'a BTreeMap<String, augustus_core::NationalFocus>>,
     country_capitals: Option<&'a BTreeMap<String, Option<u32>>>,
     country_original_capitals: Option<&'a BTreeMap<String, Option<u32>>>,
+    country_capital_history: Option<&'a BTreeMap<String, BTreeMap<WorldDate, Option<u32>>>>,
     country_persons: Option<&'a VanillaExternalCountryPersons>,
     eu4_random_state: Option<VanillaExternalEu4RandomState>,
     country_technology_levels: Option<&'a BTreeMap<String, BTreeMap<String, u16>>>,
@@ -885,6 +892,8 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_capitals),
             country_original_capitals: (!state.country_original_capitals.is_empty())
                 .then_some(&state.country_original_capitals),
+            country_capital_history: (!state.country_capital_history.is_empty())
+                .then_some(&state.country_capital_history),
             country_persons: (!state.country_persons.is_empty()).then_some(&state.country_persons),
             eu4_random_state: state.eu4_random_state,
             country_technology_levels: (!state.country_technology_levels.is_empty())
@@ -1103,6 +1112,12 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.country_capitals.clone());
     base.country_original_capitals
         .extend(overlay.country_original_capitals.clone());
+    for (country, history) in &overlay.country_capital_history {
+        base.country_capital_history
+            .entry(country.clone())
+            .or_default()
+            .extend(history.clone());
+    }
     overlay_nested_map(&mut base.country_persons, &overlay.country_persons);
     if overlay.eu4_random_state.is_some() {
         base.eu4_random_state = overlay.eu4_random_state;
@@ -3878,6 +3893,13 @@ impl VanillaWorld {
                     .map_err(|e| Error::caused_by(root.path(), e))?;
             }
         }
+        if let Some(histories) = overrides.country_capital_history {
+            for (country, history) in histories {
+                initial
+                    .set_country_capital_history(country, history.clone())
+                    .map_err(|e| Error::caused_by(root.path(), e))?;
+            }
+        }
         if let Some(controllers) = overrides.province_controllers {
             for (&province, controller) in controllers {
                 initial
@@ -6649,6 +6671,10 @@ impl VanillaWorld {
             original_capital: self
                 .initial
                 .country_original_capital_state(id)
+                .expect("registered country"),
+            capital_history: self
+                .initial
+                .country_capital_history(id)
                 .expect("registered country"),
             politics: self
                 .initial

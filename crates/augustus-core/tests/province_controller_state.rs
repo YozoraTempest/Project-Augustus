@@ -301,3 +301,42 @@ fn original_capital_state_distinguishes_unknown_present_and_known_absent_through
         .unwrap();
     assert_eq!(initial.country_original_capital_state("AAA").unwrap(), None);
 }
+
+#[test]
+fn dated_capital_history_roundtrips_and_preserves_unknown_old_snapshots() {
+    let (mut initial, country, province) = fixture();
+    let date = augustus_core::WorldDate {
+        year: 1446,
+        month: 1,
+        day: 2,
+    };
+    assert_eq!(
+        initial.world().country_capital_history(country).unwrap(),
+        None
+    );
+    initial
+        .set_country_capital_history("AAA", std::collections::BTreeMap::from([(date, Some(1))]))
+        .unwrap();
+    assert_eq!(
+        initial.country_capital_history("AAA").unwrap(),
+        Some(std::collections::BTreeMap::from([(date, Some(1))]))
+    );
+    let saved = initial.world().save("country-capital-history").unwrap();
+    initial.restore(&saved, "country-capital-history").unwrap();
+    assert_eq!(
+        initial.country_capital_history("AAA").unwrap(),
+        Some(std::collections::BTreeMap::from([(date, Some(1))]))
+    );
+
+    let mut old_snapshot: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    old_snapshot
+        .as_object_mut()
+        .unwrap()
+        .remove("country_capital_history");
+    initial
+        .restore(&old_snapshot.to_string(), "country-capital-history")
+        .unwrap();
+    assert_eq!(initial.country_capital_history("AAA").unwrap(), None);
+    assert_eq!(country, initial.country_entity("AAA").unwrap());
+    assert_eq!(province, initial.province_entity(1).unwrap());
+}

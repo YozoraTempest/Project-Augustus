@@ -7,11 +7,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use augustus_core::{CountryRelationState, CountryResources, IdeaState, NationalFocus, RulerSkill};
+use augustus_core::{
+    CountryRelationState, CountryResources, IdeaState, NationalFocus, RulerSkill, WorldDate,
+};
 use jomini::{
     TextToken,
     binary::TokenResolver,
-    common::Date,
+    common::{Date, PdsDate},
     text::{Operator, ValueReader},
 };
 use serde::Serialize;
@@ -425,6 +427,25 @@ impl VanillaSaveState {
                 }
                 Some(_) => {}
             }
+        }
+
+        for (country, history) in &self.external_state.country_capital_history {
+            if !countries.contains(country.as_str()) {
+                continue;
+            }
+            let filtered = history
+                .iter()
+                .filter_map(|(date, capital)| match capital {
+                    None => Some((*date, None)),
+                    Some(capital) if world.initial.province_entity(*capital).is_some() => {
+                        Some((*date, Some(*capital)))
+                    }
+                    Some(_) => None,
+                })
+                .collect::<BTreeMap<_, _>>();
+            state
+                .country_capital_history
+                .insert(country.clone(), filtered);
         }
 
         for (office, holder) in &self.external_state.political_office_holders {
@@ -1572,6 +1593,54 @@ fn read_vanilla_save_state_inner(
             external_state
                 .country_original_capitals
                 .insert(tag.clone(), (capital != 0).then_some(capital));
+        }
+        if let Some(history) = optional_object(&parsed, &country, "history")? {
+            let mut capital_history = BTreeMap::new();
+            for (key, op, value) in history.fields() {
+                let name = key.read_string();
+                if !crate::bootstrap::dated_name(&name) {
+                    continue;
+                }
+                if op.is_some_and(|operator| operator != jomini::text::Operator::Equal) {
+                    return Err(Error::message(
+                        parsed.source(),
+                        "invalid saved country capital history date",
+                    ));
+                }
+                let date =
+                    Date::parse(&name).map_err(|error| Error::caused_by(parsed.source(), error))?;
+                let block = object(&parsed, &value)?;
+                let Some(capital) = optional_scalar(&parsed, &block, "capital")? else {
+                    continue;
+                };
+                let capital = capital.parse::<u32>().map_err(|error| {
+                    Error::message(
+                        parsed.source(),
+                        format!("country {tag} has invalid historical capital: {error}"),
+                    )
+                })?;
+                if capital_history
+                    .insert(
+                        WorldDate {
+                            year: date.year(),
+                            month: date.month(),
+                            day: date.day(),
+                        },
+                        (capital != 0).then_some(capital),
+                    )
+                    .is_some()
+                {
+                    return Err(Error::message(
+                        parsed.source(),
+                        format!("country {tag} has duplicate capital history date {name}"),
+                    ));
+                }
+            }
+            if !capital_history.is_empty() {
+                external_state
+                    .country_capital_history
+                    .insert(tag.clone(), capital_history);
+            }
         }
 
         if let Some(technology) = optional_object(&parsed, &country, "technology")? {
@@ -3438,7 +3507,7 @@ mod tests {
         VanillaExternalNativeMigrationState, VanillaExternalProvinceDevelopment,
         VanillaExternalState, VanillaNativeMigrationImport, VanillaWorld,
     };
-    use augustus_core::CountryRelationState;
+    use augustus_core::{CountryRelationState, WorldDate};
     use jomini::{
         binary::{Token, TokenResolver},
         common::Date,
@@ -4764,7 +4833,7 @@ provinces={}
 date=1444.11.11
 player="AAA"
 countries={
-    AAA={ human=yes original_capital=4 }
+    AAA={ human=yes original_capital=4 history={ 1444.11.11={ capital=4 } } }
 }
 provinces={
     -1={
@@ -4811,6 +4880,14 @@ provinces={
         );
         assert_eq!(
             save.external_state.country_original_capitals["AAA"],
+            Some(4)
+        );
+        assert_eq!(
+            save.external_state.country_capital_history["AAA"][&WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            }],
             Some(4)
         );
         assert_eq!(
@@ -4912,6 +4989,14 @@ provinces={
         assert_eq!(filtered.province_tribal_owners[&1].as_deref(), Some("AAA"));
         assert_eq!(filtered.province_tribal_owners[&4].as_deref(), Some("AAA"));
         assert_eq!(filtered.country_original_capitals["AAA"], Some(4));
+        assert_eq!(
+            filtered.country_capital_history["AAA"][&WorldDate {
+                year: 1444,
+                month: 11,
+                day: 11,
+            }],
+            Some(4)
+        );
         let mut ownerless_save = save.clone();
         ownerless_save.external_state.province_owners.remove(&4);
         let (_, ownerless_filtered) = ownerless_save.for_world(&baseline).unwrap();
@@ -5016,10 +5101,32 @@ provinces={
             loaded.country("AAA").unwrap().original_capital,
             Some(Some(4))
         );
+        assert_eq!(
+            loaded.country("AAA").unwrap().capital_history,
+            Some(BTreeMap::from([(
+                WorldDate {
+                    year: 1444,
+                    month: 11,
+                    day: 11,
+                },
+                Some(4),
+            )]))
+        );
         let overlay = VanillaExternalState {
             province_previous_controllers: BTreeMap::from([(3, None)]),
             province_tribal_owners: BTreeMap::from([(3, None)]),
             country_original_capitals: BTreeMap::from([("AAA".into(), None)]),
+            country_capital_history: BTreeMap::from([(
+                "AAA".into(),
+                BTreeMap::from([(
+                    WorldDate {
+                        year: 1444,
+                        month: 11,
+                        day: 11,
+                    },
+                    None,
+                )]),
+            )]),
             ..Default::default()
         };
         let loaded_absent =
@@ -5052,6 +5159,17 @@ provinces={
         assert_eq!(
             loaded_absent.country("AAA").unwrap().original_capital,
             Some(None)
+        );
+        assert_eq!(
+            loaded_absent.country("AAA").unwrap().capital_history,
+            Some(BTreeMap::from([(
+                WorldDate {
+                    year: 1444,
+                    month: 11,
+                    day: 11,
+                },
+                None,
+            )]))
         );
         assert_eq!(
             loaded.initial.world().metrics().entities[&province_one]["devastation"],

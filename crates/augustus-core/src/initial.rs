@@ -1230,6 +1230,68 @@ impl InitialWorld {
         Ok(())
     }
 
+    /// Returns dated capital events translated to province identifiers. The
+    /// outer `None` means that history is unknown.
+    pub fn country_capital_history(
+        &self,
+        country: &str,
+    ) -> Result<Option<BTreeMap<WorldDate, Option<u32>>>, Error> {
+        let entity = self
+            .country_entity(country)
+            .ok_or_else(|| Error::Invalid(format!("unknown country {country}")))?;
+        let Some(history) = self.world.country_capital_history(entity)? else {
+            return Ok(None);
+        };
+        let mut translated = BTreeMap::new();
+        for &(date, capital) in history {
+            let capital = capital
+                .map(|capital| {
+                    let index = capital
+                        .0
+                        .checked_sub(self.countries.len())
+                        .ok_or_else(|| Error::Invalid("invalid country capital history".into()))?;
+                    self.provinces
+                        .get(index)
+                        .map(|province| province.id)
+                        .ok_or_else(|| Error::Invalid("invalid country capital history".into()))
+                })
+                .transpose()?;
+            translated.insert(date, capital);
+        }
+        Ok(Some(translated))
+    }
+
+    /// Atomically records dated capital events by country and province IDs.
+    /// An empty map records known empty history.
+    pub fn set_country_capital_history(
+        &mut self,
+        country: &str,
+        history: BTreeMap<WorldDate, Option<u32>>,
+    ) -> Result<(), Error> {
+        let mut staged = self.clone();
+        let country_entity = staged
+            .country_entity(country)
+            .ok_or_else(|| Error::Invalid(format!("unknown country {country}")))?;
+        let translated = history
+            .into_iter()
+            .map(|(date, capital)| {
+                let capital = capital
+                    .map(|capital| {
+                        staged.province_entity(capital).ok_or_else(|| {
+                            Error::Invalid(format!("unknown capital history province {capital}"))
+                        })
+                    })
+                    .transpose()?;
+                Ok((date, capital))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        staged
+            .world
+            .set_country_capital_history(country_entity, translated)?;
+        *self = staged;
+        Ok(())
+    }
+
     pub(crate) fn commit_native_migration_transfer(
         &mut self,
         source_country: EntityId,
