@@ -117,6 +117,7 @@ pub struct World {
     pub(crate) subject_country_order: Vec<EntityId>,
     pub(crate) country_controllers: BTreeMap<EntityId, crate::CountryController>,
     pub(crate) province_controllers: crate::ProvinceControllerStates,
+    pub(crate) province_previous_controllers: crate::ProvincePreviousControllerStates,
     pub(crate) global_scopes: BTreeMap<String, EntityId>,
     pub(crate) known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
     economy: Economy,
@@ -212,6 +213,8 @@ struct Snapshot {
     country_controllers: BTreeMap<EntityId, crate::CountryController>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     province_controllers: crate::ProvinceControllerStates,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    province_previous_controllers: crate::ProvincePreviousControllerStates,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     global_scopes: BTreeMap<String, EntityId>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -343,6 +346,7 @@ impl World {
             subject_country_order: Vec::new(),
             country_controllers: BTreeMap::new(),
             province_controllers: BTreeMap::new(),
+            province_previous_controllers: BTreeMap::new(),
             global_scopes: BTreeMap::new(),
             known_absent_targets: BTreeMap::new(),
             economy: Economy::default(),
@@ -1985,6 +1989,7 @@ impl World {
             subjects: self.subjects.clone(),
             country_controllers: self.country_controllers.clone(),
             province_controllers: self.province_controllers.clone(),
+            province_previous_controllers: self.province_previous_controllers.clone(),
             global_scopes: self.global_scopes.clone(),
             known_absent_targets: self.known_absent_targets.clone(),
             economy: self.economy.clone(),
@@ -2040,6 +2045,7 @@ impl World {
         world.eu4_event_seed = None;
         world.native_migration_states = crate::NativeMigrationStates::default();
         world.province_controllers = crate::ProvinceControllerStates::new();
+        world.province_previous_controllers = crate::ProvincePreviousControllerStates::new();
         // These fields describe the running session, not immutable content. In
         // particular, AI event choices can vary with the session seed and must
         // not make an otherwise identical save refuse to load.
@@ -2147,6 +2153,7 @@ impl World {
             subject_country_order: Vec::new(),
             country_controllers: snapshot.country_controllers,
             province_controllers: snapshot.province_controllers,
+            province_previous_controllers: snapshot.province_previous_controllers,
             global_scopes: snapshot.global_scopes,
             known_absent_targets: snapshot.known_absent_targets,
             economy: snapshot.economy,
@@ -2226,6 +2233,10 @@ impl World {
         world.event_queue.validate(&world)?;
         world.validate_absent_targets()?;
         crate::province_controllers::validate(&world.province_controllers, &world)?;
+        crate::province_previous_controllers::validate(
+            &world.province_previous_controllers,
+            &world,
+        )?;
         for &country in world.country_controllers.keys() {
             world.country_controller(country)?;
         }

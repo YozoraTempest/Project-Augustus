@@ -8,8 +8,9 @@ use crate::{EntityId, EntityKind, Error, InitialWorld, Target};
 const POWER_NAMES: [&str; 3] = ["adm_power", "dip_power", "mil_power"];
 
 /// A caller-resolved native migration transfer across the represented owner,
-/// capital and step fields. Controller and tribal-owner relations are outside
-/// the core model and are deliberately not inferred here.
+/// capital, controller and step fields. The core records the old controller
+/// as previous-controller history when it is known; tribal-owner relations
+/// and raw native province lists remain outside this transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VanillaNativeMigrationTransferInput {

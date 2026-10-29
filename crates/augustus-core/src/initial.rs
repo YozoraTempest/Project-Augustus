@@ -1103,6 +1103,45 @@ impl InitialWorld {
         Ok(())
     }
 
+    /// Returns the persisted previous-controller relation for a province.
+    /// The outer `None` means unknown; the inner `None` is an explicit known
+    /// absence.
+    pub fn province_previous_controller_state(
+        &self,
+        province: u32,
+    ) -> Result<Option<Option<EntityId>>, Error> {
+        let entity = self
+            .province_entity(province)
+            .ok_or_else(|| Error::Invalid(format!("unknown province {province}")))?;
+        self.world.province_previous_controller_state(entity)
+    }
+
+    /// Atomically records a persisted previous-controller relation by country
+    /// tag. `None` records known absence; callers can restore unknown history
+    /// through the core world API.
+    pub fn set_province_previous_controller(
+        &mut self,
+        province: u32,
+        controller: Option<&str>,
+    ) -> Result<(), Error> {
+        let mut staged = self.clone();
+        let province_entity = staged
+            .province_entity(province)
+            .ok_or_else(|| Error::Invalid(format!("unknown province {province}")))?;
+        let controller_entity = controller
+            .map(|controller| {
+                staged.country_entity(controller).ok_or_else(|| {
+                    Error::Invalid(format!("unknown previous province controller {controller}"))
+                })
+            })
+            .transpose()?;
+        staged
+            .world
+            .set_province_previous_controller(province_entity, controller_entity)?;
+        *self = staged;
+        Ok(())
+    }
+
     pub(crate) fn commit_native_migration_transfer(
         &mut self,
         source_country: EntityId,
@@ -1166,9 +1205,22 @@ impl InitialWorld {
             }
         }
 
+        let old_controller = old_projection
+            .controller
+            .as_deref()
+            .map(|tag| {
+                self.country_entity(tag).ok_or_else(|| {
+                    Error::Invalid("native migration previous controller is unknown".into())
+                })
+            })
+            .transpose()?;
         self.world.set_owner(destination, source_country)?;
         self.world.set_capital(source_country, destination)?;
         self.world.clear_owner(old_capital)?;
+        if let Some(old_controller) = old_controller {
+            self.world
+                .set_province_previous_controller(old_capital, Some(old_controller))?;
+        }
         self.world.set_province_controller(old_capital, None)?;
         self.world
             .set_province_controller(destination, Some(source_country))?;

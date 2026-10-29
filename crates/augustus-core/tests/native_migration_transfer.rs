@@ -247,6 +247,20 @@ fn transfer_clears_old_controller_and_assigns_destination_controller_atomically(
             .unwrap(),
         Some(Some(country))
     );
+    assert_eq!(
+        initial
+            .world()
+            .province_previous_controller_state(old)
+            .unwrap(),
+        Some(Some(country))
+    );
+    assert_eq!(
+        initial
+            .world()
+            .province_previous_controller_state(destination)
+            .unwrap(),
+        None
+    );
     let saved = initial.world().save("native-migration-transfer").unwrap();
     initial
         .restore(&saved, "native-migration-transfer")
@@ -255,5 +269,37 @@ fn transfer_clears_old_controller_and_assigns_destination_controller_atomically(
     assert_eq!(
         initial.province(2).unwrap().controller.as_deref(),
         Some("AAA")
+    );
+    assert_eq!(
+        initial
+            .world()
+            .province_previous_controller_state(old)
+            .unwrap(),
+        Some(Some(country))
+    );
+}
+
+#[test]
+fn transfer_keeps_previous_controller_unknown_when_old_controller_is_unknown() {
+    let (mut initial, country, old, destination) = fixture(true, false, false);
+    initial
+        .set_province_previous_controller(2, Some("AAA"))
+        .unwrap();
+    initial
+        .execute_vanilla_native_migration_transfer(input(country, old, destination))
+        .unwrap();
+    assert_eq!(
+        initial
+            .world()
+            .province_previous_controller_state(old)
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        initial
+            .world()
+            .province_previous_controller_state(destination)
+            .unwrap(),
+        Some(Some(country))
     );
 }

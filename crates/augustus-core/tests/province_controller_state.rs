@@ -104,3 +104,94 @@ fn invalid_controller_update_is_atomic_and_old_snapshots_keep_unknown_state() {
         None
     );
 }
+
+#[test]
+fn previous_controller_state_distinguishes_unknown_present_and_known_absent_through_restore() {
+    let (mut initial, country, province) = fixture();
+    assert_eq!(
+        initial
+            .world()
+            .province_previous_controller_state(province)
+            .unwrap(),
+        None
+    );
+
+    initial
+        .set_province_previous_controller(1, Some("AAA"))
+        .unwrap();
+    assert_eq!(
+        initial
+            .world()
+            .province_previous_controller_state(province)
+            .unwrap(),
+        Some(Some(country))
+    );
+
+    initial.set_province_previous_controller(1, None).unwrap();
+    assert_eq!(
+        initial
+            .world()
+            .province_previous_controller_state(province)
+            .unwrap(),
+        Some(None)
+    );
+
+    let saved = initial
+        .world()
+        .save("province-previous-controller")
+        .unwrap();
+    initial
+        .restore(&saved, "province-previous-controller")
+        .unwrap();
+    assert_eq!(
+        initial
+            .world()
+            .province_previous_controller_state(province)
+            .unwrap(),
+        Some(None)
+    );
+}
+
+#[test]
+fn invalid_previous_controller_update_is_atomic_and_old_snapshots_keep_unknown_state() {
+    let (mut initial, _country, province) = fixture();
+    let before = initial
+        .world()
+        .save("province-previous-controller")
+        .unwrap();
+    assert!(
+        initial
+            .set_province_previous_controller(1, Some("ZZZ"))
+            .is_err()
+    );
+    assert_eq!(
+        initial
+            .world()
+            .save("province-previous-controller")
+            .unwrap(),
+        before
+    );
+    assert_eq!(
+        initial
+            .world()
+            .province_previous_controller_state(province)
+            .unwrap(),
+        None
+    );
+
+    let mut old_snapshot: serde_json::Value = serde_json::from_str(&before).unwrap();
+    old_snapshot
+        .as_object_mut()
+        .unwrap()
+        .remove("province_previous_controllers");
+    initial
+        .restore(&old_snapshot.to_string(), "province-previous-controller")
+        .unwrap();
+    assert_eq!(
+        initial
+            .world()
+            .province_previous_controller_state(province)
+            .unwrap(),
+        None
+    );
+}
