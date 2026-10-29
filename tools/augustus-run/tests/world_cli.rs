@@ -2277,3 +2277,122 @@ fn migration_state_import_drives_membership_costs_and_survives_snapshot_restore(
     let restored: serde_json::Value = serde_json::from_slice(&restored.stdout).unwrap();
     assert_eq!(restored["country"]["bound_capital"], 1);
 }
+
+#[test]
+fn native_migration_transfer_cli_orders_reports_and_preserves_applied_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+    let defines_path = fixture.join("common/defines.lua");
+    let defines = fs::read_to_string(&defines_path).unwrap();
+    fs::write(
+        &defines_path,
+        format!(
+            "{defines}\nNDefines.NCountry.DEBT_LIMIT_DIP=-100\nNDefines.NCountry.TRIBE_MIGRATION_ADM_COST=0\nNDefines.NCountry.TRIBE_MIGRATION_DIP_COST=0\nNDefines.NCountry.TRIBE_MIGRATION_MIL_COST=50\n"
+        ),
+    )
+    .unwrap();
+    let source_save = temp.path().join("native.eu4");
+    fs::write(
+        &source_save,
+        "EU4txt\ndate=1444.11.11\nplayer=AAA\ncountries={AAA={capital=2 powers={140 126 350} native={provinces={2} migration_steps=2}}}\nprovinces={-1={tribal_owner=AAA} -2={owner=AAA controller=AAA}}\n",
+    )
+    .unwrap();
+
+    let applied_request = serde_json::json!({
+        "country":"AAA","destination":1,
+        "pricing":{"all_power_cost_modifier_milli":0,"country_migration_cost_modifier_milli":0,"province_migration_cost_modifier_milli":0},
+        "expected_current_capital":2,"expected_migration_steps":2,"next_migration_steps":3,
+        "native_mode_eligible":true,"owner_eligible":true,"controller_eligible":true,"tribal_owner_eligible":true,"additional_gate_eligible":true
+    });
+    let applied_requests = temp.path().join("applied.json");
+    fs::write(
+        &applied_requests,
+        serde_json::to_vec(&serde_json::json!([applied_request.clone()])).unwrap(),
+    )
+    .unwrap();
+    let batch_requests = temp.path().join("batch.json");
+    let mut rejected = applied_request.clone();
+    rejected["expected_current_capital"] = serde_json::json!(2);
+    let mut unresolved = applied_request.clone();
+    unresolved["owner_eligible"] = serde_json::Value::Null;
+    fs::write(
+        &batch_requests,
+        serde_json::to_vec(&serde_json::json!([applied_request, rejected, unresolved])).unwrap(),
+    )
+    .unwrap();
+
+    let run = |requests: &Path, snapshot: &Path| {
+        let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+            .arg("--game-root")
+            .arg(&fixture)
+            .arg("--eu4-save")
+            .arg(&source_save)
+            .arg("--import-native-migration-state")
+            .arg("--native-migration-transfers")
+            .arg(requests)
+            .arg("--save")
+            .arg(snapshot)
+            .arg("--omit-load-report")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+
+    let applied_snapshot = temp.path().join("applied-snapshot.json");
+    let applied = run(&applied_requests, &applied_snapshot);
+    assert_eq!(
+        applied["native_migration_transfers"][0]["status"],
+        "applied"
+    );
+    assert_eq!(
+        applied["native_migration_transfers"][0]["transfer"]["migration_steps_after"],
+        3
+    );
+
+    let batch_snapshot = temp.path().join("batch-snapshot.json");
+    let batch = run(&batch_requests, &batch_snapshot);
+    assert_eq!(
+        batch["native_migration_transfers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|report| report["status"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["applied", "rejected", "unresolved"]
+    );
+    assert!(batch["native_migration_transfers"][1]["transfer"].is_null());
+    assert!(batch["native_migration_transfers"][2]["transfer"].is_null());
+    assert_eq!(
+        fs::read(&batch_snapshot).unwrap(),
+        fs::read(&applied_snapshot).unwrap()
+    );
+
+    let restored = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--load")
+        .arg(&batch_snapshot)
+        .arg("--country")
+        .arg("AAA")
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        restored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restored.stderr)
+    );
+    let restored: serde_json::Value = serde_json::from_slice(&restored.stdout).unwrap();
+    assert_eq!(restored["country"]["bound_capital"], 1);
+}
