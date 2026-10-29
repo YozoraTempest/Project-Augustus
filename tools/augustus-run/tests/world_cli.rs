@@ -2787,6 +2787,63 @@ fn world_cli_reports_no_native_migration_score_winner_without_mutation() {
 }
 
 #[test]
+fn world_cli_reports_empty_native_migration_score_queries_without_mutation() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+    let scores = temp.path().join("empty-scores.json");
+    fs::write(&scores, b"[]").unwrap();
+
+    let score_snapshot = temp.path().join("empty-score.json");
+    let scored = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .args(["--seed", "7", "--ai-only", "--omit-load-report"])
+        .arg("--native-migration-score-queries")
+        .arg(&scores)
+        .arg("--save")
+        .arg(&score_snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        scored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scored.stderr)
+    );
+    let scored: serde_json::Value = serde_json::from_slice(&scored.stdout).unwrap();
+    assert_eq!(
+        scored["native_migration_score_queries"]["candidates"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        scored["native_migration_score_queries"]["winner"],
+        serde_json::Value::Null
+    );
+
+    let plain_snapshot = temp.path().join("empty-plain.json");
+    let plain = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .args(["--seed", "7", "--ai-only", "--omit-load-report"])
+        .arg("--save")
+        .arg(&plain_snapshot)
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert_eq!(
+        fs::read(&score_snapshot).unwrap(),
+        fs::read(&plain_snapshot).unwrap()
+    );
+}
+
+#[test]
 fn world_cli_rejects_invalid_score_queries_before_creating_snapshot() {
     let temp = tempfile::tempdir().unwrap();
     let fixture = temp.path().join("world");
