@@ -63,6 +63,13 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     native_migration_queries: Option<PathBuf>,
+    /// Evaluate migration queries with costs from the loaded NCountry defines.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    native_migration_content_queries: Option<PathBuf>,
     #[arg(long, default_value = "1444.11.11")]
     date: String,
     /// Explicit seed for a new world; EU4 saves carry their own random state.
@@ -392,6 +399,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let native_migration_content_queries = cli
+        .native_migration_content_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<augustus_eu4::VanillaNativeMigrationContentQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_native_migration_from_content(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     if let Some(path) = cli.save {
         let snapshot = loaded.save()?;
         let mut file = std::fs::OpenOptions::new()
@@ -424,6 +444,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             output["naval_construction_import"] =
                 serde_json::to_value(loaded.naval_construction_import_report())?;
         }
+    }
+    if let Some(queries) = native_migration_content_queries {
+        output["native_migration_content_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = native_migration_queries {
         output["native_migration_queries"] = serde_json::to_value(queries)?;

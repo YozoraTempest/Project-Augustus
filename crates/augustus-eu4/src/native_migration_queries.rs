@@ -25,6 +25,17 @@ pub struct VanillaNativeMigrationPricing {
     pub province_migration_cost_modifier_milli: i32,
 }
 
+/// Caller-resolved pricing inputs when migration costs come from EU4 defines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaNativeMigrationContentPricing {
+    pub migration_steps: u32,
+    pub destination_in_native_membership: bool,
+    pub all_power_cost_modifier_milli: i32,
+    pub country_migration_cost_modifier_milli: i32,
+    pub province_migration_cost_modifier_milli: i32,
+}
+
 /// Caller-resolved native migration context paired with live world balances.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,6 +43,21 @@ pub struct VanillaNativeMigrationQuery {
     pub country: String,
     pub destination: u32,
     pub pricing: VanillaNativeMigrationPricing,
+    pub native_membership_known: bool,
+    pub native_mode_eligible: Option<bool>,
+    pub owner_eligible: Option<bool>,
+    pub controller_eligible: Option<bool>,
+    pub tribal_owner_eligible: Option<bool>,
+    pub additional_gate_eligible: Option<bool>,
+}
+
+/// Caller-resolved context priced with definitions from the loaded EU4 content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VanillaNativeMigrationContentQuery {
+    pub country: String,
+    pub destination: u32,
+    pub pricing: VanillaNativeMigrationContentPricing,
     pub native_membership_known: bool,
     pub native_mode_eligible: Option<bool>,
     pub owner_eligible: Option<bool>,
@@ -51,69 +77,54 @@ pub struct VanillaNativeMigrationQueryReport {
     pub unresolved: Vec<String>,
 }
 
+struct PreparedNativeMigrationQuery {
+    country_entity: augustus_core::EntityId,
+    current_capital: Option<u32>,
+    available_power: BTreeMap<String, Option<i64>>,
+    converted_power: [Option<i32>; 3],
+    unresolved: Vec<String>,
+}
+
+impl PreparedNativeMigrationQuery {
+    fn report(
+        &self,
+        country: &str,
+        destination: u32,
+        additional_unresolved: impl IntoIterator<Item = String>,
+    ) -> VanillaNativeMigrationQueryReport {
+        let mut unresolved = self.unresolved.clone();
+        unresolved.extend(additional_unresolved);
+        VanillaNativeMigrationQueryReport {
+            country: country.into(),
+            destination,
+            current_capital: self.current_capital,
+            available_power: self.available_power.clone(),
+            evaluation: None,
+            unresolved,
+        }
+    }
+}
+
 impl crate::VanillaWorld {
     /// Re-evaluates native migration using the world's current power and capital.
     pub fn query_native_migration(
         &self,
         query: &VanillaNativeMigrationQuery,
     ) -> Result<VanillaNativeMigrationQueryReport, crate::Error> {
-        let country_entity = self.initial.country_entity(&query.country).ok_or_else(|| {
-            crate::Error::message(
-                "native-migration query",
-                format!("unknown EU4 country {}", query.country),
-            )
-        })?;
-        if self.initial.province_entity(query.destination).is_none() {
-            return Err(crate::Error::message(
-                "native-migration query",
-                format!("unknown EU4 destination province {}", query.destination),
-            ));
-        }
-
-        let current_capital = self.initial.bound_capital(&query.country);
-        let metrics = self.initial.world().metrics().entities.get(&country_entity);
-        let mut available_power = BTreeMap::new();
-        let mut converted_power = [None; 3];
-        let mut unresolved = Vec::new();
-
-        for (index, name) in POWER_NAMES.iter().enumerate() {
-            let value = metrics
-                .and_then(|values| values.get(*name))
-                .copied()
-                .flatten();
-            available_power.insert((*name).to_string(), value);
-            match value {
-                None => unresolved.push(format!("{name}_unknown")),
-                Some(value) if value < 0 => {
-                    unresolved.push(format!("{name}_unsupported_negative"));
-                }
-                Some(value) => match i32::try_from(value) {
-                    Ok(value) => converted_power[index] = Some(value),
-                    Err(_) => unresolved.push(format!("{name}_out_of_range")),
-                },
-            }
-        }
-
+        let prepared = self.prepare_native_migration_query(&query.country, query.destination)?;
         let [
             Some(available_adm_power),
             Some(available_dip_power),
             Some(available_mil_power),
-        ] = converted_power
+        ] = prepared.converted_power
         else {
-            return Ok(VanillaNativeMigrationQueryReport {
-                country: query.country.clone(),
-                destination: query.destination,
-                current_capital,
-                available_power,
-                evaluation: None,
-                unresolved,
-            });
+            return Ok(prepared.report(&query.country, query.destination, []));
         };
 
         let pricing = &query.pricing;
         let input = VanillaNativeMigrationGateInput {
-            source_country: Some(country_entity),
-            current_capital,
+            source_country: Some(prepared.country_entity),
+            current_capital: prepared.current_capital,
             destination_province: Some(query.destination),
             cost: VanillaNativeMigrationCostInput {
                 define_adm_power_milli: pricing.define_adm_power_milli,
@@ -140,16 +151,147 @@ impl crate::VanillaWorld {
         let evaluation = self
             .calculate_vanilla_native_migration_gate(query.destination, input)
             .map_err(|error| crate::Error::caused_by("native-migration query", error))?;
-        unresolved.extend(evaluation.unresolved.iter().cloned());
+        Ok(prepared
+            .report(
+                &query.country,
+                query.destination,
+                evaluation.unresolved.iter().cloned(),
+            )
+            .with_evaluation(evaluation))
+    }
 
-        Ok(VanillaNativeMigrationQueryReport {
+    /// Re-evaluates migration with the current world and the loaded content's costs.
+    pub fn query_native_migration_from_content(
+        &self,
+        query: &VanillaNativeMigrationContentQuery,
+    ) -> Result<VanillaNativeMigrationQueryReport, crate::Error> {
+        let prepared = self.prepare_native_migration_query(&query.country, query.destination)?;
+        if let Some((name, detail)) = self
+            .report
+            .setup
+            .native_migration_cost_define_errors
+            .iter()
+            .next()
+        {
+            let source = self
+                .report
+                .setup
+                .definition_sources
+                .get(&format!("native_migration_cost:{name}"));
+            return Err(match source {
+                Some(source) => crate::Error::message(&source.path, detail.clone()).with_location(
+                    crate::SourceLocation {
+                        line: source.line,
+                        column: source.column,
+                    },
+                ),
+                None => crate::Error::message("native-migration content query", detail.clone()),
+            });
+        }
+
+        const COST_NAMES: [&str; 3] = [
+            "TRIBE_MIGRATION_ADM_COST",
+            "TRIBE_MIGRATION_DIP_COST",
+            "TRIBE_MIGRATION_MIL_COST",
+        ];
+        let defines = &self.report.setup.native_migration_cost_defines_milli;
+        let define_values = COST_NAMES.map(|name| defines.get(name).copied());
+        let [
+            Some(define_adm_power_milli),
+            Some(define_dip_power_milli),
+            Some(define_mil_power_milli),
+        ] = define_values
+        else {
+            let missing = COST_NAMES
+                .into_iter()
+                .zip(define_values)
+                .filter(|(_, value)| value.is_none())
+                .map(|(name, _)| format!("native_migration_cost:missing_define:{name}"))
+                .collect::<Vec<_>>();
+            return Ok(prepared.report(&query.country, query.destination, missing));
+        };
+
+        let pricing = query.pricing;
+        self.query_native_migration(&VanillaNativeMigrationQuery {
             country: query.country.clone(),
             destination: query.destination,
+            pricing: VanillaNativeMigrationPricing {
+                define_adm_power_milli,
+                define_dip_power_milli,
+                define_mil_power_milli,
+                migration_steps: pricing.migration_steps,
+                destination_in_native_membership: pricing.destination_in_native_membership,
+                all_power_cost_modifier_milli: pricing.all_power_cost_modifier_milli,
+                country_migration_cost_modifier_milli: pricing
+                    .country_migration_cost_modifier_milli,
+                province_migration_cost_modifier_milli: pricing
+                    .province_migration_cost_modifier_milli,
+            },
+            native_membership_known: query.native_membership_known,
+            native_mode_eligible: query.native_mode_eligible,
+            owner_eligible: query.owner_eligible,
+            controller_eligible: query.controller_eligible,
+            tribal_owner_eligible: query.tribal_owner_eligible,
+            additional_gate_eligible: query.additional_gate_eligible,
+        })
+    }
+
+    fn prepare_native_migration_query(
+        &self,
+        country: &str,
+        destination: u32,
+    ) -> Result<PreparedNativeMigrationQuery, crate::Error> {
+        let country_entity = self.initial.country_entity(country).ok_or_else(|| {
+            crate::Error::message(
+                "native-migration query",
+                format!("unknown EU4 country {country}"),
+            )
+        })?;
+        if self.initial.province_entity(destination).is_none() {
+            return Err(crate::Error::message(
+                "native-migration query",
+                format!("unknown EU4 destination province {destination}"),
+            ));
+        }
+
+        let current_capital = self.initial.bound_capital(country);
+        let metrics = self.initial.world().metrics().entities.get(&country_entity);
+        let mut available_power = BTreeMap::new();
+        let mut converted_power = [None; 3];
+        let mut unresolved = Vec::new();
+
+        for (index, name) in POWER_NAMES.iter().enumerate() {
+            let value = metrics
+                .and_then(|values| values.get(*name))
+                .copied()
+                .flatten();
+            available_power.insert((*name).to_string(), value);
+            match value {
+                None => unresolved.push(format!("{name}_unknown")),
+                Some(value) if value < 0 => {
+                    unresolved.push(format!("{name}_unsupported_negative"));
+                }
+                Some(value) => match i32::try_from(value) {
+                    Ok(value) => converted_power[index] = Some(value),
+                    Err(_) => unresolved.push(format!("{name}_out_of_range")),
+                },
+            }
+        }
+
+        Ok(PreparedNativeMigrationQuery {
+            country_entity,
             current_capital,
             available_power,
-            evaluation: Some(evaluation),
+            converted_power,
             unresolved,
         })
+    }
+}
+
+impl VanillaNativeMigrationQueryReport {
+    fn with_evaluation(mut self, evaluation: VanillaNativeMigrationGateResult) -> Self {
+        self.evaluation = Some(evaluation);
+        self
     }
 }
 
@@ -157,9 +299,12 @@ impl crate::VanillaWorld {
 mod tests {
     use std::{collections::BTreeMap, fs, path::Path};
 
-    use crate::VanillaWorld;
+    use crate::{ContentRoot, ContentSet, ContentSource, TextEncoding, VanillaWorld};
 
-    use super::{VanillaNativeMigrationPricing, VanillaNativeMigrationQuery};
+    use super::{
+        VanillaNativeMigrationContentPricing, VanillaNativeMigrationContentQuery,
+        VanillaNativeMigrationPricing, VanillaNativeMigrationQuery,
+    };
 
     fn fixture() -> tempfile::TempDir {
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
@@ -195,6 +340,17 @@ mod tests {
         (fixture, world)
     }
 
+    fn add_migration_cost_defines(root: &Path, adm: &str, dip: &str, mil: &str) {
+        let path = root.join("common/defines.lua");
+        let contents = fs::read_to_string(&path).unwrap();
+        let replacement = format!(
+            "DEBT_LIMIT_DIP = -999,\n        TRIBE_MIGRATION_ADM_COST = {adm},\n        TRIBE_MIGRATION_DIP_COST = {dip},\n        TRIBE_MIGRATION_MIL_COST = {mil},"
+        );
+        let updated = contents.replace("DEBT_LIMIT_DIP = -999,", &replacement);
+        assert_ne!(updated, contents, "fixture define insertion anchor changed");
+        fs::write(path, updated).unwrap();
+    }
+
     fn pricing() -> VanillaNativeMigrationPricing {
         VanillaNativeMigrationPricing {
             define_adm_power_milli: 0,
@@ -222,6 +378,26 @@ mod tests {
         }
     }
 
+    fn content_query() -> VanillaNativeMigrationContentQuery {
+        VanillaNativeMigrationContentQuery {
+            country: "AAA".into(),
+            destination: 4,
+            pricing: VanillaNativeMigrationContentPricing {
+                migration_steps: 2,
+                destination_in_native_membership: true,
+                all_power_cost_modifier_milli: 0,
+                country_migration_cost_modifier_milli: 0,
+                province_migration_cost_modifier_milli: 0,
+            },
+            native_membership_known: true,
+            native_mode_eligible: Some(true),
+            owner_eligible: Some(true),
+            controller_eligible: Some(true),
+            tribal_owner_eligible: Some(true),
+            additional_gate_eligible: Some(true),
+        }
+    }
+
     fn set_power(world: &mut VanillaWorld, adm: Option<i64>, dip: Option<i64>, mil: Option<i64>) {
         world
             .set_country_metric_values(BTreeMap::from([(
@@ -233,6 +409,235 @@ mod tests {
                 ]),
             )]))
             .unwrap();
+    }
+
+    #[test]
+    fn loaded_defines_supply_content_query_costs_and_mod_sources() {
+        let base = fixture();
+        add_migration_cost_defines(base.path(), "0", "0", "50");
+        let mut base_world = VanillaWorld::load(base.path(), "1444.11.11").unwrap();
+        set_power(&mut base_world, Some(0), Some(0), Some(50));
+        let base_report = base_world
+            .query_native_migration_from_content(&content_query())
+            .unwrap();
+        assert_eq!(
+            base_world.report.setup.native_migration_cost_defines_milli["TRIBE_MIGRATION_MIL_COST"],
+            50_000
+        );
+        assert_eq!(
+            base_report
+                .evaluation
+                .as_ref()
+                .unwrap()
+                .cost
+                .unwrap()
+                .mil_cost,
+            50
+        );
+
+        let mod_root = tempfile::tempdir().unwrap();
+        fs::write(
+            mod_root.path().join("descriptor.mod"),
+            "name=MigrationCostMod",
+        )
+        .unwrap();
+        let mod_defines = mod_root.path().join("common/defines");
+        fs::create_dir_all(&mod_defines).unwrap();
+        fs::write(
+            mod_defines.join("migration_cost.lua"),
+            "NDefines.NCountry.TRIBE_MIGRATION_MIL_COST = 60",
+        )
+        .unwrap();
+        let content = ContentSet::resolve(vec![
+            ContentSource::base(ContentRoot::open(base.path()).unwrap()),
+            ContentSource::mod_directory(mod_root.path(), TextEncoding::Windows1252).unwrap(),
+        ])
+        .unwrap();
+        let mut mod_world = VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+        set_power(&mut mod_world, Some(0), Some(0), Some(60));
+        let mod_report = mod_world
+            .query_native_migration_from_content(&content_query())
+            .unwrap();
+
+        assert_eq!(
+            mod_world.report.setup.native_migration_cost_defines_milli["TRIBE_MIGRATION_MIL_COST"],
+            60_000
+        );
+        assert_eq!(
+            mod_world.report.setup.definition_sources
+                ["native_migration_cost:TRIBE_MIGRATION_MIL_COST"]
+                .path,
+            mod_root
+                .path()
+                .canonicalize()
+                .unwrap()
+                .join("common/defines/migration_cost.lua")
+        );
+        assert_eq!(
+            mod_report
+                .evaluation
+                .as_ref()
+                .unwrap()
+                .cost
+                .unwrap()
+                .mil_cost,
+            60
+        );
+    }
+
+    #[test]
+    fn missing_and_partial_content_defines_never_produce_a_zero_fee() {
+        let (_fixture, mut missing_world) = load_world();
+        set_power(&mut missing_world, Some(140), Some(126), Some(50));
+        assert!(
+            missing_world
+                .report
+                .setup
+                .native_migration_cost_defines_milli
+                .is_empty()
+        );
+        let setup_json = serde_json::to_value(&missing_world.report.setup).unwrap();
+        assert!(
+            setup_json
+                .get("native_migration_cost_defines_milli")
+                .is_none()
+        );
+        let mut request = content_query();
+        request.native_membership_known = false;
+        let missing = missing_world
+            .query_native_migration_from_content(&request)
+            .unwrap();
+        assert_eq!(missing.evaluation, None);
+        assert_eq!(missing.available_power["mil_power"], Some(50));
+        assert_eq!(missing.current_capital, Some(2));
+        for name in [
+            "TRIBE_MIGRATION_ADM_COST",
+            "TRIBE_MIGRATION_DIP_COST",
+            "TRIBE_MIGRATION_MIL_COST",
+        ] {
+            assert!(
+                missing
+                    .unresolved
+                    .contains(&format!("native_migration_cost:missing_define:{name}"))
+            );
+        }
+        assert!(
+            !missing
+                .unresolved
+                .contains(&"native_membership_unknown".into())
+        );
+
+        let partial_fixture = fixture();
+        let defines = partial_fixture.path().join("common/defines.lua");
+        let contents = fs::read_to_string(&defines).unwrap();
+        let updated = contents.replace(
+            "DEBT_LIMIT_DIP = -999,",
+            "DEBT_LIMIT_DIP = -999,\n        TRIBE_MIGRATION_ADM_COST = 0,\n        TRIBE_MIGRATION_MIL_COST = 50,",
+        );
+        fs::write(defines, updated).unwrap();
+        let mut partial_world = VanillaWorld::load(partial_fixture.path(), "1444.11.11").unwrap();
+        set_power(&mut partial_world, Some(140), Some(126), Some(50));
+        let partial = partial_world
+            .query_native_migration_from_content(&content_query())
+            .unwrap();
+        assert_eq!(partial.evaluation, None);
+        assert!(
+            partial
+                .unresolved
+                .contains(&"native_migration_cost:missing_define:TRIBE_MIGRATION_DIP_COST".into())
+        );
+        assert!(
+            !partial
+                .unresolved
+                .contains(&"native_migration_cost:missing_define:TRIBE_MIGRATION_ADM_COST".into())
+        );
+        assert!(
+            !partial
+                .unresolved
+                .contains(&"native_migration_cost:missing_define:TRIBE_MIGRATION_MIL_COST".into())
+        );
+    }
+
+    #[test]
+    fn content_define_precision_is_preserved_and_invalid_costs_are_query_only_errors() {
+        let precise_fixture = fixture();
+        add_migration_cost_defines(precise_fixture.path(), "0", "0", "50.125");
+        let mut precise_world = VanillaWorld::load(precise_fixture.path(), "1444.11.11").unwrap();
+        set_power(&mut precise_world, Some(0), Some(0), Some(51));
+        assert_eq!(
+            precise_world
+                .report
+                .setup
+                .native_migration_cost_defines_milli["TRIBE_MIGRATION_MIL_COST"],
+            50_125
+        );
+        let precise = precise_world
+            .query_native_migration_from_content(&content_query())
+            .unwrap();
+        assert_eq!(
+            precise.evaluation.as_ref().unwrap().cost.unwrap().mil_cost,
+            51
+        );
+
+        for (mil, expected) in [
+            ("-0.0000001", "nonnegative"),
+            ("50.0005", "must be an exact thousandth"),
+            ("2147483.648", "exceeds the i32 milli range"),
+        ] {
+            let invalid_fixture = fixture();
+            add_migration_cost_defines(invalid_fixture.path(), "0", "0", mil);
+            let mut world = VanillaWorld::load(invalid_fixture.path(), "1444.11.11").unwrap();
+            assert!(
+                world
+                    .report
+                    .setup
+                    .native_migration_cost_define_errors
+                    .contains_key("TRIBE_MIGRATION_MIL_COST")
+            );
+            set_power(&mut world, Some(0), Some(0), Some(51));
+            let error = world
+                .query_native_migration_from_content(&content_query())
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("TRIBE_MIGRATION_MIL_COST"), "{error}");
+            assert!(error.contains(expected), "{error}");
+            let explicit = world.query_native_migration(&query()).unwrap();
+            assert_eq!(
+                explicit.evaluation.as_ref().unwrap().cost.unwrap().mil_cost,
+                150
+            );
+        }
+    }
+
+    #[test]
+    fn content_query_keeps_live_unknowns_and_checks_identity_before_define_errors() {
+        let valid_fixture = fixture();
+        add_migration_cost_defines(valid_fixture.path(), "0", "0", "50");
+        let mut world = VanillaWorld::load(valid_fixture.path(), "1444.11.11").unwrap();
+        set_power(&mut world, Some(140), Some(126), None);
+        let report = world
+            .query_native_migration_from_content(&content_query())
+            .unwrap();
+        assert_eq!(report.evaluation, None);
+        assert_eq!(report.available_power["mil_power"], None);
+        assert!(report.unresolved.contains(&"mil_power_unknown".into()));
+        assert!(
+            !report
+                .unresolved
+                .iter()
+                .any(|reason| reason.contains("missing_define"))
+        );
+
+        let invalid_fixture = fixture();
+        add_migration_cost_defines(invalid_fixture.path(), "0", "0", "50.0005");
+        let invalid_world = VanillaWorld::load(invalid_fixture.path(), "1444.11.11").unwrap();
+        let mut invalid_query = content_query();
+        invalid_query.country = "ZZZ".into();
+        let error = invalid_world
+            .query_native_migration_from_content(&invalid_query)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown EU4 country"));
     }
 
     #[test]

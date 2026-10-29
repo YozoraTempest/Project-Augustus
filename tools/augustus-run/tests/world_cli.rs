@@ -1907,3 +1907,146 @@ fn migration_query_cli_preserves_unknown_power_and_rejects_stale_resource_fields
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("available_mil_power"));
 }
+
+#[test]
+fn migration_content_queries_bind_effective_defines_and_keep_missing_values_unknown() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+    let defines_path = fixture.join("common/defines.lua");
+    let original = fs::read_to_string(&defines_path).unwrap();
+    fs::write(
+        &defines_path,
+        format!("{original}\nNDefines.NCountry.DEBT_LIMIT_DIP=-100\n"),
+    )
+    .unwrap();
+    let state = temp.path().join("state.json");
+    fs::write(
+        &state,
+        r#"{"country_metric_values":{"AAA":{"adm_power":140,"dip_power":126,"mil_power":50}}}"#,
+    )
+    .unwrap();
+    let queries = temp.path().join("queries.json");
+    let mut request = serde_json::json!([{
+        "country":"AAA", "destination":1,
+        "pricing": { "migration_steps":0, "destination_in_native_membership":true,
+            "all_power_cost_modifier_milli":0,"country_migration_cost_modifier_milli":0,
+            "province_migration_cost_modifier_milli":0 },
+        "native_membership_known":true,"native_mode_eligible":true,"owner_eligible":true,
+        "controller_eligible":true,"tribal_owner_eligible":true,"additional_gate_eligible":true
+    }]);
+    fs::write(&queries, serde_json::to_vec(&request).unwrap()).unwrap();
+    let run = |load: Option<&Path>, save: Option<&Path>| {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+        cmd.arg("--game-root")
+            .arg(&fixture)
+            .arg("--external-state")
+            .arg(&state)
+            .arg("--native-migration-content-queries")
+            .arg(&queries)
+            .args(["--seed", "7", "--ai-only"]);
+        if let Some(path) = load {
+            cmd.arg("--load").arg(path);
+        }
+        if let Some(path) = save {
+            cmd.arg("--save").arg(path);
+        }
+        cmd.output().unwrap()
+    };
+    let missing = run(None, None);
+    assert!(
+        missing.status.success(),
+        "{}",
+        String::from_utf8_lossy(&missing.stderr)
+    );
+    let missing: serde_json::Value = serde_json::from_slice(&missing.stdout).unwrap();
+    let report = &missing["native_migration_content_queries"][0];
+    assert_eq!(report["evaluation"], serde_json::Value::Null);
+    assert_eq!(report["available_power"]["mil_power"], 50);
+    assert!(
+        report["unresolved"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!(
+                "native_migration_cost:missing_define:TRIBE_MIGRATION_MIL_COST"
+            ))
+    );
+    let base_defines = fs::read_to_string(&defines_path).unwrap();
+    let with_costs = format!(
+        "{base_defines}\nNDefines.NCountry.TRIBE_MIGRATION_ADM_COST=0\nNDefines.NCountry.TRIBE_MIGRATION_DIP_COST=0\nNDefines.NCountry.TRIBE_MIGRATION_MIL_COST=50\n"
+    );
+    fs::write(&defines_path, &with_costs).unwrap();
+    let snapshot = temp.path().join("snapshot.json");
+    let passed = run(None, Some(&snapshot));
+    assert!(
+        passed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&passed.stderr)
+    );
+    let passed: serde_json::Value = serde_json::from_slice(&passed.stdout).unwrap();
+    assert_eq!(
+        passed["native_migration_content_queries"][0]["evaluation"]["cost"]["mil_cost"],
+        50
+    );
+    assert_eq!(
+        passed["native_migration_content_queries"][0]["evaluation"]["resolved_gate"],
+        true
+    );
+    assert_eq!(
+        passed["report"]["setup"]["native_migration_cost_defines_milli"]["TRIBE_MIGRATION_MIL_COST"],
+        50000
+    );
+    // The query uses currently loaded content, even when restoring an otherwise matching world.
+    fs::write(
+        &defines_path,
+        with_costs.replace("MIGRATION_MIL_COST=50", "MIGRATION_MIL_COST=60"),
+    )
+    .unwrap();
+    let changed = run(Some(&snapshot), None);
+    assert!(
+        changed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&changed.stderr)
+    );
+    let changed: serde_json::Value = serde_json::from_slice(&changed.stdout).unwrap();
+    assert_eq!(
+        changed["native_migration_content_queries"][0]["evaluation"]["cost"]["mil_cost"],
+        60
+    );
+    assert_eq!(
+        changed["native_migration_content_queries"][0]["evaluation"]["resolved_gate"],
+        false
+    );
+    fs::write(
+        &defines_path,
+        with_costs.replace("MIGRATION_MIL_COST=50", "MIGRATION_MIL_COST=-1"),
+    )
+    .unwrap();
+    let invalid_define = run(None, None);
+    assert!(!invalid_define.status.success());
+    assert!(String::from_utf8_lossy(&invalid_define.stderr).contains("TRIBE_MIGRATION_MIL_COST"));
+    let plain = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .args(["--seed", "7", "--ai-only"])
+        .output()
+        .unwrap();
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    let plain: serde_json::Value = serde_json::from_slice(&plain.stdout).unwrap();
+    assert!(
+        plain["report"]["setup"]["native_migration_cost_define_errors"]["TRIBE_MIGRATION_MIL_COST"]
+            .is_string()
+    );
+    request[0]["pricing"]["define_mil_power_milli"] = serde_json::json!(1);
+    fs::write(&queries, serde_json::to_vec(&request).unwrap()).unwrap();
+    let invalid = run(None, None);
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("define_mil_power_milli"));
+}

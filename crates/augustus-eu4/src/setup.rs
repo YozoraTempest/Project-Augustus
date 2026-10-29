@@ -23,6 +23,10 @@ const BASE_DATE: &str = "1444.11.11";
 pub struct SetupReport {
     pub national_focus_sources: BTreeMap<String, crate::LoadedSource>,
     pub monarch_power_income_defines: BTreeMap<String, i64>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub native_migration_cost_defines_milli: BTreeMap<String, i32>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub native_migration_cost_define_errors: BTreeMap<String, String>,
     pub ruler_skill_bounds: Option<augustus_core::RulerSkillBounds>,
     pub monarch_power_base_maximum: Option<i64>,
     pub truce_months: Option<u32>,
