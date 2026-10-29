@@ -251,3 +251,53 @@ fn tribal_owner_state_distinguishes_unknown_present_and_known_absent_through_res
         None
     );
 }
+
+#[test]
+fn original_capital_state_distinguishes_unknown_present_and_known_absent_through_restore() {
+    let (mut initial, country, province) = fixture();
+    assert_eq!(
+        initial
+            .world()
+            .country_original_capital_state(country)
+            .unwrap(),
+        None
+    );
+
+    initial
+        .set_country_original_capital("AAA", Some(1))
+        .unwrap();
+    assert_eq!(
+        initial
+            .world()
+            .country_original_capital_state(country)
+            .unwrap(),
+        Some(Some(province))
+    );
+    assert_eq!(
+        initial.country_original_capital_state("AAA").unwrap(),
+        Some(Some(1))
+    );
+
+    initial.set_country_original_capital("AAA", None).unwrap();
+    assert_eq!(
+        initial.country_original_capital_state("AAA").unwrap(),
+        Some(None)
+    );
+
+    let saved = initial.world().save("country-original-capital").unwrap();
+    initial.restore(&saved, "country-original-capital").unwrap();
+    assert_eq!(
+        initial.country_original_capital_state("AAA").unwrap(),
+        Some(None)
+    );
+
+    let mut old_snapshot: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    old_snapshot
+        .as_object_mut()
+        .unwrap()
+        .remove("country_original_capitals");
+    initial
+        .restore(&old_snapshot.to_string(), "country-original-capital")
+        .unwrap();
+    assert_eq!(initial.country_original_capital_state("AAA").unwrap(), None);
+}

@@ -172,6 +172,10 @@ pub struct CountryView<'a> {
     pub state: &'a CountryState,
     pub owned_provinces: Vec<u32>,
     pub bound_capital: Option<u32>,
+    /// Persisted EU4 original-capital history. Unknown is omitted, explicit
+    /// absence is serialized as null.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_capital: Option<Option<u32>>,
     pub politics: Option<&'a augustus_core::CountryPolitics>,
     pub diplomacy: Vec<RelationView<'a>>,
     pub political_offices: Vec<&'a str>,
@@ -564,6 +568,10 @@ pub struct VanillaExternalState {
     /// records a country with no capital; an omitted country keeps history.
     #[serde(default)]
     pub country_capitals: BTreeMap<String, Option<u32>>,
+    /// Original capital supplied by a save reader. Omitted countries remain
+    /// unknown; `None` records explicit absence.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub country_original_capitals: BTreeMap<String, Option<u32>>,
     /// Current ruler, heir, or consort supplied by a save reader. Missing
     /// roles keep their content-derived state; a present `None` clears a role.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -800,6 +808,7 @@ struct LoadOverrides<'a> {
     country_metric_values: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_national_focus: Option<&'a BTreeMap<String, augustus_core::NationalFocus>>,
     country_capitals: Option<&'a BTreeMap<String, Option<u32>>>,
+    country_original_capitals: Option<&'a BTreeMap<String, Option<u32>>>,
     country_persons: Option<&'a VanillaExternalCountryPersons>,
     eu4_random_state: Option<VanillaExternalEu4RandomState>,
     country_technology_levels: Option<&'a BTreeMap<String, BTreeMap<String, u16>>>,
@@ -874,6 +883,8 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.country_national_focus),
             country_capitals: (!state.country_capitals.is_empty())
                 .then_some(&state.country_capitals),
+            country_original_capitals: (!state.country_original_capitals.is_empty())
+                .then_some(&state.country_original_capitals),
             country_persons: (!state.country_persons.is_empty()).then_some(&state.country_persons),
             eu4_random_state: state.eu4_random_state,
             country_technology_levels: (!state.country_technology_levels.is_empty())
@@ -1090,6 +1101,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.country_national_focus.clone());
     base.country_capitals
         .extend(overlay.country_capitals.clone());
+    base.country_original_capitals
+        .extend(overlay.country_original_capitals.clone());
     overlay_nested_map(&mut base.country_persons, &overlay.country_persons);
     if overlay.eu4_random_state.is_some() {
         base.eu4_random_state = overlay.eu4_random_state;
@@ -3858,6 +3871,13 @@ impl VanillaWorld {
             seed,
         )
         .map_err(|e| Error::caused_by(root.path(), e))?;
+        if let Some(original_capitals) = overrides.country_original_capitals {
+            for (country, capital) in original_capitals {
+                initial
+                    .set_country_original_capital(country, *capital)
+                    .map_err(|e| Error::caused_by(root.path(), e))?;
+            }
+        }
         if let Some(controllers) = overrides.province_controllers {
             for (&province, controller) in controllers {
                 initial
@@ -6626,6 +6646,10 @@ impl VanillaWorld {
             state,
             owned_provinces: self.initial.owned_provinces(id),
             bound_capital: self.initial.bound_capital(id),
+            original_capital: self
+                .initial
+                .country_original_capital_state(id)
+                .expect("registered country"),
             politics: self
                 .initial
                 .world()

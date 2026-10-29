@@ -1179,6 +1179,57 @@ impl InitialWorld {
         Ok(())
     }
 
+    /// Returns the persisted original-capital relation for a country. The
+    /// outer `None` means unknown; the inner `None` is explicit absence.
+    pub fn country_original_capital_state(
+        &self,
+        country: &str,
+    ) -> Result<Option<Option<u32>>, Error> {
+        let entity = self
+            .country_entity(country)
+            .ok_or_else(|| Error::Invalid(format!("unknown country {country}")))?;
+        let Some(state) = self.world.country_original_capital_state(entity)? else {
+            return Ok(None);
+        };
+        let Some(capital) = state else {
+            return Ok(Some(None));
+        };
+        let index = capital
+            .0
+            .checked_sub(self.countries.len())
+            .ok_or_else(|| Error::Invalid("invalid country original capital state".into()))?;
+        let province = self
+            .provinces
+            .get(index)
+            .ok_or_else(|| Error::Invalid("invalid country original capital state".into()))?;
+        Ok(Some(Some(province.id)))
+    }
+
+    /// Atomically records a persisted original-capital relation by country and
+    /// province identifiers. `None` records known absence.
+    pub fn set_country_original_capital(
+        &mut self,
+        country: &str,
+        capital: Option<u32>,
+    ) -> Result<(), Error> {
+        let mut staged = self.clone();
+        let country_entity = staged
+            .country_entity(country)
+            .ok_or_else(|| Error::Invalid(format!("unknown country {country}")))?;
+        let capital_entity = capital
+            .map(|capital| {
+                staged.province_entity(capital).ok_or_else(|| {
+                    Error::Invalid(format!("unknown original capital province {capital}"))
+                })
+            })
+            .transpose()?;
+        staged
+            .world
+            .set_country_original_capital(country_entity, capital_entity)?;
+        *self = staged;
+        Ok(())
+    }
+
     pub(crate) fn commit_native_migration_transfer(
         &mut self,
         source_country: EntityId,

@@ -17,6 +17,7 @@ mod company_units;
 mod completions;
 mod control;
 mod convergence;
+mod country_original_capitals;
 mod country_values;
 mod daily;
 mod economy;
@@ -109,6 +110,7 @@ pub use control::CountryController;
 pub use convergence::{
     ConvergenceAccount, ConvergenceRule, ConvergenceSettlement, MonthlyConvergence,
 };
+pub use country_original_capitals::CountryOriginalCapitalStates;
 pub use country_values::{CountryValueIndexEntry, CountryValueTable};
 pub use daily::{
     DailyEventCandidate, DailyEventCountry, DailyEventGroup, DailyEventGroupMode, DailyEventRules,

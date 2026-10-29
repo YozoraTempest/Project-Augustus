@@ -408,6 +408,25 @@ impl VanillaSaveState {
             }
         }
 
+        for (country, original_capital) in &self.external_state.country_original_capitals {
+            if !countries.contains(country.as_str()) {
+                continue;
+            }
+            match original_capital {
+                None => {
+                    state
+                        .country_original_capitals
+                        .insert(country.clone(), None);
+                }
+                Some(capital) if world.initial.province_entity(*capital).is_some() => {
+                    state
+                        .country_original_capitals
+                        .insert(country.clone(), Some(*capital));
+                }
+                Some(_) => {}
+            }
+        }
+
         for (office, holder) in &self.external_state.political_office_holders {
             if office.is_empty() {
                 return Err(Error::message(
@@ -1541,6 +1560,17 @@ fn read_vanilla_save_state_inner(
             })?;
             external_state
                 .country_capitals
+                .insert(tag.clone(), (capital != 0).then_some(capital));
+        }
+        if let Some(value) = optional_scalar(&parsed, &country, "original_capital")? {
+            let capital = value.parse::<u32>().map_err(|error| {
+                Error::message(
+                    parsed.source(),
+                    format!("country {tag} has invalid original capital province: {error}"),
+                )
+            })?;
+            external_state
+                .country_original_capitals
                 .insert(tag.clone(), (capital != 0).then_some(capital));
         }
 
@@ -4734,7 +4764,7 @@ provinces={}
 date=1444.11.11
 player="AAA"
 countries={
-    AAA={ human=yes }
+    AAA={ human=yes original_capital=4 }
 }
 provinces={
     -1={
@@ -4778,6 +4808,10 @@ provinces={
         assert_eq!(
             save.external_state.province_development[&1].base_tax_milli,
             Some(12_345)
+        );
+        assert_eq!(
+            save.external_state.country_original_capitals["AAA"],
+            Some(4)
         );
         assert_eq!(
             save.external_state.province_development[&1].base_production_milli,
@@ -4877,6 +4911,7 @@ provinces={
         );
         assert_eq!(filtered.province_tribal_owners[&1].as_deref(), Some("AAA"));
         assert_eq!(filtered.province_tribal_owners[&4].as_deref(), Some("AAA"));
+        assert_eq!(filtered.country_original_capitals["AAA"], Some(4));
         let mut ownerless_save = save.clone();
         ownerless_save.external_state.province_owners.remove(&4);
         let (_, ownerless_filtered) = ownerless_save.for_world(&baseline).unwrap();
@@ -4977,9 +5012,14 @@ provinces={
         let serialized = serde_json::to_value(view).unwrap();
         assert_eq!(serialized["previous_controller"], "AAA");
         assert_eq!(serialized["tribal_owner"], "AAA");
+        assert_eq!(
+            loaded.country("AAA").unwrap().original_capital,
+            Some(Some(4))
+        );
         let overlay = VanillaExternalState {
             province_previous_controllers: BTreeMap::from([(3, None)]),
             province_tribal_owners: BTreeMap::from([(3, None)]),
+            country_original_capitals: BTreeMap::from([("AAA".into(), None)]),
             ..Default::default()
         };
         let loaded_absent =
@@ -5008,6 +5048,10 @@ provinces={
         assert_eq!(
             serde_json::to_value(&absent_view).unwrap()["tribal_owner"],
             serde_json::Value::Null
+        );
+        assert_eq!(
+            loaded_absent.country("AAA").unwrap().original_capital,
+            Some(None)
         );
         assert_eq!(
             loaded.initial.world().metrics().entities[&province_one]["devastation"],
