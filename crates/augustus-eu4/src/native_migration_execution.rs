@@ -130,7 +130,7 @@ mod tests {
     use super::{VanillaNativeMigrationExecutionRequest, VanillaNativeMigrationExecutionStatus};
     use crate::{
         ContentRoot, ContentSet, ContentSource, VanillaExternalNativeMigrationState,
-        VanillaNativeMigrationStatePricing, VanillaWorld,
+        VanillaNativeMigrationStatePricing, VanillaNativeMigrationStateQuery, VanillaWorld,
     };
 
     fn fixture() -> tempfile::TempDir {
@@ -323,5 +323,75 @@ mod tests {
         assert!(report.execution.is_none());
         assert!(report.execution_error.is_none());
         assert_eq!(world.save().unwrap(), before);
+    }
+
+    #[test]
+    fn migration_execution_and_state_query_requests_roundtrip_and_reject_unknown_fields() {
+        let execution = request(2, 3);
+        let encoded = serde_json::to_value(&execution).unwrap();
+        let decoded: VanillaNativeMigrationExecutionRequest =
+            serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(decoded, execution);
+
+        let mut unknown_execution = encoded.as_object().unwrap().clone();
+        unknown_execution.insert("unexpected".into(), serde_json::json!(true));
+        assert!(
+            serde_json::from_value::<VanillaNativeMigrationExecutionRequest>(
+                serde_json::Value::Object(unknown_execution)
+            )
+            .is_err()
+        );
+
+        let mut nested_unknown_execution = encoded.as_object().unwrap().clone();
+        let mut pricing = nested_unknown_execution["pricing"]
+            .as_object()
+            .unwrap()
+            .clone();
+        pricing.insert("unexpected".into(), serde_json::json!(true));
+        nested_unknown_execution.insert("pricing".into(), serde_json::Value::Object(pricing));
+        assert!(
+            serde_json::from_value::<VanillaNativeMigrationExecutionRequest>(
+                serde_json::Value::Object(nested_unknown_execution)
+            )
+            .is_err()
+        );
+
+        let state_query = VanillaNativeMigrationStateQuery {
+            country: execution.country,
+            destination: execution.destination,
+            pricing: execution.pricing,
+            native_mode_eligible: execution.native_mode_eligible,
+            owner_eligible: execution.owner_eligible,
+            controller_eligible: execution.controller_eligible,
+            tribal_owner_eligible: execution.tribal_owner_eligible,
+            additional_gate_eligible: execution.additional_gate_eligible,
+        };
+        let encoded = serde_json::to_value(&state_query).unwrap();
+        let decoded: VanillaNativeMigrationStateQuery =
+            serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(decoded, state_query);
+
+        let mut unknown_state_query = encoded.as_object().unwrap().clone();
+        unknown_state_query.insert("unexpected".into(), serde_json::json!(true));
+        assert!(
+            serde_json::from_value::<VanillaNativeMigrationStateQuery>(serde_json::Value::Object(
+                unknown_state_query
+            ))
+            .is_err()
+        );
+
+        let mut nested_unknown_state_query = encoded.as_object().unwrap().clone();
+        let mut pricing = nested_unknown_state_query["pricing"]
+            .as_object()
+            .unwrap()
+            .clone();
+        pricing.insert("unexpected".into(), serde_json::json!(true));
+        nested_unknown_state_query.insert("pricing".into(), serde_json::Value::Object(pricing));
+        assert!(
+            serde_json::from_value::<VanillaNativeMigrationStateQuery>(serde_json::Value::Object(
+                nested_unknown_state_query
+            ))
+            .is_err()
+        );
     }
 }
