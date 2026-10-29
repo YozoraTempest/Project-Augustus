@@ -125,6 +125,10 @@ pub struct ProvinceView<'a> {
     /// `Some(None)` is an explicit known absence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_controller: Option<Option<&'a str>>,
+    /// Persisted tribal-owner relation. The outer `None` is unknown;
+    /// `Some(None)` is an explicit known absence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tribal_owner: Option<Option<&'a str>>,
     pub terrain: Option<&'a str>,
     pub metrics: Option<&'a BTreeMap<String, Option<i64>>>,
     pub buildings: Option<Vec<&'a str>>,
@@ -699,6 +703,10 @@ pub struct VanillaExternalState {
     /// province remains history-unknown; `None` records known absence.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub province_previous_controllers: BTreeMap<u32, Option<String>>,
+    /// Current province tribal owner supplied by a save reader. An omitted
+    /// province remains history-unknown; `None` records known absence.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub province_tribal_owners: BTreeMap<u32, Option<String>>,
     /// Current base tax, production, and manpower values supplied by a save
     /// reader. An omitted province or value remains content-derived.
     #[serde(default)]
@@ -831,6 +839,7 @@ struct LoadOverrides<'a> {
     province_religions: Option<&'a BTreeMap<u32, Option<String>>>,
     province_controllers: Option<&'a BTreeMap<u32, Option<String>>>,
     province_previous_controllers: Option<&'a BTreeMap<u32, Option<String>>>,
+    province_tribal_owners: Option<&'a BTreeMap<u32, Option<String>>>,
     province_development: Option<&'a BTreeMap<u32, VanillaExternalProvinceDevelopment>>,
     province_metric_values: Option<&'a BTreeMap<u32, BTreeMap<String, Option<i64>>>>,
     state_edicts: Option<&'a VanillaExternalStateEdicts>,
@@ -943,6 +952,8 @@ impl<'a> LoadOverrides<'a> {
                 .then_some(&state.province_controllers),
             province_previous_controllers: (!state.province_previous_controllers.is_empty())
                 .then_some(&state.province_previous_controllers),
+            province_tribal_owners: (!state.province_tribal_owners.is_empty())
+                .then_some(&state.province_tribal_owners),
             province_development: (!state.province_development.is_empty())
                 .then_some(&state.province_development),
             province_metric_values: (!state.province_metric_values.is_empty())
@@ -1164,6 +1175,8 @@ fn overlay_external_state(base: &mut VanillaExternalState, overlay: &VanillaExte
         .extend(overlay.province_controllers.clone());
     base.province_previous_controllers
         .extend(overlay.province_previous_controllers.clone());
+    base.province_tribal_owners
+        .extend(overlay.province_tribal_owners.clone());
     overlay_province_development(
         &mut base.province_development,
         &overlay.province_development,
@@ -3859,6 +3872,13 @@ impl VanillaWorld {
                     .map_err(|e| Error::caused_by(root.path(), e))?;
             }
         }
+        if let Some(tribal_owners) = overrides.province_tribal_owners {
+            for (&province, owner) in tribal_owners {
+                initial
+                    .set_province_tribal_owner(province, owner.as_deref())
+                    .map_err(|e| Error::caused_by(root.path(), e))?;
+            }
+        }
         let country_tag_registry = crate::country_tags::build_registry(&country_order)
             .map_err(|e| Error::caused_by(root.path(), e))?;
         report.country_tag_slots = country_tag_registry.slots().len();
@@ -5292,6 +5312,21 @@ impl VanillaWorld {
                 .expect("registered province")
                 .map(|controller| {
                     controller.map(|country| {
+                        self.initial
+                            .world()
+                            .entity(country)
+                            .expect("validated country")
+                            .name
+                            .as_str()
+                    })
+                }),
+            tribal_owner: self
+                .initial
+                .world()
+                .province_tribal_owner_state(entity)
+                .expect("registered province")
+                .map(|owner| {
+                    owner.map(|country| {
                         self.initial
                             .world()
                             .entity(country)

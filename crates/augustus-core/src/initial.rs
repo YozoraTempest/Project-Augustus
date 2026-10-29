@@ -1142,6 +1142,43 @@ impl InitialWorld {
         Ok(())
     }
 
+    /// Returns the persisted tribal-owner relation for a province. The outer
+    /// `None` means unknown; the inner `None` is an explicit known absence.
+    pub fn province_tribal_owner_state(
+        &self,
+        province: u32,
+    ) -> Result<Option<Option<EntityId>>, Error> {
+        let entity = self
+            .province_entity(province)
+            .ok_or_else(|| Error::Invalid(format!("unknown province {province}")))?;
+        self.world.province_tribal_owner_state(entity)
+    }
+
+    /// Atomically records a persisted tribal-owner relation by country tag.
+    /// `None` records known absence; omitted entries remain unknown.
+    pub fn set_province_tribal_owner(
+        &mut self,
+        province: u32,
+        owner: Option<&str>,
+    ) -> Result<(), Error> {
+        let mut staged = self.clone();
+        let province_entity = staged
+            .province_entity(province)
+            .ok_or_else(|| Error::Invalid(format!("unknown province {province}")))?;
+        let owner_entity = owner
+            .map(|owner| {
+                staged
+                    .country_entity(owner)
+                    .ok_or_else(|| Error::Invalid(format!("unknown province tribal owner {owner}")))
+            })
+            .transpose()?;
+        staged
+            .world
+            .set_province_tribal_owner(province_entity, owner_entity)?;
+        *self = staged;
+        Ok(())
+    }
+
     pub(crate) fn commit_native_migration_transfer(
         &mut self,
         source_country: EntityId,

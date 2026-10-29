@@ -195,3 +195,59 @@ fn invalid_previous_controller_update_is_atomic_and_old_snapshots_keep_unknown_s
         None
     );
 }
+
+#[test]
+fn tribal_owner_state_distinguishes_unknown_present_and_known_absent_through_restore() {
+    let (mut initial, country, province) = fixture();
+    assert_eq!(
+        initial
+            .world()
+            .province_tribal_owner_state(province)
+            .unwrap(),
+        None
+    );
+
+    initial.set_province_tribal_owner(1, Some("AAA")).unwrap();
+    assert_eq!(
+        initial
+            .world()
+            .province_tribal_owner_state(province)
+            .unwrap(),
+        Some(Some(country))
+    );
+
+    initial.set_province_tribal_owner(1, None).unwrap();
+    assert_eq!(
+        initial
+            .world()
+            .province_tribal_owner_state(province)
+            .unwrap(),
+        Some(None)
+    );
+
+    let saved = initial.world().save("province-tribal-owner").unwrap();
+    initial.restore(&saved, "province-tribal-owner").unwrap();
+    assert_eq!(
+        initial
+            .world()
+            .province_tribal_owner_state(province)
+            .unwrap(),
+        Some(None)
+    );
+
+    let mut old_snapshot: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    old_snapshot
+        .as_object_mut()
+        .unwrap()
+        .remove("province_tribal_owners");
+    initial
+        .restore(&old_snapshot.to_string(), "province-tribal-owner")
+        .unwrap();
+    assert_eq!(
+        initial
+            .world()
+            .province_tribal_owner_state(province)
+            .unwrap(),
+        None
+    );
+}

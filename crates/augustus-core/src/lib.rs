@@ -56,6 +56,7 @@ mod province_connectivity;
 mod province_controllers;
 mod province_cores;
 mod province_previous_controllers;
+mod province_tribal_owners;
 mod resources;
 mod rng;
 mod school_opinions;
@@ -216,6 +217,7 @@ pub use production::{
 pub use province_connectivity::ProvinceConnectivity;
 pub use province_controllers::ProvinceControllerStates;
 pub use province_previous_controllers::ProvincePreviousControllerStates;
+pub use province_tribal_owners::ProvinceTribalOwnerStates;
 pub use resources::{CountryResource, CountryResources};
 pub use rng::Eu4Random;
 pub use school_opinions::SchoolOpinions;

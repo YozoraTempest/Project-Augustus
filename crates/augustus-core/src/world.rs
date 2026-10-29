@@ -118,6 +118,7 @@ pub struct World {
     pub(crate) country_controllers: BTreeMap<EntityId, crate::CountryController>,
     pub(crate) province_controllers: crate::ProvinceControllerStates,
     pub(crate) province_previous_controllers: crate::ProvincePreviousControllerStates,
+    pub(crate) province_tribal_owners: crate::ProvinceTribalOwnerStates,
     pub(crate) global_scopes: BTreeMap<String, EntityId>,
     pub(crate) known_absent_targets: BTreeMap<EntityId, BTreeSet<Target>>,
     economy: Economy,
@@ -215,6 +216,8 @@ struct Snapshot {
     province_controllers: crate::ProvinceControllerStates,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     province_previous_controllers: crate::ProvincePreviousControllerStates,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    province_tribal_owners: crate::ProvinceTribalOwnerStates,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     global_scopes: BTreeMap<String, EntityId>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -347,6 +350,7 @@ impl World {
             country_controllers: BTreeMap::new(),
             province_controllers: BTreeMap::new(),
             province_previous_controllers: BTreeMap::new(),
+            province_tribal_owners: BTreeMap::new(),
             global_scopes: BTreeMap::new(),
             known_absent_targets: BTreeMap::new(),
             economy: Economy::default(),
@@ -1990,6 +1994,7 @@ impl World {
             country_controllers: self.country_controllers.clone(),
             province_controllers: self.province_controllers.clone(),
             province_previous_controllers: self.province_previous_controllers.clone(),
+            province_tribal_owners: self.province_tribal_owners.clone(),
             global_scopes: self.global_scopes.clone(),
             known_absent_targets: self.known_absent_targets.clone(),
             economy: self.economy.clone(),
@@ -2046,6 +2051,7 @@ impl World {
         world.native_migration_states = crate::NativeMigrationStates::default();
         world.province_controllers = crate::ProvinceControllerStates::new();
         world.province_previous_controllers = crate::ProvincePreviousControllerStates::new();
+        world.province_tribal_owners = crate::ProvinceTribalOwnerStates::new();
         // These fields describe the running session, not immutable content. In
         // particular, AI event choices can vary with the session seed and must
         // not make an otherwise identical save refuse to load.
@@ -2154,6 +2160,7 @@ impl World {
             country_controllers: snapshot.country_controllers,
             province_controllers: snapshot.province_controllers,
             province_previous_controllers: snapshot.province_previous_controllers,
+            province_tribal_owners: snapshot.province_tribal_owners,
             global_scopes: snapshot.global_scopes,
             known_absent_targets: snapshot.known_absent_targets,
             economy: snapshot.economy,
@@ -2237,6 +2244,7 @@ impl World {
             &world.province_previous_controllers,
             &world,
         )?;
+        crate::province_tribal_owners::validate(&world.province_tribal_owners, &world)?;
         for &country in world.country_controllers.keys() {
             world.country_controller(country)?;
         }

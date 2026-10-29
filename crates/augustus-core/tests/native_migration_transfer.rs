@@ -72,6 +72,8 @@ fn fixture(
     if mark_destination_absent {
         initial.set_province_owner(2, None).unwrap();
     }
+    initial.set_province_tribal_owner(1, Some("AAA")).unwrap();
+    initial.set_province_tribal_owner(2, Some("AAA")).unwrap();
     let metric_definition = |name: &str| {
         (
             name.to_owned(),
@@ -260,6 +262,17 @@ fn transfer_clears_old_controller_and_assigns_destination_controller_atomically(
             .province_previous_controller_state(destination)
             .unwrap(),
         None
+    );
+    assert_eq!(
+        initial.world().province_tribal_owner_state(old).unwrap(),
+        Some(Some(country))
+    );
+    assert_eq!(
+        initial
+            .world()
+            .province_tribal_owner_state(destination)
+            .unwrap(),
+        Some(Some(country))
     );
     let saved = initial.world().save("native-migration-transfer").unwrap();
     initial

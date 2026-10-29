@@ -665,6 +665,23 @@ impl VanillaSaveState {
             }
         }
 
+        for (province, tribal_owner) in &self.external_state.province_tribal_owners {
+            if world.initial.province_entity(*province).is_none() {
+                continue;
+            }
+            match tribal_owner {
+                None => {
+                    state.province_tribal_owners.insert(*province, None);
+                }
+                Some(tag) if countries.contains(tag.as_str()) => {
+                    state
+                        .province_tribal_owners
+                        .insert(*province, Some(tag.clone()));
+                }
+                Some(_) => {}
+            }
+        }
+
         for (province, culture) in &self.external_state.province_cultures {
             if world.initial.province_entity(*province).is_some() {
                 state.province_cultures.insert(*province, culture.clone());
@@ -2024,6 +2041,17 @@ fn read_vanilla_save_state_inner(
             external_state
                 .province_previous_controllers
                 .insert(id, Some(previous_controller));
+        }
+        if let Some(tribal_owner) = optional_scalar(&parsed, &province, "tribal_owner")? {
+            if !is_country_tag(&tribal_owner) {
+                return Err(Error::message(
+                    parsed.source(),
+                    format!("province {id} has an invalid tribal owner tag"),
+                ));
+            }
+            external_state
+                .province_tribal_owners
+                .insert(id, Some(tribal_owner));
         }
         let development = VanillaExternalProvinceDevelopment {
             base_tax_milli: optional_milli(&parsed, &province, "base_tax")?,
@@ -4713,6 +4741,7 @@ provinces={
         owner="AAA"
         controller="AAA"
         previous_controller="AAA"
+        tribal_owner="AAA"
         center_of_trade=3
         base_tax=12.345
         base_production=7.890
@@ -4731,6 +4760,7 @@ provinces={
     }
     -4={
         previous_controller="AAA"
+        tribal_owner="AAA"
     }
     -999={
         center_of_trade=1
@@ -4786,6 +4816,14 @@ provinces={
             Some("AAA")
         );
         assert_eq!(
+            save.external_state.province_tribal_owners[&1].as_deref(),
+            Some("AAA")
+        );
+        assert_eq!(
+            save.external_state.province_tribal_owners[&4].as_deref(),
+            Some("AAA")
+        );
+        assert_eq!(
             save.external_state.province_center_of_trade_levels[&1],
             Some(3)
         );
@@ -4837,11 +4875,17 @@ provinces={
             filtered.province_previous_controllers[&4].as_deref(),
             Some("AAA")
         );
+        assert_eq!(filtered.province_tribal_owners[&1].as_deref(), Some("AAA"));
+        assert_eq!(filtered.province_tribal_owners[&4].as_deref(), Some("AAA"));
         let mut ownerless_save = save.clone();
         ownerless_save.external_state.province_owners.remove(&4);
         let (_, ownerless_filtered) = ownerless_save.for_world(&baseline).unwrap();
         assert_eq!(
             ownerless_filtered.province_previous_controllers[&4].as_deref(),
+            Some("AAA")
+        );
+        assert_eq!(
+            ownerless_filtered.province_tribal_owners[&4].as_deref(),
             Some("AAA")
         );
         let mut relation_filter = save.clone();
@@ -4853,6 +4897,14 @@ provinces={
             .external_state
             .province_previous_controllers
             .insert(1, Some("ZZZ".into()));
+        relation_filter
+            .external_state
+            .province_tribal_owners
+            .insert(3, None);
+        relation_filter
+            .external_state
+            .province_tribal_owners
+            .insert(1, Some("ZZZ".into()));
         let (_, relation_filtered) = relation_filter.for_world(&baseline).unwrap();
         assert_eq!(relation_filtered.province_previous_controllers[&3], None);
         assert!(
@@ -4860,6 +4912,8 @@ provinces={
                 .province_previous_controllers
                 .contains_key(&1)
         );
+        assert_eq!(relation_filtered.province_tribal_owners[&3], None);
+        assert!(!relation_filtered.province_tribal_owners.contains_key(&1));
         assert_eq!(filtered.province_center_of_trade_levels[&1], Some(3));
         assert_eq!(filtered.province_center_of_trade_levels[&2], Some(0));
         assert!(!filtered.province_center_of_trade_levels.contains_key(&999));
@@ -4919,10 +4973,13 @@ provinces={
         );
         let view = loaded.province(4).unwrap();
         assert_eq!(view.previous_controller, Some(Some("AAA")));
+        assert_eq!(view.tribal_owner, Some(Some("AAA")));
         let serialized = serde_json::to_value(view).unwrap();
         assert_eq!(serialized["previous_controller"], "AAA");
+        assert_eq!(serialized["tribal_owner"], "AAA");
         let overlay = VanillaExternalState {
             province_previous_controllers: BTreeMap::from([(3, None)]),
+            province_tribal_owners: BTreeMap::from([(3, None)]),
             ..Default::default()
         };
         let loaded_absent =
@@ -4944,7 +5001,12 @@ provinces={
         let absent_view = loaded_absent.province(3).unwrap();
         assert_eq!(absent_view.previous_controller, Some(None));
         assert_eq!(
-            serde_json::to_value(absent_view).unwrap()["previous_controller"],
+            serde_json::to_value(&absent_view).unwrap()["previous_controller"],
+            serde_json::Value::Null
+        );
+        assert_eq!(absent_view.tribal_owner, Some(None));
+        assert_eq!(
+            serde_json::to_value(&absent_view).unwrap()["tribal_owner"],
             serde_json::Value::Null
         );
         assert_eq!(
