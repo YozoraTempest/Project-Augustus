@@ -2930,3 +2930,82 @@ provinces={
         serde_json::Value::Null
     );
 }
+
+#[test]
+fn world_cli_roundtrips_explicit_missing_original_capital_value() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+    let source_save = temp.path().join("missing-original-capital.eu4");
+    fs::write(
+        &source_save,
+        r#"EU4txt
+date=1444.11.11
+player="AAA"
+countries={
+    AAA={
+        capital=4
+        original_capital=0
+        powers={140 126 150}
+        native={provinces={2} migration_steps=1}
+    }
+}
+provinces={
+    -1={previous_controller="AAA" tribal_owner="AAA"}
+    -2={owner="BBB" controller="BBB" tribal_owner="AAA"}
+    -4={owner="AAA" controller="AAA" previous_controller="BBB" tribal_owner="AAA"}
+}
+"#,
+    )
+    .unwrap();
+    let snapshot = temp.path().join("missing-original-capital.json");
+    let first = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--import-native-migration-state")
+        .arg("--country")
+        .arg("AAA")
+        .arg("--save")
+        .arg(&snapshot)
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let first: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(
+        first["country"]["original_capital"],
+        serde_json::Value::Null
+    );
+
+    let second = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--load")
+        .arg(&snapshot)
+        .arg("--country")
+        .arg("AAA")
+        .arg("--omit-load-report")
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(
+        second["country"]["original_capital"],
+        serde_json::Value::Null
+    );
+}

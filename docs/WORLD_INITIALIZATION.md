@@ -551,3 +551,5 @@ native migration transfer CLI 也在保存前完成请求解析和 adapter 校�
 score core 输入和候选结构使用 `serde(deny_unknown_fields)`；JSON roundtrip 会保留 `migration_steps = null` 与归一化距离向量，未知嵌套字段直接拒绝。CLI 的 score query 解析复用这份契约。
 
 EU4 country history 中 `capital=0` 会保留为显式无值；`CountryView.capital_history` JSON 输出为日期键对应的 `null`，并在 Augustus snapshot reload 后保持该三态信息。
+
+EU4 country 中的 `original_capital=0` 也保留为显式无值；`CountryView.original_capital` JSON 输出为 `null`，并在 Augustus snapshot reload 后保持该三态信息。它与当前 `capital`、dated capital history 和内容声明的首都分别建模，不会被其他首都字段补回。
