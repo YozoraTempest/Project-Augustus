@@ -383,7 +383,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 输出 `native_migration_state_queries` 的每项包含 `context` 与 `query`：前者列出当前原始名单、步数和目标成员关系；后者沿用实时费用查询报告。列表或步数未知时费用评估保持 `null` 并列出原因。查询不会修改状态、消耗随机流或执行迁移；模式、有效修正及其他资格仍须调用方解析。迁移后的名单维护、步数更新和完整命令生命周期尚未接通。
 
-执行阶段可以通过 `VanillaWorld::execute_native_migration_from_state` 使用同一份当前状态查询结果。该入口会再次读取当前 ADM/DIP/MIL、当前 native 名单、步数和已加载费用定义；只有 gate 明确为 `true` 时才进入 core 事务。事务在暂存世界中预先检查三项 power 足够、名单和旧步数已知且仍等于调用方提供的 `expected_migration_steps`，然后扣除调用方已经解析的三项费用，并写入调用方明确提供的 `next_migration_steps`；成功后整体提交。gate 未解析返回 `unresolved`，gate 明确失败或执行阶段资源/旧步数复检失败返回 `rejected`，这些结果都不改变快照。core 不自动推导 `steps+1` 或清零，因为已核验样本分别出现 `2→3` 和 `2→0`。当前执行阶段没有修改首都、所有权、controller、`tribal_owner` 或 native 省份名单；这些原版效果仍需后续模型和证据，不能把本入口称作完整迁徙命令生命周期。
+执行阶段可以通过 `VanillaWorld::execute_native_migration_from_state` 使用同一份当前状态查询结果。该入口会再次读取当前 ADM/DIP/MIL、当前 native 名单、步数和已加载费用定义；只有 gate 明确为 `true` 时才进入 core 事务。事务在暂存世界中预先检查三项 power 足够、名单和旧步数已知且仍等于调用方提供的 `expected_migration_steps`，然后扣除调用方已经解析的三项费用，并写入调用方明确提供的 `next_migration_steps`；成功后整体提交。gate 的三态保持区分：`None` 返回 `unresolved`，`Some(false)` 返回 `rejected`，`Some(true)` 才执行事务；前两者都不改变快照。执行阶段资源不足或旧步数复检失败也返回 `rejected` 且不改变快照。core 不自动推导 `steps+1` 或清零，因为已核验样本分别出现 `2→3` 和 `2→0`。当前执行阶段没有修改首都、所有权、controller、`tribal_owner` 或 native 省份名单；这些原版效果仍需后续模型和证据，不能把本入口称作完整迁徙命令生命周期。
 
 core 还提供 `World::clear_owner` 和 `InitialWorld::set_province_owner`，用于已经被调用方确认的省份所有权边界。清除 owner 会把关系记录为已知缺失并维护 OwnershipIndex；重新设置 owner 会移除该缺失标记。InitialWorld 入口在暂存副本中同时更新 core 所有权图和 EU4 省份投影，失败时保持原状态。它不推断资本、controller 或 `tribal_owner`，也不会把单独的 owner edge 更新描述成完整领土转移；native 迁徙仍需后续专用 transfer transaction。
 

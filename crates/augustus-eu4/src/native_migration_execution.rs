@@ -70,13 +70,24 @@ impl VanillaWorld {
                 execution_error: None,
             });
         };
-        if evaluation.resolved_gate != Some(true) {
-            return Ok(VanillaNativeMigrationExecutionReport {
-                status: VanillaNativeMigrationExecutionStatus::Rejected,
-                query,
-                execution: None,
-                execution_error: None,
-            });
+        match evaluation.resolved_gate {
+            None => {
+                return Ok(VanillaNativeMigrationExecutionReport {
+                    status: VanillaNativeMigrationExecutionStatus::Unresolved,
+                    query,
+                    execution: None,
+                    execution_error: None,
+                });
+            }
+            Some(false) => {
+                return Ok(VanillaNativeMigrationExecutionReport {
+                    status: VanillaNativeMigrationExecutionStatus::Rejected,
+                    query,
+                    execution: None,
+                    execution_error: None,
+                });
+            }
+            Some(true) => {}
         }
         let cost = evaluation
             .cost
@@ -290,5 +301,27 @@ mod tests {
             VanillaNativeMigrationExecutionStatus::Unresolved
         );
         assert_eq!(world.save().unwrap(), before_unknown_power);
+    }
+
+    #[test]
+    fn execution_unresolved_gate_is_unresolved_without_mutation() {
+        let (_fixture, mut world) = load_world();
+        prepare(&mut world, Some(50), Some(vec![4]), Some(2));
+        let mut unresolved_request = request(2, 3);
+        unresolved_request.owner_eligible = None;
+        let before = world.save().unwrap();
+
+        let report = world
+            .execute_native_migration_from_state(&unresolved_request)
+            .unwrap();
+
+        assert_eq!(
+            report.status,
+            VanillaNativeMigrationExecutionStatus::Unresolved
+        );
+        assert_eq!(report.query.query.evaluation.unwrap().resolved_gate, None);
+        assert!(report.execution.is_none());
+        assert!(report.execution_error.is_none());
+        assert_eq!(world.save().unwrap(), before);
     }
 }
