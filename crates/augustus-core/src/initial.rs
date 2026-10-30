@@ -841,6 +841,12 @@ impl InitialWorld {
     ) -> Result<Vec<crate::NavalConstructionId>, Error> {
         self.world.enqueue_naval_construction_queues(inputs)
     }
+    pub fn enqueue_paid_naval_construction_queues(
+        &mut self,
+        inputs: &[crate::PaidNavalConstructionInput],
+    ) -> Result<Vec<crate::NavalConstructionId>, Error> {
+        self.world.enqueue_paid_naval_construction_queues(inputs)
+    }
     pub fn enqueue_paid_naval_constructions(
         &mut self,
         inputs: &[crate::PaidNavalConstructionInput],
@@ -854,6 +860,14 @@ impl InitialWorld {
     ) -> Result<Vec<crate::NavalConstructionId>, Error> {
         self.world
             .enqueue_naval_constructions_with_expenses(inputs, expense_category)
+    }
+    pub fn enqueue_naval_construction_queues_with_expenses(
+        &mut self,
+        inputs: &[crate::PaidNavalConstructionInput],
+        expense_category: u32,
+    ) -> Result<Vec<crate::NavalConstructionId>, Error> {
+        self.world
+            .enqueue_naval_construction_queues_with_expenses(inputs, expense_category)
     }
     pub fn create_naval_unit(
         &mut self,

@@ -1087,3 +1087,462 @@ fn fifo_completion_failure_does_not_partially_create_ships_or_remove_orders() {
         [NavalConstructionId(0), NavalConstructionId(1)]
     );
 }
+
+#[test]
+fn paid_fifo_queues_charge_once_and_resume_with_location_order() {
+    let (mut continuous, owner, first_port) = fixture();
+    let second_port = continuous.add_entity("2", EntityKind::Province);
+    continuous.set_province_has_port(second_port, true).unwrap();
+    continuous
+        .set_country_resources(
+            [(
+                owner,
+                CountryResources {
+                    treasury_milli: Some(1_000),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    continuous
+        .set_country_ledgers([(owner, CountryLedger::default())].into())
+        .unwrap();
+    let starting_ledger = continuous.country_ledgers()[&owner].clone();
+
+    assert_eq!(
+        continuous
+            .enqueue_paid_naval_construction_queues(&[
+                paid_input(owner, first_port, "first_hull", 4, 75),
+                paid_input(owner, second_port, "independent_hull", 1, 40),
+                paid_input(owner, first_port, "second_hull", 1, 50),
+            ])
+            .unwrap(),
+        [
+            NavalConstructionId(0),
+            NavalConstructionId(1),
+            NavalConstructionId(2)
+        ]
+    );
+    assert_eq!(
+        continuous.country_resources()[&owner].treasury_milli,
+        Some(835)
+    );
+    assert_eq!(continuous.country_ledgers()[&owner], starting_ledger);
+    assert_eq!(
+        continuous
+            .naval_construction_views()
+            .map(|view| (view.order.unit_type.as_str(), view.queue_position))
+            .collect::<Vec<_>>(),
+        [
+            ("first_hull", Some(1)),
+            ("independent_hull", None),
+            ("second_hull", Some(2))
+        ]
+    );
+
+    let snapshot = continuous.save("paid-fifo-naval-construction").unwrap();
+    let mut resumed = World::restore(
+        &snapshot,
+        "paid-fifo-naval-construction",
+        continuous.schema(),
+    )
+    .unwrap();
+    continuous.advance_to(1).unwrap();
+    resumed.advance_to(1).unwrap();
+    assert_eq!(resumed, continuous);
+    assert_eq!(continuous.naval_units()[0].unit_type, "independent_hull");
+    assert_eq!(
+        continuous
+            .naval_constructions()
+            .iter()
+            .map(|order| (order.unit_type.as_str(), order.completion_day))
+            .collect::<Vec<_>>(),
+        [("first_hull", 4), ("second_hull", 2)]
+    );
+    assert_eq!(
+        continuous
+            .naval_construction_views()
+            .map(|view| view.queue_position)
+            .collect::<Vec<_>>(),
+        [Some(1), Some(2)]
+    );
+
+    continuous.advance_to(3).unwrap();
+    resumed.advance_to(3).unwrap();
+    assert_eq!(resumed, continuous);
+    assert_eq!(continuous.naval_constructions()[1].completion_day, 4);
+    continuous.advance_to(4).unwrap();
+    resumed.advance_to(4).unwrap();
+    assert_eq!(resumed, continuous);
+    assert_eq!(
+        continuous
+            .naval_units()
+            .iter()
+            .map(|unit| unit.unit_type.as_str())
+            .collect::<Vec<_>>(),
+        ["independent_hull", "first_hull", "second_hull"]
+    );
+    assert_eq!(
+        continuous.country_resources()[&owner].treasury_milli,
+        Some(835)
+    );
+    assert_eq!(continuous.country_ledgers()[&owner], starting_ledger);
+    assert!(continuous.naval_constructions().is_empty());
+}
+
+#[test]
+fn categorized_paid_fifo_records_once_and_preserves_pending_after_restore() {
+    let (mut continuous, owner, port) = fixture();
+    let expense_category = 27;
+    continuous
+        .set_country_resources(
+            [(
+                owner,
+                CountryResources {
+                    treasury_milli: Some(1_000),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    continuous
+        .set_country_ledgers(
+            [(
+                owner,
+                CountryLedger {
+                    pending_milli: 40,
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+
+    assert_eq!(
+        continuous
+            .enqueue_naval_construction_queues_with_expenses(
+                &[
+                    paid_input(owner, port, "first_hull", 3, 75),
+                    paid_input(owner, port, "second_hull", 1, 25),
+                ],
+                expense_category,
+            )
+            .unwrap(),
+        [NavalConstructionId(0), NavalConstructionId(1)]
+    );
+    let ledger = &continuous.country_ledgers()[&owner];
+    assert_eq!(ledger.pending_milli, 40);
+    assert_eq!(ledger.expense_sources_milli[expense_category as usize], 100);
+    assert_eq!(
+        ledger.expense_accumulator_milli[expense_category as usize],
+        100
+    );
+    assert_eq!(
+        ledger.expense_auxiliary_milli[expense_category as usize],
+        100
+    );
+    assert_eq!(ledger.categories[&expense_category].expense_milli, 100);
+    assert_eq!(
+        continuous.country_resources()[&owner].treasury_milli,
+        Some(900)
+    );
+
+    let snapshot = continuous
+        .save("categorized-paid-fifo-naval-construction")
+        .unwrap();
+    let mut resumed = World::restore(
+        &snapshot,
+        "categorized-paid-fifo-naval-construction",
+        continuous.schema(),
+    )
+    .unwrap();
+    continuous.advance_to(1).unwrap();
+    resumed.advance_to(1).unwrap();
+    assert_eq!(resumed, continuous);
+    assert!(continuous.naval_units().is_empty());
+    assert_eq!(
+        continuous
+            .naval_constructions()
+            .iter()
+            .map(|order| (order.id, order.completion_day))
+            .collect::<Vec<_>>(),
+        [(NavalConstructionId(0), 3), (NavalConstructionId(1), 2)]
+    );
+    continuous.advance_to(2).unwrap();
+    resumed.advance_to(2).unwrap();
+    assert_eq!(resumed, continuous);
+    assert_eq!(continuous.naval_constructions()[1].completion_day, 3);
+    continuous.advance_to(3).unwrap();
+    resumed.advance_to(3).unwrap();
+    assert_eq!(resumed, continuous);
+    assert!(continuous.naval_constructions().is_empty());
+    assert_eq!(continuous.naval_units().len(), 2);
+    assert_eq!(continuous.country_ledgers()[&owner].pending_milli, 40);
+    assert_eq!(
+        continuous.country_ledgers()[&owner].categories[&expense_category].expense_milli,
+        100
+    );
+}
+
+#[test]
+fn priced_fifo_queues_reject_existing_independent_and_fifo_orders_atomically() {
+    let (mut independent, owner, port) = fixture();
+    independent
+        .set_country_resources(
+            [(
+                owner,
+                CountryResources {
+                    treasury_milli: Some(100),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    independent
+        .enqueue_naval_constructions(&[input(owner, port, "existing_independent", 3)])
+        .unwrap();
+    let before = independent.save("priced-fifo-naval-construction").unwrap();
+    assert!(
+        independent
+            .enqueue_paid_naval_construction_queues(&[paid_input(owner, port, "new_order", 4, 10)])
+            .is_err()
+    );
+    assert_eq!(
+        independent.save("priced-fifo-naval-construction").unwrap(),
+        before
+    );
+
+    let (mut fifo, owner, port) = fixture();
+    fifo.set_country_resources(
+        [(
+            owner,
+            CountryResources {
+                treasury_milli: Some(100),
+                ..Default::default()
+            },
+        )]
+        .into(),
+    )
+    .unwrap();
+    fifo.enqueue_naval_construction_queues(&[
+        input(owner, port, "existing_head", 4),
+        input(owner, port, "existing_tail", 5),
+    ])
+    .unwrap();
+    let before = fifo.save("priced-fifo-naval-construction").unwrap();
+    assert!(
+        fifo.enqueue_naval_construction_queues_with_expenses(
+            &[paid_input(owner, port, "new_order", 6, 10)],
+            27,
+        )
+        .is_err()
+    );
+    assert_eq!(fifo.save("priced-fifo-naval-construction").unwrap(), before);
+}
+
+#[test]
+fn paid_fifo_failures_preserve_ids_orders_balances_and_unbased_deltas() {
+    let (mut world, owner, port) = fixture();
+    let unknown_owner = world.add_entity("NOR", EntityKind::Country);
+    world
+        .set_country_resources(
+            [(
+                owner,
+                CountryResources {
+                    treasury_milli: Some(100),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    let treasury = NumericSlot::Resource(CountryResource::Treasury);
+    world
+        .update_numeric(
+            unknown_owner,
+            &treasury,
+            NumericOperation::Subtract,
+            i64::MAX,
+        )
+        .unwrap();
+    world
+        .update_numeric(unknown_owner, &treasury, NumericOperation::Subtract, 1)
+        .unwrap();
+    assert_eq!(
+        world.unbased_numeric_delta(unknown_owner, &treasury),
+        Some(i64::MIN)
+    );
+    let before = world.save("paid-fifo-naval-construction").unwrap();
+
+    assert!(
+        world
+            .enqueue_paid_naval_construction_queues(&[
+                paid_input(owner, port, "valid_hull", 3, 10),
+                paid_input(port, port, "invalid_owner", 4, 1),
+            ])
+            .is_err()
+    );
+    assert_eq!(world.save("paid-fifo-naval-construction").unwrap(), before);
+
+    assert!(
+        world
+            .enqueue_paid_naval_construction_queues(&[
+                paid_input(owner, port, "first_hull", 3, i64::MAX),
+                paid_input(owner, port, "second_hull", 4, 1),
+            ])
+            .is_err()
+    );
+    assert_eq!(world.save("paid-fifo-naval-construction").unwrap(), before);
+
+    assert!(
+        world
+            .enqueue_paid_naval_construction_queues(&[paid_input(
+                unknown_owner,
+                port,
+                "delta_overflow",
+                3,
+                1,
+            )])
+            .is_err()
+    );
+    assert_eq!(world.save("paid-fifo-naval-construction").unwrap(), before);
+
+    let mut exhausted_snapshot: serde_json::Value = before.parse().unwrap();
+    exhausted_snapshot["naval_constructions"] = serde_json::json!({
+        "next_id": u64::MAX,
+        "orders": []
+    });
+    let mut exhausted = World::restore(
+        &exhausted_snapshot.to_string(),
+        "paid-fifo-naval-construction",
+        world.schema(),
+    )
+    .unwrap();
+    let exhausted_before = exhausted.save("paid-fifo-naval-construction").unwrap();
+    assert!(
+        exhausted
+            .enqueue_paid_naval_construction_queues(&[paid_input(owner, port, "id_overflow", 3, 1)])
+            .is_err()
+    );
+    assert_eq!(
+        exhausted.save("paid-fifo-naval-construction").unwrap(),
+        exhausted_before
+    );
+}
+
+#[test]
+fn categorized_paid_fifo_ledger_overflow_and_unknown_treasury_are_atomic() {
+    let (mut world, owner, port) = fixture();
+    let other = world.add_entity("NOR", EntityKind::Country);
+    let other_port = world.add_entity("2", EntityKind::Province);
+    world.set_province_has_port(other_port, true).unwrap();
+    world
+        .set_country_resources(
+            [
+                (
+                    owner,
+                    CountryResources {
+                        treasury_milli: Some(100),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    other,
+                    CountryResources {
+                        treasury_milli: Some(100),
+                        ..Default::default()
+                    },
+                ),
+            ]
+            .into(),
+        )
+        .unwrap();
+    let expense_category = 27;
+    let mut overflowing_ledger = CountryLedger {
+        expense_sources_milli: vec![0; COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT as usize],
+        ..Default::default()
+    };
+    overflowing_ledger.expense_sources_milli[expense_category as usize] = i64::MAX;
+    world
+        .set_country_ledgers(
+            [
+                (owner, CountryLedger::default()),
+                (other, overflowing_ledger),
+            ]
+            .into(),
+        )
+        .unwrap();
+    let before = world
+        .save("categorized-paid-fifo-naval-construction")
+        .unwrap();
+
+    assert!(
+        world
+            .enqueue_naval_construction_queues_with_expenses(
+                &[
+                    paid_input(owner, port, "valid_hull", 3, 10),
+                    paid_input(other, other_port, "ledger_overflow", 3, 10),
+                ],
+                expense_category,
+            )
+            .is_err()
+    );
+    assert_eq!(
+        world
+            .save("categorized-paid-fifo-naval-construction")
+            .unwrap(),
+        before
+    );
+
+    let (mut unknown, owner, port) = fixture();
+    let unknown_before = unknown
+        .save("categorized-paid-fifo-naval-construction")
+        .unwrap();
+    assert!(
+        unknown
+            .enqueue_naval_construction_queues_with_expenses(
+                &[paid_input(owner, port, "unknown_treasury", 3, 10)],
+                expense_category,
+            )
+            .is_err()
+    );
+    assert_eq!(
+        unknown
+            .save("categorized-paid-fifo-naval-construction")
+            .unwrap(),
+        unknown_before
+    );
+    assert_eq!(unknown.country_ledgers().get(&owner), None);
+}
+
+#[test]
+fn paid_fifo_queue_preserves_unknown_treasury_delta_without_ledger() {
+    let (mut world, owner, port) = fixture();
+    world
+        .enqueue_paid_naval_construction_queues(&[
+            paid_input(owner, port, "first_hull", 3, 10),
+            paid_input(owner, port, "second_hull", 4, 20),
+        ])
+        .unwrap();
+
+    let treasury = NumericSlot::Resource(CountryResource::Treasury);
+    assert_eq!(
+        world
+            .country_resources()
+            .get(&owner)
+            .and_then(|r| r.treasury_milli),
+        None
+    );
+    assert_eq!(world.unbased_numeric_delta(owner, &treasury), Some(-30));
+    assert_eq!(world.country_ledgers().get(&owner), None);
+    assert_eq!(
+        world
+            .naval_construction_views()
+            .map(|view| view.queue_position)
+            .collect::<Vec<_>>(),
+        [Some(1), Some(2)]
+    );
+}

@@ -36,9 +36,23 @@ impl VanillaWorld {
         &mut self,
         requests: &[VanillaNavalConstructionRequest],
     ) -> Result<Vec<NavalConstructionId>, Error> {
-        let inputs = self.resolve_naval_construction_requests(requests)?;
+        let inputs = self.resolve_naval_construction_requests(requests, false)?;
         self.initial
             .enqueue_paid_naval_constructions(&inputs)
+            .map_err(|error| Error::caused_by("naval construction request", error))
+    }
+
+    /// Atomically submits caller-priced naval orders as per-province FIFO queues.
+    ///
+    /// Repeated provinces are allowed in the input and retain their array order.
+    /// Any order already pending at a requested province rejects the whole batch.
+    pub fn submit_naval_construction_queues(
+        &mut self,
+        requests: &[VanillaNavalConstructionRequest],
+    ) -> Result<Vec<NavalConstructionId>, Error> {
+        let inputs = self.resolve_naval_construction_requests(requests, true)?;
+        self.initial
+            .enqueue_paid_naval_construction_queues(&inputs)
             .map_err(|error| Error::caused_by("naval construction request", error))
     }
 
@@ -51,25 +65,32 @@ impl VanillaWorld {
         &mut self,
         requests: &[VanillaNavalConstructionRequest],
     ) -> Result<Vec<NavalConstructionId>, Error> {
-        let inputs = self.resolve_naval_construction_requests(requests)?;
-        let category = COUNTRY_LEDGER_EXPENSE_KEYS
-            .iter()
-            .position(|key| *key == NAVAL_CONSTRUCTION_EXPENSE_KEY)
-            .and_then(|index| u32::try_from(index).ok())
-            .ok_or_else(|| {
-                Error::message(
-                    "naval construction request",
-                    format!("missing country ledger expense key {NAVAL_CONSTRUCTION_EXPENSE_KEY}"),
-                )
-            })?;
+        let inputs = self.resolve_naval_construction_requests(requests, false)?;
+        let category = naval_construction_expense_category()?;
         self.initial
             .enqueue_naval_constructions_with_expenses(&inputs, category)
+            .map_err(|error| Error::caused_by("naval construction request", error))
+    }
+
+    /// Atomically submits FIFO naval orders under EU4's fleet expense key.
+    ///
+    /// Costs remain caller-supplied. Repeated provinces retain input order, and
+    /// existing pending orders at any requested province reject the whole batch.
+    pub fn submit_naval_construction_queues_with_ledger(
+        &mut self,
+        requests: &[VanillaNavalConstructionRequest],
+    ) -> Result<Vec<NavalConstructionId>, Error> {
+        let inputs = self.resolve_naval_construction_requests(requests, true)?;
+        let category = naval_construction_expense_category()?;
+        self.initial
+            .enqueue_naval_construction_queues_with_expenses(&inputs, category)
             .map_err(|error| Error::caused_by("naval construction request", error))
     }
 
     fn resolve_naval_construction_requests(
         &self,
         requests: &[VanillaNavalConstructionRequest],
+        allow_repeated_provinces: bool,
     ) -> Result<Vec<PaidNavalConstructionInput>, Error> {
         let world = self.initial.world();
         let pending_locations = world
@@ -162,7 +183,10 @@ impl VanillaWorld {
                     request.unit_type
                 )));
             }
-            if pending_locations.contains(&location) || !requested_locations.insert(location) {
+            let repeated_request = !requested_locations.insert(location);
+            if pending_locations.contains(&location)
+                || (repeated_request && !allow_repeated_provinces)
+            {
                 return Err(invalid(format!(
                     "province {} already has a pending naval order",
                     request.province_id
@@ -181,4 +205,17 @@ impl VanillaWorld {
 
         Ok(inputs)
     }
+}
+
+fn naval_construction_expense_category() -> Result<u32, Error> {
+    COUNTRY_LEDGER_EXPENSE_KEYS
+        .iter()
+        .position(|key| *key == NAVAL_CONSTRUCTION_EXPENSE_KEY)
+        .and_then(|index| u32::try_from(index).ok())
+        .ok_or_else(|| {
+            Error::message(
+                "naval construction request",
+                format!("missing country ledger expense key {NAVAL_CONSTRUCTION_EXPENSE_KEY}"),
+            )
+        })
 }

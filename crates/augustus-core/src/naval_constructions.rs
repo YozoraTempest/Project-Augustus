@@ -10,6 +10,11 @@ use crate::{
     EntityId, EntityKind, Error, NumericOperation, NumericSlot, World,
 };
 
+type StagedResourceUpdates = (
+    BTreeMap<EntityId, CountryResources>,
+    BTreeMap<EntityId, Option<BTreeMap<CountryResource, i64>>>,
+);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NavalConstructionId(pub u64);
 
@@ -253,26 +258,8 @@ impl World {
         inputs: &[NavalConstructionInput],
     ) -> Result<Vec<NavalConstructionId>, Error> {
         self.validate_naval_construction_inputs(inputs)?;
-        let mut counts = BTreeMap::<EntityId, usize>::new();
-        for input in inputs {
-            *counts.entry(input.location).or_default() += 1;
-        }
-        if self
-            .naval_constructions()
-            .iter()
-            .any(|order| counts.contains_key(&order.location))
-        {
-            return Err(Error::Invalid(
-                "naval construction queue location already has pending orders".into(),
-            ));
-        }
-        let mut staged = self.naval_constructions.clone();
-        let ids = staged.enqueue_validated(inputs)?;
-        for (input, id) in inputs.iter().zip(&ids) {
-            if counts[&input.location] > 1 {
-                staged.fifo_order_ids.insert(*id);
-            }
-        }
+        let counts = self.validate_empty_naval_construction_queue_locations(inputs)?;
+        let (staged, ids) = self.stage_naval_construction_enqueue(inputs, Some(&counts))?;
         self.naval_constructions = staged;
         Ok(ids)
     }
@@ -288,6 +275,108 @@ impl World {
         &mut self,
         inputs: &[PaidNavalConstructionInput],
     ) -> Result<Vec<NavalConstructionId>, Error> {
+        let (constructions, expenses) = self.prepare_paid_naval_constructions(inputs)?;
+        let (constructions_state, ids) =
+            self.stage_naval_construction_enqueue(&constructions, None)?;
+        let (resource_updates, unbased_updates) = self.stage_treasury_deductions(&expenses)?;
+        self.commit_paid_naval_construction_enqueue(
+            constructions_state,
+            resource_updates,
+            unbased_updates,
+            BTreeMap::new(),
+        );
+        Ok(ids)
+    }
+
+    /// Atomically deduct caller-supplied costs and import per-location FIFO queues.
+    ///
+    /// Every affected location must have no pending construction. Multiple inputs
+    /// for one location are queued in input order; one input remains independent.
+    /// Costs are checked-summed per country and applied in one treasury subtraction.
+    pub fn enqueue_paid_naval_construction_queues(
+        &mut self,
+        inputs: &[PaidNavalConstructionInput],
+    ) -> Result<Vec<NavalConstructionId>, Error> {
+        let (constructions, expenses) = self.prepare_paid_naval_constructions(inputs)?;
+        let counts = self.validate_empty_naval_construction_queue_locations(&constructions)?;
+        let (constructions_state, ids) =
+            self.stage_naval_construction_enqueue(&constructions, Some(&counts))?;
+        let (resource_updates, unbased_updates) = self.stage_treasury_deductions(&expenses)?;
+        self.commit_paid_naval_construction_enqueue(
+            constructions_state,
+            resource_updates,
+            unbased_updates,
+            BTreeMap::new(),
+        );
+        Ok(ids)
+    }
+
+    /// Atomically subtracts caller-supplied costs, records a generic ledger
+    /// expense category, and enqueues the corresponding orders.
+    ///
+    /// The category is a core expense-vector index in `0..38`; its meaning is
+    /// supplied by the caller. Every affected country must have a known
+    /// treasury, matching the immediate ledger expense API. Costs are summed
+    /// per country and recorded once per country. The ledger's pending balance
+    /// is left unchanged, and ledger overflow or a failed order enqueue leaves
+    /// both the ledger and world resources untouched.
+    pub fn enqueue_naval_constructions_with_expenses(
+        &mut self,
+        inputs: &[PaidNavalConstructionInput],
+        expense_category: u32,
+    ) -> Result<Vec<NavalConstructionId>, Error> {
+        if expense_category >= COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT {
+            return Err(Error::Invalid(
+                "country ledger expense category is outside 0..38".into(),
+            ));
+        }
+
+        let (constructions, expenses) = self.prepare_paid_naval_constructions(inputs)?;
+        let staged_ledgers = self.stage_country_ledger_expenses(&expenses, expense_category)?;
+        let (constructions_state, ids) =
+            self.stage_naval_construction_enqueue(&constructions, None)?;
+        let (resource_updates, unbased_updates) = self.stage_treasury_deductions(&expenses)?;
+        self.commit_paid_naval_construction_enqueue(
+            constructions_state,
+            resource_updates,
+            unbased_updates,
+            staged_ledgers,
+        );
+        Ok(ids)
+    }
+
+    /// Atomically deduct caller-supplied costs, record one expense per country,
+    /// and import per-location FIFO queues.
+    pub fn enqueue_naval_construction_queues_with_expenses(
+        &mut self,
+        inputs: &[PaidNavalConstructionInput],
+        expense_category: u32,
+    ) -> Result<Vec<NavalConstructionId>, Error> {
+        if expense_category >= COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT {
+            return Err(Error::Invalid(
+                "country ledger expense category is outside 0..38".into(),
+            ));
+        }
+
+        let (constructions, expenses) = self.prepare_paid_naval_constructions(inputs)?;
+        let counts = self.validate_empty_naval_construction_queue_locations(&constructions)?;
+        let staged_ledgers = self.stage_country_ledger_expenses(&expenses, expense_category)?;
+        let (constructions_state, ids) =
+            self.stage_naval_construction_enqueue(&constructions, Some(&counts))?;
+        let (resource_updates, unbased_updates) = self.stage_treasury_deductions(&expenses)?;
+        self.commit_paid_naval_construction_enqueue(
+            constructions_state,
+            resource_updates,
+            unbased_updates,
+            staged_ledgers,
+        );
+        Ok(ids)
+    }
+
+    fn prepare_paid_naval_constructions(
+        &self,
+        inputs: &[PaidNavalConstructionInput],
+    ) -> Result<(Vec<NavalConstructionInput>, BTreeMap<EntityId, i64>), Error> {
         let constructions = inputs
             .iter()
             .map(|input| input.construction.clone())
@@ -304,15 +393,56 @@ impl World {
             let total = expenses.entry(input.construction.owner).or_default();
             *total = total.checked_add(input.cost_milli).ok_or(Error::Overflow)?;
         }
+        Ok((constructions, expenses))
+    }
 
-        let mut constructions_state = self.naval_constructions.clone();
-        let ids = constructions_state.enqueue_validated(&constructions)?;
+    fn validate_empty_naval_construction_queue_locations(
+        &self,
+        inputs: &[NavalConstructionInput],
+    ) -> Result<BTreeMap<EntityId, usize>, Error> {
+        let mut counts = BTreeMap::<EntityId, usize>::new();
+        for input in inputs {
+            *counts.entry(input.location).or_default() += 1;
+        }
+        if self
+            .naval_constructions()
+            .iter()
+            .any(|order| counts.contains_key(&order.location))
+        {
+            return Err(Error::Invalid(
+                "naval construction queue location already has pending orders".into(),
+            ));
+        }
+        Ok(counts)
+    }
+
+    fn stage_naval_construction_enqueue(
+        &self,
+        inputs: &[NavalConstructionInput],
+        fifo_counts: Option<&BTreeMap<EntityId, usize>>,
+    ) -> Result<(NavalConstructions, Vec<NavalConstructionId>), Error> {
+        let mut staged = self.naval_constructions.clone();
+        let ids = staged.enqueue_validated(inputs)?;
+        if let Some(counts) = fifo_counts {
+            for (input, id) in inputs.iter().zip(&ids) {
+                if counts[&input.location] > 1 {
+                    staged.fifo_order_ids.insert(*id);
+                }
+            }
+        }
+        Ok((staged, ids))
+    }
+
+    fn stage_treasury_deductions(
+        &self,
+        expenses: &BTreeMap<EntityId, i64>,
+    ) -> Result<StagedResourceUpdates, Error> {
         let treasury = NumericSlot::Resource(CountryResource::Treasury);
         let mut resource_updates = BTreeMap::<EntityId, CountryResources>::new();
         let mut unbased_updates =
             BTreeMap::<EntityId, Option<BTreeMap<CountryResource, i64>>>::new();
 
-        for (&country, &cost_milli) in &expenses {
+        for (&country, &cost_milli) in expenses {
             let mut resources = self
                 .country_resources
                 .get(&country)
@@ -346,60 +476,16 @@ impl World {
             }
             unbased_updates.insert(country, (!deltas.is_empty()).then_some(deltas));
         }
-
-        for (country, resources) in resource_updates {
-            self.country_resources.insert(country, resources);
-        }
-        for (country, deltas) in unbased_updates {
-            if let Some(deltas) = deltas {
-                self.unbased_resource_deltas.insert(country, deltas);
-            } else {
-                self.unbased_resource_deltas.remove(&country);
-            }
-        }
-        self.naval_constructions = constructions_state;
-        Ok(ids)
+        Ok((resource_updates, unbased_updates))
     }
 
-    /// Atomically subtracts caller-supplied costs, records a generic ledger
-    /// expense category, and enqueues the corresponding orders.
-    ///
-    /// The category is a core expense-vector index in `0..38`; its meaning is
-    /// supplied by the caller. Every affected country must have a known
-    /// treasury, matching the immediate ledger expense API. Costs are summed
-    /// per country and recorded once per country. The ledger's pending balance
-    /// is left unchanged, and ledger overflow or a failed order enqueue leaves
-    /// both the ledger and world resources untouched.
-    pub fn enqueue_naval_constructions_with_expenses(
-        &mut self,
-        inputs: &[PaidNavalConstructionInput],
+    fn stage_country_ledger_expenses(
+        &self,
+        expenses: &BTreeMap<EntityId, i64>,
         expense_category: u32,
-    ) -> Result<Vec<NavalConstructionId>, Error> {
-        if expense_category >= COUNTRY_LEDGER_EXPENSE_CATEGORY_COUNT {
-            return Err(Error::Invalid(
-                "country ledger expense category is outside 0..38".into(),
-            ));
-        }
-
-        let constructions = inputs
-            .iter()
-            .map(|input| input.construction.clone())
-            .collect::<Vec<_>>();
-        self.validate_naval_construction_inputs(&constructions)?;
-
-        let mut expenses = BTreeMap::<EntityId, i64>::new();
-        for input in inputs {
-            if input.cost_milli < 0 {
-                return Err(Error::Invalid(
-                    "naval construction cost must be nonnegative".into(),
-                ));
-            }
-            let total = expenses.entry(input.construction.owner).or_default();
-            *total = total.checked_add(input.cost_milli).ok_or(Error::Overflow)?;
-        }
-
+    ) -> Result<BTreeMap<EntityId, CountryLedger>, Error> {
         let mut staged_ledgers = BTreeMap::<EntityId, CountryLedger>::new();
-        for (&country, &amount_milli) in &expenses {
+        for (&country, &amount_milli) in expenses {
             if self
                 .country_resources
                 .get(&country)
@@ -416,10 +502,26 @@ impl World {
             ledger.add_expense(expense_category, amount_milli)?;
             staged_ledgers.insert(country, ledger);
         }
+        Ok(staged_ledgers)
+    }
 
-        let ids = self.enqueue_paid_naval_constructions(inputs)?;
+    fn commit_paid_naval_construction_enqueue(
+        &mut self,
+        constructions: NavalConstructions,
+        resource_updates: BTreeMap<EntityId, CountryResources>,
+        unbased_updates: BTreeMap<EntityId, Option<BTreeMap<CountryResource, i64>>>,
+        staged_ledgers: BTreeMap<EntityId, CountryLedger>,
+    ) {
+        self.country_resources.extend(resource_updates);
+        for (country, deltas) in unbased_updates {
+            if let Some(deltas) = deltas {
+                self.unbased_resource_deltas.insert(country, deltas);
+            } else {
+                self.unbased_resource_deltas.remove(&country);
+            }
+        }
+        self.naval_constructions = constructions;
         self.country_ledgers.extend(staged_ledgers);
-        Ok(ids)
     }
 
     fn validate_naval_construction_inputs(

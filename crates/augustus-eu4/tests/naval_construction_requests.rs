@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use augustus_core::NavalConstructionId;
 use augustus_eu4::{
     COUNTRY_LEDGER_EXPENSE_KEYS, ContentSet, TextEncoding, VanillaNavalConstructionReport,
     VanillaNavalConstructionRequest, VanillaWorld, country_ledger_expense_key,
@@ -19,6 +20,10 @@ fn source_fixture() -> PathBuf {
 }
 
 fn fixture_with_content() -> (TempDir, ContentSet) {
+    fixture_with_content_force_coastal(true)
+}
+
+fn fixture_with_content_force_coastal(force_coastal: bool) -> (TempDir, ContentSet) {
     let temp = tempfile::tempdir().unwrap();
     for entry in WalkDir::new(source_fixture()) {
         let entry = entry.unwrap();
@@ -33,7 +38,9 @@ fn fixture_with_content() -> (TempDir, ContentSet) {
     }
     let map_path = temp.path().join("map/default.map");
     let mut map = fs::read_to_string(&map_path).unwrap();
-    map.push_str("\nforce_coastal = { 1 2 }\n");
+    if force_coastal {
+        map.push_str("\nforce_coastal = { 1 2 }\n");
+    }
     fs::write(map_path, map).unwrap();
     let content =
         ContentSet::from_installation(temp.path(), &[], None, None, TextEncoding::Utf8).unwrap();
@@ -84,6 +91,33 @@ fn treasury(world: &VanillaWorld) -> Option<i64> {
 
 fn pending_count(world: &VanillaWorld) -> usize {
     world.initial.world().naval_constructions().len()
+}
+
+fn submit_queue_requests(
+    world: &mut VanillaWorld,
+    requests: &[VanillaNavalConstructionRequest],
+    with_ledger: bool,
+) -> Result<Vec<NavalConstructionId>, augustus_eu4::Error> {
+    if with_ledger {
+        world.submit_naval_construction_queues_with_ledger(requests)
+    } else {
+        world.submit_naval_construction_queues(requests)
+    }
+}
+
+fn fifo_positions(world: &VanillaWorld) -> Vec<(NavalConstructionId, Option<usize>, u64)> {
+    world
+        .initial
+        .world()
+        .naval_construction_views()
+        .map(|view| {
+            (
+                view.order.id,
+                view.queue_position,
+                view.order.completion_day,
+            )
+        })
+        .collect()
 }
 
 #[test]
@@ -195,6 +229,231 @@ fn ledger_submit_requires_known_treasury_without_partial_mutation() {
             .contains_key(&country)
     );
     assert_eq!(pending_count(&world), 0);
+}
+
+#[test]
+fn fifo_queue_submits_same_port_in_input_order_and_restores_without_recharging() {
+    let (directory, content) = fixture_with_content();
+    let save_path = write_save(directory.path(), "fifo-requests.eu4", "");
+    let requests = [
+        request(1, 2_000),
+        VanillaNavalConstructionRequest {
+            completion_day: 4,
+            ..request(1, 3_000)
+        },
+        VanillaNavalConstructionRequest {
+            completion_day: 6,
+            ..request(1, 4_000)
+        },
+    ];
+    let expense_category = COUNTRY_LEDGER_EXPENSE_KEYS
+        .iter()
+        .position(|key| *key == "EXPENSEFLEET")
+        .unwrap() as u32;
+
+    for with_ledger in [false, true] {
+        let mut world = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+        let ids = submit_queue_requests(&mut world, &requests, with_ledger).unwrap();
+        assert_eq!(ids.len(), requests.len());
+        assert_eq!(
+            fifo_positions(&world),
+            [
+                (ids[0], Some(1), 3),
+                (ids[1], Some(2), 4),
+                (ids[2], Some(3), 6),
+            ]
+        );
+        assert_eq!(treasury(&world), Some(11_000));
+        assert_eq!(pending_count(&world), 3);
+
+        let country = world.initial.country_entity("AAA").unwrap();
+        if with_ledger {
+            assert_eq!(
+                world.initial.world().country_ledgers()[&country].categories[&expense_category]
+                    .expense_milli,
+                9_000
+            );
+        } else {
+            assert!(
+                !world
+                    .initial
+                    .world()
+                    .country_ledgers()
+                    .contains_key(&country)
+            );
+        }
+
+        let snapshot = world.save().unwrap();
+        let mut resumed = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+        resumed.restore(&snapshot).unwrap();
+        assert_eq!(treasury(&resumed), Some(11_000));
+        assert_eq!(fifo_positions(&resumed), fifo_positions(&world));
+
+        world.advance(2).unwrap();
+        resumed.advance(2).unwrap();
+        assert_eq!(world.save().unwrap(), resumed.save().unwrap());
+        assert_eq!(treasury(&world), Some(11_000));
+        assert_eq!(pending_count(&world), 3);
+        if with_ledger {
+            assert_eq!(
+                world.initial.world().country_ledgers()[&country].categories[&expense_category]
+                    .expense_milli,
+                9_000
+            );
+        }
+    }
+}
+
+#[test]
+fn fifo_queue_submission_accepts_empty_and_single_order_batches() {
+    let (directory, content) = fixture_with_content();
+    let save_path = write_save(directory.path(), "fifo-small-batches.eu4", "");
+
+    for with_ledger in [false, true] {
+        let mut world = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+        let baseline = world.save().unwrap();
+        assert!(
+            submit_queue_requests(&mut world, &[], with_ledger)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(world.save().unwrap(), baseline);
+
+        let ids = submit_queue_requests(&mut world, &[request(1, 5_000)], with_ledger).unwrap();
+        assert_eq!(ids.len(), 1);
+        assert_eq!(fifo_positions(&world), [(ids[0], None, 3)]);
+        assert_eq!(treasury(&world), Some(15_000));
+        assert_eq!(pending_count(&world), 1);
+    }
+}
+
+#[test]
+fn fifo_queue_submissions_reject_pending_and_bad_later_requests_atomically() {
+    let (directory, content) = fixture_with_content();
+    let save_path = write_save(directory.path(), "fifo-invalid.eu4", "");
+
+    for with_ledger in [false, true] {
+        let mut world = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+        let baseline = world.save().unwrap();
+        assert!(
+            submit_queue_requests(
+                &mut world,
+                &[request(1, 5_000), request(999, 1_000)],
+                with_ledger,
+            )
+            .is_err()
+        );
+        assert_eq!(world.save().unwrap(), baseline);
+        assert_eq!(treasury(&world), Some(20_000));
+        assert_eq!(pending_count(&world), 0);
+
+        world
+            .submit_naval_constructions(&[request(1, 1_000)])
+            .unwrap();
+        let pending = world.save().unwrap();
+        assert!(submit_queue_requests(&mut world, &[request(1, 2_000)], with_ledger,).is_err());
+        assert_eq!(world.save().unwrap(), pending);
+        assert_eq!(treasury(&world), Some(19_000));
+        assert_eq!(pending_count(&world), 1);
+    }
+}
+
+#[test]
+fn fifo_queue_submissions_reject_unresolved_sibling_without_partial_mutation() {
+    let (directory, content) = fixture_with_content();
+    let save_path = directory.path().join("unresolved-second-province.eu4");
+    let text = format!(
+        "EU4txt\ndate = 1444.11.11\nplayer = AAA\ncountries = {{ AAA = {{ treasury = 20.000 }} BBB = {{ }} }}\nprovinces = {{ -1 = {{ owner = AAA controller = AAA }} -2 = {{ owner = AAA controller = AAA {} }} }}\n",
+        saved_order("missing_ship")
+    );
+    fs::write(&save_path, text).unwrap();
+
+    for with_ledger in [false, true] {
+        let mut world = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+        assert!(
+            world
+                .naval_construction_import_report()
+                .unresolved
+                .iter()
+                .any(|entry| entry.province_id == Some(2))
+        );
+        let baseline = world.save().unwrap();
+        assert!(
+            submit_queue_requests(
+                &mut world,
+                &[request(1, 5_000), request(2, 1_000)],
+                with_ledger,
+            )
+            .is_err()
+        );
+        assert_eq!(world.save().unwrap(), baseline);
+        assert_eq!(treasury(&world), Some(20_000));
+        assert_eq!(pending_count(&world), 0);
+    }
+}
+
+#[test]
+fn fifo_queue_submissions_preserve_owner_controller_port_and_naval_type_validation() {
+    let (directory, content) = fixture_with_content();
+    let save_path = write_save(directory.path(), "validation.eu4", "");
+    let mismatch_controller_path = directory.path().join("mismatch-controller.eu4");
+    fs::write(
+        &mismatch_controller_path,
+        "EU4txt\ndate = 1444.11.11\nplayer = AAA\ncountries = { AAA = { treasury = 20.000 } BBB = { } }\nprovinces = { -1 = { owner = AAA controller = BBB } -2 = { owner = AAA controller = AAA } }\n",
+    )
+    .unwrap();
+    let mismatch_owner_path = directory.path().join("mismatch-owner.eu4");
+    fs::write(
+        &mismatch_owner_path,
+        "EU4txt\ndate = 1444.11.11\nplayer = AAA\ncountries = { AAA = { treasury = 20.000 } BBB = { } }\nprovinces = { -1 = { owner = BBB controller = AAA } -2 = { owner = AAA controller = AAA } }\n",
+    )
+    .unwrap();
+    let (no_forced_ports_dir, no_forced_ports_content) = fixture_with_content_force_coastal(false);
+    let no_port_save = write_save(no_forced_ports_dir.path(), "no-forced-port.eu4", "");
+
+    let mut wrong_owner = request(1, 5_000);
+    wrong_owner.country = "BBB".into();
+    let mut non_naval = request(1, 5_000);
+    non_naval.unit_type = "test_infantry".into();
+    let cases = [
+        (&content, &save_path, wrong_owner),
+        (&content, &mismatch_controller_path, request(1, 5_000)),
+        (&content, &mismatch_owner_path, request(1, 5_000)),
+        (&content, &save_path, non_naval),
+    ];
+
+    for with_ledger in [false, true] {
+        for (case_content, case_save, bad_request) in &cases {
+            let mut world =
+                VanillaWorld::load_from_content_with_save(case_content, case_save).unwrap();
+            let baseline = world.save().unwrap();
+            assert!(
+                submit_queue_requests(&mut world, std::slice::from_ref(bad_request), with_ledger)
+                    .is_err()
+            );
+            assert_eq!(world.save().unwrap(), baseline);
+            assert_eq!(pending_count(&world), 0);
+        }
+
+        let mut no_port_world =
+            VanillaWorld::load_from_content_with_save(&no_forced_ports_content, &no_port_save)
+                .unwrap();
+        let location = no_port_world.initial.province_entity(1).unwrap();
+        assert!(
+            !no_port_world
+                .initial
+                .world()
+                .province_has_port(location)
+                .unwrap()
+        );
+        let baseline = no_port_world.save().unwrap();
+        assert!(
+            submit_queue_requests(&mut no_port_world, &[request(1, 5_000)], with_ledger,).is_err()
+        );
+        assert_eq!(no_port_world.save().unwrap(), baseline);
+        assert_eq!(treasury(&no_port_world), Some(20_000));
+        assert_eq!(pending_count(&no_port_world), 0);
+    }
 }
 
 #[test]

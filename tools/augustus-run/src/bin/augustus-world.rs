@@ -50,9 +50,19 @@ struct Cli {
     #[arg(
         long,
         value_name = "FILE",
+        group = "naval_submission",
         conflicts_with = "compare_administration_save"
     )]
     naval_constructions: Option<PathBuf>,
+    /// Submit caller-priced orders as per-port FIFO queues at empty ports.
+    /// The file uses the same request array as --naval-constructions.
+    #[arg(
+        long,
+        value_name = "FILE",
+        group = "naval_submission",
+        conflicts_with = "compare_administration_save"
+    )]
+    naval_construction_queues: Option<PathBuf>,
     /// Import saved multi-order naval queues before --load and --days.
     /// Accepts omitted zero progress on waiting orders.
     #[arg(
@@ -73,7 +83,7 @@ struct Cli {
     )]
     native_migration_transfers: Option<PathBuf>,
     /// Record submitted naval costs in the EXPENSEFLEET ledger category; requires known treasury.
-    #[arg(long, requires = "naval_constructions")]
+    #[arg(long, requires = "naval_submission")]
     naval_construction_ledger: bool,
     /// Evaluate caller-resolved native migration queries using current world power and capital.
     /// Queries run after --load and --days; they do not submit migration commands.
@@ -443,14 +453,23 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let submitted_naval_constructions = cli
         .naval_constructions
         .as_ref()
+        .or(cli.naval_construction_queues.as_ref())
         .map(|path| -> Result<_, Box<dyn std::error::Error>> {
             let requests: Vec<augustus_eu4::VanillaNavalConstructionRequest> =
                 serde_json::from_slice(&std::fs::read(path)?)?;
-            Ok(if cli.naval_construction_ledger {
-                loaded.submit_naval_constructions_with_ledger(&requests)?
-            } else {
-                loaded.submit_naval_constructions(&requests)?
-            })
+            Ok(
+                match (
+                    cli.naval_construction_queues.is_some(),
+                    cli.naval_construction_ledger,
+                ) {
+                    (true, true) => {
+                        loaded.submit_naval_construction_queues_with_ledger(&requests)?
+                    }
+                    (true, false) => loaded.submit_naval_construction_queues(&requests)?,
+                    (false, true) => loaded.submit_naval_constructions_with_ledger(&requests)?,
+                    (false, false) => loaded.submit_naval_constructions(&requests)?,
+                },
+            )
         })
         .transpose()?;
     let native_migration_transfers = cli
