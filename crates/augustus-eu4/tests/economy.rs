@@ -15,7 +15,9 @@ use augustus_eu4::{
     VanillaFortMaintenanceInput, VanillaGoldProductionCountryQuery, VanillaGoldProductionInput,
     VanillaGoldProductionInputState, VanillaProductionCountryQuery, VanillaProductionInputState,
     VanillaProvinceProductionBaseValueInput, VanillaProvinceStateMaintenanceInput,
-    VanillaTradeGoodsSizeInput, VanillaWorld,
+    VanillaStateMaintenanceContentQuery, VanillaStateMaintenanceDirectQuery,
+    VanillaStateMaintenanceQuery, VanillaStateMaintenanceQueryMode, VanillaTradeGoodsSizeInput,
+    VanillaWorld,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -479,6 +481,129 @@ fn state_maintenance_uses_loaded_development_factor_and_current_province_develop
     assert_eq!(result.base_sum_milli, base_sum);
     assert_eq!(result.scaled_base_milli, 53);
     assert_eq!(result.maintenance_milli, 53);
+}
+
+#[test]
+fn state_maintenance_query_wrapper_supports_direct_and_content_inputs() {
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let direct = VanillaStateMaintenanceQuery::Direct(VanillaStateMaintenanceDirectQuery {
+        province: 1,
+        input: VanillaProvinceStateMaintenanceInput {
+            development_scale_milli: 1_000,
+            special_development_scale_milli: None,
+            distance: None,
+            region_difference_modifier_milli: 0,
+            owner_relation_modifier_milli: 0,
+            country_key61_modifier_milli: 0,
+            province_key62_modifier_milli: 0,
+            caller_extra_modifier_milli: 0,
+        },
+    });
+    let content = VanillaStateMaintenanceQuery::Content(VanillaStateMaintenanceContentQuery {
+        province: 1,
+        input: VanillaContentStateMaintenanceInput {
+            special_development_scale_milli: None,
+            distance: None,
+            region_difference_modifier_milli: 0,
+            owner_relation_modifier_milli: 0,
+            country_key61_modifier_milli: 0,
+            province_key62_modifier_milli: 0,
+            caller_extra_modifier_milli: 0,
+        },
+    });
+    let snapshot = loaded.save().unwrap();
+    let direct_report = loaded.query_vanilla_state_maintenance(&direct).unwrap();
+    let content_report = loaded.query_vanilla_state_maintenance(&content).unwrap();
+    assert_eq!(direct_report.mode, VanillaStateMaintenanceQueryMode::Direct);
+    assert_eq!(direct_report.evaluation.unwrap().maintenance_milli, 7_625);
+    assert_eq!(
+        content_report.mode,
+        VanillaStateMaintenanceQueryMode::Content
+    );
+    assert_eq!(content_report.evaluation.unwrap().maintenance_milli, 53);
+    assert!(direct_report.unresolved.is_empty());
+    assert!(content_report.unresolved.is_empty());
+    assert_eq!(loaded.save().unwrap(), snapshot);
+
+    let mut strict = serde_json::to_value(&direct).unwrap();
+    strict["query"]["unexpected"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<VanillaStateMaintenanceQuery>(strict).is_err());
+    let mut strict = serde_json::to_value(&direct).unwrap();
+    strict["unexpected"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<VanillaStateMaintenanceQuery>(strict).is_err());
+}
+
+#[test]
+fn state_maintenance_query_wrapper_keeps_unknown_and_missing_inputs_unresolved() {
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let unknown = VanillaStateMaintenanceQuery::Direct(VanillaStateMaintenanceDirectQuery {
+        province: 999,
+        input: VanillaProvinceStateMaintenanceInput {
+            development_scale_milli: 1_000,
+            special_development_scale_milli: None,
+            distance: None,
+            region_difference_modifier_milli: 0,
+            owner_relation_modifier_milli: 0,
+            country_key61_modifier_milli: 0,
+            province_key62_modifier_milli: 0,
+            caller_extra_modifier_milli: 0,
+        },
+    });
+    let unknown_report = loaded.query_vanilla_state_maintenance(&unknown).unwrap();
+    assert!(unknown_report.evaluation.is_none());
+    assert!(
+        unknown_report
+            .unresolved
+            .contains(&"state_maintenance:unknown_province:999".into())
+    );
+
+    let missing_base = copy_fixture();
+    fs::write(
+        missing_base.path().join("history/provinces/1 - North.txt"),
+        "owner = AAA\ncontroller = AAA",
+    )
+    .unwrap();
+    let missing_base = VanillaWorld::load(missing_base.path(), "1444.11.11").unwrap();
+    let missing_base_query =
+        VanillaStateMaintenanceQuery::Content(VanillaStateMaintenanceContentQuery {
+            province: 1,
+            input: VanillaContentStateMaintenanceInput {
+                special_development_scale_milli: None,
+                distance: None,
+                region_difference_modifier_milli: 0,
+                owner_relation_modifier_milli: 0,
+                country_key61_modifier_milli: 0,
+                province_key62_modifier_milli: 0,
+                caller_extra_modifier_milli: 0,
+            },
+        });
+    let missing_base_report = missing_base
+        .query_vanilla_state_maintenance(&missing_base_query)
+        .unwrap();
+    assert!(missing_base_report.evaluation.is_none());
+    assert!(
+        missing_base_report
+            .unresolved
+            .iter()
+            .any(|reason| reason == "state_maintenance:missing_input:base_tax_milli")
+    );
+
+    let missing_define = copy_fixture();
+    let defines = missing_define.path().join("common/defines.lua");
+    let text = fs::read_to_string(&defines).unwrap();
+    fs::write(
+        &defines,
+        text.replace("STATE_MAINTENANCE_DEV_FACTOR = 0.007,", ""),
+    )
+    .unwrap();
+    let missing_define = VanillaWorld::load(missing_define.path(), "1444.11.11").unwrap();
+    let missing_define_report = missing_define
+        .query_vanilla_state_maintenance(&missing_base_query)
+        .unwrap();
+    assert!(missing_define_report.evaluation.is_none());
+    assert!(missing_define_report.unresolved.iter().any(|reason| {
+        reason == "state_maintenance:missing_define:STATE_MAINTENANCE_DEV_FACTOR"
+    }));
 }
 
 #[test]

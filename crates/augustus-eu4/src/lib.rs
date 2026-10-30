@@ -103,6 +103,7 @@ mod save_state;
 mod script;
 mod setup;
 mod state_edicts;
+mod state_maintenance_queries;
 mod subject_modifiers;
 mod terrain_map;
 mod text;
@@ -253,6 +254,11 @@ pub use save_state::{
 pub use script::{CompiledEvents, CompiledScript, ScriptCompiler, ScriptLibrary};
 pub use setup::SetupReport;
 pub use state_edicts::{VanillaExternalStateEdict, VanillaExternalStateEdicts};
+pub use state_maintenance_queries::{
+    VanillaStateMaintenanceContentQuery, VanillaStateMaintenanceDirectQuery,
+    VanillaStateMaintenanceQuery, VanillaStateMaintenanceQueryMode,
+    VanillaStateMaintenanceQueryReport,
+};
 pub use text::{FieldSummary, ParsedText, TextDocument, TextEncoding};
 
 pub(crate) const EXPANSIONS: [&str; 22] = [

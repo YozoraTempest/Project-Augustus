@@ -7,7 +7,9 @@ use augustus_core::{
     VanillaNativeMigrationScoreCandidateInput, calculate_vanilla_native_migration_score,
     select_vanilla_native_migration_candidate,
 };
-use augustus_eu4::{ContentSet, TextEncoding, VanillaExternalState, VanillaWorld};
+use augustus_eu4::{
+    ContentSet, TextEncoding, VanillaExternalState, VanillaStateMaintenanceQuery, VanillaWorld,
+};
 use clap::Parser;
 use std::{collections::BTreeMap, fs::OpenOptions, io::Write, path::PathBuf, process::ExitCode};
 
@@ -135,6 +137,14 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     vanilla_gold_production_queries: Option<PathBuf>,
+    /// Query caller-resolved province state-maintenance contributions.
+    /// Queries run after restore and --days and do not change the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    state_maintenance_queries: Option<PathBuf>,
     /// Execute caller-resolved native migration transfers after restore and
     /// before --days, then include their reports in the JSON output.
     #[arg(
@@ -714,6 +724,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let state_maintenance_queries = cli
+        .state_maintenance_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<VanillaStateMaintenanceQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_vanilla_state_maintenance(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     let naval_construction_orders = cli
         .show_naval_constructions
         .then(|| loaded.naval_construction_orders())
@@ -773,6 +796,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = vanilla_gold_production_queries {
         output["vanilla_gold_production_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(queries) = state_maintenance_queries {
+        output["state_maintenance_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = native_migration_state_queries {
         output["native_migration_state_queries"] = serde_json::to_value(queries)?;

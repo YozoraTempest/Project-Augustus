@@ -47,7 +47,7 @@ pub struct VanillaStateMaintenanceDistanceInput {
     pub modifier_milli: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VanillaStateMaintenanceResult {
     pub base_sum_milli: i64,
     pub scaled_base_milli: i32,
