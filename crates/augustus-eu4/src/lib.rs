@@ -101,8 +101,8 @@ pub use administration::AdministrationReport;
 pub use administration_validation::{
     AdministrationCheckCount, AdministrationComparison, AdministrationDifference,
     SavedImperialBaselineReport, SavedImperialMembershipReport, SavedOfficePreferenceReport,
-    apply_saved_hre_membership, apply_saved_imperial_baseline, apply_saved_office_preferences,
-    compare_administration_save,
+    VanillaSaveAdministration, apply_saved_hre_membership, apply_saved_imperial_baseline,
+    apply_saved_office_preferences, compare_administration_save,
 };
 pub use attributes::AttributeReport;
 pub use augustus_core::{
@@ -220,9 +220,9 @@ pub use politics::{RelationSource, RelationView};
 pub use religious_schools::ReligiousSchoolReport;
 pub use save_state::{
     VanillaSaveState, VanillaSaveStateWithOrderedTradeNodeRuntimeStates,
-    VanillaSaveStateWithStateEdicts, VanillaSaveStateWithTradeNodeRuntimeStates,
-    VanillaSaveStateWithTradeNodes, read_vanilla_native_migration_states,
-    read_vanilla_native_migration_states_with_token_map,
+    VanillaSaveStateWithStateEdicts, VanillaSaveStateWithStateEdictsAndAdministration,
+    VanillaSaveStateWithTradeNodeRuntimeStates, VanillaSaveStateWithTradeNodes,
+    read_vanilla_native_migration_states, read_vanilla_native_migration_states_with_token_map,
     read_vanilla_native_migration_states_with_token_resolver, read_vanilla_save_state,
     read_vanilla_save_state_and_ordered_trade_node_runtime_states,
     read_vanilla_save_state_and_ordered_trade_node_runtime_states_with_token_map,
@@ -234,6 +234,7 @@ pub use save_state::{
     read_vanilla_save_state_and_trade_nodes_with_token_map,
     read_vanilla_save_state_and_trade_nodes_with_token_resolver,
     read_vanilla_save_state_with_state_edicts,
+    read_vanilla_save_state_with_state_edicts_and_administration,
     read_vanilla_save_state_with_state_edicts_with_token_map,
     read_vanilla_save_state_with_state_edicts_with_token_resolver,
     read_vanilla_save_state_with_token_map, read_vanilla_save_state_with_token_resolver,

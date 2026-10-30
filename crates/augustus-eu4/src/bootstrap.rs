@@ -873,6 +873,7 @@ struct LoadOverrides<'a> {
     province_owners: Option<&'a BTreeMap<u32, Option<String>>>,
     province_buildings: Option<&'a BTreeMap<u32, BTreeSet<String>>>,
     province_cores: Option<&'a BTreeMap<u32, Vec<String>>>,
+    administration: Option<&'a crate::VanillaSaveAdministration>,
     province_discovered_by: Option<&'a BTreeMap<u32, BTreeSet<String>>>,
     province_trade_goods: Option<&'a BTreeMap<u32, Option<String>>>,
     province_center_of_trade_levels: Option<&'a BTreeMap<u32, Option<u8>>>,
@@ -983,6 +984,7 @@ impl<'a> LoadOverrides<'a> {
             province_buildings: (!state.province_buildings.is_empty())
                 .then_some(&state.province_buildings),
             province_cores: (!state.province_cores.is_empty()).then_some(&state.province_cores),
+            administration: None,
             province_discovered_by: (!state.province_discovered_by.is_empty())
                 .then_some(&state.province_discovered_by),
             province_trade_goods: (!state.province_trade_goods.is_empty())
@@ -2229,6 +2231,63 @@ fn bind_external_province_cores(
     Ok(())
 }
 
+fn bind_saved_administration(
+    initial: &InitialWorld,
+    administration: &mut augustus_core::Administration,
+    values: &crate::VanillaSaveAdministration,
+) -> Result<(), Error> {
+    for (province, cores) in &values.province_core_types {
+        let entity = initial.province_entity(*province).ok_or_else(|| {
+            Error::message(
+                "saved administration",
+                format!("unknown province {province}"),
+            )
+        })?;
+        let Some(state) = administration.provinces.get_mut(&entity) else {
+            if cores.is_empty() {
+                continue;
+            }
+            return Err(Error::message(
+                "saved administration",
+                format!("province {province} has no administration state"),
+            ));
+        };
+        let mut bound = BTreeMap::new();
+        for (tag, core) in cores {
+            let country = initial.country_entity(tag).ok_or_else(|| {
+                Error::message(
+                    "saved administration",
+                    format!("province {province} references unknown core country {tag}"),
+                )
+            })?;
+            bound.insert(country, *core);
+        }
+        state.cores = bound;
+        state.cores_known = true;
+    }
+
+    for (tag, areas) in &values.country_area_statuses {
+        let country = initial.country_entity(tag).ok_or_else(|| {
+            Error::message(
+                "saved administration",
+                format!("unknown country {tag} in saved area status"),
+            )
+        })?;
+        let mut bound = BTreeMap::new();
+        for (area, status) in areas {
+            if !administration.areas.contains(area) {
+                return Err(Error::message(
+                    "saved administration",
+                    format!("country {tag} references unknown area {area}"),
+                ));
+            }
+            bound.insert(area.clone(), *status);
+        }
+        administration.country_areas.insert(country, bound);
+    }
+    Ok(())
+}
+
 struct ExternalProductionValueBindings {
     states: BTreeMap<augustus_core::EntityId, augustus_core::VanillaProductionInputState>,
     price_inputs: BTreeMap<augustus_core::EntityId, VanillaProductionBaseValueInput>,
@@ -2645,13 +2704,20 @@ impl VanillaWorld {
         path: impl AsRef<Path>,
     ) -> Result<Self, Error> {
         let path = path.as_ref();
-        let save = crate::read_vanilla_save_state_with_state_edicts(path)?;
+        let save = crate::read_vanilla_save_state_with_state_edicts_and_administration(path)?;
         let constructions = crate::read_vanilla_naval_constructions(path)?;
+        let mut save_state = save.save.clone();
+        save_state.external_state.province_cores.clear();
+        let save_input = crate::VanillaSaveStateWithStateEdicts {
+            save: save_state,
+            state_edicts: save.state_edicts.clone(),
+        };
         Self::load_from_content_with_state_edicts_and_naval_constructions(
             content,
-            &save,
+            &save_input,
             None,
             Some(&constructions),
+            Some(&save.administration),
         )
     }
 
@@ -2666,13 +2732,20 @@ impl VanillaWorld {
         overlay: &VanillaExternalState,
     ) -> Result<Self, Error> {
         let path = path.as_ref();
-        let save = crate::read_vanilla_save_state_with_state_edicts(path)?;
+        let save = crate::read_vanilla_save_state_with_state_edicts_and_administration(path)?;
         let constructions = crate::read_vanilla_naval_constructions(path)?;
+        let mut save_state = save.save.clone();
+        save_state.external_state.province_cores.clear();
+        let save_input = crate::VanillaSaveStateWithStateEdicts {
+            save: save_state,
+            state_edicts: save.state_edicts.clone(),
+        };
         Self::load_from_content_with_state_edicts_and_naval_constructions(
             content,
-            &save,
+            &save_input,
             Some(overlay),
             Some(&constructions),
+            Some(&save.administration),
         )
     }
 
@@ -2691,7 +2764,7 @@ impl VanillaWorld {
         overlay: Option<&VanillaExternalState>,
     ) -> Result<Self, Error> {
         Self::load_from_content_with_state_edicts_and_naval_constructions(
-            content, save, overlay, None,
+            content, save, overlay, None, None,
         )
     }
 
@@ -2700,10 +2773,12 @@ impl VanillaWorld {
         save: &crate::VanillaSaveStateWithStateEdicts,
         overlay: Option<&VanillaExternalState>,
         constructions: Option<&VanillaNavalConstructionReport>,
+        administration: Option<&crate::VanillaSaveAdministration>,
     ) -> Result<Self, Error> {
         let save = save.clone();
         let overlay = overlay.cloned();
         let constructions = constructions.cloned();
+        let administration = administration.cloned();
         let root = content.base_root();
         std::thread::scope(|scope| {
             let handle = std::thread::Builder::new()
@@ -2716,6 +2791,7 @@ impl VanillaWorld {
                         overlay.as_ref(),
                         Some(&save.state_edicts),
                         constructions.as_ref(),
+                        administration.as_ref(),
                     )
                 })
                 .map_err(|error| Error::caused_by(root.path(), error))?;
@@ -2759,6 +2835,7 @@ impl VanillaWorld {
                         overlay.as_ref(),
                         None,
                         None,
+                        None,
                     )
                 })
                 .map_err(|error| Error::caused_by(root.path(), error))?;
@@ -2791,6 +2868,7 @@ impl VanillaWorld {
                         overlay.as_ref(),
                         None,
                         Some(&constructions),
+                        None,
                     )
                 })
                 .map_err(|error| Error::caused_by(root.path(), error))?;
@@ -2806,6 +2884,7 @@ impl VanillaWorld {
         overlay: Option<&VanillaExternalState>,
         state_edicts: Option<&VanillaExternalStateEdicts>,
         naval_constructions: Option<&VanillaNavalConstructionReport>,
+        administration: Option<&crate::VanillaSaveAdministration>,
     ) -> Result<Self, Error> {
         let baseline = Self::load_from_content(content, &save.date)?;
         let (players, mut state) = save.for_world(&baseline)?;
@@ -2815,6 +2894,7 @@ impl VanillaWorld {
         let mut overrides = LoadOverrides::from_external_state(&state);
         overrides.state_edicts = state_edicts;
         overrides.naval_construction_report = naval_constructions;
+        overrides.administration = administration;
         Self::load_from_view(
             content,
             content.base_root(),
@@ -4410,6 +4490,9 @@ impl VanillaWorld {
             &report.attributes,
             date,
         )?;
+        if let Some(saved_administration) = overrides.administration {
+            bind_saved_administration(&initial, &mut administration, saved_administration)?;
+        }
         bind_external_province_cores(&initial, &mut administration, overrides.province_cores)?;
         initial
             .set_administration(administration)

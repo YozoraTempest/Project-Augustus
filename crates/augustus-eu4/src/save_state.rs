@@ -19,7 +19,7 @@ use jomini::{
 use serde::Serialize;
 
 use crate::administration_validation::{
-    SaveTokenResolver, read_eu4_save_documents, read_state_edicts,
+    SaveTokenResolver, read_eu4_save_documents, read_save_administration, read_state_edicts,
 };
 use crate::bootstrap::{
     VanillaExternalAdvisor, VanillaExternalArmy, VanillaExternalEstateState,
@@ -56,6 +56,17 @@ pub struct VanillaSaveState {
 pub struct VanillaSaveStateWithStateEdicts {
     pub save: VanillaSaveState,
     pub state_edicts: VanillaExternalStateEdicts,
+}
+
+/// Supported save state plus administration facts parsed from the same save.
+///
+/// The administration sidecar is intentionally separate from
+/// [`VanillaSaveState`] so existing public struct literals remain valid.
+#[derive(Debug, Clone, Serialize)]
+pub struct VanillaSaveStateWithStateEdictsAndAdministration {
+    pub save: VanillaSaveState,
+    pub state_edicts: VanillaExternalStateEdicts,
+    pub administration: crate::administration_validation::VanillaSaveAdministration,
 }
 
 /// Supported save state plus runtime trade-node current values.
@@ -989,6 +1000,33 @@ pub fn read_vanilla_save_state_with_state_edicts(
     )
 }
 
+/// Read supported state, active state edicts, and administration facts from an EU4 save.
+pub fn read_vanilla_save_state_with_state_edicts_and_administration(
+    path: impl AsRef<Path>,
+) -> Result<VanillaSaveStateWithStateEdictsAndAdministration, Error> {
+    read_vanilla_save_state_inner_thread_with_administration(
+        path.as_ref(),
+        None,
+        None,
+        false,
+        true,
+        true,
+    )
+    .and_then(|(save, state_edicts, administration)| {
+        let administration = administration.ok_or_else(|| {
+            Error::message(
+                path.as_ref(),
+                "save administration capture unexpectedly missing",
+            )
+        })?;
+        Ok(VanillaSaveStateWithStateEdictsAndAdministration {
+            save: save.save.state,
+            state_edicts,
+            administration,
+        })
+    })
+}
+
 /// Read supported state and current trade-node values from an EU4 save.
 pub fn read_vanilla_save_state_and_trade_nodes(
     path: impl AsRef<Path>,
@@ -1185,6 +1223,32 @@ fn read_vanilla_save_state_inner_thread(
     ),
     Error,
 > {
+    read_vanilla_save_state_inner_thread_with_administration(
+        path,
+        token_map_path,
+        token_resolver,
+        capture_trade_nodes,
+        capture_state_edicts,
+        false,
+    )
+    .map(|(save, state_edicts, _)| (save, state_edicts))
+}
+
+fn read_vanilla_save_state_inner_thread_with_administration(
+    path: &Path,
+    token_map_path: Option<&Path>,
+    token_resolver: Option<SaveTokenResolver>,
+    capture_trade_nodes: bool,
+    capture_state_edicts: bool,
+    capture_administration: bool,
+) -> Result<
+    (
+        VanillaSaveStateWithOrderedTradeNodeRuntimeStates,
+        VanillaExternalStateEdicts,
+        Option<crate::administration_validation::VanillaSaveAdministration>,
+    ),
+    Error,
+> {
     let path = path.to_path_buf();
     let token_map_path = token_map_path.map(Path::to_path_buf);
     let parser_path = path.clone();
@@ -1194,12 +1258,13 @@ fn read_vanilla_save_state_inner_thread(
         .name("augustus-eu4-save-parser".into())
         .stack_size(32 * 1024 * 1024)
         .spawn(move || {
-            read_vanilla_save_state_inner(
+            read_vanilla_save_state_inner_with_administration(
                 &parser_path,
                 parser_token_map_path.as_deref(),
                 &mut parser_token_resolver,
                 capture_trade_nodes,
                 capture_state_edicts,
+                capture_administration,
             )
         })
         .map_err(|error| Error::caused_by(&path, error))?;
@@ -1208,16 +1273,18 @@ fn read_vanilla_save_state_inner_thread(
         .map_err(|_| Error::message(&path, "EU4 save parser thread panicked"))?
 }
 
-fn read_vanilla_save_state_inner(
+fn read_vanilla_save_state_inner_with_administration(
     path: &Path,
     token_map_path: Option<&Path>,
     token_resolver: &mut Option<SaveTokenResolver>,
     capture_trade_nodes: bool,
     capture_state_edicts: bool,
+    capture_administration: bool,
 ) -> Result<
     (
         VanillaSaveStateWithOrderedTradeNodeRuntimeStates,
         VanillaExternalStateEdicts,
+        Option<crate::administration_validation::VanillaSaveAdministration>,
     ),
     Error,
 > {
@@ -1228,6 +1295,9 @@ fn read_vanilla_save_state_inner(
     } else {
         VanillaExternalStateEdicts::new()
     };
+    let administration = capture_administration
+        .then(|| read_save_administration(&parsed))
+        .transpose()?;
     let metadata = documents
         .meta
         .as_ref()
@@ -2252,6 +2322,7 @@ fn read_vanilla_save_state_inner(
             trade_node_order,
         },
         state_edicts,
+        administration,
     ))
 }
 
@@ -5957,6 +6028,50 @@ provinces={
             .province_cores
             .insert(1, vec!["ZZZ".into()]);
         assert!(invalid.state_for_world(&baseline).is_err());
+    }
+
+    #[test]
+    fn direct_save_load_binds_saved_core_types_and_area_statuses() {
+        let directory = tempfile::tempdir().unwrap();
+        let save_path = directory.path().join("administration.eu4");
+        std::fs::write(
+            &save_path,
+            r#"EU4txt
+date=1444.11.11
+player=AAA
+countries={ AAA={ human=yes } BBB={} }
+map_area_data={
+    north_area={ state={ area=north_area country_state={ country=AAA } } }
+}
+provinces={
+    -1={ owner="AAA" cores={ AAA BBB } territorial_core=BBB }
+    -2={ owner="AAA" cores={ AAA } }
+}
+"#,
+        )
+        .unwrap();
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+        let content = ContentSet::resolve(vec![ContentSource::base(
+            ContentRoot::open(fixture).unwrap(),
+        )])
+        .unwrap();
+        let loaded =
+            crate::VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+        let administration = loaded.initial.world().administration();
+        let province = &administration.provinces[&loaded.initial.province_entity(1).unwrap()];
+        assert_eq!(
+            province.cores[&loaded.initial.country_entity("AAA").unwrap()],
+            augustus_core::CoreType::Full
+        );
+        assert_eq!(
+            province.cores[&loaded.initial.country_entity("BBB").unwrap()],
+            augustus_core::CoreType::Territorial
+        );
+        assert_eq!(
+            administration.country_areas[&loaded.initial.country_entity("AAA").unwrap()]["north_area"],
+            augustus_core::AreaStatus::State
+        );
     }
 
     #[test]

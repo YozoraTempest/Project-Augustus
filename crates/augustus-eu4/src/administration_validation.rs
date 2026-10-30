@@ -101,6 +101,16 @@ pub struct SavedImperialBaselineReport {
     pub preferences_imported: usize,
 }
 
+/// Administration facts read directly from an EU4 save.
+///
+/// These values are kept beside the long-standing external-state contract so
+/// callers that construct `VanillaExternalState` remain source-compatible.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct VanillaSaveAdministration {
+    pub province_core_types: BTreeMap<u32, BTreeMap<String, CoreType>>,
+    pub country_area_statuses: BTreeMap<String, BTreeMap<String, AreaStatus>>,
+}
+
 const IMPERIAL_EMPEROR_OFFICE: &str = "imperial_emperor";
 
 #[derive(Debug, Default)]
@@ -774,6 +784,101 @@ fn read_states(parsed: &ParsedText<'_>) -> Result<BTreeSet<(String, String)>, Er
             if tag.is_empty() || !result.insert((tag, area.clone())) {
                 return Err(fail("empty or duplicate country state"));
             }
+        }
+    }
+    Ok(result)
+}
+
+pub(crate) fn read_save_administration(
+    parsed: &ParsedText<'_>,
+) -> Result<VanillaSaveAdministration, Error> {
+    let provinces = read_saved_core_types(parsed)?;
+    let states = single(parsed, &parsed.reader(), "map_area_data")?
+        .map(|_| read_states(parsed))
+        .transpose()?
+        .unwrap_or_default();
+    let mut country_area_statuses: BTreeMap<String, BTreeMap<String, AreaStatus>> = BTreeMap::new();
+    for (country, area) in states {
+        country_area_statuses
+            .entry(country)
+            .or_default()
+            .insert(area, AreaStatus::State);
+    }
+    Ok(VanillaSaveAdministration {
+        province_core_types: provinces,
+        country_area_statuses,
+    })
+}
+
+fn read_saved_core_types(
+    parsed: &ParsedText<'_>,
+) -> Result<BTreeMap<u32, BTreeMap<String, CoreType>>, Error> {
+    let root = object(parsed, &required(parsed, &parsed.reader(), "provinces")?)?;
+    let mut result = BTreeMap::new();
+    for (key, op, value) in root.fields() {
+        let fail = |message: &str| {
+            Error::message(parsed.source(), message).with_location(parsed.field_location(&key))
+        };
+        equal(op, &fail)?;
+        let id = key
+            .read_string()
+            .strip_prefix('-')
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|id| *id > 0)
+            .ok_or_else(|| fail("expected negative save province identifier"))?;
+        let province = object(parsed, &value)?;
+        let mut cores = BTreeMap::new();
+        if let Some(value) = single(parsed, &province, "cores")? {
+            match value.token() {
+                TextToken::Array { .. } => {
+                    for tag in strings(parsed, &value)? {
+                        if tag.is_empty() || cores.insert(tag, CoreType::Full).is_some() {
+                            return Err(fail("empty or duplicate saved core"));
+                        }
+                    }
+                }
+                TextToken::Object { .. } => {
+                    let entries = object(parsed, &value)?;
+                    for (key, op, value) in entries.fields() {
+                        equal(op, &fail)?;
+                        let tag = key.read_string();
+                        if tag.is_empty() {
+                            return Err(fail("empty saved core"));
+                        }
+                        if op.is_some() {
+                            match scalar(parsed, &value)?.as_str() {
+                                "yes" => {
+                                    if cores.insert(tag, CoreType::Full).is_some() {
+                                        return Err(fail("duplicate saved core"));
+                                    }
+                                }
+                                "no" => {}
+                                _ => return Err(fail("invalid saved core value")),
+                            }
+                        } else if cores.insert(tag, CoreType::Full).is_some() {
+                            return Err(fail("duplicate saved core"));
+                        }
+                    }
+                }
+                _ => return Err(fail("invalid saved core list")),
+            }
+        }
+        for (_, op, value) in province
+            .fields()
+            .filter(|(key, _, _)| key.read_string() == "territorial_core")
+        {
+            equal(op, &fail)?;
+            let tag = scalar(parsed, &value)?;
+            let Some(core) = cores.get_mut(&tag) else {
+                return Err(fail("territorial core is not listed in saved cores"));
+            };
+            if *core == CoreType::Territorial {
+                return Err(fail("duplicate territorial core"));
+            }
+            *core = CoreType::Territorial;
+        }
+        if result.insert(id, cores).is_some() {
+            return Err(fail("duplicate save province"));
         }
     }
     Ok(result)
