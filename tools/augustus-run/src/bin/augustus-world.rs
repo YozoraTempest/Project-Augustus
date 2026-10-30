@@ -53,6 +53,13 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     naval_constructions: Option<PathBuf>,
+    /// Import saved multi-order naval queues before --load and --days.
+    #[arg(
+        long,
+        requires = "eu4_save",
+        conflicts_with = "compare_administration_save"
+    )]
+    import_naval_construction_queues: bool,
     /// Execute caller-resolved native migration transfers after restore and
     /// before --days, then include their reports in the JSON output.
     #[arg(
@@ -313,6 +320,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             (None, None, None) => VanillaWorld::load_from_content(&content, &cli.date)?,
         }
     };
+    if cli.import_naval_construction_queues {
+        loaded.import_naval_construction_queues(
+            naval_constructions.as_ref().expect("required by clap"),
+        )?;
+    }
     if let Some(import) = native_migration_import.as_ref() {
         let states = import.states_for_world(&loaded);
         loaded.set_country_native_migration(states)?;

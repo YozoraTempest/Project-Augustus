@@ -14,9 +14,10 @@ use crate::{
 pub struct NavalConstructionId(pub u64);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// One independent construction request with a caller-supplied absolute core day.
-/// The core does not infer construction time, charge a cost, or apply EU4 FIFO,
-/// pause, or cancellation rules.
+/// Construction timing supplied as an absolute core day.
+/// Ordinary enqueue methods treat each input independently; explicit queue
+/// imports can postpone later orders. This input does not quote time or cost,
+/// or infer pause and cancellation rules.
 pub struct NavalConstructionInput {
     pub owner: EntityId,
     pub location: EntityId,
@@ -33,7 +34,7 @@ pub struct PaidNavalConstructionInput {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// A pending independent order using its caller-supplied completion day.
+/// A pending order and its current absolute completion day.
 pub struct NavalConstructionOrder {
     pub id: NavalConstructionId,
     pub owner: EntityId,
@@ -47,6 +48,8 @@ pub struct NavalConstructionOrder {
 pub(crate) struct NavalConstructions {
     next_id: u64,
     orders: Vec<NavalConstructionOrder>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    fifo_order_ids: BTreeSet<NavalConstructionId>,
 }
 
 impl NavalConstructions {
@@ -54,16 +57,16 @@ impl NavalConstructions {
         self.next_id == 0 && self.orders.is_empty()
     }
 
-    pub(crate) fn next_due_day(&self) -> Option<u64> {
-        self.orders.iter().map(|order| order.completion_day).min()
-    }
-
-    pub(crate) fn due_on_or_before(&self, day: u64) -> Vec<NavalConstructionOrder> {
+    pub(crate) fn next_due_day(&self, current_day: u64) -> Option<u64> {
         self.orders
             .iter()
-            .filter(|order| order.completion_day <= day)
-            .cloned()
-            .collect()
+            .map(|order| order.completion_day)
+            .chain(
+                (!self.fifo_order_ids.is_empty())
+                    .then(|| current_day.checked_add(1))
+                    .flatten(),
+            )
+            .min()
     }
 
     pub(crate) fn enqueue_validated(
@@ -89,8 +92,40 @@ impl NavalConstructions {
         Ok(ids)
     }
 
-    pub(crate) fn remove_due(&mut self, day: u64) {
-        self.orders.retain(|order| order.completion_day > day);
+    fn take_due(
+        &mut self,
+        day: u64,
+        advance_fifo: bool,
+        calendar: Option<&crate::Calendar>,
+    ) -> Result<Vec<NavalConstructionOrder>, Error> {
+        let mut blocked = BTreeSet::new();
+        let mut due = Vec::new();
+        for order in &mut self.orders {
+            if self.fifo_order_ids.contains(&order.id) {
+                if blocked.contains(&order.location) {
+                    if advance_fifo {
+                        order.completion_day =
+                            order.completion_day.checked_add(1).ok_or(Error::Overflow)?;
+                        if let Some(calendar) = calendar {
+                            calendar.date(order.completion_day)?;
+                        }
+                    }
+                    continue;
+                }
+                if order.completion_day > day {
+                    blocked.insert(order.location);
+                    continue;
+                }
+            }
+            if order.completion_day <= day {
+                due.push(order.clone());
+            }
+        }
+        let completed_ids = due.iter().map(|order| order.id).collect::<BTreeSet<_>>();
+        self.orders
+            .retain(|order| !completed_ids.contains(&order.id));
+        self.fifo_order_ids.retain(|id| !completed_ids.contains(id));
+        Ok(due)
     }
 
     pub(crate) fn validate_calendar(&self, calendar: &crate::Calendar) -> Result<(), Error> {
@@ -117,6 +152,11 @@ impl NavalConstructions {
                 calendar.date(order.completion_day)?;
             }
             validate_construction_location(world, order.owner, order.location, &order.unit_type)?;
+        }
+        if !self.fifo_order_ids.is_subset(&ids) {
+            return Err(Error::Invalid(
+                "naval construction queue references an unknown order".into(),
+            ));
         }
         Ok(())
     }
@@ -163,6 +203,43 @@ impl World {
     ) -> Result<Vec<NavalConstructionId>, Error> {
         self.validate_naval_construction_inputs(inputs)?;
         self.naval_constructions.enqueue_validated(inputs)
+    }
+
+    /// Atomically imports per-location FIFO queues in the supplied order.
+    ///
+    /// Each location must have no pending orders. While a queue head remains
+    /// unfinished, later orders at that location have their completion days
+    /// postponed by one on each simulated day. Completing a head lets the next
+    /// order be checked on that same day. Single-order locations retain the
+    /// independent completion-day representation. Costs, pauses and cancellation
+    /// are not inferred.
+    pub fn enqueue_naval_construction_queues(
+        &mut self,
+        inputs: &[NavalConstructionInput],
+    ) -> Result<Vec<NavalConstructionId>, Error> {
+        self.validate_naval_construction_inputs(inputs)?;
+        let mut counts = BTreeMap::<EntityId, usize>::new();
+        for input in inputs {
+            *counts.entry(input.location).or_default() += 1;
+        }
+        if self
+            .naval_constructions()
+            .iter()
+            .any(|order| counts.contains_key(&order.location))
+        {
+            return Err(Error::Invalid(
+                "naval construction queue location already has pending orders".into(),
+            ));
+        }
+        let mut staged = self.naval_constructions.clone();
+        let ids = staged.enqueue_validated(inputs)?;
+        for (input, id) in inputs.iter().zip(&ids) {
+            if counts[&input.location] > 1 {
+                staged.fifo_order_ids.insert(*id);
+            }
+        }
+        self.naval_constructions = staged;
+        Ok(ids)
     }
 
     /// Atomically subtract caller-supplied costs and enqueue the corresponding orders.
@@ -329,9 +406,18 @@ impl World {
         Ok(())
     }
 
-    pub(crate) fn complete_due_naval_constructions(&mut self, day: u64) -> Result<(), Error> {
-        let due = self.naval_constructions.due_on_or_before(day);
+    pub(crate) fn complete_due_naval_constructions(
+        &mut self,
+        day: u64,
+        previous_day: u64,
+    ) -> Result<(), Error> {
+        if self.naval_constructions.orders.is_empty() {
+            return Ok(());
+        }
+        let mut constructions = self.naval_constructions.clone();
+        let due = constructions.take_due(day, day > previous_day, self.calendar())?;
         if due.is_empty() {
+            self.naval_constructions = constructions;
             return Ok(());
         }
 
@@ -350,9 +436,6 @@ impl World {
                 &order.unit_type,
             )?;
         }
-        let mut constructions = self.naval_constructions.clone();
-        constructions.remove_due(day);
-
         self.naval_units = naval_units;
         self.fleets = fleets;
         self.naval_constructions = constructions;

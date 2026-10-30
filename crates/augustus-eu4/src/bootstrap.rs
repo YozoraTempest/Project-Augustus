@@ -5115,6 +5115,46 @@ impl VanillaWorld {
         &self.naval_construction_import_report
     }
 
+    /// Imports supported multi-order province queues as explicit running state.
+    ///
+    /// Call after loading the matching save baseline and before snapshot restore
+    /// or time advancement. Single orders are already handled by the loader.
+    /// The content identity stays unchanged, so old snapshots can still restore
+    /// against the same baseline. Repeating an import into a pending queue fails.
+    pub fn import_naval_construction_queues(
+        &mut self,
+        report: &VanillaNavalConstructionReport,
+    ) -> Result<(), Error> {
+        let loaded_date = format!(
+            "{}.{}.{}",
+            self.report.start_date.year, self.report.start_date.month, self.report.start_date.day,
+        );
+        let (mut inputs, mut imported) = crate::naval_constructions::bind_naval_construction_orders(
+            report,
+            &self.initial,
+            &loaded_date,
+            true,
+        );
+        let mut counts = BTreeMap::<u32, usize>::new();
+        for record in &report.records {
+            *counts.entry(record.province_id).or_default() += 1;
+        }
+        let queue_locations = counts
+            .into_iter()
+            .filter(|(_, count)| *count > 1)
+            .filter_map(|(province, _)| self.initial.province_entity(province))
+            .collect::<BTreeSet<_>>();
+        inputs.retain(|input| queue_locations.contains(&input.location));
+        inputs.sort_by_key(|input| input.location.0);
+        let ids = self
+            .initial
+            .enqueue_naval_construction_queues(&inputs)
+            .map_err(|error| Error::caused_by("naval construction queues", error))?;
+        imported.imported_count = self.naval_construction_import_report.imported_count + ids.len();
+        self.naval_construction_import_report = imported;
+        Ok(())
+    }
+
     /// Returns the raw EU4 province `mothball_status` byte without assigning
     /// unverified game rules to its non-default values.
     pub fn province_mothball_status(&self, province: u32) -> Option<u8> {

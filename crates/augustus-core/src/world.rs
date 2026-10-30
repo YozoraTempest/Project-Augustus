@@ -1877,7 +1877,7 @@ impl World {
                 .truce_expirations
                 .first_key_value()
                 .map(|(&day, _)| day);
-            let naval_construction_day = self.naval_constructions.next_due_day();
+            let naval_construction_day = self.naval_constructions.next_due_day(self.day);
             let grant_tick = if self.justifications.active.is_empty() {
                 None
             } else {
@@ -1908,6 +1908,7 @@ impl World {
             let Some(next) = next.filter(|&next| next <= day) else {
                 break;
             };
+            let previous_day = self.day;
             self.day = next;
             if let Some(system) = daily
                 && let Err(error) = system.tick(self)
@@ -1922,7 +1923,7 @@ impl World {
                 self.failed = true;
                 return Err(error);
             }
-            if let Err(error) = self.complete_due_naval_constructions(next) {
+            if let Err(error) = self.complete_due_naval_constructions(next, previous_day) {
                 self.failed = true;
                 return Err(error);
             }

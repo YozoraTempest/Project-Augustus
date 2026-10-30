@@ -9,7 +9,7 @@ use std::{
 use augustus_eu4::{
     COUNTRY_LEDGER_EXPENSE_KEYS, ContentSet, TextEncoding, VanillaNavalConstructionReport,
     VanillaNavalConstructionRequest, VanillaWorld, country_ledger_expense_key,
-    read_vanilla_save_state,
+    read_vanilla_naval_constructions, read_vanilla_save_state,
 };
 use tempfile::TempDir;
 use walkdir::WalkDir;
@@ -269,11 +269,11 @@ fn unresolved_saved_military_orders_block_new_orders_in_the_same_province() {
         ("unknown", saved_order("missing_ship")),
         ("land", saved_order("test_infantry")),
         (
-            "multiple",
+            "valid-and-unknown-sibling",
             format!(
                 "{} {}",
                 saved_order("sample_light_ship"),
-                saved_order("sample_light_ship")
+                saved_order("missing_ship")
             ),
         ),
     ];
@@ -299,6 +299,58 @@ fn unresolved_saved_military_orders_block_new_orders_in_the_same_province() {
         assert_eq!(world.save().unwrap(), baseline);
         assert_eq!(treasury(&world), Some(20_000));
         assert_eq!(pending_count(&world), 0);
+    }
+}
+
+#[test]
+fn imported_fifo_orders_block_both_new_order_submission_paths_atomically() {
+    let (directory, content) = fixture_with_content();
+    let save_path = write_save(
+        directory.path(),
+        "two-valid-orders.eu4",
+        &format!(
+            "{} {}",
+            saved_order("sample_light_ship"),
+            saved_order("sample_light_ship")
+        ),
+    );
+
+    for submit_with_ledger in [false, true] {
+        let mut world = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+        let construction_report = read_vanilla_naval_constructions(&save_path).unwrap();
+        assert!(
+            world
+                .naval_construction_import_report()
+                .unresolved
+                .iter()
+                .any(|entry| entry.province_id == Some(1))
+        );
+        assert_eq!(pending_count(&world), 0);
+
+        world
+            .import_naval_construction_queues(&construction_report)
+            .unwrap();
+        assert_eq!(world.naval_construction_import_report().imported_count, 2);
+        assert!(
+            world
+                .naval_construction_import_report()
+                .unresolved
+                .is_empty()
+        );
+        assert_eq!(pending_count(&world), 2);
+        assert_eq!(treasury(&world), Some(20_000));
+        let baseline = world.save().unwrap();
+
+        let result = if submit_with_ledger {
+            world.submit_naval_constructions_with_ledger(&[request(1, 5_000)])
+        } else {
+            world.submit_naval_constructions(&[request(1, 5_000)])
+        };
+        assert!(result.is_err());
+        assert_eq!(world.save().unwrap(), baseline);
+        assert_eq!(treasury(&world), Some(20_000));
+        assert_eq!(pending_count(&world), 2);
+        assert_eq!(world.naval_construction_import_report().imported_count, 2);
     }
 }
 

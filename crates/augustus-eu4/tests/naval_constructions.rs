@@ -43,6 +43,24 @@ fn fixture_with_content() -> (TempDir, ContentSet) {
     (temp, content)
 }
 
+fn fixture_with_two_naval_types() -> (TempDir, ContentSet) {
+    let (temp, _) = fixture_with_content();
+    let light_ship =
+        fs::read_to_string(temp.path().join("common/units/sample_light_ship.txt")).unwrap();
+    fs::write(
+        temp.path().join("common/units/sample_heavy_ship.txt"),
+        light_ship.replace("type = light_ship", "type = heavy_ship"),
+    )
+    .unwrap();
+    let map_path = temp.path().join("map/default.map");
+    let mut map = fs::read_to_string(&map_path).unwrap();
+    map.push_str("\nforce_coastal = { 2 }\n");
+    fs::write(map_path, map).unwrap();
+    let content =
+        ContentSet::from_installation(temp.path(), &[], None, None, TextEncoding::Utf8).unwrap();
+    (temp, content)
+}
+
 fn order(
     unit_type: &str,
     start_date: &str,
@@ -88,6 +106,20 @@ fn write_save(
     let path = directory.join(name);
     let text = format!(
         "EU4txt\ndate = 1444.11.11\nplayer = AAA\ncountries = {{ AAA = {{ treasury = 20.000 }} BBB = {{ }} }}\nprovinces = {{ -1 = {{ owner = {province_owner} controller = {province_controller} {orders} }} }}\n{combat}\n"
+    );
+    fs::write(&path, text).unwrap();
+    path
+}
+
+fn write_save_with_two_provinces(
+    directory: &Path,
+    name: &str,
+    first_orders: &str,
+    second_orders: &str,
+) -> PathBuf {
+    let path = directory.join(name);
+    let text = format!(
+        "EU4txt\ndate = 1444.11.11\nplayer = AAA\ncountries = {{ AAA = {{ treasury = 20.000 }} BBB = {{ }} }}\nprovinces = {{ -1 = {{ owner = AAA controller = AAA {first_orders} }} -2 = {{ owner = AAA controller = AAA {second_orders} }} }}\n"
     );
     fs::write(&path, text).unwrap();
     path
@@ -209,8 +241,183 @@ fn saved_single_naval_order_resumes_and_completes_without_charging_twice() {
 }
 
 #[test]
+fn saved_fifo_naval_queue_preserves_record_order_and_survives_restore() {
+    let (directory, content) = fixture_with_two_naval_types();
+    let first = order("sample_light_ship", "1444.11.10", 3, 3, "1444.11.13", "");
+    let second = order("sample_heavy_ship", "1444.11.10", 3, 3, "1444.11.13", "");
+    let path = write_save(
+        directory.path(),
+        "fifo-queue.eu4",
+        "AAA",
+        "AAA",
+        &format!("{first} {second}"),
+        "",
+    );
+    let mut continuous = VanillaWorld::load_from_content_with_save(&content, &path).unwrap();
+    let report = read_vanilla_naval_constructions(&path).unwrap();
+    let no_queue_path = write_save(directory.path(), "fifo-baseline.eu4", "AAA", "AAA", "", "");
+    let baseline = VanillaWorld::load_from_content_with_save(&content, &no_queue_path).unwrap();
+    let baseline_fingerprint = fingerprint(&baseline);
+    assert_eq!(fingerprint(&continuous), baseline_fingerprint);
+    assert_eq!(pending_count(&continuous), 0);
+    assert!(
+        continuous
+            .naval_construction_import_report()
+            .unresolved
+            .iter()
+            .any(|entry| entry.reason.contains("require explicit FIFO import"))
+    );
+    continuous
+        .import_naval_construction_queues(&report)
+        .unwrap();
+    assert_eq!(
+        continuous.naval_construction_import_report().imported_count,
+        2
+    );
+    assert!(
+        continuous
+            .naval_construction_import_report()
+            .unresolved
+            .is_empty()
+    );
+    assert_eq!(pending_count(&continuous), 2);
+    assert_eq!(treasury(&continuous), Some(20_000));
+    assert_eq!(fingerprint(&continuous), baseline_fingerprint);
+    assert_eq!(
+        continuous
+            .initial
+            .world()
+            .naval_constructions()
+            .iter()
+            .map(|order| order.unit_type.as_str())
+            .collect::<Vec<_>>(),
+        ["sample_light_ship", "sample_heavy_ship"]
+    );
+
+    let initial_snapshot = continuous.save().unwrap();
+    let mut old_snapshot_reloaded =
+        VanillaWorld::load_from_content_with_save(&content, &path).unwrap();
+    old_snapshot_reloaded
+        .restore(&baseline.save().unwrap())
+        .unwrap();
+    assert_eq!(pending_count(&old_snapshot_reloaded), 0);
+    let mut resumed = VanillaWorld::load_from_content_with_save(&content, &path).unwrap();
+    resumed.restore(&initial_snapshot).unwrap();
+
+    continuous.advance(3).unwrap();
+    resumed.advance(3).unwrap();
+    for world in [&continuous, &resumed] {
+        assert_eq!(pending_count(world), 1);
+        assert_eq!(world.initial.naval_units().len(), 1);
+        assert_eq!(
+            world.initial.naval_units()[0].unit_type,
+            "sample_light_ship"
+        );
+        assert_eq!(treasury(world), Some(20_000));
+        assert_eq!(
+            world.initial.world().naval_constructions()[0].unit_type,
+            "sample_heavy_ship"
+        );
+    }
+
+    let middle_snapshot = resumed.save().unwrap();
+    let mut resumed_after_middle =
+        VanillaWorld::load_from_content_with_save(&content, &path).unwrap();
+    resumed_after_middle.restore(&middle_snapshot).unwrap();
+    continuous.advance(1).unwrap();
+    resumed.advance(1).unwrap();
+    resumed_after_middle.advance(1).unwrap();
+
+    for world in [&continuous, &resumed, &resumed_after_middle] {
+        assert_eq!(pending_count(world), 1);
+        assert_eq!(world.initial.naval_units().len(), 1);
+        assert_eq!(
+            world.initial.naval_units()[0].unit_type,
+            "sample_light_ship"
+        );
+        assert_eq!(
+            world.initial.world().naval_constructions()[0].unit_type,
+            "sample_heavy_ship"
+        );
+    }
+
+    continuous.advance(1).unwrap();
+    resumed.advance(1).unwrap();
+    resumed_after_middle.advance(1).unwrap();
+
+    let continuous_snapshot = continuous.save().unwrap();
+    assert_eq!(resumed.save().unwrap(), continuous_snapshot);
+    assert_eq!(resumed_after_middle.save().unwrap(), continuous_snapshot);
+    for world in [&continuous, &resumed, &resumed_after_middle] {
+        assert_eq!(pending_count(world), 0);
+        assert_eq!(
+            world
+                .initial
+                .naval_units()
+                .iter()
+                .map(|unit| unit.unit_type.as_str())
+                .collect::<Vec<_>>(),
+            ["sample_light_ship", "sample_heavy_ship"]
+        );
+        assert_eq!(treasury(world), Some(20_000));
+    }
+}
+
+#[test]
+fn unsupported_fifo_sibling_blocks_its_queue_but_not_another_province() {
+    let (directory, content) = fixture_with_two_naval_types();
+    let valid = order("sample_light_ship", "1444.11.10", 3, 3, "1444.11.13", "");
+    let unknown = order("missing_ship", "1444.11.11", 3, 3, "1444.11.14", "");
+    for (name, queue) in [
+        ("unknown-suffix.eu4", format!("{valid} {unknown}")),
+        ("unknown-prefix.eu4", format!("{unknown} {valid}")),
+    ] {
+        let path = write_save_with_two_provinces(
+            directory.path(),
+            name,
+            &queue,
+            &order("sample_heavy_ship", "1444.11.10", 3, 3, "1444.11.13", ""),
+        );
+        let report = read_vanilla_naval_constructions(&path).unwrap();
+        let mut world = VanillaWorld::load_from_content_with_save(&content, &path).unwrap();
+        assert_eq!(world.naval_construction_import_report().imported_count, 1);
+        assert!(
+            world
+                .naval_construction_import_report()
+                .unresolved
+                .iter()
+                .any(|entry| entry.province_id == Some(1)
+                    && entry.reason.contains("require explicit FIFO import"))
+        );
+        world.import_naval_construction_queues(&report).unwrap();
+        assert_eq!(pending_count(&world), 1);
+        assert!(
+            world
+                .naval_construction_import_report()
+                .unresolved
+                .iter()
+                .any(|entry| entry.province_id == Some(1)
+                    && entry
+                        .reason
+                        .contains("unknown naval construction unit type"))
+        );
+        let queued = &world.initial.world().naval_constructions()[0];
+        assert_eq!(queued.location, world.initial.province_entity(2).unwrap());
+        assert_eq!(queued.unit_type, "sample_heavy_ship");
+        assert_eq!(treasury(&world), Some(20_000));
+        world.advance(3).unwrap();
+        assert_eq!(pending_count(&world), 0);
+        assert_eq!(world.initial.naval_units().len(), 1);
+        assert_eq!(
+            world.initial.naval_units()[0].unit_type,
+            "sample_heavy_ship"
+        );
+    }
+}
+
+#[test]
 fn public_report_recounts_records_and_rejects_a_mismatched_save_date() {
-    let (directory, content) = fixture_with_content();
+    let (directory, content) = fixture_with_two_naval_types();
     let path = write_save(directory.path(), "manual-report.eu4", "AAA", "AAA", "", "");
     let save = read_vanilla_save_state(&path).unwrap();
     let record = VanillaNavalConstructionRecord {
@@ -225,9 +432,21 @@ fn public_report_recounts_records_and_rejects_a_mismatched_save_date() {
         date: "1444.11.13".into(),
         cost: "5.000".into(),
     };
+    let second_record = VanillaNavalConstructionRecord {
+        province_id: 1,
+        country: "AAA".into(),
+        envoy: None,
+        unit_type: "sample_heavy_ship".into(),
+        start_date: "1444.11.11".into(),
+        total: 3,
+        original_total: 3,
+        progress: "0.000".into(),
+        date: "1444.11.14".into(),
+        cost: "5.000".into(),
+    };
     let duplicate_report = VanillaNavalConstructionReport {
         date: save.date.clone(),
-        records: vec![record.clone(), record.clone()],
+        records: vec![record.clone(), second_record.clone()],
         unresolved: Vec::new(),
         military_order_counts_by_province: Default::default(),
     };
@@ -238,16 +457,86 @@ fn public_report_recounts_records_and_rejects_a_mismatched_save_date() {
         None,
     )
     .unwrap();
+    assert_eq!(
+        duplicated.naval_construction_import_report().imported_count,
+        0
+    );
     assert_eq!(pending_count(&duplicated), 0);
     assert!(
         duplicated
             .naval_construction_import_report()
             .unresolved
             .iter()
-            .any(|entry| entry
-                .reason
-                .contains("multiple military_construction orders"))
+            .any(|entry| entry.reason.contains("require explicit FIFO import"))
     );
+    let mut duplicated = duplicated;
+    let mut globally_unresolved = duplicate_report.clone();
+    globally_unresolved
+        .unresolved
+        .push(augustus_eu4::VanillaNavalConstructionUnresolved {
+            province_id: None,
+            reason: "construction input is incomplete".into(),
+        });
+    let before_unresolved = duplicated.save().unwrap();
+    duplicated
+        .import_naval_construction_queues(&globally_unresolved)
+        .unwrap();
+    assert_eq!(pending_count(&duplicated), 0);
+    assert_eq!(duplicated.save().unwrap(), before_unresolved);
+    duplicated
+        .import_naval_construction_queues(&duplicate_report)
+        .unwrap();
+    assert_eq!(
+        duplicated.naval_construction_import_report().imported_count,
+        2
+    );
+    assert_eq!(pending_count(&duplicated), 2);
+    assert!(
+        duplicated
+            .naval_construction_import_report()
+            .unresolved
+            .is_empty()
+    );
+
+    let inconsistent_report = VanillaNavalConstructionReport {
+        date: save.date.clone(),
+        records: vec![record.clone(), second_record.clone()],
+        unresolved: Vec::new(),
+        military_order_counts_by_province: [(1, 3)].into(),
+    };
+    let mut inconsistent = VanillaWorld::load_from_content_with_save_state_and_naval_constructions(
+        &content,
+        &save,
+        &inconsistent_report,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        inconsistent
+            .naval_construction_import_report()
+            .imported_count,
+        0
+    );
+    assert_eq!(pending_count(&inconsistent), 0);
+    assert!(
+        inconsistent
+            .naval_construction_import_report()
+            .unresolved
+            .iter()
+            .any(|entry| entry.reason.contains("unparsed or inconsistent records"))
+    );
+    let inconsistent_snapshot = inconsistent.save().unwrap();
+    inconsistent
+        .import_naval_construction_queues(&inconsistent_report)
+        .unwrap();
+    assert_eq!(pending_count(&inconsistent), 0);
+    assert_eq!(
+        inconsistent
+            .naval_construction_import_report()
+            .imported_count,
+        0
+    );
+    assert_eq!(inconsistent.save().unwrap(), inconsistent_snapshot);
 
     let mismatched_report = VanillaNavalConstructionReport {
         date: "1444.11.12".into(),
@@ -336,11 +625,25 @@ fn unsupported_or_ambiguous_orders_remain_unresolved_and_do_not_change_identity(
             "",
         ),
         (
-            "multiple-orders",
+            "unknown-type-order-suffix",
             "AAA",
             "AAA",
-            format!("{valid} {valid}"),
-            "multiple military_construction orders",
+            format!(
+                "{valid} {}",
+                order("missing_ship", "1444.11.11", 3, 3, "1444.11.14", "")
+            ),
+            "unknown naval construction unit type",
+            "",
+        ),
+        (
+            "unknown-type-order-prefix",
+            "AAA",
+            "AAA",
+            format!(
+                "{} {valid}",
+                order("missing_ship", "1444.11.11", 3, 3, "1444.11.14", "")
+            ),
+            "unknown naval construction unit type",
             "",
         ),
         (

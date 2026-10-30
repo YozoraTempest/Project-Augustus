@@ -75,6 +75,7 @@ provinces={
         }
     }
 }
+
 "#,
     )
     .unwrap();
@@ -3169,4 +3170,91 @@ provinces={
         second["country"]["original_capital"],
         serde_json::Value::Null
     );
+}
+
+#[test]
+fn world_cli_resumes_saved_naval_fifo_queue_without_duplicate_ships_or_charges() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = temp.path().join("world");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &fixture,
+    );
+    let map_path = fixture.join("map/default.map");
+    let map = fs::read_to_string(&map_path).unwrap();
+    fs::write(&map_path, format!("{map}\nforce_coastal={{1}}\n")).unwrap();
+    let source_save = temp.path().join("naval-queue.eu4");
+    fs::write(
+        &source_save,
+        r#"EU4txt
+date=1444.11.11
+player=AAA
+countries={AAA={treasury=20.000} BBB={}}
+provinces={-1={owner=AAA controller=AAA
+    military_construction={country=AAA type=sample_light_ship start_date=1444.11.10 total=3 original_total=3 progress=0.333 date=1444.11.13 cost=5.000}
+    military_construction={country=AAA type=sample_light_ship start_date=1444.11.11 total=1 original_total=1 progress=0.000 date=1444.11.12 cost=5.000}
+}}
+"#,
+    )
+    .unwrap();
+    let run = |days: u32, load: Option<&Path>, save: Option<&Path>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+        command
+            .arg("--game-root")
+            .arg(&fixture)
+            .arg("--eu4-save")
+            .arg(&source_save)
+            .arg("--country")
+            .arg("AAA")
+            .arg("--days")
+            .arg(days.to_string());
+        if let Some(path) = load {
+            command.arg("--load").arg(path);
+        } else {
+            command.arg("--import-naval-construction-queues");
+        }
+        if let Some(path) = save {
+            command.arg("--save").arg(path);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+
+    let pending_snapshot = temp.path().join("pending.json");
+    let pending = run(2, None, Some(&pending_snapshot));
+    assert_eq!(pending["naval_construction_import"]["imported_count"], 2);
+    assert_eq!(
+        pending["naval_construction_import"]["unresolved"],
+        serde_json::json!([])
+    );
+    assert_eq!(pending["simulation"]["pending_naval_constructions"], 2);
+    assert_eq!(pending["simulation"]["naval_units"], 0);
+    assert_eq!(pending["country"]["resources"]["treasury_milli"], 20_000);
+
+    let head_snapshot = temp.path().join("head-completed.json");
+    let head = run(1, Some(&pending_snapshot), Some(&head_snapshot));
+    assert_eq!(head["simulation"]["pending_naval_constructions"], 1);
+    assert_eq!(head["simulation"]["naval_units"], 1);
+
+    let resumed_snapshot = temp.path().join("resumed.json");
+    let resumed = run(1, Some(&head_snapshot), Some(&resumed_snapshot));
+    assert_eq!(resumed["simulation"]["pending_naval_constructions"], 0);
+    assert_eq!(resumed["simulation"]["naval_units"], 2);
+    assert_eq!(resumed["country"]["resources"]["treasury_milli"], 20_000);
+
+    let continuous_snapshot = temp.path().join("continuous.json");
+    run(4, None, Some(&continuous_snapshot));
+    assert_eq!(
+        fs::read(&resumed_snapshot).unwrap(),
+        fs::read(&continuous_snapshot).unwrap()
+    );
+    let later = run(2, Some(&resumed_snapshot), None);
+    assert_eq!(later["simulation"]["naval_units"], 2);
+    assert_eq!(later["simulation"]["pending_naval_constructions"], 0);
+    assert_eq!(later["country"]["resources"]["treasury_milli"], 20_000);
 }

@@ -653,3 +653,361 @@ fn old_empty_snapshot_shape_and_restore_validation_are_preserved() {
     corrupt["naval_constructions"]["orders"][0]["completion_day"] = serde_json::json!(0);
     assert!(World::restore(&corrupt.to_string(), "naval-construction", world.schema()).is_err());
 }
+
+#[test]
+fn fifo_queue_delays_blocked_orders_and_rescans_the_head_after_completion() {
+    let (mut world, owner, port) = fixture();
+    assert_eq!(
+        world
+            .enqueue_naval_construction_queues(&[
+                input(owner, port, "first_hull", 4),
+                input(owner, port, "second_hull", 1),
+                input(owner, port, "third_hull", 2),
+            ])
+            .unwrap(),
+        [
+            NavalConstructionId(0),
+            NavalConstructionId(1),
+            NavalConstructionId(2)
+        ]
+    );
+
+    world.advance_to(1).unwrap();
+    assert_eq!(
+        world
+            .naval_constructions()
+            .iter()
+            .map(|order| order.completion_day)
+            .collect::<Vec<_>>(),
+        [4, 2, 3]
+    );
+    assert!(world.naval_units().is_empty());
+
+    world.advance_to(3).unwrap();
+    assert_eq!(
+        world
+            .naval_constructions()
+            .iter()
+            .map(|order| order.completion_day)
+            .collect::<Vec<_>>(),
+        [4, 4, 5]
+    );
+    assert!(world.naval_units().is_empty());
+
+    world.advance_to(4).unwrap();
+    assert_eq!(
+        world
+            .naval_units()
+            .iter()
+            .map(|unit| unit.unit_type.as_str())
+            .collect::<Vec<_>>(),
+        ["first_hull", "second_hull"]
+    );
+    assert_eq!(
+        world
+            .naval_constructions()
+            .iter()
+            .map(|order| (order.id, order.completion_day))
+            .collect::<Vec<_>>(),
+        [(NavalConstructionId(2), 5)]
+    );
+
+    world.advance_to(5).unwrap();
+    assert_eq!(
+        world
+            .naval_units()
+            .iter()
+            .map(|unit| unit.unit_type.as_str())
+            .collect::<Vec<_>>(),
+        ["first_hull", "second_hull", "third_hull"]
+    );
+    assert!(world.naval_constructions().is_empty());
+}
+
+#[test]
+fn fifo_queue_restarts_at_the_next_order_on_the_same_day() {
+    let (mut world, owner, port) = fixture();
+    world
+        .enqueue_naval_construction_queues(&[
+            input(owner, port, "first_hull", 1),
+            input(owner, port, "second_hull", 1),
+            input(owner, port, "third_hull", 2),
+        ])
+        .unwrap();
+
+    world.advance_to(1).unwrap();
+
+    assert_eq!(
+        world
+            .naval_units()
+            .iter()
+            .map(|unit| unit.unit_type.as_str())
+            .collect::<Vec<_>>(),
+        ["first_hull", "second_hull"]
+    );
+    assert_eq!(
+        world
+            .naval_constructions()
+            .iter()
+            .map(|order| (order.id, order.completion_day))
+            .collect::<Vec<_>>(),
+        [(NavalConstructionId(2), 2)]
+    );
+
+    world.advance_to(2).unwrap();
+    assert_eq!(world.naval_units().len(), 3);
+    assert!(world.naval_constructions().is_empty());
+}
+
+#[test]
+fn fifo_queues_are_independent_by_location_and_resume_identically() {
+    let (mut continuous, owner, first_port) = fixture();
+    let second_port = continuous.add_entity("2", EntityKind::Province);
+    continuous.set_province_has_port(second_port, true).unwrap();
+    continuous
+        .enqueue_naval_construction_queues(&[
+            input(owner, first_port, "blocked_head", 4),
+            input(owner, first_port, "blocked_tail", 1),
+            input(owner, second_port, "independent", 1),
+        ])
+        .unwrap();
+    continuous.advance_to(1).unwrap();
+    assert_eq!(continuous.naval_units()[0].unit_type, "independent");
+    assert_eq!(
+        continuous
+            .naval_constructions()
+            .iter()
+            .map(|order| (order.location, order.completion_day))
+            .collect::<Vec<_>>(),
+        [(first_port, 4), (first_port, 2)]
+    );
+
+    let snapshot = continuous.save("fifo-naval-construction").unwrap();
+    let mut resumed =
+        World::restore(&snapshot, "fifo-naval-construction", continuous.schema()).unwrap();
+    continuous.advance_to(3).unwrap();
+    resumed.advance_to(3).unwrap();
+    assert_eq!(resumed, continuous);
+    assert_eq!(
+        resumed
+            .naval_constructions()
+            .iter()
+            .map(|order| order.completion_day)
+            .collect::<Vec<_>>(),
+        [4, 4]
+    );
+    continuous.advance_to(4).unwrap();
+    resumed.advance_to(4).unwrap();
+    assert_eq!(resumed, continuous);
+    assert_eq!(
+        resumed
+            .naval_units()
+            .iter()
+            .map(|unit| unit.unit_type.as_str())
+            .collect::<Vec<_>>(),
+        ["independent", "blocked_head", "blocked_tail"]
+    );
+    assert!(resumed.naval_constructions().is_empty());
+}
+
+#[test]
+fn independent_order_at_a_fifo_location_keeps_its_absolute_completion_day() {
+    let (mut world, owner, port) = fixture();
+    world
+        .enqueue_naval_construction_queues(&[
+            input(owner, port, "blocked_head", 4),
+            input(owner, port, "blocked_tail", 1),
+        ])
+        .unwrap();
+    world
+        .enqueue_naval_constructions(&[input(owner, port, "independent", 2)])
+        .unwrap();
+
+    world.advance_to(2).unwrap();
+    assert_eq!(world.naval_units().len(), 1);
+    assert_eq!(world.naval_units()[0].unit_type, "independent");
+    assert_eq!(
+        world
+            .naval_constructions()
+            .iter()
+            .map(|order| (order.unit_type.as_str(), order.completion_day))
+            .collect::<Vec<_>>(),
+        [("blocked_head", 4), ("blocked_tail", 3)]
+    );
+
+    world.advance_to(4).unwrap();
+    assert_eq!(
+        world
+            .naval_units()
+            .iter()
+            .map(|unit| unit.unit_type.as_str())
+            .collect::<Vec<_>>(),
+        ["independent", "blocked_head", "blocked_tail"]
+    );
+    assert!(world.naval_constructions().is_empty());
+}
+
+#[test]
+fn fifo_queue_rejects_a_location_with_existing_pending_orders_atomically() {
+    let (mut world, owner, port) = fixture();
+    world
+        .enqueue_naval_constructions(&[input(owner, port, "independent", 3)])
+        .unwrap();
+    let before = world.save("fifo-naval-construction").unwrap();
+
+    assert!(
+        world
+            .enqueue_naval_construction_queues(&[
+                input(owner, port, "first_queued", 3),
+                input(owner, port, "second_queued", 4),
+            ])
+            .is_err()
+    );
+
+    assert_eq!(world.save("fifo-naval-construction").unwrap(), before);
+    assert_eq!(world.naval_constructions().len(), 1);
+}
+
+#[test]
+fn legacy_independent_orders_without_fifo_metadata_still_complete_together() {
+    let (mut world, owner, port) = fixture();
+    world
+        .enqueue_naval_constructions(&[
+            input(owner, port, "first_hull", 1),
+            input(owner, port, "second_hull", 1),
+        ])
+        .unwrap();
+    let mut saved: serde_json::Value = world
+        .save("legacy-naval-construction")
+        .unwrap()
+        .parse()
+        .unwrap();
+    saved["naval_constructions"]
+        .as_object_mut()
+        .unwrap()
+        .remove("fifo_order_ids");
+    let mut restored = World::restore(
+        &saved.to_string(),
+        "legacy-naval-construction",
+        world.schema(),
+    )
+    .unwrap();
+
+    restored.advance_to(1).unwrap();
+
+    assert_eq!(restored.naval_units().len(), 2);
+    assert_eq!(
+        restored
+            .naval_units()
+            .iter()
+            .map(|unit| unit.unit_type.as_str())
+            .collect::<Vec<_>>(),
+        ["first_hull", "second_hull"]
+    );
+    assert!(restored.naval_constructions().is_empty());
+}
+
+#[test]
+fn invalid_fifo_batches_and_corrupt_order_metadata_are_rejected_atomically() {
+    let (mut world, owner, port) = fixture();
+    let before = world.save("fifo-naval-construction").unwrap();
+    assert!(
+        world
+            .enqueue_naval_construction_queues(&[
+                input(owner, port, "valid_hull", 3),
+                input(port, port, "invalid_owner", 4),
+            ])
+            .is_err()
+    );
+    assert_eq!(world.save("fifo-naval-construction").unwrap(), before);
+    let (empty, owner, port) = fixture();
+    let mut exhausted_snapshot: serde_json::Value = empty
+        .save("fifo-naval-construction")
+        .unwrap()
+        .parse()
+        .unwrap();
+    exhausted_snapshot["naval_constructions"] = serde_json::json!({
+        "next_id": u64::MAX,
+        "orders": []
+    });
+    let mut exhausted = World::restore(
+        &exhausted_snapshot.to_string(),
+        "fifo-naval-construction",
+        empty.schema(),
+    )
+    .unwrap();
+    let exhausted_before = exhausted.save("fifo-naval-construction").unwrap();
+    assert!(
+        exhausted
+            .enqueue_naval_construction_queues(&[
+                input(owner, port, "overflow_first", 3),
+                input(owner, port, "overflow_second", 4),
+            ])
+            .is_err()
+    );
+    assert_eq!(
+        exhausted.save("fifo-naval-construction").unwrap(),
+        exhausted_before
+    );
+
+    let (mut empty, owner, port) = fixture();
+    empty
+        .enqueue_naval_construction_queues(&[
+            input(owner, port, "first_hull", 3),
+            input(owner, port, "second_hull", 4),
+        ])
+        .unwrap();
+    let saved: serde_json::Value = empty
+        .save("fifo-naval-construction")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut corrupt = saved;
+    corrupt["naval_constructions"]["fifo_order_ids"] = serde_json::json!([u64::MAX]);
+    assert!(
+        World::restore(
+            &corrupt.to_string(),
+            "fifo-naval-construction",
+            empty.schema(),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn fifo_completion_failure_does_not_partially_create_ships_or_remove_orders() {
+    let (mut world, owner, port) = fixture();
+    world
+        .enqueue_naval_construction_queues(&[
+            input(owner, port, "first_hull", 1),
+            input(owner, port, "second_hull", 1),
+        ])
+        .unwrap();
+    let mut saved: serde_json::Value = world
+        .save("fifo-naval-construction")
+        .unwrap()
+        .parse()
+        .unwrap();
+    saved["naval_units"] = serde_json::json!({
+        "next_id": u64::MAX - 1,
+        "units": []
+    });
+    let mut world = World::restore(
+        &saved.to_string(),
+        "fifo-naval-construction",
+        world.schema(),
+    )
+    .unwrap();
+
+    assert!(world.advance_to(1).is_err());
+    assert!(world.naval_units().is_empty());
+    assert!(world.fleets().is_empty());
+    assert_eq!(
+        world
+            .naval_constructions()
+            .iter()
+            .map(|order| order.id)
+            .collect::<Vec<_>>(),
+        [NavalConstructionId(0), NavalConstructionId(1)]
+    );
+}

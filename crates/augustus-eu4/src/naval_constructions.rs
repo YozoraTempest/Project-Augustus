@@ -485,11 +485,31 @@ pub(crate) fn bind_naval_constructions(
     Vec<NavalConstructionInput>,
     VanillaNavalConstructionImportReport,
 ) {
+    bind_naval_construction_orders(report, initial, loaded_date, false)
+}
+
+pub(crate) fn bind_naval_construction_orders(
+    report: &VanillaNavalConstructionReport,
+    initial: &InitialWorld,
+    loaded_date: &str,
+    allow_queues: bool,
+) -> (
+    Vec<NavalConstructionInput>,
+    VanillaNavalConstructionImportReport,
+) {
     let mut imported = VanillaNavalConstructionImportReport {
         unresolved: report.unresolved.clone(),
         ..VanillaNavalConstructionImportReport::default()
     };
     let mut inputs = Vec::new();
+    if allow_queues
+        && report
+            .unresolved
+            .iter()
+            .any(|entry| entry.province_id.is_none())
+    {
+        return (inputs, imported);
+    }
     let unresolved_provinces = report
         .unresolved
         .iter()
@@ -499,25 +519,34 @@ pub(crate) fn bind_naval_constructions(
     for record in &report.records {
         *record_counts.entry(record.province_id).or_insert(0usize) += 1;
     }
-    let mut duplicate_provinces = report
-        .military_order_counts_by_province
-        .iter()
-        .filter_map(|(&province, &count)| (count > 1).then_some(province))
-        .collect::<BTreeSet<_>>();
-    duplicate_provinces.extend(
-        record_counts
-            .into_iter()
-            .filter_map(|(province, count)| (count > 1).then_some(province)),
-    );
-    let unresolved_duplicates = duplicate_provinces.clone();
-    for province in unresolved_duplicates {
-        imported
-            .unresolved
-            .push(VanillaNavalConstructionUnresolved {
+    for (&province, &count) in &report.military_order_counts_by_province {
+        if record_counts.get(&province).copied().unwrap_or(0) != count {
+            imported
+                .unresolved
+                .push(VanillaNavalConstructionUnresolved {
+                    province_id: Some(province),
+                    reason: "military construction queue has unparsed or inconsistent records"
+                        .into(),
+                });
+        }
+    }
+    if !allow_queues {
+        let mut multiple_provinces = record_counts
+            .iter()
+            .filter_map(|(&province, &count)| (count > 1).then_some(province))
+            .collect::<BTreeSet<_>>();
+        multiple_provinces.extend(
+            report
+                .military_order_counts_by_province
+                .iter()
+                .filter_map(|(&province, &count)| (count > 1).then_some(province)),
+        );
+        for province in multiple_provinces {
+            imported.unresolved.push(VanillaNavalConstructionUnresolved {
                 province_id: Some(province),
-                reason: "multiple military_construction orders in one province are unsupported"
-                    .into(),
+                reason: "multiple military_construction orders in one province require explicit FIFO import".into(),
             });
+        }
     }
 
     let Some(save_date) = parse_world_date(&report.date) else {
@@ -581,9 +610,6 @@ pub(crate) fn bind_naval_constructions(
             province_id: Some(record.province_id),
             reason,
         };
-        if duplicate_provinces.contains(&record.province_id) {
-            continue;
-        }
         if unresolved_provinces.contains(&record.province_id) {
             continue;
         }
@@ -756,5 +782,12 @@ pub(crate) fn bind_naval_constructions(
             completion_day,
         });
     }
+    let blocked_locations = imported
+        .unresolved
+        .iter()
+        .filter_map(|entry| entry.province_id)
+        .filter_map(|province| initial.province_entity(province))
+        .collect::<BTreeSet<_>>();
+    inputs.retain(|input| !blocked_locations.contains(&input.location));
     (inputs, imported)
 }
