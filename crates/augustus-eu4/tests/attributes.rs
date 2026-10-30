@@ -732,7 +732,9 @@ fn province_force_limit_raw_sources_include_development_buildings_and_owned_tota
     let province = fs::read_to_string(&province_path).unwrap();
     fs::write(
         province_path,
-        format!("{province}\n1441.1.1 = {{ test_land_force = yes test_naval_force = yes }}\n"),
+        format!(
+            "{province}\n1441.1.1 = {{ test_land_force = yes test_naval_force = yes }}\n1444.1.1 = {{ owner = AAA controller = AAA }}\n"
+        ),
     )
     .unwrap();
 
@@ -878,6 +880,29 @@ fn province_force_limit_raw_sources_include_development_buildings_and_owned_tota
                 })
             })
     );
+
+    let naval_direct = world
+        .attributes()
+        .evaluate(world, country, "country_naval_forcelimit_flat")
+        .unwrap();
+    let naval_province_total = world
+        .attributes()
+        .sum_owned(world, country, "province_naval_forcelimit_local")
+        .unwrap();
+    let naval_combined = &combined["country_naval_forcelimit_flat"];
+    let naval_expected = naval_direct.known_subtotal_micros.map(|value| {
+        value
+            .checked_add(naval_province_total.known_subtotal_micros)
+            .unwrap()
+    });
+    assert_eq!(naval_combined.known_subtotal_micros, naval_expected);
+    assert!(naval_combined.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source == "owned_provinces"
+                && contribution.property == "province_naval_forcelimit_local"
+                && contribution.micros == naval_province_total.known_subtotal_micros
+        })
+    }));
 }
 
 #[test]
