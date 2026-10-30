@@ -119,6 +119,22 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     land_force_limit_queries: Option<PathBuf>,
+    /// Aggregate explicit ordinary production inputs for selected countries.
+    /// Queries run after restore and --days and do not change the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    vanilla_production_queries: Option<PathBuf>,
+    /// Aggregate explicit gold production inputs for selected countries.
+    /// Queries run after restore and --days and do not change the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    vanilla_gold_production_queries: Option<PathBuf>,
     /// Execute caller-resolved native migration transfers after restore and
     /// before --days, then include their reports in the JSON output.
     #[arg(
@@ -672,6 +688,32 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let vanilla_production_queries = cli
+        .vanilla_production_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<augustus_eu4::VanillaProductionCountryQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_vanilla_production(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
+    let vanilla_gold_production_queries = cli
+        .vanilla_gold_production_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<augustus_eu4::VanillaGoldProductionCountryQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_vanilla_gold_production(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     let naval_construction_orders = cli
         .show_naval_constructions
         .then(|| loaded.naval_construction_orders())
@@ -725,6 +767,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = land_force_limit_queries {
         output["land_force_limit_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(queries) = vanilla_production_queries {
+        output["vanilla_production_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(queries) = vanilla_gold_production_queries {
+        output["vanilla_gold_production_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = native_migration_state_queries {
         output["native_migration_state_queries"] = serde_json::to_value(queries)?;

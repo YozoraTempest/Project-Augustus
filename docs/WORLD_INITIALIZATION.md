@@ -86,6 +86,10 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 陆军力限也可通过 `--land-force-limit-queries queries.json` 查询。输入字段与海军力限查询相同，必须由调用方完整解析 `base_milli`、`flat_modifier_milli` 和 `percentage_modifier_milli`；显式 `0` 是有效输入，缺项返回 `evaluation: null` 与对应 `land_force_limit:missing_input:*`。该入口只校验国家标签并委托共享核心的 `calculate_vanilla_force_limit`，不会把 `country_attributes` 的部分 `country_land_forcelimit_flat`、省份发展度、自治、建筑或其他来源小计自动升级成完整陆军力限，也不会写入快照或改变世界状态。程序入口为 `VanillaWorld::query_land_force_limit`。
 
+普通生产汇总也可通过 `--vanilla-production-queries queries.json` 查询。每项输入包含 `country` 和按 EU4 省份编号索引的 `inputs`，每个省份状态由调用者提供 `VanillaProductionInputState`：完整 `input` 时计算普通生产，缺失或 `unresolved` 时保留该省份未决。查询按照当前实时所有权汇总，并在 `evaluation` 中保留已知年收入、月收入、省份明细和缺项；存在缺项时 `annual_value_milli` 与 `monthly_value_milli` 为 `null`，不会把已知小计升级成完整总量。结果写入 `vanilla_production_queries`，不修改世界或快照。程序入口为 `VanillaWorld::query_vanilla_production`。
+
+黄金生产汇总可通过 `--vanilla-gold-production-queries queries.json` 查询。输入形状与普通生产相同，但每个省份使用 `gold_size_milli`、`mine_base_milli` 和 `external_gold_size_milli`；只有当前载入内容明确标记为黄金的省份进入汇总，普通商品省份会被跳过。缺失或未决输入保留已知黄金小计并将最终 `value_milli` 与 `monthly_value_milli` 置为 `null`。结果写入 `vanilla_gold_production_queries`，不会写入月度生产状态或快照。程序入口为 `VanillaWorld::query_vanilla_gold_production`。
+
 成本和工期查询的修正字段对应以下内容属性；表中的值均指完整修正总量，单位为千分位。字段名称沿用现有 JSON 契约。海军和陆军力限查询的三个输入由调用者完整解析，不对应这里的内容属性表。
 
 | 查询 | 输入字段 | 对应内容属性 |

@@ -66,6 +66,7 @@ mod naval_force_limit_queries;
 mod navy_tradition;
 mod power_income;
 mod prestige;
+mod production_queries;
 mod truces;
 mod unit_templates;
 pub use missions::MissionReport;
@@ -88,6 +89,10 @@ pub use naval_constructions::{
 };
 pub use naval_force_limit_queries::{
     VanillaNavalForceLimitQuery, VanillaNavalForceLimitQueryReport,
+};
+pub use production_queries::{
+    VanillaGoldProductionCountryQuery, VanillaGoldProductionCountryQueryReport,
+    VanillaProductionCountryQuery, VanillaProductionCountryQueryReport,
 };
 mod politics;
 mod province_map;

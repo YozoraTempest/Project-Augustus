@@ -12,9 +12,10 @@ use augustus_eu4::{
     CashflowBreakdown, VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
     VanillaContentProductionValueInput, VanillaContentStateMaintenanceInput,
     VanillaExternalProductionInput, VanillaExternalState, VanillaFortMaintenanceContextInput,
-    VanillaFortMaintenanceInput, VanillaGoldProductionInput, VanillaGoldProductionInputState,
-    VanillaProductionInputState, VanillaProvinceProductionBaseValueInput,
-    VanillaProvinceStateMaintenanceInput, VanillaTradeGoodsSizeInput, VanillaWorld,
+    VanillaFortMaintenanceInput, VanillaGoldProductionCountryQuery, VanillaGoldProductionInput,
+    VanillaGoldProductionInputState, VanillaProductionCountryQuery, VanillaProductionInputState,
+    VanillaProvinceProductionBaseValueInput, VanillaProvinceStateMaintenanceInput,
+    VanillaTradeGoodsSizeInput, VanillaWorld,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1696,6 +1697,102 @@ fn country_gold_production_query_preserves_known_subtotals_when_gold_input_is_un
             .contains("province:4:missing_gold_production_input")
     );
     assert_eq!(result.provinces[1].value_milli, None);
+}
+
+#[test]
+fn production_country_query_wrapper_is_strict_and_read_only() {
+    let fixture = copy_fixture();
+    fs::write(
+        fixture.path().join("history/provinces/4 - Highland.txt"),
+        "owner = AAA",
+    )
+    .unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let query = VanillaProductionCountryQuery {
+        country: "AAA".into(),
+        inputs: BTreeMap::from([
+            (2, production_input(2000, 20, 0, -20)),
+            (4, production_input(500, 20, 0, 0)),
+        ]),
+    };
+    let snapshot = loaded.save().unwrap();
+    let report = loaded.query_vanilla_production(&query).unwrap();
+    assert_eq!(report.country, "AAA");
+    assert_eq!(report.evaluation.known_annual_value_milli, 2509);
+    assert_eq!(report.evaluation.annual_value_milli, Some(2509));
+    assert_eq!(loaded.save().unwrap(), snapshot);
+
+    let mut partial = query.clone();
+    partial.inputs.remove(&4);
+    let partial = loaded.query_vanilla_production(&partial).unwrap();
+    assert_eq!(partial.evaluation.known_annual_value_milli, 1999);
+    assert_eq!(partial.evaluation.annual_value_milli, None);
+    assert!(
+        partial
+            .evaluation
+            .unresolved
+            .contains("province:4:missing_production_input")
+    );
+
+    let mut value = serde_json::to_value(&query).unwrap();
+    value["unexpected"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<VanillaProductionCountryQuery>(value).is_err());
+    let mut unknown = query.clone();
+    unknown.country = "ZZZ".into();
+    assert!(loaded.query_vanilla_production(&unknown).is_err());
+}
+
+#[test]
+fn gold_production_country_query_wrapper_is_strict_and_read_only() {
+    let fixture = copy_fixture();
+    fs::write(
+        fixture.path().join("common/tradegoods/test_goods.txt"),
+        "grain = { color = { 0.9 0.8 0.3 } }\ncloth = { color = { 0.2 0.3 0.8 } }\ngold = { color = { 1.0 0.9 0.0 } goldtype = yes }\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("history/provinces/2 - East.txt"),
+        "owner = AAA\ntrade_goods = gold",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("history/provinces/4 - Highland.txt"),
+        "owner = AAA\ntrade_goods = gold",
+    )
+    .unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let query = VanillaGoldProductionCountryQuery {
+        country: "AAA".into(),
+        inputs: BTreeMap::from([
+            (2, gold_production_input(800, 39_640, 0)),
+            (4, gold_production_input(500, 39_640, 0)),
+        ]),
+    };
+    let snapshot = loaded.save().unwrap();
+    let report = loaded.query_vanilla_gold_production(&query).unwrap();
+    assert_eq!(report.country, "AAA");
+    assert_eq!(report.evaluation.known_value_milli, 51_532);
+    assert_eq!(report.evaluation.value_milli, Some(51_532));
+    assert_eq!(loaded.save().unwrap(), snapshot);
+
+    let mut partial = query.clone();
+    partial.inputs.remove(&4);
+    let partial = loaded.query_vanilla_gold_production(&partial).unwrap();
+    assert_eq!(partial.evaluation.known_value_milli, 31_712);
+    assert_eq!(partial.evaluation.value_milli, None);
+    assert!(
+        partial
+            .evaluation
+            .unresolved
+            .contains("province:4:missing_gold_production_input")
+    );
+
+    let mut value = serde_json::to_value(&query).unwrap();
+    value["unexpected"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<VanillaGoldProductionCountryQuery>(value).is_err());
+    let mut unknown = query.clone();
+    unknown.country = "ZZZ".into();
+    assert!(loaded.query_vanilla_gold_production(&unknown).is_err());
 }
 
 #[test]
