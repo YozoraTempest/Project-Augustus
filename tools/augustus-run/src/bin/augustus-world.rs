@@ -89,6 +89,14 @@ struct Cli {
     /// Show current pending naval orders and FIFO positions after --load and --days.
     #[arg(long, conflicts_with = "compare_administration_save")]
     show_naval_constructions: bool,
+    /// Query ordinary galley build durations with loaded defines and explicit modifiers.
+    /// Queries run after restore and --days and do not submit orders.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    naval_construction_time_queries: Option<PathBuf>,
     /// Execute caller-resolved native migration transfers after restore and
     /// before --days, then include their reports in the JSON output.
     #[arg(
@@ -590,6 +598,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }))
         })
         .transpose()?;
+    let naval_construction_time_queries = cli
+        .naval_construction_time_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<augustus_eu4::VanillaNavalConstructionTimeQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_naval_construction_time(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     let naval_construction_orders = cli
         .show_naval_constructions
         .then(|| loaded.naval_construction_orders())
@@ -631,6 +652,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(orders) = naval_construction_orders {
         output["naval_construction_orders"] = orders;
+    }
+    if let Some(queries) = naval_construction_time_queries {
+        output["naval_construction_time_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = native_migration_state_queries {
         output["native_migration_state_queries"] = serde_json::to_value(queries)?;

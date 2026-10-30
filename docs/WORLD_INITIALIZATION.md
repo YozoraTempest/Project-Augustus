@@ -58,6 +58,18 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 这个字段仍保留其余来源、额外发展度和完整来源激活资格未接入的未决原因，`value_micros` 保持未决。缺失或变为负数的基础生产、歧义或不支持的来源属性不会当作零贡献；目前只绑定能用千分精度精确表示的系数，精度更细的系数也保留未决。该查询提供基础分支的诊断结果，不据此计算完整建船工期或安排订单完成日。
 
+普通 galley 工期可通过 `--naval-construction-time-queries queries.json` 查询。输入使用实际加载的舰型模板标识，由调用者明确提供三项完整修正；以下是自制输入示例：
+
+```json
+[{"country":"AAA","province_id":1,"unit_type":"sample_galley","country_modifier_milli":0,"province_modifier_milli":-30,"additional_province_modifier_milli":0}]
+```
+
+查询在 `--load` 恢复及 `--days` 推进之后执行，读取当前所有者、控制者和模板类别。仅支持国家同时拥有并控制目标省份、模板类别为 `galley` 的普通工期分支；其他海军类别或跨归属状态返回未决原因。基础工期来自有效内容的 `NMilitary.GALLEY_TIME`，最低倍率来自 `NMilitary.MIN_RECRUIT_TIME_MODIFIER`，并沿用 Mod 覆盖及来源位置。缺少定义或任一修正（省略或 `null`）时，`evaluation` 为 `null`；显式零表示调用者确认该修正为零。非法定义只在使用该查询时报告带来源的错误；它不阻止其他既有功能载入。
+
+输出 `naval_construction_time_queries` 中的 `evaluation` 给出 `modifier_factor_milli` 和 `duration_days`。倍率先计算 `(1000 + country) × (1000 + province + additional_province) / 1000`，向零截断后按最低倍率限幅，再乘基础工期并向零截断为整数天，最低一天。例如基础 365 天、最低倍率 200、三项修正 `0/-30/0` 得到 354 天，省份修正为 -40 时得到 350 天。输入和中间计算使用受检查的整数范围，超出支持范围时报错。
+
+该查询不改变订单、国库或分类账；结果是普通分支的名义工期，FIFO 等待时间、特殊加速、跨归属倍率和完整生产资格须另行解析。现有基础生产属性只提供部分来源，查询不会将它自动当作完整省份修正。查询也不推算费用或自动提交订单。程序调用者可使用 `VanillaWorld::query_naval_construction_time`，完整已解析输入的核心计算入口为 `calculate_vanilla_naval_construction_time`。
+
 新舰船请求可由调用者提供明确费用和完成日，通过 `--naval-constructions requests.json` 提交。文件是 JSON 数组，例如以下自制输入：
 
 ```json

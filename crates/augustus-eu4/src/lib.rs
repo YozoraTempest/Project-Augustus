@@ -56,6 +56,8 @@ pub use native_migration_transfer::{
     VanillaNativeMigrationTransferStatus,
 };
 mod naval_construction_requests;
+mod naval_construction_time_defines;
+mod naval_construction_time_queries;
 mod naval_constructions;
 mod navy_tradition;
 mod power_income;
@@ -64,6 +66,9 @@ mod truces;
 mod unit_templates;
 pub use missions::MissionReport;
 pub use naval_construction_requests::VanillaNavalConstructionRequest;
+pub use naval_construction_time_queries::{
+    VanillaNavalConstructionTimeQuery, VanillaNavalConstructionTimeQueryReport,
+};
 pub use naval_constructions::{
     VanillaNavalConstructionImportReport, VanillaNavalConstructionOrderView,
     VanillaNavalConstructionRecord, VanillaNavalConstructionReport,
@@ -114,6 +119,7 @@ pub use augustus_core::{
     VanillaGoldProductionInput, VanillaGoldProductionInputState,
     VanillaGoldProductionProvinceResult, VanillaGoldProductionResult,
     VanillaModifierAggregationInput, VanillaModifierAggregationResult,
+    VanillaNavalConstructionTimeInput, VanillaNavalConstructionTimeResult,
     VanillaProductionCountryResult, VanillaProductionInputState, VanillaProductionProvinceResult,
     VanillaStateMaintenanceDistanceInput, VanillaStateMaintenanceInput,
     VanillaStateMaintenanceProvinceInputState, VanillaStateMaintenanceResult,
@@ -149,23 +155,23 @@ pub use augustus_core::{
     calculate_vanilla_derived_modifier, calculate_vanilla_estate_influence_scale,
     calculate_vanilla_force_limit, calculate_vanilla_fort_maintenance, calculate_vanilla_gold_base,
     calculate_vanilla_gold_production, calculate_vanilla_gold_production_for_country,
-    calculate_vanilla_production_for_country, calculate_vanilla_state_maintenance,
-    calculate_vanilla_state_maintenance_for_country, calculate_vanilla_trade_caravan,
-    calculate_vanilla_trade_country_power_share, calculate_vanilla_trade_distribution,
-    calculate_vanilla_trade_good_price, calculate_vanilla_trade_good_price_table,
-    calculate_vanilla_trade_goods_size, calculate_vanilla_trade_income,
-    calculate_vanilla_trade_income_pass, calculate_vanilla_trade_node_country_value_share,
-    calculate_vanilla_trade_node_income_pass, calculate_vanilla_trade_node_pass,
-    calculate_vanilla_trade_node_pass_from_retention_sources, calculate_vanilla_trade_outflow,
-    calculate_vanilla_trade_power_amount, calculate_vanilla_trade_power_modifier,
-    calculate_vanilla_trade_propagation, calculate_vanilla_trade_retention,
-    calculate_vanilla_trade_retention_from_pools, calculate_vanilla_trade_retention_from_sources,
-    calculate_vanilla_trade_retention_pass, calculate_vanilla_trade_route_weight_pass,
-    calculate_vanilla_trade_route_weight_pass_from_rows, calculate_vanilla_trade_route_weights,
-    calculate_vanilla_trade_steering_modifier, calculate_vanilla_unit_production_quantity,
-    country_ledger_expense_key, country_ledger_income_key, is_vanilla_trade_collector,
-    is_vanilla_trade_steering_eligible, select_vanilla_trade_distribution_candidates,
-    sort_vanilla_trade_candidates,
+    calculate_vanilla_naval_construction_time, calculate_vanilla_production_for_country,
+    calculate_vanilla_state_maintenance, calculate_vanilla_state_maintenance_for_country,
+    calculate_vanilla_trade_caravan, calculate_vanilla_trade_country_power_share,
+    calculate_vanilla_trade_distribution, calculate_vanilla_trade_good_price,
+    calculate_vanilla_trade_good_price_table, calculate_vanilla_trade_goods_size,
+    calculate_vanilla_trade_income, calculate_vanilla_trade_income_pass,
+    calculate_vanilla_trade_node_country_value_share, calculate_vanilla_trade_node_income_pass,
+    calculate_vanilla_trade_node_pass, calculate_vanilla_trade_node_pass_from_retention_sources,
+    calculate_vanilla_trade_outflow, calculate_vanilla_trade_power_amount,
+    calculate_vanilla_trade_power_modifier, calculate_vanilla_trade_propagation,
+    calculate_vanilla_trade_retention, calculate_vanilla_trade_retention_from_pools,
+    calculate_vanilla_trade_retention_from_sources, calculate_vanilla_trade_retention_pass,
+    calculate_vanilla_trade_route_weight_pass, calculate_vanilla_trade_route_weight_pass_from_rows,
+    calculate_vanilla_trade_route_weights, calculate_vanilla_trade_steering_modifier,
+    calculate_vanilla_unit_production_quantity, country_ledger_expense_key,
+    country_ledger_income_key, is_vanilla_trade_collector, is_vanilla_trade_steering_eligible,
+    select_vanilla_trade_distribution_candidates, sort_vanilla_trade_candidates,
 };
 pub use augustus_core::{
     VanillaNativeMigrationGateInput, VanillaNativeMigrationGateResult,

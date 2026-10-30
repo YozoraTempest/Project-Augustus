@@ -48,6 +48,7 @@ mod native_migration_score;
 mod native_migration_state;
 mod native_migration_transfer;
 mod naval;
+mod naval_construction_time;
 mod naval_constructions;
 mod objectives;
 mod owner_area_adjacencies;
@@ -211,6 +212,10 @@ pub use native_migration_transfer::{
     VanillaNativeMigrationTransferInput, VanillaNativeMigrationTransferResult,
 };
 pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId, NavalUnitState};
+pub use naval_construction_time::{
+    VanillaNavalConstructionTimeInput, VanillaNavalConstructionTimeResult,
+    calculate_vanilla_naval_construction_time,
+};
 pub use naval_constructions::{
     NavalConstructionId, NavalConstructionInput, NavalConstructionOrder,
     NavalConstructionOrderView, PaidNavalConstructionInput,
