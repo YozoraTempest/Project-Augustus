@@ -96,7 +96,9 @@ pub use production_queries::{
     VanillaProductionCountryQuery, VanillaProductionCountryQueryReport,
 };
 pub use production_value_queries::{
-    VanillaProvinceProductionBaseValueQuery, VanillaProvinceProductionBaseValueQueryReport,
+    VanillaProvinceContentProductionGoodsSizeQuery,
+    VanillaProvinceContentProductionGoodsSizeQueryReport, VanillaProvinceProductionBaseValueQuery,
+    VanillaProvinceProductionBaseValueQueryReport,
 };
 mod politics;
 mod province_map;

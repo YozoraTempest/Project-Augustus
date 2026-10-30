@@ -26,7 +26,7 @@ use augustus_core::{
     calculate_vanilla_native_growth_cache, calculate_vanilla_native_migration_cost,
     calculate_vanilla_native_migration_gate, calculate_vanilla_production_base_value,
     calculate_vanilla_state_maintenance, calculate_vanilla_trade_good_price,
-    calculate_vanilla_trade_good_price_table, calculate_vanilla_trade_goods_size,
+    calculate_vanilla_trade_good_price_table,
 };
 use jomini::{
     Encoding,
@@ -6038,7 +6038,7 @@ impl VanillaWorld {
     /// A missing technology value remains an unresolved production row. This
     /// method does not infer province quantity or modifier slots; callers must
     /// still provide those values from a verified compatibility source.
-    fn country_production_efficiency_milli(
+    pub(crate) fn country_production_efficiency_milli(
         &self,
         entity: augustus_core::EntityId,
         province: u32,
@@ -6169,26 +6169,15 @@ impl VanillaWorld {
         &mut self,
         inputs: BTreeMap<u32, VanillaContentProductionGoodsSizeInput>,
     ) -> Result<(), augustus_core::Error> {
-        let value_inputs = inputs
+        let resolved = inputs
             .into_iter()
             .map(|(province, source)| {
-                let goods_size_milli =
-                    calculate_vanilla_trade_goods_size(source.goods_size_input).quantity_milli;
-                (
-                    province,
-                    VanillaContentProductionValueInput {
-                        goods_size_milli,
-                        flat_modifier_milli: source.flat_modifier_milli,
-                        external_flat_modifier_milli: source.external_flat_modifier_milli,
-                        rate_modifier_milli: source.rate_modifier_milli,
-                        external_rate_modifier_milli: source.external_rate_modifier_milli,
-                        legacy_province_modifier_milli: source.legacy_province_modifier_milli,
-                        queried_province_modifier_milli: source.queried_province_modifier_milli,
-                    },
-                )
+                let resolution =
+                    self.resolve_vanilla_content_production_goods_size(province, source)?;
+                Ok((province, resolution.production_input))
             })
-            .collect();
-        self.set_vanilla_production_inputs_from_loaded_content(value_inputs)
+            .collect::<Result<BTreeMap<_, _>, augustus_core::Error>>()?;
+        self.set_vanilla_production_inputs(resolved)
     }
 
     /// Binds or refreshes production inputs whose value stage still needs the

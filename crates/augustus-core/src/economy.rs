@@ -116,7 +116,7 @@ pub struct VanillaTradeGoodsSizeInput {
     pub external_modifier_milli: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct VanillaTradeGoodsSizeResult {
     pub combined_base_milli: i32,
     pub combined_modifier_milli: i32,

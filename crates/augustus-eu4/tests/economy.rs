@@ -14,10 +14,11 @@ use augustus_eu4::{
     VanillaExternalProductionInput, VanillaExternalState, VanillaFortMaintenanceContextInput,
     VanillaFortMaintenanceInput, VanillaGoldProductionCountryQuery, VanillaGoldProductionInput,
     VanillaGoldProductionInputState, VanillaProductionCountryQuery, VanillaProductionInputState,
-    VanillaProvinceProductionBaseValueInput, VanillaProvinceProductionBaseValueQuery,
-    VanillaProvinceStateMaintenanceInput, VanillaStateMaintenanceContentQuery,
-    VanillaStateMaintenanceDirectQuery, VanillaStateMaintenanceQuery,
-    VanillaStateMaintenanceQueryMode, VanillaTradeGoodsSizeInput, VanillaWorld,
+    VanillaProvinceContentProductionGoodsSizeQuery, VanillaProvinceProductionBaseValueInput,
+    VanillaProvinceProductionBaseValueQuery, VanillaProvinceStateMaintenanceInput,
+    VanillaStateMaintenanceContentQuery, VanillaStateMaintenanceDirectQuery,
+    VanillaStateMaintenanceQuery, VanillaStateMaintenanceQueryMode, VanillaTradeGoodsSizeInput,
+    VanillaWorld,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1624,6 +1625,87 @@ fn content_goods_size_stage_feeds_loaded_content_production() {
             .unresolved
             .is_empty()
     );
+}
+
+#[test]
+fn content_goods_size_query_previews_the_same_loaded_content_binding() {
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let query = VanillaProvinceContentProductionGoodsSizeQuery {
+        province: 2,
+        input: VanillaContentProductionGoodsSizeInput {
+            goods_size_input: VanillaTradeGoodsSizeInput {
+                province_base_milli: 800,
+                trade_good_base_milli: 0,
+                external_base_milli: 0,
+                province_modifier_milli: 44,
+                trade_good_modifier_milli: 0,
+                external_modifier_milli: 0,
+            },
+            flat_modifier_milli: 0,
+            external_flat_modifier_milli: 0,
+            rate_modifier_milli: 0,
+            external_rate_modifier_milli: 0,
+            legacy_province_modifier_milli: 0,
+            queried_province_modifier_milli: 0,
+        },
+    };
+    let report = loaded
+        .query_vanilla_content_production_goods_size(&query)
+        .unwrap();
+    assert_eq!(report.goods_size.quantity_milli, 835);
+    assert_eq!(report.value.unwrap().value_milli, 2_505);
+    assert_eq!(
+        report.production_input.input.unwrap().base_value_milli,
+        2_505
+    );
+    assert!(report.unresolved.is_empty());
+
+    let missing = loaded
+        .query_vanilla_content_production_goods_size(
+            &VanillaProvinceContentProductionGoodsSizeQuery {
+                province: 4,
+                input: query.input,
+            },
+        )
+        .unwrap();
+    assert_eq!(missing.value, None);
+    assert_eq!(missing.production_input.input, None);
+    assert_eq!(
+        missing.unresolved,
+        vec![
+            "country_production_efficiency:unknown_owner",
+            "trade_good_price:unknown"
+        ]
+    );
+}
+
+#[test]
+fn content_goods_size_query_rejects_unknown_fields() {
+    let error = serde_json::from_value::<VanillaProvinceContentProductionGoodsSizeQuery>(
+        serde_json::json!({
+            "province": 2,
+            "input": {
+                "goods_size_input": {
+                    "province_base_milli": 800,
+                    "trade_good_base_milli": 0,
+                    "external_base_milli": 0,
+                    "province_modifier_milli": 44,
+                    "trade_good_modifier_milli": 0,
+                    "external_modifier_milli": 0
+                },
+                "flat_modifier_milli": 0,
+                "external_flat_modifier_milli": 0,
+                "rate_modifier_milli": 0,
+                "external_rate_modifier_milli": 0,
+                "legacy_province_modifier_milli": 0,
+                "queried_province_modifier_milli": 0,
+                "unexpected": true
+            }
+        }),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("unknown field"));
 }
 
 #[test]
