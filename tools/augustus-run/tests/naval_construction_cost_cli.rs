@@ -278,3 +278,62 @@ fn invalid_cost_queries_and_defines_fail_before_snapshot_creation() {
     assert!(error.contains("defines.lua"), "{error}");
     assert!(!snapshot.exists());
 }
+
+#[test]
+fn force_limit_queries_use_explicit_inputs_and_preserve_snapshot_bytes() {
+    let temp = tempfile::tempdir().unwrap();
+    let (game, source) = fixture(temp.path());
+    let queries = temp.path().join("force-limit-queries.json");
+    fs::write(
+        &queries,
+        serde_json::to_vec(&serde_json::json!([
+            {
+                "country": "AAA",
+                "base_milli": 17000,
+                "flat_modifier_milli": 746,
+                "percentage_modifier_milli": 0
+            },
+            {
+                "country": "AAA",
+                "base_milli": 17000,
+                "flat_modifier_milli": null,
+                "percentage_modifier_milli": 0
+            }
+        ]))
+        .unwrap(),
+    )
+    .unwrap();
+    let baseline = temp.path().join("force-baseline.json");
+    report(
+        command(&game, &source, 0)
+            .arg("--save")
+            .arg(&baseline)
+            .output()
+            .unwrap(),
+    );
+    let queried = report(
+        command(&game, &source, 0)
+            .arg("--naval-force-limit-queries")
+            .arg(&queries)
+            .arg("--save")
+            .arg(temp.path().join("force-queried.json"))
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        queried["naval_force_limit_queries"][0]["evaluation"]["force_limit_milli"],
+        17000
+    );
+    assert_eq!(
+        queried["naval_force_limit_queries"][1]["evaluation"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        queried["naval_force_limit_queries"][1]["unresolved"][0],
+        "naval_force_limit:missing_input:flat_modifier_milli"
+    );
+    assert_eq!(
+        fs::read(baseline).unwrap(),
+        fs::read(temp.path().join("force-queried.json")).unwrap()
+    );
+}

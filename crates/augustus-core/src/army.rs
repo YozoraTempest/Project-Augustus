@@ -80,7 +80,7 @@ pub struct VanillaForceLimitInput {
     pub percentage_modifier_milli: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct VanillaForceLimitResult {
     pub base_with_flat_modifier_milli: i32,
     pub scale_factor_milli: i32,

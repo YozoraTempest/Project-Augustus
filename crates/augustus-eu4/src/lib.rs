@@ -61,6 +61,7 @@ mod naval_construction_requests;
 mod naval_construction_time_defines;
 mod naval_construction_time_queries;
 mod naval_constructions;
+mod naval_force_limit_queries;
 mod navy_tradition;
 mod power_income;
 mod prestige;
@@ -83,6 +84,9 @@ pub use naval_constructions::{
     read_vanilla_naval_constructions_for_queue_import_with_token_resolver,
     read_vanilla_naval_constructions_with_token_map,
     read_vanilla_naval_constructions_with_token_resolver,
+};
+pub use naval_force_limit_queries::{
+    VanillaNavalForceLimitQuery, VanillaNavalForceLimitQueryReport,
 };
 mod politics;
 mod province_map;

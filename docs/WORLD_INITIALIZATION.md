@@ -82,6 +82,8 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 该查询保留有效定义的 Mod 覆盖和来源。非法定义只在使用成本查询时带来源报错；查询及解析失败不会创建快照。查询不扣费或入队；调用者可将解析成功的 `cost_milli` 放入下述显式订单请求，并继续单独提供完成日和资格。程序入口为 `VanillaWorld::query_naval_construction_cost`，核心入口为 `calculate_vanilla_naval_construction_cost`。本功能只计算普通限额内成本，不涵盖超限放大、特殊 flags、其他舰型或完整生产资格，也不证明原版负值或溢出行为；支持域内使用受检查的整数计算。
 
+海军力限也可通过 `--naval-force-limit-queries queries.json` 查询。该入口只接受调用者完整解析的 `base_milli`、`flat_modifier_milli` 和 `percentage_modifier_milli`，显式 `0` 是有效输入，缺项返回 `evaluation: null` 与对应 `naval_force_limit:missing_input:*`。它只校验国家标签并委托 `calculate_vanilla_force_limit`，不会把 `country_attributes` 的部分 subtotal、发展度、自治、建筑或港口状态自动升级成完整限额，也不会写入快照或修改建船报价。程序入口为 `VanillaWorld::query_naval_force_limit`。
+
 两种查询的修正字段对应以下内容属性；表中的值均指完整修正总量，单位为千分位。字段名称沿用现有 JSON 契约。
 
 | 查询 | 输入字段 | 对应内容属性 |
