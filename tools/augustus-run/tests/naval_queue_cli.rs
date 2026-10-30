@@ -193,6 +193,128 @@ fn classified_fifo_requests_resume_without_duplicate_ledger_expenses() {
 }
 
 #[test]
+fn cancellation_runs_after_restore_without_refund_and_rejects_invalid_files_without_save() {
+    let temp = tempfile::tempdir().unwrap();
+    let game = temp.path().join("game");
+    copy_directory(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world"),
+        &game,
+    );
+    let map = game.join("map/default.map");
+    fs::write(
+        &map,
+        format!(
+            "{}\nforce_coastal={{1 2}}\n",
+            fs::read_to_string(&map).unwrap()
+        ),
+    )
+    .unwrap();
+    let source = temp.path().join("baseline.eu4");
+    fs::write(&source, "EU4txt\ndate=1444.11.11\nplayer=AAA\ncountries={AAA={treasury=20.000} BBB={}}\nprovinces={-1={owner=AAA controller=AAA} -2={owner=AAA controller=AAA}}\n").unwrap();
+    let requests = temp.path().join("requests.json");
+    fs::write(
+        &requests,
+        serde_json::to_vec(&serde_json::json!([
+            {"country":"AAA","province_id":1,"unit_type":"sample_light_ship","completion_day":3,"cost_milli":5000},
+            {"country":"AAA","province_id":2,"unit_type":"sample_light_ship","completion_day":2,"cost_milli":1000},
+            {"country":"AAA","province_id":1,"unit_type":"sample_light_ship","completion_day":2,"cost_milli":2000}
+        ]))
+        .unwrap(),
+    )
+    .unwrap();
+    let pending_path = temp.path().join("pending.json");
+    let mut submit = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+    submit
+        .arg("--game-root")
+        .arg(&game)
+        .arg("--eu4-save")
+        .arg(&source)
+        .args([
+            "--country",
+            "AAA",
+            "--show-naval-constructions",
+            "--days",
+            "2",
+        ])
+        .arg("--naval-construction-queues")
+        .arg(&requests)
+        .arg("--save")
+        .arg(&pending_path);
+    let output = submit.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let pending: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(pending["country"]["resources"]["treasury_milli"], 12_000);
+    assert_eq!(pending["naval_construction_orders"][0]["id"], 0);
+    assert_eq!(pending["naval_construction_orders"][1]["id"], 2);
+
+    let cancel_ids = temp.path().join("cancel.json");
+    fs::write(&cancel_ids, b"[0]").unwrap();
+    let cancelled_path = temp.path().join("cancelled.json");
+    let mut cancel = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+    cancel
+        .arg("--game-root")
+        .arg(&game)
+        .arg("--eu4-save")
+        .arg(&source)
+        .args([
+            "--country",
+            "AAA",
+            "--show-naval-constructions",
+            "--days",
+            "1",
+        ])
+        .arg("--load")
+        .arg(&pending_path)
+        .arg("--cancel-naval-constructions")
+        .arg(&cancel_ids)
+        .arg("--save")
+        .arg(&cancelled_path);
+    let output = cancel.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cancelled: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        cancelled["cancelled_naval_constructions"],
+        serde_json::json!([0])
+    );
+    assert_eq!(cancelled["simulation"]["naval_units"], 1);
+    assert_eq!(cancelled["country"]["resources"]["treasury_milli"], 12_000);
+    assert_eq!(cancelled["naval_construction_orders"][0]["id"], 2);
+    assert_eq!(
+        cancelled["naval_construction_orders"][0]["completion_day"],
+        4
+    );
+
+    for (name, ids) in [("duplicate", "[2,2]"), ("unknown", "[999]")] {
+        let invalid_ids = temp.path().join(format!("{name}.json"));
+        fs::write(&invalid_ids, ids).unwrap();
+        let invalid_save = temp.path().join(format!("{name}.save"));
+        let mut invalid = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+        invalid
+            .arg("--game-root")
+            .arg(&game)
+            .arg("--eu4-save")
+            .arg(&source)
+            .arg("--load")
+            .arg(&pending_path)
+            .arg("--cancel-naval-constructions")
+            .arg(&invalid_ids)
+            .arg("--save")
+            .arg(&invalid_save);
+        let output = invalid.output().unwrap();
+        assert!(!output.status.success(), "{name}");
+        assert!(!invalid_save.exists(), "{name}");
+    }
+}
+
+#[test]
 fn submission_modes_are_exclusive_and_ledger_requires_a_request_file() {
     let game = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();
@@ -212,6 +334,16 @@ fn submission_modes_are_exclusive_and_ledger_requires_a_request_file() {
             vec!["--naval-construction-ledger"],
             "required arguments were not provided",
         ),
+        (
+            "cancel-and-submit",
+            vec![
+                "--cancel-naval-constructions",
+                "cancel.json",
+                "--naval-constructions",
+                "submit.json",
+            ],
+            "cannot be used with",
+        ),
     ] {
         let path = temp.path().join(format!("{name}.json"));
         let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
@@ -225,8 +357,15 @@ fn submission_modes_are_exclusive_and_ledger_requires_a_request_file() {
         assert!(!output.status.success());
         let error = String::from_utf8_lossy(&output.stderr);
         assert!(error.contains(expected), "{error}");
-        assert!(error.contains("--naval-constructions"), "{error}");
-        assert!(error.contains("--naval-construction-queues"), "{error}");
+        if name == "both" {
+            assert!(error.contains("--naval-constructions"), "{error}");
+            assert!(error.contains("--naval-construction-queues"), "{error}");
+        } else if name == "ledger-alone" {
+            assert!(error.contains("--naval-construction-ledger"), "{error}");
+        } else {
+            assert!(error.contains("--cancel-naval-constructions"), "{error}");
+            assert!(error.contains("--naval-constructions"), "{error}");
+        }
         assert!(!path.exists());
     }
 }

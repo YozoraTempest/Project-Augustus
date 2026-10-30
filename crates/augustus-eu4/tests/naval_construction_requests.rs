@@ -158,6 +158,74 @@ fn explicit_paid_order_is_charged_once_and_survives_snapshot_restore() {
 }
 
 #[test]
+fn cancellation_preserves_explicit_costs_and_ledger_across_restore() {
+    let (directory, content) = fixture_with_content();
+    let save_path = write_save(directory.path(), "baseline-cancel.eu4", "");
+    let mut world = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+    let mut second = request(1, 1_000);
+    second.completion_day = 4;
+    let ids = world
+        .submit_naval_construction_queues_with_ledger(&[request(1, 5_000), second])
+        .unwrap();
+    assert_eq!(ids, [NavalConstructionId(0), NavalConstructionId(1)]);
+    let treasury_after_submit = treasury(&world);
+    let ledger_after_submit = world.initial.world().country_ledgers().clone();
+    let snapshot = world.save().unwrap();
+
+    let mut resumed = VanillaWorld::load_from_content_with_save(&content, &save_path).unwrap();
+    resumed.restore(&snapshot).unwrap();
+    let before_invalid = resumed.save().unwrap();
+    assert!(
+        resumed
+            .cancel_naval_constructions(&[NavalConstructionId(0), NavalConstructionId(0)])
+            .is_err()
+    );
+    assert_eq!(resumed.save().unwrap(), before_invalid);
+    assert!(
+        resumed
+            .cancel_naval_constructions(&[NavalConstructionId(0), NavalConstructionId(99)])
+            .is_err()
+    );
+    assert_eq!(resumed.save().unwrap(), before_invalid);
+
+    world
+        .cancel_naval_constructions(&[NavalConstructionId(0)])
+        .unwrap();
+    resumed
+        .cancel_naval_constructions(&[NavalConstructionId(0)])
+        .unwrap();
+    assert_eq!(resumed.save().unwrap(), world.save().unwrap());
+    assert_eq!(treasury(&world), treasury_after_submit);
+    assert_eq!(
+        world.initial.world().country_ledgers(),
+        &ledger_after_submit
+    );
+    assert_eq!(pending_count(&world), 1);
+    assert_eq!(
+        world
+            .initial
+            .world()
+            .naval_construction_views()
+            .next()
+            .unwrap()
+            .order
+            .id,
+        NavalConstructionId(1)
+    );
+    assert_eq!(
+        world
+            .initial
+            .world()
+            .naval_construction_views()
+            .next()
+            .unwrap()
+            .order
+            .completion_day,
+        4
+    );
+}
+
+#[test]
 fn ledger_submit_records_fleet_expense_once_and_survives_restore() {
     let (directory, content) = fixture_with_content();
     let save_path = write_save(directory.path(), "baseline-ledger.eu4", "");

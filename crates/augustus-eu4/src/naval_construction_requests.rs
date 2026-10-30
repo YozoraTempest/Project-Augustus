@@ -27,6 +27,16 @@ pub struct VanillaNavalConstructionRequest {
 }
 
 impl VanillaWorld {
+    /// Cancels caller-resolved pending naval orders by stable Augustus IDs.
+    ///
+    /// Cancellation removes the pending orders without refunding their explicit
+    /// costs or reversing any ledger expense.
+    pub fn cancel_naval_constructions(&mut self, ids: &[NavalConstructionId]) -> Result<(), Error> {
+        self.initial
+            .cancel_naval_constructions(ids)
+            .map_err(|error| Error::caused_by("naval construction cancellation", error))
+    }
+
     /// Atomically applies caller-supplied costs and enqueues supported naval orders.
     ///
     /// Orders require the loaded country, the province's current core owner, its

@@ -40,7 +40,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
 
 程序调用者可用 `read_vanilla_naval_constructions_for_queue_import`（以及 token-map、token-resolver 版本）读取这种等待项，再传给 `import_naval_construction_queues`。现有 `read_vanilla_naval_constructions` 和默认 loader 继续保留严格字段要求；CLI 使用严格结果建立基线，再单独读取显式队列输入，保持旧快照的内容指纹。
 
-已导入订单沿用保存的计划日期，经过该日期后才完成。保存的 `progress` 和 `cost` 只保留为诊断信息，不用于重算工期或扣费。同省队列保留存档记录的先后顺序：每日先检查队首，首个未完成订单后的订单各顺延一天；首单完成并移除后，当天重新检查下一单。不同省份独立推进。到期时创建一艘舰船及其单舰队，并清理对应订单。入队、读档和完工都不会再次收取原建造费。舰船沿用订单的国家、位置和类型，母港为建造省份；未提供的名称和士气保持未知。这个通路不计算新订单价格或工期，围城暂停、取消、所有权变化及其他生产类别仍待接入。FIFO 路径已通过自制队列及保存恢复测试；两条受控海军订单还经过原版实机逐日观察、保存、重载及完成对照。这验证了受控输入下的排队和续建，尚不覆盖自然生产命令创建多订单、其他舰型及全部游戏条件。
+已导入订单沿用保存的计划日期，经过该日期后才完成。保存的 `progress` 和 `cost` 只保留为诊断信息，不用于重算工期或扣费。同省队列保留存档记录的先后顺序：每日先检查队首，首个未完成订单后的订单各顺延一天；首单完成并移除后，当天重新检查下一单。不同省份独立推进。到期时创建一艘舰船及其单舰队，并清理对应订单。入队、读档和完工都不会再次收取原建造费。舰船沿用订单的国家、位置和类型，母港为建造省份；未提供的名称和士气保持未知。该通路不计算新订单价格或工期，也不从原版状态推断暂停、所有权变化或其他生产类别规则。FIFO 路径已通过自制队列及保存恢复测试；两条受控海军订单还经过原版实机逐日观察、保存、重载及完成对照。这验证了受控输入下的排队和续建，尚不覆盖自然生产命令创建多订单、其他舰型及全部游戏条件。
 
 未完成订单、内部标识、当前完成日及 FIFO 队列标记保存在 Augustus 快照中。恢复后继续推进，与从相同输入连续运行的结果一致；完工后的订单不会重新入队。旧快照缺少 FIFO 标记时继续使用独立绝对完成日语义；原有 `enqueue_naval_constructions`、paid API 与显式新订单请求也保持这一语义。需要显式导入有序队列的核心调用者可使用 `enqueue_naval_construction_queues`，要求相应地点没有既存待完成订单。导入报告描述本次载入及显式导入结果，恢复快照后的当前订单数以 `simulation.pending_naval_constructions` 为准。`--export-external-state` 仍导出既有状态包字段，不携带这组订单数据；需要保存续建进度时使用 `--save` / `--load`，并提供相同的 EU4 存档基线。恢复已有 FIFO 队列无需再次添加导入开关，队列标记和顺延后的日期会从快照恢复。
 
@@ -78,6 +78,8 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 `--naval-construction-queues` 与 `--naval-constructions` 互斥。所有涉及的港口必须没有既存待完成订单；已有独立订单或 FIFO 队列都会使整批提交失败。本入口不会将已有独立订单提升为队列，也不追加已有队列。同一批次中只有一笔订单的港口保持独立完成日表示。`completion_day` 是提交时提供的当前绝对完成日，等待项会随 FIFO 等待逐日顺延；上例从 day 0 提交并连续推进时，第一单在 day 3 完成，第二单在 day 4 完成。所有价格仍由调用者明确给出，提交、扣费和 FIFO 标记作为一次原子事务完成，任何项失败都保持订单、标识和资源不变。
 
 程序调用者可使用 `VanillaWorld::submit_naval_construction_queues` 或 `submit_naval_construction_queues_with_ledger`；对应核心入口为 `World` / `InitialWorld` 的 `enqueue_paid_naval_construction_queues` 与 `enqueue_naval_construction_queues_with_expenses`。保存与恢复使用现有快照中的队列状态；恢复进度时省略请求文件，避免再次提交。`--show-naval-constructions` 可查看提交和推进后的当前 FIFO 位置。
+
+需要显式取消待完成订单时，使用 `--cancel-naval-constructions ids.json`，文件内容是 Augustus 订单 ID 的 JSON 数组，例如 `[0, 2]`。取消在 `--load` 恢复之后、`--days` 推进之前执行；订单 ID 必须唯一且仍处于待完成状态，空数组为空操作。整批校验通过后才会删除订单及对应 FIFO 标记，队列位置会按剩余订单自然重编号；剩余订单已经保存的当前完成日不会回拨。取消不会退还提交时的费用，也不会反向修改 `CountryLedger`。未知、重复或已完成 ID 会使整批操作失败，并保持订单、FIFO 标记、资源、分类账和快照文件不变。该选项与 `--naval-constructions`、`--naval-construction-queues` 及 `--naval-construction-ledger` 互斥；可以单独配合 `--load`、`--days` 和 `--show-naval-constructions` 使用。核心调用者可直接使用 `World::cancel_naval_constructions`、`InitialWorld::cancel_naval_constructions` 或 `VanillaWorld::cancel_naval_constructions`。
 
 需要将本次费用登记为舰船建设支出时，在普通请求或 FIFO 请求选项之外同时传入 `--naval-construction-ledger`；单独提供分类账开关会报缺少请求文件。此模式使用 `EXPENSEFLEET` 类别，要求相关国家国库余额已知；它将费用计入分类项、来源、累计及辅助支出向量，同时扣减国库并入队。整批操作原子提交，分类账溢出或任何订单错误都不会留下部分扣费或账目。没有分类账时，沿用即时支出 API 的空账初始化规则，只记录本次费用，不重建历史账目。即时费用不增加待结算余额，保存恢复和完工也不会再次记账。恢复已有订单时无需再传请求选项和分类账开关。
 

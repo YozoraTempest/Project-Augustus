@@ -3,8 +3,9 @@
 
 use augustus_core::{
     CountryLedgerAnnualRollover, CountryLedgerMonthlyConsolidation, CountryLedgerPendingFlush,
-    MonthlyEconomy, MonthlyPipeline, VanillaNativeMigrationScoreCandidateInput,
-    calculate_vanilla_native_migration_score, select_vanilla_native_migration_candidate,
+    MonthlyEconomy, MonthlyPipeline, NavalConstructionId,
+    VanillaNativeMigrationScoreCandidateInput, calculate_vanilla_native_migration_score,
+    select_vanilla_native_migration_candidate,
 };
 use augustus_eu4::{ContentSet, TextEncoding, VanillaExternalState, VanillaWorld};
 use clap::Parser;
@@ -63,6 +64,20 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     naval_construction_queues: Option<PathBuf>,
+    /// Cancel pending naval orders by a JSON array of stable Augustus IDs.
+    /// Cancellation runs after --load and before --days, without refunding
+    /// costs or reversing ledger expenses.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with_all = [
+            "naval_constructions",
+            "naval_construction_queues",
+            "naval_construction_ledger",
+            "compare_administration_save"
+        ]
+    )]
+    cancel_naval_constructions: Option<PathBuf>,
     /// Import saved multi-order naval queues before --load and --days.
     /// Accepts omitted zero progress on waiting orders.
     #[arg(
@@ -450,6 +465,18 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     if cli.load.is_some() {
         loaded.restore(load_snapshot.as_deref().expect("snapshot was loaded"))?;
     }
+    let cancelled_naval_constructions = cli
+        .cancel_naval_constructions
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let ids = serde_json::from_slice::<Vec<u64>>(&std::fs::read(path)?)?
+                .into_iter()
+                .map(NavalConstructionId)
+                .collect::<Vec<_>>();
+            loaded.cancel_naval_constructions(&ids)?;
+            Ok(ids)
+        })
+        .transpose()?;
     let submitted_naval_constructions = cli
         .naval_constructions
         .as_ref()
@@ -622,6 +649,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(ids) = submitted_naval_constructions {
         output["submitted_naval_constructions"] = serde_json::to_value(ids)?;
+    }
+    if let Some(ids) = cancelled_naval_constructions {
+        output["cancelled_naval_constructions"] = serde_json::to_value(ids)?;
     }
     if !loaded.initial.world().country_controllers().is_empty() {
         output["country_controllers"] = serde_json::json!(

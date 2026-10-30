@@ -106,6 +106,28 @@ impl NavalConstructions {
         Ok(ids)
     }
 
+    pub(crate) fn cancel_validated(&mut self, ids: &[NavalConstructionId]) -> Result<(), Error> {
+        let requested = ids.iter().copied().collect::<BTreeSet<_>>();
+        if requested.len() != ids.len() {
+            return Err(Error::Invalid(
+                "naval construction cancellation contains duplicate identifiers".into(),
+            ));
+        }
+        let pending = self
+            .orders
+            .iter()
+            .map(|order| order.id)
+            .collect::<BTreeSet<_>>();
+        if requested.iter().any(|id| !pending.contains(id)) {
+            return Err(Error::Invalid(
+                "naval construction cancellation references an unknown or completed order".into(),
+            ));
+        }
+        self.orders.retain(|order| !requested.contains(&order.id));
+        self.fifo_order_ids.retain(|id| !requested.contains(id));
+        Ok(())
+    }
+
     fn take_due(
         &mut self,
         day: u64,
@@ -243,6 +265,18 @@ impl World {
     ) -> Result<Vec<NavalConstructionId>, Error> {
         self.validate_naval_construction_inputs(inputs)?;
         self.naval_constructions.enqueue_validated(inputs)
+    }
+
+    /// Atomically cancels pending orders by their stable Augustus identifiers.
+    ///
+    /// Cancellation removes only the pending order and its FIFO marker. It does
+    /// not refund caller-supplied costs or reverse any ledger expense, and it
+    /// does not change the current completion day of remaining orders. Empty
+    /// input is a no-op; duplicate, unknown, or already completed identifiers
+    /// reject the whole batch without mutating the world.
+    pub fn cancel_naval_constructions(&mut self, ids: &[NavalConstructionId]) -> Result<(), Error> {
+        self.require_running()?;
+        self.naval_constructions.cancel_validated(ids)
     }
 
     /// Atomically imports per-location FIFO queues in the supplied order.

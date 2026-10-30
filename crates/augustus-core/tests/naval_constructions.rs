@@ -1546,3 +1546,164 @@ fn paid_fifo_queue_preserves_unknown_treasury_delta_without_ledger() {
         [Some(1), Some(2)]
     );
 }
+
+#[test]
+fn cancelling_fifo_orders_removes_head_tail_and_middle_atomically() {
+    let (mut world, owner, port) = fixture();
+    world
+        .enqueue_naval_construction_queues(&[
+            input(owner, port, "head_hull", 4),
+            input(owner, port, "middle_hull", 1),
+            input(owner, port, "cancelled_hull", 1),
+            input(owner, port, "tail_hull", 5),
+        ])
+        .unwrap();
+
+    world.advance_to(1).unwrap();
+    assert_eq!(
+        world
+            .naval_constructions()
+            .iter()
+            .map(|order| (order.id, order.completion_day))
+            .collect::<Vec<_>>(),
+        [
+            (NavalConstructionId(0), 4),
+            (NavalConstructionId(1), 2),
+            (NavalConstructionId(2), 2),
+            (NavalConstructionId(3), 6),
+        ]
+    );
+
+    let snapshot = world.save("cancel-fifo").unwrap();
+    let mut resumed = World::restore(&snapshot, "cancel-fifo", world.schema()).unwrap();
+    world
+        .cancel_naval_constructions(&[NavalConstructionId(0), NavalConstructionId(2)])
+        .unwrap();
+    resumed
+        .cancel_naval_constructions(&[NavalConstructionId(0), NavalConstructionId(2)])
+        .unwrap();
+    assert_eq!(resumed, world);
+    assert_eq!(
+        world
+            .naval_construction_views()
+            .map(|view| (
+                view.order.id,
+                view.queue_position,
+                view.order.completion_day
+            ))
+            .collect::<Vec<_>>(),
+        [
+            (NavalConstructionId(1), Some(1), 2),
+            (NavalConstructionId(3), Some(2), 6),
+        ]
+    );
+
+    world
+        .cancel_naval_constructions(&[NavalConstructionId(3)])
+        .unwrap();
+    assert_eq!(
+        world
+            .naval_construction_views()
+            .map(|view| (
+                view.order.id,
+                view.queue_position,
+                view.order.completion_day
+            ))
+            .collect::<Vec<_>>(),
+        [(NavalConstructionId(1), Some(1), 2)]
+    );
+    world.advance_to(2).unwrap();
+    assert_eq!(world.naval_units().len(), 1);
+    assert_eq!(world.naval_units()[0].unit_type, "middle_hull");
+    assert!(world.naval_constructions().is_empty());
+}
+
+#[test]
+fn cancelling_orders_does_not_refund_resources_or_reverse_ledger() {
+    let (mut world, owner, port) = fixture();
+    world
+        .set_country_resources(
+            [(
+                owner,
+                CountryResources {
+                    treasury_milli: Some(1_000),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    world
+        .set_country_ledgers(
+            [(
+                owner,
+                CountryLedger {
+                    pending_milli: 30,
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        )
+        .unwrap();
+    world
+        .enqueue_naval_construction_queues_with_expenses(
+            &[
+                paid_input(owner, port, "cancelled_hull", 3, 75),
+                paid_input(owner, port, "remaining_hull", 4, 25),
+            ],
+            27,
+        )
+        .unwrap();
+    let resources = world.country_resources().clone();
+    let ledgers = world.country_ledgers().clone();
+
+    world
+        .cancel_naval_constructions(&[NavalConstructionId(0)])
+        .unwrap();
+    assert_eq!(world.country_resources(), &resources);
+    assert_eq!(world.country_ledgers(), &ledgers);
+    assert_eq!(
+        world
+            .naval_constructions()
+            .iter()
+            .map(|order| order.id)
+            .collect::<Vec<_>>(),
+        [NavalConstructionId(1)]
+    );
+}
+
+#[test]
+fn invalid_cancellation_batches_are_atomic_and_empty_is_a_noop() {
+    let (mut world, owner, port) = fixture();
+    world
+        .enqueue_naval_construction_queues(&[
+            input(owner, port, "first_hull", 3),
+            input(owner, port, "second_hull", 4),
+        ])
+        .unwrap();
+    let before = world.save("cancel-invalid").unwrap();
+
+    assert!(
+        world
+            .cancel_naval_constructions(&[NavalConstructionId(0), NavalConstructionId(0)])
+            .is_err()
+    );
+    assert_eq!(world.save("cancel-invalid").unwrap(), before);
+    assert!(
+        world
+            .cancel_naval_constructions(&[NavalConstructionId(0), NavalConstructionId(99)])
+            .is_err()
+    );
+    assert_eq!(world.save("cancel-invalid").unwrap(), before);
+    world.cancel_naval_constructions(&[]).unwrap();
+    assert_eq!(world.save("cancel-invalid").unwrap(), before);
+
+    world.advance_to(3).unwrap();
+    let after_completion = world.save("cancel-invalid").unwrap();
+    assert!(
+        world
+            .cancel_naval_constructions(&[NavalConstructionId(0)])
+            .is_err()
+    );
+    assert_eq!(world.save("cancel-invalid").unwrap(), after_completion);
+}
