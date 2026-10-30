@@ -20,6 +20,7 @@ fn world() -> VanillaWorld {
 #[test]
 fn caller_resolved_force_limit_query_delegates_to_core_and_accepts_zero() {
     let world = world();
+    let before = world.save().unwrap();
     let report = world
         .query_naval_force_limit(&VanillaNavalForceLimitQuery {
             country: "AAA".into(),
@@ -39,6 +40,23 @@ fn caller_resolved_force_limit_query_delegates_to_core_and_accepts_zero() {
         })
     );
     assert!(report.unresolved.is_empty());
+    assert_eq!(before, world.save().unwrap());
+}
+
+#[test]
+fn caller_resolved_force_limit_query_accepts_all_zero_inputs_and_applies_minimum() {
+    let world = world();
+    let report = world
+        .query_naval_force_limit(&VanillaNavalForceLimitQuery {
+            country: "AAA".into(),
+            base_milli: Some(0),
+            flat_modifier_milli: Some(0),
+            percentage_modifier_milli: Some(0),
+        })
+        .unwrap();
+
+    assert_eq!(report.unresolved, Vec::<String>::new());
+    assert_eq!(report.evaluation.unwrap().force_limit_milli, 1_000);
 }
 
 #[test]
