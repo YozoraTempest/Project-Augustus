@@ -82,6 +82,19 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 该查询保留有效定义的 Mod 覆盖和来源。非法定义只在使用成本查询时带来源报错；查询及解析失败不会创建快照。查询不扣费或入队；调用者可将解析成功的 `cost_milli` 放入下述显式订单请求，并继续单独提供完成日和资格。程序入口为 `VanillaWorld::query_naval_construction_cost`，核心入口为 `calculate_vanilla_naval_construction_cost`。本功能只计算普通限额内成本，不涵盖超限放大、特殊 flags、其他舰型或完整生产资格，也不证明原版负值或溢出行为；支持域内使用受检查的整数计算。
 
+两种查询的修正字段对应以下内容属性；表中的值均指完整修正总量，单位为千分位。字段名称沿用现有 JSON 契约。
+
+| 查询 | 输入字段 | 对应内容属性 |
+| --- | --- | --- |
+| 成本 | `country_modifier_milli` | 国家 `galley_cost` |
+| 成本 | `additional_country_modifier_milli` | 国家 `global_ship_cost` |
+| 成本 | `province_modifier_milli` | 省份 `local_ship_cost` |
+| 工期 | `country_modifier_milli` | 国家 `global_ship_recruit_speed` |
+| 工期 | `province_modifier_milli` | 省份主修正容器中的 `ship_recruit_speed` |
+| 工期 | `additional_province_modifier_milli` | 省份另一修正容器中的 `ship_recruit_speed` |
+
+工期的两个省份输入来自不同容器，不能将同一份小计重复传入。属性名的对应关系不表示来源已经自动聚合：`province_ship_recruit_speed_modifier` 仍只包含已接入的生产来源，国家海军力限属性也保留未决来源，二者的 `known_subtotal_micros` 都不能作为完整输入。查询继续要求调用者提供完整值；只有确认某项总量为零时才显式传入 `0`，省略或 `null` 保持未决。
+
 新舰船请求可由调用者提供明确费用和完成日，通过 `--naval-constructions requests.json` 提交。文件是 JSON 数组，例如以下自制输入：
 
 ```json

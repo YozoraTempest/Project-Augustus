@@ -17,10 +17,15 @@ pub struct VanillaNavalConstructionCostQuery {
     pub country: String,
     pub province_id: u32,
     pub unit_type: String,
+    /// Complete country `galley_cost` total in thousandths.
     pub country_modifier_milli: Option<i32>,
+    /// Complete country `global_ship_cost` total in thousandths.
     pub additional_country_modifier_milli: Option<i32>,
+    /// Complete province `local_ship_cost` total in thousandths.
     pub province_modifier_milli: Option<i32>,
+    /// Caller-resolved quantity used by the ordinary cost branch, in thousandths.
     pub naval_quantity_milli: Option<i32>,
+    /// Complete caller-resolved naval force limit in the same quantity units.
     pub naval_limit_milli: Option<i32>,
 }
 

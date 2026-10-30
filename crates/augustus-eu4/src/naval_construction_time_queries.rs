@@ -18,8 +18,12 @@ pub struct VanillaNavalConstructionTimeQuery {
     pub country: String,
     pub province_id: u32,
     pub unit_type: String,
+    /// Complete country `global_ship_recruit_speed` total in thousandths.
     pub country_modifier_milli: Option<i32>,
+    /// Complete `ship_recruit_speed` total from the primary province container.
     pub province_modifier_milli: Option<i32>,
+    /// Complete `ship_recruit_speed` total from the additional province container.
+    /// This is a separate input, not a second copy of the primary total.
     pub additional_province_modifier_milli: Option<i32>,
 }
 
