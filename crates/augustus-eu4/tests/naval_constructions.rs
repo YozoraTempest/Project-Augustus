@@ -10,7 +10,15 @@ use std::{
 use augustus_eu4::{
     ContentSet, TextEncoding, VanillaExternalState, VanillaNavalConstructionRecord,
     VanillaNavalConstructionReport, VanillaWorld, read_vanilla_naval_constructions,
-    read_vanilla_save_state,
+    read_vanilla_naval_constructions_for_queue_import,
+    read_vanilla_naval_constructions_for_queue_import_with_token_map,
+    read_vanilla_naval_constructions_for_queue_import_with_token_resolver,
+    read_vanilla_naval_constructions_with_token_map,
+    read_vanilla_naval_constructions_with_token_resolver, read_vanilla_save_state,
+};
+use jomini::{
+    binary::{Token, TokenResolver},
+    common::Date,
 };
 use serde_json::Value;
 use tempfile::TempDir;
@@ -93,6 +101,126 @@ fn order_with_envoy(
     format!(
         "military_construction = {{ country = AAA {envoy_field}type = {unit_type} start_date = {start_date} total = {total} original_total = {original_total} progress = 0.333 date = {date} cost = 5.000 {extra} }}"
     )
+}
+
+fn omit_progress(order: String) -> String {
+    order.replace("progress = 0.333 ", "")
+}
+
+struct NavalQueueTestTokenResolver;
+
+impl TokenResolver for NavalQueueTestTokenResolver {
+    fn resolve(&self, token: u16) -> Option<&str> {
+        match token {
+            0x3000 => Some("date"),
+            0x3001 => Some("provinces"),
+            0x3002 => Some("military_construction"),
+            0x3003 => Some("country"),
+            0x3004 => Some("type"),
+            0x3005 => Some("start_date"),
+            0x3006 => Some("total"),
+            0x3007 => Some("original_total"),
+            0x3008 => Some("progress"),
+            0x3009 => Some("cost"),
+            _ => None,
+        }
+    }
+
+    fn lookup(&self, index: u32) -> Option<&str> {
+        match index {
+            1 => Some("AAA"),
+            2 => Some("sample_light_ship"),
+            3 => Some("1444.11.10"),
+            4 => Some("1444.11.11"),
+            _ => None,
+        }
+    }
+}
+
+fn binary_save_with_missing_tail_progress() -> Vec<u8> {
+    let save_date = Date::parse("1444.11.11").unwrap().to_binary();
+    let first_date = Date::parse("1444.11.13").unwrap().to_binary();
+    let second_date = Date::parse("1444.11.14").unwrap().to_binary();
+    let mut bytes = b"EU4bin".to_vec();
+    for token in [
+        Token::Id(0x3000),
+        Token::Equal,
+        Token::I32(save_date),
+        Token::Id(0x3001),
+        Token::Equal,
+        Token::Open,
+        Token::I32(-1),
+        Token::Equal,
+        Token::Open,
+        Token::Id(0x3002),
+        Token::Equal,
+        Token::Open,
+        Token::Id(0x3003),
+        Token::Equal,
+        Token::Lookup(1),
+        Token::Id(0x3004),
+        Token::Equal,
+        Token::Lookup(2),
+        Token::Id(0x3005),
+        Token::Equal,
+        Token::Lookup(3),
+        Token::Id(0x3006),
+        Token::Equal,
+        Token::I32(3),
+        Token::Id(0x3007),
+        Token::Equal,
+        Token::I32(3),
+        Token::Id(0x3008),
+        Token::Equal,
+        Token::F32(333_i32.to_le_bytes()),
+        Token::Id(0x3000),
+        Token::Equal,
+        Token::I32(first_date),
+        Token::Id(0x3009),
+        Token::Equal,
+        Token::F32(5_000_i32.to_le_bytes()),
+        Token::Close,
+        Token::Id(0x3002),
+        Token::Equal,
+        Token::Open,
+        Token::Id(0x3003),
+        Token::Equal,
+        Token::Lookup(1),
+        Token::Id(0x3004),
+        Token::Equal,
+        Token::Lookup(2),
+        Token::Id(0x3005),
+        Token::Equal,
+        Token::Lookup(4),
+        Token::Id(0x3006),
+        Token::Equal,
+        Token::I32(3),
+        Token::Id(0x3007),
+        Token::Equal,
+        Token::I32(3),
+        Token::Id(0x3000),
+        Token::Equal,
+        Token::I32(second_date),
+        Token::Id(0x3009),
+        Token::Equal,
+        Token::F32(5_000_i32.to_le_bytes()),
+        Token::Close,
+        Token::Close,
+        Token::Close,
+    ] {
+        token.write(&mut bytes).unwrap();
+    }
+    bytes
+}
+
+fn write_naval_queue_token_map(directory: &Path) -> PathBuf {
+    let path = directory.join("naval-queue-tokens.txt");
+    fs::write(
+        &path,
+        "0x3000 date\n0x3001 provinces\n0x3002 military_construction\n0x3003 country\n0x3004 type\n0x3005 start_date\n0x3006 total\n0x3007 original_total\n0x3008 progress\n0x3009 cost\nlookup 1 AAA\nlookup 2 sample_light_ship\nlookup 3 1444.11.10\nlookup 4 1444.11.11\n",
+    )
+    .unwrap();
+    path
 }
 
 fn write_save(
@@ -308,7 +436,14 @@ fn saved_single_naval_order_resumes_and_completes_without_charging_twice() {
 fn saved_fifo_naval_queue_preserves_record_order_and_survives_restore() {
     let (directory, content) = fixture_with_two_naval_types();
     let first = order("sample_light_ship", "1444.11.10", 3, 3, "1444.11.13", "");
-    let second = order("sample_heavy_ship", "1444.11.10", 3, 3, "1444.11.13", "");
+    let second = omit_progress(order(
+        "sample_heavy_ship",
+        "1444.11.11",
+        2,
+        2,
+        "1444.11.13",
+        "",
+    ));
     let path = write_save(
         directory.path(),
         "fifo-queue.eu4",
@@ -318,7 +453,20 @@ fn saved_fifo_naval_queue_preserves_record_order_and_survives_restore() {
         "",
     );
     let mut continuous = VanillaWorld::load_from_content_with_save(&content, &path).unwrap();
-    let report = read_vanilla_naval_constructions(&path).unwrap();
+    let strict_report = read_vanilla_naval_constructions(&path).unwrap();
+    assert_eq!(strict_report.records.len(), 1);
+    assert!(
+        strict_report
+            .unresolved
+            .iter()
+            .any(|entry| { entry.reason == "missing military_construction field progress" })
+    );
+    let report = read_vanilla_naval_constructions_for_queue_import(&path).unwrap();
+    assert_eq!(report.records.len(), 2);
+    assert_eq!(report.records[1].start_date, "1444.11.11");
+    assert_eq!(report.records[1].date, "1444.11.13");
+    assert_eq!(report.records[1].progress, "0");
+    assert!(report.unresolved.is_empty());
     let no_queue_path = write_save(directory.path(), "fifo-baseline.eu4", "AAA", "AAA", "", "");
     let baseline = VanillaWorld::load_from_content_with_save(&content, &no_queue_path).unwrap();
     let baseline_fingerprint = fingerprint(&baseline);
@@ -425,6 +573,270 @@ fn saved_fifo_naval_queue_preserves_record_order_and_survives_restore() {
         );
         assert_eq!(treasury(world), Some(20_000));
     }
+}
+
+#[test]
+fn queue_import_reader_only_defaults_missing_non_head_progress() {
+    let (directory, content) = fixture_with_two_naval_types();
+    let missing_progress = omit_progress(order(
+        "sample_light_ship",
+        "1444.11.11",
+        3,
+        3,
+        "1444.11.14",
+        "",
+    ));
+
+    let single_path = write_save(
+        directory.path(),
+        "single-missing-progress.eu4",
+        "AAA",
+        "AAA",
+        &missing_progress,
+        "",
+    );
+    let single = read_vanilla_naval_constructions_for_queue_import(&single_path).unwrap();
+    assert_eq!(single.military_order_counts_by_province[&1], 1);
+    assert!(single.records.is_empty());
+    assert!(
+        single
+            .unresolved
+            .iter()
+            .any(|entry| { entry.reason == "missing military_construction field progress" })
+    );
+
+    let valid_tail = order("sample_heavy_ship", "1444.11.11", 3, 3, "1444.11.14", "");
+    let missing_head_path = write_save(
+        directory.path(),
+        "head-missing-progress.eu4",
+        "AAA",
+        "AAA",
+        &format!("{missing_progress} {valid_tail}"),
+        "",
+    );
+    let missing_head =
+        read_vanilla_naval_constructions_for_queue_import(&missing_head_path).unwrap();
+    assert_eq!(missing_head.records.len(), 1);
+    assert_eq!(missing_head.records[0].unit_type, "sample_heavy_ship");
+    assert_eq!(missing_head.military_order_counts_by_province[&1], 2);
+    assert!(
+        missing_head
+            .unresolved
+            .iter()
+            .any(|entry| { entry.reason == "missing military_construction field progress" })
+    );
+
+    let bad_head_path = write_save(
+        directory.path(),
+        "bad-head-counts-as-queue-position.eu4",
+        "AAA",
+        "AAA",
+        &format!("military_construction = malformed {missing_progress}"),
+        "",
+    );
+    let bad_head = read_vanilla_naval_constructions_for_queue_import(&bad_head_path).unwrap();
+    assert_eq!(bad_head.military_order_counts_by_province[&1], 2);
+    assert_eq!(bad_head.records.len(), 1);
+    assert_eq!(bad_head.records[0].progress, "0");
+    assert!(
+        bad_head
+            .unresolved
+            .iter()
+            .any(|entry| { entry.reason == "military_construction must be an object" })
+    );
+    let mut loaded = VanillaWorld::load_from_content_with_save(&content, &bad_head_path).unwrap();
+    loaded.import_naval_construction_queues(&bad_head).unwrap();
+    assert_eq!(pending_count(&loaded), 0);
+    assert_eq!(loaded.naval_construction_import_report().imported_count, 0);
+}
+
+#[test]
+fn queue_import_reader_keeps_invalid_tail_fields_and_planned_dates_unresolved() {
+    let (directory, content) = fixture_with_two_naval_types();
+    let head = order("sample_light_ship", "1444.11.10", 3, 3, "1444.11.13", "");
+    let valid_tail = order("sample_heavy_ship", "1444.11.11", 3, 3, "1444.11.14", "");
+    let invalid_progress = valid_tail.replace("progress = 0.333", "progress = invalid");
+    let duplicate_progress = order(
+        "sample_heavy_ship",
+        "1444.11.11",
+        3,
+        3,
+        "1444.11.14",
+        "progress = 0.333",
+    );
+    let nonscalar_progress = valid_tail.replace("progress = 0.333", "progress = { }");
+    let missing_cost = valid_tail.replace("cost = 5.000 ", "");
+    let invalid_total = valid_tail.replace(" total = 3 ", " total = not_days ");
+    let invalid_date = valid_tail.replace("date = 1444.11.14", "date = 1444.13.42");
+
+    let malformed_tails = [
+        (
+            "invalid-progress",
+            invalid_progress,
+            "military_construction has an invalid progress",
+        ),
+        (
+            "duplicate-progress",
+            duplicate_progress,
+            "duplicate military_construction field progress",
+        ),
+        (
+            "nonscalar-progress",
+            nonscalar_progress,
+            "military_construction field progress must be scalar",
+        ),
+        (
+            "missing-other-field",
+            missing_cost,
+            "missing military_construction field cost",
+        ),
+        (
+            "invalid-total",
+            invalid_total,
+            "military_construction has an invalid total",
+        ),
+        (
+            "invalid-date",
+            invalid_date,
+            "military_construction has an invalid date",
+        ),
+    ];
+    for (name, tail, reason) in malformed_tails {
+        let path = write_save(
+            directory.path(),
+            &format!("{name}.eu4"),
+            "AAA",
+            "AAA",
+            &format!("{head} {tail}"),
+            "",
+        );
+        let report = read_vanilla_naval_constructions_for_queue_import(&path).unwrap();
+        assert_eq!(report.records.len(), 1, "{name}");
+        assert!(
+            report.unresolved.iter().any(|entry| entry.reason == reason),
+            "{name}: {:?}",
+            report.unresolved
+        );
+        let mut loaded = VanillaWorld::load_from_content_with_save(&content, &path).unwrap();
+        loaded.import_naval_construction_queues(&report).unwrap();
+        assert_eq!(pending_count(&loaded), 0, "{name}");
+        assert_eq!(
+            loaded.naval_construction_import_report().imported_count,
+            0,
+            "{name}"
+        );
+    }
+
+    let mismatched_date_tail = omit_progress(order(
+        "sample_heavy_ship",
+        "1444.11.11",
+        3,
+        3,
+        "1444.11.15",
+        "",
+    ));
+    let path = write_save(
+        directory.path(),
+        "planned-date-mismatch.eu4",
+        "AAA",
+        "AAA",
+        &format!("{head} {mismatched_date_tail}"),
+        "",
+    );
+    let report = read_vanilla_naval_constructions_for_queue_import(&path).unwrap();
+    assert_eq!(report.records.len(), 2);
+    assert_eq!(report.records[1].progress, "0");
+    assert!(report.unresolved.is_empty());
+    let mut loaded = VanillaWorld::load_from_content_with_save(&content, &path).unwrap();
+    loaded.import_naval_construction_queues(&report).unwrap();
+    assert_eq!(pending_count(&loaded), 0);
+    assert!(
+        loaded
+            .naval_construction_import_report()
+            .unresolved
+            .iter()
+            .any(|entry| entry.reason
+                == "start_date plus total does not equal the planned construction date")
+    );
+}
+
+#[test]
+fn queue_import_readers_support_binary_token_maps_and_resolvers() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("queue.eu4");
+    fs::write(&path, binary_save_with_missing_tail_progress()).unwrap();
+    let token_map = write_naval_queue_token_map(directory.path());
+
+    let strict = read_vanilla_naval_constructions_with_token_map(&path, &token_map).unwrap();
+    assert_eq!(strict.records.len(), 1);
+    assert!(
+        strict
+            .unresolved
+            .iter()
+            .any(|entry| { entry.reason == "missing military_construction field progress" })
+    );
+    let strict_resolved =
+        read_vanilla_naval_constructions_with_token_resolver(&path, NavalQueueTestTokenResolver)
+            .unwrap();
+    assert_eq!(strict_resolved.records.len(), 1);
+    assert!(
+        strict_resolved
+            .unresolved
+            .iter()
+            .any(|entry| { entry.reason == "missing military_construction field progress" })
+    );
+
+    let mapped =
+        read_vanilla_naval_constructions_for_queue_import_with_token_map(&path, &token_map)
+            .unwrap();
+    let resolved = read_vanilla_naval_constructions_for_queue_import_with_token_resolver(
+        &path,
+        NavalQueueTestTokenResolver,
+    )
+    .unwrap();
+    assert_eq!(mapped.date, "1444.11.11");
+    assert_eq!(mapped.records.len(), 2);
+    assert_eq!(mapped.records[1].start_date, "1444.11.11");
+    assert_eq!(mapped.records[1].progress, "0");
+    assert!(mapped.unresolved.is_empty());
+    assert_eq!(mapped.records, resolved.records);
+    assert_eq!(mapped.unresolved, resolved.unresolved);
+}
+
+#[test]
+fn zipped_text_queue_import_normalizes_missing_tail_progress() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = write_save(
+        directory.path(),
+        "queue-source.eu4",
+        "AAA",
+        "AAA",
+        &format!(
+            "{} {}",
+            order("sample_light_ship", "1444.11.10", 3, 3, "1444.11.13", ""),
+            omit_progress(order(
+                "sample_heavy_ship",
+                "1444.11.11",
+                3,
+                3,
+                "1444.11.14",
+                "",
+            ))
+        ),
+        "",
+    );
+    let path = directory.path().join("queue.zip.eu4");
+    let mut archive = ZipWriter::new(fs::File::create(&path).unwrap());
+    archive
+        .start_file("gamestate", SimpleFileOptions::default())
+        .unwrap();
+    archive.write_all(&fs::read(source).unwrap()).unwrap();
+    archive.finish().unwrap();
+
+    let report = read_vanilla_naval_constructions_for_queue_import(&path).unwrap();
+    assert_eq!(report.records.len(), 2);
+    assert_eq!(report.records[1].progress, "0");
+    assert!(report.unresolved.is_empty());
 }
 
 #[test]

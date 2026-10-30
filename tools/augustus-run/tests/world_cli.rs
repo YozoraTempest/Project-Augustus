@@ -3209,11 +3209,38 @@ player=AAA
 countries={AAA={treasury=20.000} BBB={}}
 provinces={-1={owner=AAA controller=AAA
     military_construction={country=AAA type=sample_light_ship start_date=1444.11.10 total=3 original_total=3 progress=0.333 date=1444.11.13 cost=5.000}
-    military_construction={country=AAA type=sample_light_ship start_date=1444.11.11 total=1 original_total=1 progress=0.000 date=1444.11.12 cost=5.000}
+    military_construction={country=AAA type=sample_light_ship start_date=1444.11.11 total=1 original_total=1 date=1444.11.12 cost=5.000}
 }}
 "#,
     )
     .unwrap();
+    let strict = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--eu4-save")
+        .arg(&source_save)
+        .arg("--show-naval-constructions")
+        .output()
+        .unwrap();
+    assert!(
+        strict.status.success(),
+        "{}",
+        String::from_utf8_lossy(&strict.stderr)
+    );
+    let strict: serde_json::Value = serde_json::from_slice(&strict.stdout).unwrap();
+    assert_eq!(strict["simulation"]["pending_naval_constructions"], 0);
+    assert_eq!(strict["naval_construction_orders"], serde_json::json!([]));
+    assert!(
+        strict["naval_construction_import"]["unresolved"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["reason"]
+                .as_str()
+                .unwrap()
+                .contains("missing military_construction field progress"))
+    );
+
     let run = |days: u32, load: Option<&Path>, save: Option<&Path>, show: bool| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
         command

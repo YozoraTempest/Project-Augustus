@@ -32,7 +32,9 @@ pub struct VanillaNavalConstructionRecord {
     pub start_date: String,
     pub total: u64,
     pub original_total: u64,
-    /// Preserved as decimal text for diagnostics; it is not charged or replayed.
+    /// Preserved as diagnostic decimal text; it is not used to recompute timing or charges.
+    /// The explicit queue-import reader fills an omitted field with "0" only for
+    /// non-head FIFO records, as confirmed by runtime resaves of waiting orders.
     pub progress: String,
     pub date: String,
     /// Preserved as decimal text for diagnostics; the order cost was already paid.
@@ -142,7 +144,7 @@ impl VanillaWorld {
 pub fn read_vanilla_naval_constructions(
     path: impl AsRef<Path>,
 ) -> Result<VanillaNavalConstructionReport, Error> {
-    read_vanilla_naval_constructions_inner_thread(path.as_ref(), None, None)
+    read_vanilla_naval_constructions_inner_thread(path.as_ref(), None, None, false)
 }
 
 /// Read military construction observations using a caller-provided binary token map.
@@ -154,6 +156,7 @@ pub fn read_vanilla_naval_constructions_with_token_map(
         path.as_ref(),
         Some(token_map_path.as_ref()),
         None,
+        false,
     )
 }
 
@@ -165,13 +168,61 @@ pub fn read_vanilla_naval_constructions_with_token_resolver<R>(
 where
     R: TokenResolver + Send + 'static,
 {
-    read_vanilla_naval_constructions_inner_thread(path.as_ref(), None, Some(Box::new(resolver)))
+    read_vanilla_naval_constructions_inner_thread(
+        path.as_ref(),
+        None,
+        Some(Box::new(resolver)),
+        false,
+    )
+}
+
+/// Read construction observations for explicit FIFO queue import.
+///
+/// In this mode only a missing `progress` on the second or later raw
+/// `military_construction` block in a province is normalized to `"0"`. The
+/// default readers remain strict, and all other validation is unchanged.
+pub fn read_vanilla_naval_constructions_for_queue_import(
+    path: impl AsRef<Path>,
+) -> Result<VanillaNavalConstructionReport, Error> {
+    read_vanilla_naval_constructions_inner_thread(path.as_ref(), None, None, true)
+}
+
+/// Read construction observations for explicit FIFO queue import using a
+/// caller-provided binary token map.
+pub fn read_vanilla_naval_constructions_for_queue_import_with_token_map(
+    path: impl AsRef<Path>,
+    token_map_path: impl AsRef<Path>,
+) -> Result<VanillaNavalConstructionReport, Error> {
+    read_vanilla_naval_constructions_inner_thread(
+        path.as_ref(),
+        Some(token_map_path.as_ref()),
+        None,
+        true,
+    )
+}
+
+/// Read construction observations for explicit FIFO queue import using an
+/// integration-provided binary token resolver.
+pub fn read_vanilla_naval_constructions_for_queue_import_with_token_resolver<R>(
+    path: impl AsRef<Path>,
+    resolver: R,
+) -> Result<VanillaNavalConstructionReport, Error>
+where
+    R: TokenResolver + Send + 'static,
+{
+    read_vanilla_naval_constructions_inner_thread(
+        path.as_ref(),
+        None,
+        Some(Box::new(resolver)),
+        true,
+    )
 }
 
 fn read_vanilla_naval_constructions_inner_thread(
     path: &Path,
     token_map_path: Option<&Path>,
     token_resolver: Option<SaveTokenResolver>,
+    allow_missing_tail_progress: bool,
 ) -> Result<VanillaNavalConstructionReport, Error> {
     let path = path.to_path_buf();
     let token_map_path = token_map_path.map(Path::to_path_buf);
@@ -186,6 +237,7 @@ fn read_vanilla_naval_constructions_inner_thread(
                 &thread_path,
                 thread_token_map_path.as_deref(),
                 &mut parser_token_resolver,
+                allow_missing_tail_progress,
             )
         })
         .map_err(|error| Error::caused_by(&path, error))?;
@@ -198,6 +250,7 @@ fn read_vanilla_naval_constructions_inner(
     path: &Path,
     token_map_path: Option<&Path>,
     token_resolver: &mut Option<SaveTokenResolver>,
+    allow_missing_tail_progress: bool,
 ) -> Result<VanillaNavalConstructionReport, Error> {
     let documents = read_eu4_save_documents(path, token_map_path, token_resolver)?;
     let parsed = documents.game_state.parse()?;
@@ -247,10 +300,14 @@ fn read_vanilla_naval_constructions_inner(
             .fields()
             .filter(|(key, _, _)| key.read_string() == "military_construction")
         {
-            *report
-                .military_order_counts_by_province
-                .entry(province_id)
-                .or_default() += 1;
+            let order_index = {
+                let count = report
+                    .military_order_counts_by_province
+                    .entry(province_id)
+                    .or_default();
+                *count += 1;
+                *count
+            };
             let unresolved = |reason: String| VanillaNavalConstructionUnresolved {
                 province_id: Some(province_id),
                 reason,
@@ -261,7 +318,11 @@ fn read_vanilla_naval_constructions_inner(
                 ));
                 continue;
             }
-            match parse_record(&value, province_id) {
+            match parse_record(
+                &value,
+                province_id,
+                allow_missing_tail_progress && order_index > 1,
+            ) {
                 Ok((record, unsupported_fields)) => {
                     report.records.push(record);
                     if !unsupported_fields.is_empty() {
@@ -329,6 +390,7 @@ fn read_siege_combat_locations(
 fn parse_record(
     value: &Field<'_, '_>,
     province_id: u32,
+    allow_missing_progress: bool,
 ) -> Result<(VanillaNavalConstructionRecord, Vec<String>), String> {
     if !matches!(value.token(), TextToken::Object { mixed: false, .. }) {
         return Err("military_construction must be an object".into());
@@ -396,7 +458,11 @@ fn parse_record(
         .ok_or_else(|| "military_construction has an invalid total".to_string())?;
     let original_total = parse_days(&get("original_total")?)
         .ok_or_else(|| "military_construction has an invalid original_total".to_string())?;
-    let progress = get("progress")?;
+    let progress = match fields.get("progress") {
+        Some(progress) => progress.clone(),
+        None if allow_missing_progress => "0".into(),
+        None => return Err("missing military_construction field progress".into()),
+    };
     if !is_nonnegative_decimal(&progress) {
         return Err("military_construction has an invalid progress".into());
     }

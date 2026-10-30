@@ -54,6 +54,7 @@ struct Cli {
     )]
     naval_constructions: Option<PathBuf>,
     /// Import saved multi-order naval queues before --load and --days.
+    /// Accepts omitted zero progress on waiting orders.
     #[arg(
         long,
         requires = "eu4_save",
@@ -324,9 +325,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     if cli.import_naval_construction_queues {
-        loaded.import_naval_construction_queues(
-            naval_constructions.as_ref().expect("required by clap"),
-        )?;
+        let path = cli.eu4_save.as_ref().expect("required by clap");
+        let queues = match cli.eu4_token_map.as_ref() {
+            Some(token_map) => {
+                augustus_eu4::read_vanilla_naval_constructions_for_queue_import_with_token_map(
+                    path, token_map,
+                )?
+            }
+            None => augustus_eu4::read_vanilla_naval_constructions_for_queue_import(path)?,
+        };
+        loaded.import_naval_construction_queues(&queues)?;
     }
     if let Some(import) = native_migration_import.as_ref() {
         let states = import.states_for_world(&loaded);

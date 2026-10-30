@@ -68,6 +68,9 @@ pub use naval_constructions::{
     VanillaNavalConstructionImportReport, VanillaNavalConstructionOrderView,
     VanillaNavalConstructionRecord, VanillaNavalConstructionReport,
     VanillaNavalConstructionUnresolved, read_vanilla_naval_constructions,
+    read_vanilla_naval_constructions_for_queue_import,
+    read_vanilla_naval_constructions_for_queue_import_with_token_map,
+    read_vanilla_naval_constructions_for_queue_import_with_token_resolver,
     read_vanilla_naval_constructions_with_token_map,
     read_vanilla_naval_constructions_with_token_resolver,
 };
