@@ -212,7 +212,8 @@ pub use native_migration_transfer::{
 };
 pub use naval::{Fleet, FleetId, NavalUnit, NavalUnitId, NavalUnitState};
 pub use naval_constructions::{
-    NavalConstructionId, NavalConstructionInput, NavalConstructionOrder, PaidNavalConstructionInput,
+    NavalConstructionId, NavalConstructionInput, NavalConstructionOrder,
+    NavalConstructionOrderView, PaidNavalConstructionInput,
 };
 pub use objectives::{ObjectiveGroup, Objectives};
 pub use owner_area_adjacencies::{OwnerAreaAdjacencyCounts, OwnerAreaAdjacencyEntry};

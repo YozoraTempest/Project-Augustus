@@ -65,9 +65,10 @@ mod unit_templates;
 pub use missions::MissionReport;
 pub use naval_construction_requests::VanillaNavalConstructionRequest;
 pub use naval_constructions::{
-    VanillaNavalConstructionImportReport, VanillaNavalConstructionRecord,
-    VanillaNavalConstructionReport, VanillaNavalConstructionUnresolved,
-    read_vanilla_naval_constructions, read_vanilla_naval_constructions_with_token_map,
+    VanillaNavalConstructionImportReport, VanillaNavalConstructionOrderView,
+    VanillaNavalConstructionRecord, VanillaNavalConstructionReport,
+    VanillaNavalConstructionUnresolved, read_vanilla_naval_constructions,
+    read_vanilla_naval_constructions_with_token_map,
     read_vanilla_naval_constructions_with_token_resolver,
 };
 mod politics;

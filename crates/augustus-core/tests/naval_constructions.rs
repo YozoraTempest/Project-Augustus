@@ -54,6 +54,82 @@ fn paid_input(
 }
 
 #[test]
+fn order_views_track_fifo_positions_per_location_without_changing_state() {
+    let (mut world, owner, port) = fixture();
+    let other_port = world.add_entity("2", EntityKind::Province);
+    world.set_province_has_port(other_port, true).unwrap();
+    world
+        .enqueue_naval_construction_queues(&[
+            input(owner, port, "first_hull", 3),
+            input(owner, other_port, "other_first_hull", 5),
+            input(owner, port, "second_hull", 2),
+            input(owner, other_port, "other_second_hull", 4),
+        ])
+        .unwrap();
+    world
+        .enqueue_naval_constructions(&[input(owner, port, "independent_hull", 2)])
+        .unwrap();
+    let read = |world: &World| {
+        world
+            .naval_construction_views()
+            .map(|view| {
+                (
+                    view.order.id.0,
+                    view.queue_position,
+                    view.order.completion_day,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let snapshot = world.save("order-view").unwrap();
+    assert_eq!(
+        read(&world),
+        [
+            (0, Some(1), 3),
+            (1, Some(1), 5),
+            (2, Some(2), 2),
+            (3, Some(2), 4),
+            (4, None, 2)
+        ]
+    );
+    assert_eq!(world.save("order-view").unwrap(), snapshot);
+    assert_eq!(
+        world
+            .naval_construction_views()
+            .nth(2)
+            .unwrap()
+            .queue_position,
+        Some(2)
+    );
+
+    world.advance_to(3).unwrap();
+    assert_eq!(
+        read(&world),
+        [(1, Some(1), 5), (2, Some(1), 4), (3, Some(2), 7)]
+    );
+    assert_eq!(
+        world
+            .naval_construction_views()
+            .last()
+            .unwrap()
+            .queue_position,
+        Some(2)
+    );
+    let snapshot = world.save("order-view").unwrap();
+    let restored = World::restore(&snapshot, "order-view", world.schema()).unwrap();
+    assert_eq!(read(&restored), read(&world));
+    assert_eq!(restored.save("order-view").unwrap(), snapshot);
+
+    let mut legacy: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
+    legacy["naval_constructions"]
+        .as_object_mut()
+        .unwrap()
+        .remove("fifo_order_ids");
+    let legacy = World::restore(&legacy.to_string(), "order-view", world.schema()).unwrap();
+    assert_eq!(read(&legacy), [(1, None, 5), (2, None, 4), (3, None, 7)]);
+}
+
+#[test]
 fn construction_uses_explicit_day_and_round_trips_without_duplicate_completion() {
     let (mut continuous, owner, port) = fixture();
     assert_eq!(

@@ -147,6 +147,70 @@ fn fingerprint(world: &VanillaWorld) -> String {
 }
 
 #[test]
+fn pending_order_query_translates_live_queue_state_and_preserves_snapshot() {
+    let (directory, content) = fixture_with_two_naval_types();
+    let queue = format!(
+        "{} {}",
+        order("sample_light_ship", "1444.11.10", 3, 3, "1444.11.13", ""),
+        order("sample_heavy_ship", "1444.11.11", 1, 1, "1444.11.12", "")
+    );
+    let single = order("sample_light_ship", "1444.11.10", 6, 6, "1444.11.16", "");
+    let path = write_save_with_two_provinces(directory.path(), "query.eu4", &queue, &single);
+    let report = read_vanilla_naval_constructions(&path).unwrap();
+    let mut loaded = VanillaWorld::load_from_content_with_save(&content, &path).unwrap();
+    let default_orders = loaded.naval_construction_orders().unwrap();
+    assert_eq!(default_orders.len(), 1);
+    assert_eq!(default_orders[0].province_id, 2);
+    assert_eq!(default_orders[0].queue_position, None);
+    loaded.import_naval_construction_queues(&report).unwrap();
+    let snapshot = loaded.save().unwrap();
+    let orders = loaded.naval_construction_orders().unwrap();
+    assert_eq!(orders.len(), 3);
+    assert_eq!(
+        orders.iter().map(|order| order.id.0).collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    assert_eq!(
+        orders
+            .iter()
+            .map(|order| order.province_id)
+            .collect::<Vec<_>>(),
+        [2, 1, 1]
+    );
+    assert!(orders.iter().all(|order| order.country == "AAA"));
+    assert_eq!(orders[1].unit_type, "sample_light_ship");
+    assert_eq!(orders[2].unit_type, "sample_heavy_ship");
+    assert_eq!(orders[1].queue_position, Some(1));
+    assert_eq!(orders[2].queue_position, Some(2));
+    assert_eq!(orders[2].completion_day, 2);
+    assert_eq!(
+        serde_json::to_value(&orders[2]).unwrap()["completion_date"],
+        serde_json::json!({"year":1444,"month":11,"day":13})
+    );
+    assert_eq!(loaded.save().unwrap(), snapshot);
+
+    loaded.advance(3).unwrap();
+    let snapshot = loaded.save().unwrap();
+    let mut restored = VanillaWorld::load_from_content_with_save(&content, &path).unwrap();
+    restored.restore(&snapshot).unwrap();
+    let current = restored.naval_construction_orders().unwrap();
+    assert_eq!(current.len(), 2);
+    assert_eq!(current[0].queue_position, None);
+    assert_eq!(current[1].id, orders[2].id);
+    assert_eq!(current[1].queue_position, Some(1));
+    assert_eq!(current[1].completion_day, 4);
+    assert_eq!(
+        serde_json::to_value(&current[1]).unwrap()["completion_date"],
+        serde_json::json!({"year":1444,"month":11,"day":15})
+    );
+    assert_eq!(restored.save().unwrap(), snapshot);
+    assert_eq!(
+        restored.naval_construction_orders().unwrap(),
+        loaded.naval_construction_orders().unwrap()
+    );
+}
+
+#[test]
 fn saved_single_naval_order_resumes_and_completes_without_charging_twice() {
     let (directory, content) = fixture_with_content();
     let order = order("sample_light_ship", "1444.11.10", 3, 3, "1444.11.13", "");

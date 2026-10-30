@@ -43,6 +43,15 @@ pub struct NavalConstructionOrder {
     pub completion_day: u64,
 }
 
+/// A pending order with its current position among FIFO orders at its location.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NavalConstructionOrderView<'a> {
+    pub order: &'a NavalConstructionOrder,
+    /// One-based position for an explicitly imported FIFO order. Independent
+    /// orders have no position, even when they share a FIFO location.
+    pub queue_position: Option<usize>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct NavalConstructions {
@@ -190,6 +199,32 @@ impl World {
     /// Read the pending orders using explicit absolute simulation days.
     pub fn naval_constructions(&self) -> &[NavalConstructionOrder] {
         &self.naval_constructions.orders
+    }
+
+    /// Read pending orders in stored order without advancing or forecasting them.
+    ///
+    /// Positions are calculated from the remaining FIFO orders at each location.
+    /// A waiting order's current completion day can still be postponed by future
+    /// simulation days; this view does not predict its eventual completion.
+    pub fn naval_construction_views(&self) -> impl Iterator<Item = NavalConstructionOrderView<'_>> {
+        self.naval_constructions.orders.iter().scan(
+            BTreeMap::<EntityId, usize>::new(),
+            move |positions, order| {
+                let queue_position = self
+                    .naval_constructions
+                    .fifo_order_ids
+                    .contains(&order.id)
+                    .then(|| {
+                        let position = positions.entry(order.location).or_default();
+                        *position += 1;
+                        *position
+                    });
+                Some(NavalConstructionOrderView {
+                    order,
+                    queue_position,
+                })
+            },
+        )
     }
 
     /// Atomically add independent orders with explicit absolute completion days.

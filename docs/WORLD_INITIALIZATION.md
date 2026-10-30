@@ -40,6 +40,16 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
 
 未完成订单、内部标识、当前完成日及 FIFO 队列标记保存在 Augustus 快照中。恢复后继续推进，与从相同输入连续运行的结果一致；完工后的订单不会重新入队。旧快照缺少 FIFO 标记时继续使用独立绝对完成日语义；原有 `enqueue_naval_constructions`、paid API 与显式新订单请求也保持这一语义。需要显式导入有序队列的核心调用者可使用 `enqueue_naval_construction_queues`，要求相应地点没有既存待完成订单。导入报告描述本次载入及显式导入结果，恢复快照后的当前订单数以 `simulation.pending_naval_constructions` 为准。`--export-external-state` 仍导出既有状态包字段，不携带这组订单数据；需要保存续建进度时使用 `--save` / `--load`，并提供相同的 EU4 存档基线。恢复已有 FIFO 队列无需再次添加导入开关，队列标记和顺延后的日期会从快照恢复。
 
+添加 `--show-naval-constructions` 可在顶层 `naval_construction_orders` 查看恢复、提交新订单和 `--days` 推进后的当前订单明细。例如恢复后继续推进一天并省略载入报告：
+
+```sh
+cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4-save /path/to/baseline.eu4 --load campaign.json --days 1 --show-naval-constructions --omit-load-report
+```
+
+每项包含稳定的 Augustus 订单 `id`、国家标签 `country`、EU4 省份编号 `province_id`、舰型 `unit_type`、当前绝对核心日 `completion_day`、日历对象 `completion_date`（`year`、`month`、`day`）及 `queue_position`。FIFO 位置从 1 开始，按各省份当前剩余队列计算，首单完成后重新编号；独立订单的位置为 `null`，即使它与 FIFO 队列处于同一省份。列表保留核心订单顺序，完工订单会移除，没有待完成订单时返回 `[]`。只有提供查询开关时才输出这个字段，也可通过 `VanillaWorld::naval_construction_orders()` 读取相同视图。
+
+查询只读取当前模拟状态，不改变队列或快照。它列出 Augustus 模拟核心中已导入、已恢复或新提交的待完成订单；源存档中的未决记录仍由导入报告说明。`completion_date` 是查询时保存的当前排期，等待中的 FIFO 订单在后续推进时仍可能顺延，不能作为最终预计完工日。`--omit-load-report` 会省略导入诊断，但保留显式请求的当前订单明细。
+
 省份查询中的 `attributes.province_ship_recruit_speed_modifier` 可显示静态来源 `provincial_production_size` 的基础生产分支缩放结果。识别到该来源的 `ship_recruit_speed` 属性或相关定义歧义时建立该查询；系数来自实际加载的内容，数量读取实时基础生产值。例如系数 `-0.01`、基础生产为 3 和 4 时，已知小计分别为 `-30000` 和 `-40000` micros。来源缩放按千分精度向零截断，修改基础生产后会重新求值，并随世界快照保存恢复。
 
 这个字段仍保留其余来源、额外发展度和完整来源激活资格未接入的未决原因，`value_micros` 保持未决。缺失或变为负数的基础生产、歧义或不支持的来源属性不会当作零贡献；目前只绑定能用千分精度精确表示的系数，精度更细的系数也保留未决。该查询提供基础分支的诊断结果，不据此计算完整建船工期或安排订单完成日。

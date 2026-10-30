@@ -184,7 +184,13 @@ fn check_priced_naval_cli_round_trip(classified: bool) {
             .arg(&game_root)
             .arg("--eu4-save")
             .arg(&save)
-            .args(["--country", "AAA", "--days", days]);
+            .args([
+                "--country",
+                "AAA",
+                "--days",
+                days,
+                "--show-naval-constructions",
+            ]);
         if submit {
             command.arg("--naval-constructions").arg(&requests);
             if classified {
@@ -206,6 +212,7 @@ fn check_priced_naval_cli_round_trip(classified: bool) {
         serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
     };
     let baseline = run("0", false, None, None);
+    assert_eq!(baseline["naval_construction_orders"], serde_json::json!([]));
     let pending_path = temp.path().join("pending.json");
     let pending = run("1", true, None, Some(&pending_path));
     assert_eq!(
@@ -215,6 +222,15 @@ fn check_priced_naval_cli_round_trip(classified: bool) {
     assert_eq!(pending["simulation"]["pending_naval_constructions"], 1);
     assert_eq!(pending["simulation"]["naval_units"], 0);
     assert_eq!(pending["country"]["resources"]["treasury_milli"], 15000);
+    assert_eq!(
+        pending["naval_construction_orders"],
+        serde_json::json!([{
+            "id": 0, "country": "AAA", "province_id": 1,
+            "unit_type": "sample_light_ship", "completion_day": 3,
+            "completion_date": {"year":1444,"month":11,"day":14},
+            "queue_position": null
+        }])
+    );
     if classified {
         assert_eq!(
             pending["country"]["ledger"]["expense_sources_milli"][12],
@@ -240,6 +256,7 @@ fn check_priced_naval_cli_round_trip(classified: bool) {
     assert!(resumed.get("submitted_naval_constructions").is_none());
     assert_eq!(resumed["simulation"]["pending_naval_constructions"], 0);
     assert_eq!(resumed["simulation"]["naval_units"], 1);
+    assert_eq!(resumed["naval_construction_orders"], serde_json::json!([]));
     assert_eq!(resumed["country"]["resources"]["treasury_milli"], 15000);
     if classified {
         assert_eq!(resumed["country"]["ledger"], pending["country"]["ledger"]);
@@ -3197,7 +3214,7 @@ provinces={-1={owner=AAA controller=AAA
 "#,
     )
     .unwrap();
-    let run = |days: u32, load: Option<&Path>, save: Option<&Path>| {
+    let run = |days: u32, load: Option<&Path>, save: Option<&Path>, show: bool| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
         command
             .arg("--game-root")
@@ -3216,6 +3233,9 @@ provinces={-1={owner=AAA controller=AAA
         if let Some(path) = save {
             command.arg("--save").arg(path);
         }
+        if show {
+            command.args(["--show-naval-constructions", "--omit-load-report"]);
+        }
         let output = command.output().unwrap();
         assert!(
             output.status.success(),
@@ -3226,34 +3246,54 @@ provinces={-1={owner=AAA controller=AAA
     };
 
     let pending_snapshot = temp.path().join("pending.json");
-    let pending = run(2, None, Some(&pending_snapshot));
-    assert_eq!(pending["naval_construction_import"]["imported_count"], 2);
+    let pending = run(2, None, Some(&pending_snapshot), true);
+    assert!(pending.get("report").is_none());
+    assert!(pending.get("naval_construction_import").is_none());
     assert_eq!(
-        pending["naval_construction_import"]["unresolved"],
-        serde_json::json!([])
+        pending["naval_construction_orders"],
+        serde_json::json!([
+            {"id":0,"country":"AAA","province_id":1,"unit_type":"sample_light_ship",
+             "completion_day":3,"completion_date":{"year":1444,"month":11,"day":14},"queue_position":1},
+            {"id":1,"country":"AAA","province_id":1,"unit_type":"sample_light_ship",
+             "completion_day":4,"completion_date":{"year":1444,"month":11,"day":15},"queue_position":2}
+        ])
     );
     assert_eq!(pending["simulation"]["pending_naval_constructions"], 2);
     assert_eq!(pending["simulation"]["naval_units"], 0);
     assert_eq!(pending["country"]["resources"]["treasury_milli"], 20_000);
 
     let head_snapshot = temp.path().join("head-completed.json");
-    let head = run(1, Some(&pending_snapshot), Some(&head_snapshot));
+    let head = run(1, Some(&pending_snapshot), Some(&head_snapshot), true);
     assert_eq!(head["simulation"]["pending_naval_constructions"], 1);
     assert_eq!(head["simulation"]["naval_units"], 1);
+    assert_eq!(
+        head["naval_construction_orders"],
+        serde_json::json!([
+            {"id":1,"country":"AAA","province_id":1,"unit_type":"sample_light_ship",
+             "completion_day":4,"completion_date":{"year":1444,"month":11,"day":15},"queue_position":1}
+        ])
+    );
 
     let resumed_snapshot = temp.path().join("resumed.json");
-    let resumed = run(1, Some(&head_snapshot), Some(&resumed_snapshot));
+    let resumed = run(1, Some(&head_snapshot), Some(&resumed_snapshot), true);
     assert_eq!(resumed["simulation"]["pending_naval_constructions"], 0);
     assert_eq!(resumed["simulation"]["naval_units"], 2);
     assert_eq!(resumed["country"]["resources"]["treasury_milli"], 20_000);
+    assert_eq!(resumed["naval_construction_orders"], serde_json::json!([]));
 
     let continuous_snapshot = temp.path().join("continuous.json");
-    run(4, None, Some(&continuous_snapshot));
+    let continuous = run(4, None, Some(&continuous_snapshot), false);
+    assert!(continuous.get("naval_construction_orders").is_none());
+    assert_eq!(continuous["naval_construction_import"]["imported_count"], 2);
+    assert_eq!(
+        continuous["naval_construction_import"]["unresolved"],
+        serde_json::json!([])
+    );
     assert_eq!(
         fs::read(&resumed_snapshot).unwrap(),
         fs::read(&continuous_snapshot).unwrap()
     );
-    let later = run(2, Some(&resumed_snapshot), None);
+    let later = run(2, Some(&resumed_snapshot), None, true);
     assert_eq!(later["simulation"]["naval_units"], 2);
     assert_eq!(later["simulation"]["pending_naval_constructions"], 0);
     assert_eq!(later["country"]["resources"]["treasury_milli"], 20_000);

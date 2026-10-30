@@ -6,7 +6,9 @@ use std::{
     path::Path,
 };
 
-use augustus_core::{Calendar, InitialWorld, NavalConstructionInput, WorldDate};
+use augustus_core::{
+    Calendar, InitialWorld, NavalConstructionId, NavalConstructionInput, WorldDate,
+};
 use jomini::{
     TextToken,
     binary::TokenResolver,
@@ -16,7 +18,7 @@ use jomini::{
 use serde::Serialize;
 
 use crate::administration_validation::{SaveTokenResolver, read_eu4_save_documents};
-use crate::{Error, ParsedText, TextEncoding};
+use crate::{Error, ParsedText, TextEncoding, VanillaWorld};
 
 type Object<'a, 'b> = ObjectReader<'a, 'b, TextEncoding>;
 type Field<'a, 'b> = ValueReader<'a, 'b, TextEncoding>;
@@ -59,6 +61,81 @@ pub struct VanillaNavalConstructionReport {
 pub struct VanillaNavalConstructionImportReport {
     pub imported_count: usize,
     pub unresolved: Vec<VanillaNavalConstructionUnresolved>,
+}
+
+/// A current pending order translated to EU4 country and province identifiers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct VanillaNavalConstructionOrderView {
+    pub id: NavalConstructionId,
+    pub country: String,
+    pub province_id: u32,
+    pub unit_type: String,
+    pub completion_day: u64,
+    /// The stored deadline on the current simulation day. Waiting FIFO orders
+    /// can still be postponed; this is not a forecast of eventual completion.
+    pub completion_date: WorldDate,
+    /// One-based position within the remaining FIFO orders at this province,
+    /// or null for an independent order.
+    pub queue_position: Option<usize>,
+}
+
+impl VanillaWorld {
+    /// Inspect current pending orders after any restore, submission or advance.
+    ///
+    /// Only orders currently present in core are returned. Unresolved save records remain
+    /// in the separate import report. Reading this view does not mutate state.
+    pub fn naval_construction_orders(
+        &self,
+    ) -> Result<Vec<VanillaNavalConstructionOrderView>, Error> {
+        let world = self.initial.world();
+        let countries = self
+            .initial
+            .countries()
+            .iter()
+            .filter_map(|country| {
+                self.initial
+                    .country_entity(&country.id)
+                    .map(|entity| (entity, country.id.as_str()))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let provinces = self
+            .initial
+            .provinces()
+            .iter()
+            .filter_map(|province| {
+                self.initial
+                    .province_entity(province.id)
+                    .map(|entity| (entity, province.id))
+            })
+            .collect::<BTreeMap<_, _>>();
+        world
+            .naval_construction_views()
+            .map(|view| {
+                let order = view.order;
+                let invalid = |message| Error::message("naval construction query", message);
+                let country = countries
+                    .get(&order.owner)
+                    .ok_or_else(|| invalid("order country is not loaded"))?;
+                let province_id = provinces
+                    .get(&order.location)
+                    .ok_or_else(|| invalid("order province is not loaded"))?;
+                let completion_date = world
+                    .calendar()
+                    .ok_or_else(|| invalid("loaded world has no calendar"))?
+                    .date(order.completion_day)
+                    .map_err(|error| Error::caused_by("naval construction query", error))?;
+                Ok(VanillaNavalConstructionOrderView {
+                    id: order.id,
+                    country: (*country).into(),
+                    province_id: *province_id,
+                    unit_type: order.unit_type.clone(),
+                    completion_day: order.completion_day,
+                    completion_date,
+                    queue_position: view.queue_position,
+                })
+            })
+            .collect()
+    }
 }
 
 /// Read military construction observations from an EU4 text or ZIP save.

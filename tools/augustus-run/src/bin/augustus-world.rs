@@ -60,6 +60,9 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     import_naval_construction_queues: bool,
+    /// Show current pending naval orders and FIFO positions after --load and --days.
+    #[arg(long, conflicts_with = "compare_administration_save")]
+    show_naval_constructions: bool,
     /// Execute caller-resolved native migration transfers after restore and
     /// before --days, then include their reports in the JSON output.
     #[arg(
@@ -533,6 +536,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }))
         })
         .transpose()?;
+    let naval_construction_orders = cli
+        .show_naval_constructions
+        .then(|| loaded.naval_construction_orders())
+        .transpose()?
+        .map(serde_json::to_value)
+        .transpose()?;
     if let Some(path) = cli.save {
         let snapshot = loaded.save()?;
         let mut file = std::fs::OpenOptions::new()
@@ -565,6 +574,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             output["naval_construction_import"] =
                 serde_json::to_value(loaded.naval_construction_import_report())?;
         }
+    }
+    if let Some(orders) = naval_construction_orders {
+        output["naval_construction_orders"] = orders;
     }
     if let Some(queries) = native_migration_state_queries {
         output["native_migration_state_queries"] = serde_json::to_value(queries)?;
