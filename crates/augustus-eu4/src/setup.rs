@@ -31,6 +31,10 @@ pub struct SetupReport {
     pub naval_construction_time_defines: BTreeMap<String, i32>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub naval_construction_time_define_errors: BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub naval_construction_cost_defines_milli: BTreeMap<String, i32>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub naval_construction_cost_define_errors: BTreeMap<String, String>,
     pub ruler_skill_bounds: Option<augustus_core::RulerSkillBounds>,
     pub monarch_power_base_maximum: Option<i64>,
     pub truce_months: Option<u32>,

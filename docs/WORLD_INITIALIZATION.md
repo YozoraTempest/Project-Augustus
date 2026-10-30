@@ -70,6 +70,18 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 该查询不改变订单、国库或分类账；结果是普通分支的名义工期，FIFO 等待时间、特殊加速、跨归属倍率和完整生产资格须另行解析。现有基础生产属性只提供部分来源，查询不会将它自动当作完整省份修正。查询也不推算费用或自动提交订单。程序调用者可使用 `VanillaWorld::query_naval_construction_time`，完整已解析输入的核心计算入口为 `calculate_vanilla_naval_construction_time`。
 
+普通 galley 成本可通过 `--naval-construction-cost-queries queries.json` 查询；它读取有效内容的 `NMilitary.GALLEY_COST`，当前支持非负整数货币单位，并检查乘以 1000 后的 `i32` 范围；小数定义不在支持范围内。三项完整成本修正、数量与限额由调用者解析，以下是自制输入：
+
+```json
+[{"country":"AAA","province_id":1,"unit_type":"sample_galley","country_modifier_milli":0,"additional_country_modifier_milli":0,"province_modifier_milli":0,"naval_quantity_milli":10000,"naval_limit_milli":17000}]
+```
+
+查询在恢复和推进后执行，并在保存前完成校验；输出 `naval_construction_cost_queries` 数组。普通分支要求当前国家与省份所有者、控制者一致，模板类别为 `galley`，且显式数量不超过正限额。未知身份或非海军模板报错；其他海军类别、归属不匹配或未知、缺定义或缺任一输入返回 `evaluation: null` 与未决原因。零限额和超限保留未决，不推断价格放大；显式负数量和负限额属于本接口拒绝的输入域。`naval_quantity_milli` 与 `naval_limit_milli` 使用相同千分单位，当前入口不会根据已载入舰船或待建订单自动推导这些值。
+
+结果中的 `modifier_factor_milli` 为 `max(200, 1000 + country + additional_country + province)`；`cost_milli` 为基础千分成本乘倍率、除以 1000 向零截断后，按最低 1000 milli 限幅。倍率下限 200 与金额下限 1000 是本普通分支的固定规则，不使用工期的最低倍率定义代替。基础成本 10000、三项修正为零、数量 10000 不超过限额 17000 时，结果为 10000 milli。此处的通用修正输入名称不声明其原版来源已经自动解析。
+
+该查询保留有效定义的 Mod 覆盖和来源。非法定义只在使用成本查询时带来源报错；查询及解析失败不会创建快照。查询不扣费或入队；调用者可将解析成功的 `cost_milli` 放入下述显式订单请求，并继续单独提供完成日和资格。程序入口为 `VanillaWorld::query_naval_construction_cost`，核心入口为 `calculate_vanilla_naval_construction_cost`。本功能只计算普通限额内成本，不涵盖超限放大、特殊 flags、其他舰型或完整生产资格，也不证明原版负值或溢出行为；支持域内使用受检查的整数计算。
+
 新舰船请求可由调用者提供明确费用和完成日，通过 `--naval-constructions requests.json` 提交。文件是 JSON 数组，例如以下自制输入：
 
 ```json

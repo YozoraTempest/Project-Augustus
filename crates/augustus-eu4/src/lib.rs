@@ -55,6 +55,8 @@ pub use native_migration_transfer::{
     VanillaNativeMigrationTransferReport, VanillaNativeMigrationTransferRequest,
     VanillaNativeMigrationTransferStatus,
 };
+mod naval_construction_cost_defines;
+mod naval_construction_cost_queries;
 mod naval_construction_requests;
 mod naval_construction_time_defines;
 mod naval_construction_time_queries;
@@ -65,6 +67,9 @@ mod prestige;
 mod truces;
 mod unit_templates;
 pub use missions::MissionReport;
+pub use naval_construction_cost_queries::{
+    VanillaNavalConstructionCostQuery, VanillaNavalConstructionCostQueryReport,
+};
 pub use naval_construction_requests::VanillaNavalConstructionRequest;
 pub use naval_construction_time_queries::{
     VanillaNavalConstructionTimeQuery, VanillaNavalConstructionTimeQueryReport,

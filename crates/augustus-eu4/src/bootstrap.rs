@@ -3239,6 +3239,7 @@ impl VanillaWorld {
         }
         let defines = crate::Defines::load(root, &files, crate::DefineDifficulty::Normal)?;
         crate::native_migration_defines::bind(&defines, &mut report.setup);
+        crate::naval_construction_cost_defines::bind(&defines, &mut report.setup);
         crate::naval_construction_time_defines::bind(&defines, &mut report.setup);
         let state_maintenance_development_scale_milli = defines
             .optional("NEconomy", "STATE_MAINTENANCE_DEV_FACTOR")?
