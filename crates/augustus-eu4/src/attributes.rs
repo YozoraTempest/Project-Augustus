@@ -744,15 +744,17 @@ impl AttributeDraft {
                         ),
                     }
                 };
+                let building_source = AttributeTerm::Buildings {
+                    property: property.into(),
+                };
+                let modifier_source = AttributeTerm::Modifiers {
+                    target: Target::Current,
+                    property: property.into(),
+                };
                 let local_sources = vec![
-                    development_term,
-                    AttributeTerm::Buildings {
-                        property: property.into(),
-                    },
-                    AttributeTerm::Modifiers {
-                        target: Target::Current,
-                        property: property.into(),
-                    },
+                    development_term.clone(),
+                    building_source.clone(),
+                    modifier_source.clone(),
                 ];
                 let raw_channel = AttributeChannel {
                     flat: local_sources.clone(),
@@ -788,11 +790,14 @@ impl AttributeDraft {
                 let (local_flat, autonomy_rate) = if is_naval {
                     let port_condition = Box::new(Condition::ProvinceHasPort);
                     (
-                        vec![AttributeTerm::Conditional {
-                            condition: port_condition.clone(),
-                            then: local_sources,
-                            otherwise: Vec::new(),
-                        }],
+                        vec![
+                            building_source,
+                            AttributeTerm::Conditional {
+                                condition: port_condition.clone(),
+                                then: vec![development_term, modifier_source],
+                                otherwise: Vec::new(),
+                            },
+                        ],
                         AttributeTerm::Conditional {
                             condition: port_condition,
                             then: vec![AttributeTerm::Autonomy],

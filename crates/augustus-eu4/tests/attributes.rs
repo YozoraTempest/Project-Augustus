@@ -816,8 +816,15 @@ fn province_force_limit_raw_sources_include_development_buildings_and_owned_tota
         .attributes()
         .evaluate(&inland_world, province, "province_naval_forcelimit_local")
         .unwrap();
-    assert_eq!(inland_naval.known_subtotal_micros, Some(0));
+    assert_eq!(inland_naval.known_subtotal_micros, Some(2_000_000));
     assert_eq!(inland_naval.value_micros, None);
+    assert!(inland_naval.steps.iter().any(|step| {
+        step.contributions.iter().any(|contribution| {
+            contribution.source == "building:test_naval_force"
+                && contribution.property == "naval_forcelimit"
+                && contribution.micros == 2_000_000
+        })
+    }));
 
     let country = loaded.initial.country_entity("AAA").unwrap();
     for name in [
