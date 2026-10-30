@@ -582,6 +582,8 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
 
 `VanillaWorld::set_vanilla_fort_maintenance_expense_categories_from_buildings` 会按当前所有权和已载入建筑定义自动识别带正 `fort_level` 的要塞省份，并使用已核验的 EU4 1.37.5 固定基础费与货币换算。国家、省份及关系修正和特殊减半条件仍须显式提供；缺少建筑状态、要塞等级、多个要塞建筑或候选行输入不全时会报错。它同样只更新类别 8 明细，不重算总支出或净现金流。
 
+省份要塞维护可通过 `--fort-maintenance-queries queries.json` 只读查询。请求使用相邻的 `mode` 与 `query` 字段：`mode = "direct"` 时提供完整 `VanillaFortMaintenanceInput`；`mode = "from_buildings"` 时提供国家、省份、关系修正等 `VanillaFortMaintenanceContextInput`，查询从当前所有权、建筑定义和 mothball 状态派生固定基础费、货币换算与 fort level。报告保留 `owner`、`fort_level_milli`、`mothball_status`、阶段结果和 `unresolved`；只有 `mothball_status = 2` 自动启用减半，状态 0、1 或缺失不推断额外规则。无要塞建筑返回 `evaluation: null` 与 `fort_maintenance:no_fortification_building`，未知省份、未知建筑、缺少等级、非正等级、多座要塞建筑和负维护金额继续报错。查询不会替换类别 8、不安装月度现金流输入，也不修改快照。程序入口为 `VanillaWorld::query_vanilla_fort_maintenance`；建筑派生 setter 与该查询共享单省解析路径。
+
 国家属性查询中的 `fort_maintenance_modifier` 与省份属性中的 `local_fort_maintenance_modifier` 会列出已绑定来源的小计；只要仍有未绑定来源，最终值就保持未知。这些小计不会自动代替维护费结算输入。
 
 生产执行器安装后，兼容提供者可以调用 `VanillaWorld::set_vanilla_production_inputs` 刷新下一次月结使用的省份输入。刷新不会重置已经完成的月结次数、账本或存档状态；输入仍按 EU4 省份编号绑定，不能借此创建不存在的省份。

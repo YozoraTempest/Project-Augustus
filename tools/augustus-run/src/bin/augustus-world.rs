@@ -8,8 +8,9 @@ use augustus_core::{
     select_vanilla_native_migration_candidate,
 };
 use augustus_eu4::{
-    ContentSet, TextEncoding, VanillaExternalState, VanillaProvinceContentProductionGoodsSizeQuery,
-    VanillaProvinceProductionBaseValueQuery, VanillaStateMaintenanceQuery, VanillaWorld,
+    ContentSet, TextEncoding, VanillaExternalState, VanillaFortMaintenanceQuery,
+    VanillaProvinceContentProductionGoodsSizeQuery, VanillaProvinceProductionBaseValueQuery,
+    VanillaStateMaintenanceQuery, VanillaWorld,
 };
 use clap::Parser;
 use std::{collections::BTreeMap, fs::OpenOptions, io::Write, path::PathBuf, process::ExitCode};
@@ -154,6 +155,14 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     vanilla_content_production_queries: Option<PathBuf>,
+    /// Query direct or loaded-building fort-maintenance stages.
+    /// Queries run after restore and --days and do not change the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    fort_maintenance_queries: Option<PathBuf>,
     /// Query caller-resolved province state-maintenance contributions.
     /// Queries run after restore and --days and do not change the world.
     #[arg(
@@ -767,6 +776,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let fort_maintenance_queries = cli
+        .fort_maintenance_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<VanillaFortMaintenanceQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_vanilla_fort_maintenance(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     let state_maintenance_queries = cli
         .state_maintenance_queries
         .as_ref()
@@ -845,6 +867,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = vanilla_content_production_queries {
         output["vanilla_content_production_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(queries) = fort_maintenance_queries {
+        output["fort_maintenance_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = state_maintenance_queries {
         output["state_maintenance_queries"] = serde_json::to_value(queries)?;

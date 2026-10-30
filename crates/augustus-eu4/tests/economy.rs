@@ -11,14 +11,15 @@ use augustus_core::{
 use augustus_eu4::{
     CashflowBreakdown, VanillaContentProductionGoodsSizeInput, VanillaContentProductionInput,
     VanillaContentProductionValueInput, VanillaContentStateMaintenanceInput,
-    VanillaExternalProductionInput, VanillaExternalState, VanillaFortMaintenanceContextInput,
-    VanillaFortMaintenanceInput, VanillaGoldProductionCountryQuery, VanillaGoldProductionInput,
-    VanillaGoldProductionInputState, VanillaProductionCountryQuery, VanillaProductionInputState,
-    VanillaProvinceContentProductionGoodsSizeQuery, VanillaProvinceProductionBaseValueInput,
-    VanillaProvinceProductionBaseValueQuery, VanillaProvinceStateMaintenanceInput,
-    VanillaStateMaintenanceContentQuery, VanillaStateMaintenanceDirectQuery,
-    VanillaStateMaintenanceQuery, VanillaStateMaintenanceQueryMode, VanillaTradeGoodsSizeInput,
-    VanillaWorld,
+    VanillaExternalProductionInput, VanillaExternalState, VanillaFortMaintenanceBuildingsQuery,
+    VanillaFortMaintenanceContextInput, VanillaFortMaintenanceDirectQuery,
+    VanillaFortMaintenanceInput, VanillaFortMaintenanceQuery, VanillaGoldProductionCountryQuery,
+    VanillaGoldProductionInput, VanillaGoldProductionInputState, VanillaProductionCountryQuery,
+    VanillaProductionInputState, VanillaProvinceContentProductionGoodsSizeQuery,
+    VanillaProvinceProductionBaseValueInput, VanillaProvinceProductionBaseValueQuery,
+    VanillaProvinceStateMaintenanceInput, VanillaStateMaintenanceContentQuery,
+    VanillaStateMaintenanceDirectQuery, VanillaStateMaintenanceQuery,
+    VanillaStateMaintenanceQueryMode, VanillaTradeGoodsSizeInput, VanillaWorld,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -959,6 +960,107 @@ fn fort_mothball_status_only_halves_maintenance_for_status_two() {
             expected_cost,
             "mothball status {status}"
         );
+    }
+}
+
+#[test]
+fn fort_maintenance_query_supports_direct_and_loaded_building_modes() {
+    let root = copy_fixture();
+    fs::write(
+        root.path().join("common/buildings/test_buildings.txt"),
+        "test_fort = { cost = 200 time = 18 influencing_fort = yes modifier = { fort_level = 2 } }\n",
+    )
+    .unwrap();
+    let loaded = VanillaWorld::load(root.path(), "1444.11.11").unwrap();
+    let direct = loaded
+        .query_vanilla_fort_maintenance(&VanillaFortMaintenanceQuery::Direct(
+            VanillaFortMaintenanceDirectQuery {
+                province: 1,
+                input: VanillaFortMaintenanceInput {
+                    base_cost_milli: 500,
+                    country_modifier_milli: -200,
+                    province_modifier_milli: 0,
+                    conversion_factor_micros: 1_000_000,
+                    local_multiplier_milli: 2_000,
+                    relationship_modifier_milli: 0,
+                    apply_relationship_modifier: true,
+                    halve_for_special_case: false,
+                },
+            },
+        ))
+        .unwrap();
+    assert_eq!(direct.evaluation.unwrap().amount_milli, 800);
+    assert!(direct.unresolved.is_empty());
+
+    let from_buildings = loaded
+        .query_vanilla_fort_maintenance(&VanillaFortMaintenanceQuery::FromBuildings(
+            VanillaFortMaintenanceBuildingsQuery {
+                province: 1,
+                context: VanillaFortMaintenanceContextInput {
+                    country_modifier_milli: -200,
+                    province_modifier_milli: 0,
+                    relationship_modifier_milli: 0,
+                    apply_relationship_modifier: true,
+                    halve_for_special_case: false,
+                },
+            },
+        ))
+        .unwrap();
+    assert_eq!(from_buildings.owner.as_deref(), Some("BBB"));
+    assert_eq!(from_buildings.fort_level_milli, Some(2_000));
+    assert_eq!(from_buildings.evaluation.unwrap().amount_milli, 800);
+    assert!(from_buildings.unresolved.is_empty());
+}
+
+#[test]
+fn fort_maintenance_query_preserves_no_fort_and_mothball_boundaries() {
+    let root = copy_fixture();
+    fs::write(
+        root.path().join("common/buildings/test_buildings.txt"),
+        "test_fort = { cost = 200 time = 18 influencing_fort = yes modifier = { fort_level = 2 } }\n",
+    )
+    .unwrap();
+    let state = VanillaExternalState {
+        province_mothball_status: BTreeMap::from([(1, 2)]),
+        ..Default::default()
+    };
+    let loaded = VanillaWorld::load_with_external_state(root.path(), "1444.11.11", &state).unwrap();
+    let query = VanillaFortMaintenanceQuery::FromBuildings(VanillaFortMaintenanceBuildingsQuery {
+        province: 1,
+        context: VanillaFortMaintenanceContextInput {
+            country_modifier_milli: -200,
+            province_modifier_milli: 0,
+            relationship_modifier_milli: 0,
+            apply_relationship_modifier: true,
+            halve_for_special_case: false,
+        },
+    });
+    let mothballed = loaded.query_vanilla_fort_maintenance(&query).unwrap();
+    assert_eq!(mothballed.mothball_status, Some(2));
+    assert_eq!(mothballed.evaluation.unwrap().amount_milli, 400);
+
+    let no_fort = loaded
+        .query_vanilla_fort_maintenance(&VanillaFortMaintenanceQuery::FromBuildings(
+            VanillaFortMaintenanceBuildingsQuery {
+                province: 2,
+                context: query_context(),
+            },
+        ))
+        .unwrap();
+    assert_eq!(no_fort.evaluation, None);
+    assert_eq!(
+        no_fort.unresolved,
+        vec!["fort_maintenance:no_fortification_building"]
+    );
+}
+
+fn query_context() -> VanillaFortMaintenanceContextInput {
+    VanillaFortMaintenanceContextInput {
+        country_modifier_milli: 0,
+        province_modifier_milli: 0,
+        relationship_modifier_milli: 0,
+        apply_relationship_modifier: true,
+        halve_for_special_case: false,
     }
 }
 

@@ -27,6 +27,7 @@ mod estates;
 mod eu4_rng;
 mod event_ai;
 mod force_limit;
+mod fort_maintenance_queries;
 mod geography;
 mod governments;
 mod ideas;
@@ -70,6 +71,11 @@ mod production_queries;
 mod production_value_queries;
 mod truces;
 mod unit_templates;
+pub use fort_maintenance_queries::{
+    VanillaFortMaintenanceBuildingsQuery, VanillaFortMaintenanceDirectQuery,
+    VanillaFortMaintenanceQuery, VanillaFortMaintenanceQueryMode,
+    VanillaFortMaintenanceQueryReport,
+};
 pub use missions::MissionReport;
 pub use naval_construction_cost_queries::{
     VanillaNavalConstructionCostQuery, VanillaNavalConstructionCostQueryReport,

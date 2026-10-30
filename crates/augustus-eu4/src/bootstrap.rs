@@ -54,8 +54,6 @@ use crate::{
 };
 
 const ENCODING: TextEncoding = TextEncoding::Windows1252;
-const EU4_1_37_5_FORT_BASE_COST_MILLI: i32 = 500;
-const EU4_1_37_5_CURRENCY_CONVERSION_FACTOR_MICROS: i32 = 1_000_000;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LoadedSource {
@@ -6546,7 +6544,6 @@ impl VanillaWorld {
 
         let resolved = {
             let world = self.initial.world();
-            let economy = world.economy();
             let mut resolved = BTreeMap::new();
 
             for (country, mut province_contexts) in contexts {
@@ -6562,66 +6559,12 @@ impl VanillaWorld {
                         continue;
                     }
 
-                    let state = economy.provinces.get(&province_entity).ok_or_else(|| {
-                        augustus_core::Error::Invalid(format!(
-                            "fort-maintenance building state is unknown for owned province {}",
-                            province.id
-                        ))
-                    })?;
-                    let mut fort_level_milli = None;
-                    for building_name in &state.buildings {
-                        let definition = economy.buildings.get(building_name).ok_or_else(|| {
-                            augustus_core::Error::Invalid(format!(
-                                "unknown building {building_name} in province {}",
-                                province.id
-                            ))
-                        })?;
-                        if definition.role != augustus_core::BuildingRole::Fortification {
-                            continue;
-                        }
-
-                        let level = definition.fort_level_milli.ok_or_else(|| {
-                            augustus_core::Error::Invalid(format!(
-                                "fortification building {building_name} has no loaded fort level"
-                            ))
-                        })?;
-                        if level <= 0 {
-                            return Err(augustus_core::Error::Invalid(format!(
-                                "fortification building {building_name} has a nonpositive fort level"
-                            )));
-                        }
-                        if fort_level_milli.replace(level).is_some() {
-                            return Err(augustus_core::Error::Invalid(format!(
-                                "province {} has multiple fortification buildings",
-                                province.id
-                            )));
-                        }
-                    }
-
-                    if let Some(fort_level_milli) = fort_level_milli {
-                        let context = province_contexts.remove(&province.id).ok_or_else(|| {
-                            augustus_core::Error::Invalid(format!(
-                                "missing fort-maintenance context for province {}",
-                                province.id
-                            ))
-                        })?;
-                        let mothballed = self.province_mothball_status(province.id) == Some(2);
-                        province_inputs.insert(
-                            province.id,
-                            augustus_core::VanillaFortMaintenanceInput {
-                                base_cost_milli: EU4_1_37_5_FORT_BASE_COST_MILLI,
-                                country_modifier_milli: context.country_modifier_milli,
-                                province_modifier_milli: context.province_modifier_milli,
-                                conversion_factor_micros:
-                                    EU4_1_37_5_CURRENCY_CONVERSION_FACTOR_MICROS,
-                                local_multiplier_milli: i32::try_from(fort_level_milli)
-                                    .map_err(|_| augustus_core::Error::Overflow)?,
-                                relationship_modifier_milli: context.relationship_modifier_milli,
-                                apply_relationship_modifier: context.apply_relationship_modifier,
-                                halve_for_special_case: context.halve_for_special_case
-                                    || mothballed,
-                            },
-                        );
+                    let context = province_contexts.get(&province.id).copied();
+                    let resolution =
+                        self.resolve_vanilla_fort_maintenance_from_building(province.id, context)?;
+                    if let Some(input) = resolution.input {
+                        province_contexts.remove(&province.id);
+                        province_inputs.insert(province.id, input);
                     }
                 }
 
