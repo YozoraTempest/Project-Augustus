@@ -84,7 +84,9 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 海军力限也可通过 `--naval-force-limit-queries queries.json` 查询。该入口只接受调用者完整解析的 `base_milli`、`flat_modifier_milli` 和 `percentage_modifier_milli`，显式 `0` 是有效输入，缺项返回 `evaluation: null` 与对应 `naval_force_limit:missing_input:*`。它只校验国家标签并委托 `calculate_vanilla_force_limit`，不会把 `country_attributes` 的部分 subtotal、发展度、自治、建筑或港口状态自动升级成完整限额，也不会写入快照或修改建船报价。程序入口为 `VanillaWorld::query_naval_force_limit`。
 
-成本和工期查询的修正字段对应以下内容属性；表中的值均指完整修正总量，单位为千分位。字段名称沿用现有 JSON 契约。海军力限查询的三个输入由调用者完整解析，不对应这里的内容属性表。
+陆军力限也可通过 `--land-force-limit-queries queries.json` 查询。输入字段与海军力限查询相同，必须由调用方完整解析 `base_milli`、`flat_modifier_milli` 和 `percentage_modifier_milli`；显式 `0` 是有效输入，缺项返回 `evaluation: null` 与对应 `land_force_limit:missing_input:*`。该入口只校验国家标签并委托共享核心的 `calculate_vanilla_force_limit`，不会把 `country_attributes` 的部分 `country_land_forcelimit_flat`、省份发展度、自治、建筑或其他来源小计自动升级成完整陆军力限，也不会写入快照或改变世界状态。程序入口为 `VanillaWorld::query_land_force_limit`。
+
+成本和工期查询的修正字段对应以下内容属性；表中的值均指完整修正总量，单位为千分位。字段名称沿用现有 JSON 契约。海军和陆军力限查询的三个输入由调用者完整解析，不对应这里的内容属性表。
 
 | 查询 | 输入字段 | 对应内容属性 |
 | --- | --- | --- |
@@ -97,8 +99,11 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 | 海军力限 | `base_milli` | 调用者解析的完整基础力限 |
 | 海军力限 | `flat_modifier_milli` | 调用者解析的完整平坦修正 |
 | 海军力限 | `percentage_modifier_milli` | 调用者解析的完整百分比修正 |
+| 陆军力限 | `base_milli` | 调用者解析的完整基础力限 |
+| 陆军力限 | `flat_modifier_milli` | 调用者解析的完整平坦修正 |
+| 陆军力限 | `percentage_modifier_milli` | 调用者解析的完整百分比修正 |
 
-工期的两个省份输入来自不同容器，不能将同一份小计重复传入。属性名的对应关系不表示来源已经自动聚合：`province_ship_recruit_speed_modifier` 仍只包含已接入的生产来源，国家海军力限属性也保留未决来源，二者的 `known_subtotal_micros` 都不能作为完整输入。查询继续要求调用者提供完整值；只有确认某项总量为零时才显式传入 `0`，省略或 `null` 保持未决。
+工期的两个省份输入来自不同容器，不能将同一份小计重复传入。属性名的对应关系不表示来源已经自动聚合：`province_ship_recruit_speed_modifier` 仍只包含已接入的生产来源，国家陆军和海军力限属性也保留未决来源，三者的 `known_subtotal_micros` 都不能作为完整输入。查询继续要求调用者提供完整值；只有确认某项总量为零时才显式传入 `0`，省略或 `null` 保持未决。
 
 新舰船请求可由调用者提供明确费用和完成日，通过 `--naval-constructions requests.json` 提交。文件是 JSON 数组，例如以下自制输入：
 

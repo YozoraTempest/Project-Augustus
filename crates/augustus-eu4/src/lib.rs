@@ -31,6 +31,7 @@ mod geography;
 mod governments;
 mod ideas;
 mod imperial_membership;
+mod land_force_limit_queries;
 mod liberty_desire;
 mod load;
 mod localisation;
@@ -211,6 +212,7 @@ pub use event_ai::{evaluate_ai_event_weight, select_ai_event_option};
 pub use governments::GovernmentReport;
 pub use ideas::IdeaReport;
 pub use jomini::binary::TokenResolver as Eu4TokenResolver;
+pub use land_force_limit_queries::{VanillaLandForceLimitQuery, VanillaLandForceLimitQueryReport};
 pub use load::{ContentSet, ContentSource, FileCandidate, FileOrigin, FileTrace, Suppression};
 pub use localisation::EventText;
 pub use native_migration_queries::{
