@@ -158,7 +158,7 @@ pub struct VanillaProductionBaseValueInput {
     pub external_rate_modifier_milli: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct VanillaProductionBaseValueResult {
     pub priced_value_milli: i32,
     pub flat_value_milli: i32,

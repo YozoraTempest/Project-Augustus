@@ -14,10 +14,10 @@ use augustus_eu4::{
     VanillaExternalProductionInput, VanillaExternalState, VanillaFortMaintenanceContextInput,
     VanillaFortMaintenanceInput, VanillaGoldProductionCountryQuery, VanillaGoldProductionInput,
     VanillaGoldProductionInputState, VanillaProductionCountryQuery, VanillaProductionInputState,
-    VanillaProvinceProductionBaseValueInput, VanillaProvinceStateMaintenanceInput,
-    VanillaStateMaintenanceContentQuery, VanillaStateMaintenanceDirectQuery,
-    VanillaStateMaintenanceQuery, VanillaStateMaintenanceQueryMode, VanillaTradeGoodsSizeInput,
-    VanillaWorld,
+    VanillaProvinceProductionBaseValueInput, VanillaProvinceProductionBaseValueQuery,
+    VanillaProvinceStateMaintenanceInput, VanillaStateMaintenanceContentQuery,
+    VanillaStateMaintenanceDirectQuery, VanillaStateMaintenanceQuery,
+    VanillaStateMaintenanceQueryMode, VanillaTradeGoodsSizeInput, VanillaWorld,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -420,6 +420,72 @@ fn province_production_value_uses_content_price_without_inventing_missing_goods(
             .unwrap(),
         None
     );
+}
+
+#[test]
+fn province_production_value_query_reports_content_price_boundary() {
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let query = VanillaProvinceProductionBaseValueQuery {
+        province: 1,
+        input: VanillaProvinceProductionBaseValueInput {
+            goods_size_milli: 1_000,
+            flat_modifier_milli: 100,
+            external_flat_modifier_milli: -50,
+            rate_modifier_milli: 0,
+            external_rate_modifier_milli: 0,
+        },
+    };
+    let report = loaded.query_vanilla_production_base_value(&query).unwrap();
+    assert_eq!(report.province, 1);
+    assert_eq!(report.evaluation.unwrap().value_milli, 2_175);
+    assert!(report.unresolved.is_empty());
+
+    let missing = loaded
+        .query_vanilla_production_base_value(&VanillaProvinceProductionBaseValueQuery {
+            province: 4,
+            input: query.input,
+        })
+        .unwrap();
+    assert_eq!(missing.evaluation, None);
+    assert_eq!(
+        missing.unresolved,
+        vec!["production_value:missing_trade_good_price"]
+    );
+}
+
+#[test]
+fn province_production_value_query_rejects_unknown_province_and_unknown_fields() {
+    let loaded = VanillaWorld::load(fixture(), "1444.11.11").unwrap();
+    let error = loaded
+        .query_vanilla_production_base_value(&VanillaProvinceProductionBaseValueQuery {
+            province: 999,
+            input: VanillaProvinceProductionBaseValueInput {
+                goods_size_milli: 1_000,
+                flat_modifier_milli: 0,
+                external_flat_modifier_milli: 0,
+                rate_modifier_milli: 0,
+                external_rate_modifier_milli: 0,
+            },
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown province"));
+
+    let error =
+        serde_json::from_value::<VanillaProvinceProductionBaseValueQuery>(serde_json::json!({
+            "province": 1,
+            "input": {
+                "goods_size_milli": 1000,
+                "flat_modifier_milli": 0,
+                "external_flat_modifier_milli": 0,
+                "rate_modifier_milli": 0,
+                "external_rate_modifier_milli": 0,
+                "unexpected": 1
+            }
+        }))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown field"));
 }
 
 #[test]

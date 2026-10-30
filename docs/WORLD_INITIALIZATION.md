@@ -88,6 +88,8 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 普通生产汇总也可通过 `--vanilla-production-queries queries.json` 查询。每项输入包含 `country` 和按 EU4 省份编号索引的 `inputs`，每个省份状态由调用者提供 `VanillaProductionInputState`：完整 `input` 时计算普通生产，缺失或 `unresolved` 时保留该省份未决。查询按照当前实时所有权汇总，并在 `evaluation` 中保留已知年收入、月收入、省份明细和缺项；存在缺项时 `annual_value_milli` 与 `monthly_value_milli` 为 `null`，不会把已知小计升级成完整总量。结果写入 `vanilla_production_queries`，不修改世界或快照。程序入口为 `VanillaWorld::query_vanilla_production`。
 
+省份普通生产的 value stage 可通过 `--vanilla-production-value-queries queries.json` 查询。每项输入包含 `province` 与 `input`；调用者提供已经解析的 `goods_size_milli` 和五项 value 修正，兼容层从当前加载内容读取该省份商品的基础价格。结果写入 `vanilla_production_value_queries`，缺少或未解析商品价格时返回 `evaluation: null` 与 `production_value:missing_trade_good_price`。该入口只复现商品定价、平坦修正和倍率截断阶段，不计算 goods size、完整省份或国家修正、生产效率、月度结算或现金流；查询不会绑定生产输入，也不修改世界或快照。程序入口为 `VanillaWorld::query_vanilla_production_base_value`。
+
 黄金生产汇总可通过 `--vanilla-gold-production-queries queries.json` 查询。输入形状与普通生产相同，但每个省份使用 `gold_size_milli`、`mine_base_milli` 和 `external_gold_size_milli`；只有当前载入内容明确标记为黄金的省份进入汇总，普通商品省份会被跳过。缺失或未决输入保留已知黄金小计并将最终 `value_milli` 与 `monthly_value_milli` 置为 `null`。结果写入 `vanilla_gold_production_queries`，不会写入月度生产状态或快照。程序入口为 `VanillaWorld::query_vanilla_gold_production`。
 
 省份州维护贡献可通过 `--state-maintenance-queries queries.json` 查询。每项请求使用相邻的 `mode` 和 `query` 字段：`mode = "direct"` 时由调用者提供 `development_scale_milli`，`mode = "content"` 时从已加载的 `STATE_MAINTENANCE_DEV_FACTOR` 读取该项；两种模式都要求调用者提供距离和关系修正等其余输入。返回的 `evaluation` 包含基础和最终维护值，未知省份、缺失 tax/production/manpower 或缺少内容 define 时返回 `evaluation: null` 与明确的 `state_maintenance:*` 未决原因。查询只读取当前省份状态，不安装月度维护输入、不推进现金流，也不修改快照。程序入口为 `VanillaWorld::query_vanilla_state_maintenance`。
