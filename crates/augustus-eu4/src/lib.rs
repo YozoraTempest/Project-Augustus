@@ -45,6 +45,7 @@ mod monthly_accrual_queries;
 mod monthly_autonomy_queries;
 mod monthly_cashflow_queries;
 mod monthly_convergence_queries;
+mod monthly_event_queries;
 mod monthly_ledger_queries;
 mod monthly_production_queries;
 mod monthly_tax_queries;
@@ -108,6 +109,7 @@ pub use monthly_cashflow_queries::{
 pub use monthly_convergence_queries::{
     VanillaMonthlyConvergenceQuery, VanillaMonthlyConvergenceQueryReport,
 };
+pub use monthly_event_queries::{VanillaMonthlyEventQuery, VanillaMonthlyEventQueryReport};
 pub use monthly_ledger_queries::{VanillaMonthlyLedgerQuery, VanillaMonthlyLedgerQueryReport};
 pub use monthly_production_queries::{
     VanillaMonthlyProductionQuery, VanillaMonthlyProductionQueryReport,

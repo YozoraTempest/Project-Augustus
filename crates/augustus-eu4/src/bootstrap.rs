@@ -5193,6 +5193,26 @@ impl VanillaWorld {
         self.yearly_event_rules.as_ref()
     }
 
+    /// Returns translated monthly pulse rules when the loaded content defines
+    /// an `on_monthly_pulse` event group.
+    pub fn monthly_event_rules(&self) -> Option<&MonthlyEventRules> {
+        self.monthly_event_rules.as_ref()
+    }
+
+    /// Returns the selected monthly pulse pipeline identity, when one exists.
+    pub fn monthly_event_system_id(&self) -> Option<&str> {
+        self.monthly_event_system_id.as_deref()
+    }
+
+    /// Returns the standard monthly phase composed beneath the pulse rules.
+    pub fn monthly_event_base(&self) -> Option<&'static str> {
+        self.monthly_event_base.map(|base| match base {
+            MonthlyEventBase::Tax => "tax",
+            MonthlyEventBase::Economy => "economy",
+            MonthlyEventBase::EventsOnly => "events_only",
+        })
+    }
+
     /// Returns the save-order import count and any construction records left unresolved.
     pub fn naval_construction_import_report(&self) -> &VanillaNavalConstructionImportReport {
         &self.naval_construction_import_report
