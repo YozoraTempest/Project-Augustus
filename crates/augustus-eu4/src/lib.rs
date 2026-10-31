@@ -46,6 +46,7 @@ mod monthly_cashflow_queries;
 mod monthly_convergence_queries;
 mod monthly_ledger_queries;
 mod monthly_production_queries;
+mod monthly_tax_queries;
 mod native_development;
 mod native_migration_defines;
 mod native_migration_execution;
@@ -107,6 +108,7 @@ pub use monthly_ledger_queries::{VanillaMonthlyLedgerQuery, VanillaMonthlyLedger
 pub use monthly_production_queries::{
     VanillaMonthlyProductionQuery, VanillaMonthlyProductionQueryReport,
 };
+pub use monthly_tax_queries::{VanillaMonthlyTaxQuery, VanillaMonthlyTaxQueryReport};
 pub use naval_construction_cost_queries::{
     VanillaNavalConstructionCostQuery, VanillaNavalConstructionCostQueryReport,
 };

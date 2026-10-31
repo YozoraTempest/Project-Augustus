@@ -528,3 +528,21 @@ impl Taxation {
         }
     }
 }
+
+impl World {
+    /// Prepares the next monthly tax settlement without committing the tax
+    /// receipt, treasury changes, ledger updates, or settlement counter.
+    /// The staged world applies the same monthly-autonomy phase used by the
+    /// standard monthly systems before evaluating taxation.
+    pub fn preview_monthly_tax(&self) -> Result<TaxSettlement, Error> {
+        let mut staged = self.clone();
+        if let Some(administration) = staged.prepare_monthly_autonomy()? {
+            staged.replace_administration(administration)?;
+        }
+        staged
+            .taxation
+            .as_ref()
+            .ok_or_else(|| Error::Invalid("missing taxation".into()))?
+            .prepare(&staged)
+    }
+}

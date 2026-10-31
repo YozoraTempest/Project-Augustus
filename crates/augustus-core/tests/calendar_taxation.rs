@@ -83,6 +83,29 @@ fn balance(world: &World, id: usize) -> Option<i64> {
 }
 
 #[test]
+fn preview_monthly_tax_reuses_autonomy_order_without_mutation() {
+    let world = scenario();
+    let snapshot = world.save("tax-preview").unwrap();
+    let settlement = world.preview_monthly_tax().unwrap();
+    let account = &settlement.accounts[&EntityId(0)];
+    assert_eq!(settlement.day, 0);
+    assert_eq!(
+        (
+            account.known_subtotal_milli,
+            account.income_milli,
+            account.credited_milli,
+            account.treasury_before_milli,
+            account.treasury_after_milli,
+        ),
+        (1_000, Some(1_000), Some(1_000), Some(10_000), Some(11_000))
+    );
+    assert!(account.unresolved.is_empty());
+    assert_eq!(world.save("tax-preview").unwrap(), snapshot);
+    assert_eq!(world.taxation().unwrap().settlement_count, 0);
+    assert!(world.taxation().unwrap().last_settlement.is_none());
+}
+
+#[test]
 fn monthly_tax_truncates_fractional_milli_and_records_tax_ledger_slot() {
     let mut current = scenario();
     current.set(EntityId(2), FieldId(0), 95_727).unwrap();
