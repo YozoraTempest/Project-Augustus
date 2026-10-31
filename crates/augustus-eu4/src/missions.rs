@@ -400,6 +400,32 @@ struct MissionRuleIdentity<'a> {
     blocked: bool,
 }
 
+fn mission_execution_block<'data, 'tokens>(
+    parsed: &crate::ParsedText<'_>,
+    value: &jomini::text::ValueReader<'data, 'tokens, TextEncoding>,
+    at: crate::SourceLocation,
+    name: &str,
+) -> Result<jomini::text::ObjectReader<'data, 'tokens, TextEncoding>, Error> {
+    let fail = || {
+        Error::message(
+            parsed.source(),
+            format!("mission {name} requires a non-mixed object block"),
+        )
+        .with_location(at)
+    };
+    // read_object also accepts arrays and discards mixed-container suffixes.
+    // Check the original value before converting it to an object reader.
+    match value.token() {
+        TextToken::Object { mixed: false, .. } => {}
+        TextToken::Array { mixed: false, .. }
+            if value
+                .read_array()
+                .is_ok_and(|array| array.values().next().is_none()) => {}
+        _ => return Err(fail()),
+    }
+    value.read_object().map_err(|_| fail())
+}
+
 fn compile_programs(
     documents: &[TextDocument],
     ids: &BTreeSet<String>,
@@ -520,9 +546,8 @@ fn compile_programs(
                     match name.as_str() {
                         "trigger" => {
                             trigger_count += 1;
-                            let result = field_value
-                                .read_object()
-                                .map_err(|_| fail("mission trigger requires a block"));
+                            let result =
+                                mission_execution_block(&parsed, &field_value, field_at, "trigger");
                             match result {
                                 Ok(block) => {
                                     let compiler = mission_compiler(
@@ -551,9 +576,8 @@ fn compile_programs(
                         }
                         "effect" => {
                             effect_count += 1;
-                            let result = field_value
-                                .read_object()
-                                .map_err(|_| fail("mission effect requires a block"));
+                            let result =
+                                mission_execution_block(&parsed, &field_value, field_at, "effect");
                             match result {
                                 Ok(block) => {
                                     let compiler = mission_compiler(
