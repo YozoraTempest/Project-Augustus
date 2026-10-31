@@ -28,6 +28,12 @@ Godot 国家面板的“军力”区显示所选国家的同一份当前数据�
 
 Godot 的 `query_military` 返回上述报告时，编队和成员 ID 使用十进制字符串，保证界面行标识完整保留。Rust 报告中的强类型 ID 和 CLI 中的整数表示不变。
 
+使用 `--country-finances --country AAA` 查询当前国家的财政记录，输出为独立的 `country_finances` 对象。程序入口为 `VanillaWorld::economy_report(country)`；报告在恢复项目快照和推进之后生成、写出项目快照之前校验，未知国家报错。查询只读取当前国库、当前账本待结余额，以及税收、普通生产和现金流组件的最近已记录账户，不执行月结、不刷新输入、不结转账本、不消耗随机数。原有 `--economy` 目录查询与默认输出格式保持不变。
+
+报告包含当前 `day`、日历 `date`、`treasury_milli`、`ledger_pending_milli` 和三类阶段。阶段为 `null` 表示没有安装该状态组件；阶段存在而 `last_receipt` 为 `null`，表示没有该国的最近月结账户。`settlement_count` 是整个组件的结算次数，不是该国的次数。每份记录保留自己的模拟日和日历日期；税收的 `known_subtotal_milli` 与生产的同名字段都是月金额，`amount_milli` 分别为完整税收、完整普通生产或有正负号的现金流净额，`credited_milli` 为该阶段确认入账。现金流没有部分小计，`known_subtotal_milli` 为 `null`。未知金额不补零，`unresolved` 保留原始缺项原因。
+
+Godot 的“财政”区通过 `query_economy(country)` 查看同一份报告，选择阶段可展开历史记录。Godot 响应中的金额、模拟日和计数使用十进制字符串，避免 JSON 浮点解析丢失整数精度；Rust 与 CLI 保留整数。阶段的结算前后国库是当时记录的中间值，后续阶段、账本结转或即时交易可能已经改变当前国库；账本待结余额也不并入当前余额。切换国家、推进、事件和恢复快照后刷新。该视图展示已经记录的结果，不试算下一次月结，也不模拟未来月份。自制样本见[财政月结记录](../examples/economy/README.md)。
+
 只查询指定国家或省份时，可以加上 `--omit-load-report` 省略全量加载报告；国家、省份及其来源数据和模拟摘要仍会输出。
 
 可以直接把自己的未压缩 EU4 开局存档作为启动状态输入：

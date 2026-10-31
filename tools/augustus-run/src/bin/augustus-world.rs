@@ -102,6 +102,13 @@ struct Cli {
     /// Inspect loaded armies and fleets, filtered by --country and --province when supplied.
     #[arg(long)]
     military: bool,
+    /// Inspect current balances and the latest completed monthly receipts.
+    #[arg(
+        long,
+        requires = "country",
+        conflicts_with = "compare_administration_save"
+    )]
+    country_finances: bool,
     /// Query ordinary galley build durations with loaded defines and explicit modifiers.
     /// Queries run after restore and --days and do not submit orders.
     #[arg(
@@ -1222,6 +1229,10 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         .military
         .then(|| loaded.military_roster(cli.country.as_deref(), cli.province))
         .transpose()?;
+    let country_finances = cli
+        .country_finances
+        .then(|| loaded.economy_report(cli.country.as_deref().expect("required country")))
+        .transpose()?;
     if let Some(path) = cli.save {
         let snapshot = loaded.save()?;
         let mut file = std::fs::OpenOptions::new()
@@ -1260,6 +1271,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(military) = military {
         output["military"] = serde_json::to_value(military)?;
+    }
+    if let Some(country_finances) = country_finances {
+        output["country_finances"] = serde_json::to_value(country_finances)?;
     }
     if let Some(queries) = naval_construction_time_queries {
         output["naval_construction_time_queries"] = serde_json::to_value(queries)?;

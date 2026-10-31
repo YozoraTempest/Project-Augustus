@@ -672,6 +672,55 @@ impl AugustusWorldSession {
     }
 
     #[func]
+    fn query_economy(&self, country: GString) -> GString {
+        world_reply(self.loaded().and_then(|loaded| {
+            let report = loaded
+                .economy_report(&country.to_string())
+                .map_err(|error| error.to_string())?;
+            let mut value = serde_json::to_value(report).map_err(|error| error.to_string())?;
+            // Godot's JSON parser uses floating-point numbers. Preserve all
+            // monetary values and counters as exact decimal strings here.
+            value["day"] = value["day"]
+                .as_u64()
+                .map(|number| number.to_string())
+                .into();
+            for field in ["treasury_milli", "ledger_pending_milli"] {
+                value[field] = value[field]
+                    .as_i64()
+                    .map(|number| number.to_string())
+                    .into();
+            }
+            for name in ["tax", "production", "cashflow"] {
+                if let Some(stage) = value[name].as_object_mut() {
+                    stage["settlement_count"] = stage["settlement_count"]
+                        .as_u64()
+                        .map(|number| number.to_string())
+                        .into();
+                    if let Some(receipt) = stage["last_receipt"].as_object_mut() {
+                        receipt["day"] = receipt["day"]
+                            .as_u64()
+                            .map(|number| number.to_string())
+                            .into();
+                        for field in [
+                            "known_subtotal_milli",
+                            "amount_milli",
+                            "credited_milli",
+                            "treasury_before_milli",
+                            "treasury_after_milli",
+                        ] {
+                            receipt[field] = receipt[field]
+                                .as_i64()
+                                .map(|number| number.to_string())
+                                .into();
+                        }
+                    }
+                }
+            }
+            Ok(value)
+        }))
+    }
+
+    #[func]
     fn query_naval_constructions(&self, country: GString) -> GString {
         let country = country.to_string();
         world_reply(self.loaded().and_then(|loaded| {

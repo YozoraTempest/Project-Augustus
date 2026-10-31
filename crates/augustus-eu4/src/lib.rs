@@ -21,6 +21,7 @@ mod country_status;
 mod country_tags;
 mod csv_source_lines;
 mod defines;
+mod economy_report;
 pub use defines::{DefineDifficulty, DefineValue, Defines, EvaluatedDefine};
 mod definitions;
 mod descriptor;
@@ -94,6 +95,7 @@ mod yearly_event_queries;
 pub use annual_ledger_rollover_queries::{
     VanillaAnnualLedgerRolloverQuery, VanillaAnnualLedgerRolloverQueryReport,
 };
+pub use economy_report::{VanillaEconomyReceipt, VanillaEconomyReport, VanillaEconomyStage};
 pub use estate_loyalty_queries::{
     VanillaEstateLoyaltyEntry, VanillaEstateLoyaltyEvaluation, VanillaEstateLoyaltyQuery,
     VanillaEstateLoyaltyQueryReport,

@@ -28,6 +28,7 @@ var country_choice: OptionButton
 var country_details: Label
 var military_panel
 var naval_construction_panel
+var economy_panel
 var politics_details: Label
 var diplomacy_details: Label
 var province_details: Label
@@ -223,6 +224,8 @@ func _ready() -> void:
 	country_details = label("尚未载入", 16)
 	country_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	panel.add_child(country_details)
+	economy_panel = preload("res://economy_panel.gd").new()
+	panel.add_child(economy_panel)
 	panel.add_child(label("兵种选择", 20))
 	unit_selection_status = label("尚未载入", 15)
 	unit_selection_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -535,6 +538,7 @@ func apply_loaded_world(candidate, data: Dictionary) -> bool:
 	country_choice.clear()
 	military_panel.clear()
 	naval_construction_panel.clear()
+	economy_panel.clear()
 	unit_country_id = ""
 	unit_option_cache.clear()
 	mission_expanded = false
@@ -744,11 +748,13 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 	if country_choice.item_count == 0:
 		military_panel.clear()
 		naval_construction_panel.clear()
+		economy_panel.clear()
 		return
 	var id: String = country_choice.get_item_metadata(index)
 	if id != selected_country_id:
 		military_panel.clear()
 		naval_construction_panel.clear()
+		economy_panel.clear()
 	if id != selected_country_id and not active_mission_highlight.is_empty():
 		clear_mission_highlight()
 	selection_revision += 1
@@ -761,6 +767,13 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 	var country: Dictionary = packet.value.state
 	selected_country_id = id
 	country_choice.select(index)
+	var economy_packet: Variant = JSON.parse_string(session.query_economy(id))
+	if economy_packet == null or economy_packet.get("ok") != true:
+		economy_panel.clear()
+		if economy_packet != null:
+			status.text = str(economy_packet.get("error", "财政状态暂不可用。"))
+	else:
+		economy_panel.render_report(economy_packet.value)
 	refresh_unit_templates(id)
 	refresh_country_missions(id)
 	var military_packet: Variant = JSON.parse_string(session.query_military(id))
@@ -824,12 +837,7 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 		if unknown_estates > 0:
 			country_details.text += "\n另有 %d 个阶层的可用条件尚未确定" % unknown_estates
 	var totals: Dictionary = packet.value.province_attribute_totals
-	country_details.text += "\n省份贡献合计（已接入部分，自治前）\n税收基数 %s · 人力 %s\n完整属性与其他结算尚未接入" % [scaled(totals.tax_basis.known_subtotal_micros, 1000000), scaled(totals.manpower_contribution.known_subtotal_micros, 1000000)]
-	var tax: Variant = packet.value.last_monthly_tax
-	if tax != null:
-		country_details.text += "\n最近税收月结\n已知部分 %s · 完整收入 %s\n入账 %s" % [scaled(tax.known_subtotal_milli, 1000), scaled(tax.income_milli, 1000), scaled(tax.credited_milli, 1000)]
-		if not tax.unresolved.is_empty():
-			country_details.text += "\n有 %d 项缺项，收入或余额尚未确定。" % tax.unresolved.size()
+	country_details.text += "\n省份贡献合计（已接入部分，自治前）\n税收基数 %s · 人力 %s" % [scaled(totals.tax_basis.known_subtotal_micros, 1000000), scaled(totals.manpower_contribution.known_subtotal_micros, 1000000)]
 	var areas = packet.value.administrative_areas
 	if areas != null:
 		var known: Array[String] = []

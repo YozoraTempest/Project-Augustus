@@ -226,7 +226,11 @@ func verify_ui(ui: Control) -> void:
 			check(actual.is_equal_approx(Color8(50, 180, 140)), "shader displays political owner color")
 		check(ui.advance_world(20), "UI advances the original-style world")
 		check(ui.calendar_label.text.contains("1444.12.01") and ui.calendar_label.text.contains("月结 1 次"), "UI displays the authoritative calendar and settlement count")
-		check(ui.country_details.text.contains("最近税收月结") and ui.country_details.text.contains("余额尚未确定"), "UI explains incomplete monthly receipts")
+		ui.economy_panel.toggle_section()
+		var tax_item: TreeItem = ui.economy_panel.tree.get_root().get_child(0)
+		tax_item.select(0)
+		ui.economy_panel.tree.item_selected.emit()
+		check(ui.economy_panel.detail_label.text.contains("阶段确认入账：未载入") and ui.economy_panel.detail_label.text.contains("国库余额尚未确定"), "UI explains incomplete monthly receipts in the finance panel")
 		ui.toggle_running()
 		check(ui.running and ui.run_button.text == "暂停", "UI starts continuous day requests")
 		await create_timer(0.3).timeout
