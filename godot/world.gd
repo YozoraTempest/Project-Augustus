@@ -29,6 +29,8 @@ var eu4_save_picker: FileDialog
 var external_state_picker: FileDialog
 var details_scroll: ScrollContainer
 var selection_revision := 0
+var selected_province_id := 0
+var selected_country_id := ""
 var unit_country_id := ""
 var unit_option_cache: Dictionary = {}
 var unit_option_controls: Dictionary = {}
@@ -416,6 +418,8 @@ func apply_loaded_world(candidate, data: Dictionary) -> bool:
 	if data.saved_imperial_baseline != null:
 		status.text += "\n从所选存档导入 %d 个 HRE 省份归属和 %d 条帝位偏好。" % [int(data.saved_imperial_baseline.provinces_checked), int(data.saved_imperial_baseline.preferences_imported)]
 	province_details.text = "点击地图查看省份。"
+	selected_province_id = 0
+	selected_country_id = ""
 	select_country(0)
 	for control in time_controls:
 		control.disabled = false
@@ -498,6 +502,7 @@ func choose_event_option(pending_id: int, option_id: String) -> void:
 	event_overlay.visible = false
 	status.text = "已选择：%s" % option_id
 	refresh_calendar()
+	select_country(country_choice.selected, false)
 
 func advance_world(days: int) -> bool:
 	if event_overlay.visible:
@@ -577,6 +582,8 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 		status.text = packet.error
 		return
 	var country: Dictionary = packet.value.state
+	selected_country_id = id
+	country_choice.select(index)
 	refresh_unit_templates(id)
 	var government: Variant = packet.value.government
 	country_details.text = "%s · %s\n领土 %d 个省份 · 首都 %s\n文化 %s · 宗教 %s\n政体 %s" % [country.id, country.name, packet.value.owned_provinces.size(), shown(packet.value.bound_capital), shown(country.primary_culture), shown(country.religion), shown(null if government == null else government.kind)]
@@ -652,6 +659,8 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 	for relation in packet.value.diplomacy:
 		relations.append(relation_text(relation, id))
 	diplomacy_details.text = "没有已载入的外交关系" if relations.is_empty() else "\n".join(relations)
+	if selected_province_id != 0:
+		select_province(selected_province_id, false)
 
 func refresh_unit_templates(id: String) -> void:
 	var packet: Dictionary = JSON.parse_string(session.query_unit_templates(id))
@@ -730,12 +739,13 @@ func scaled(value: Variant, scale: int) -> String:
 	return "未载入" if value == null else "%.6f" % (float(value) / scale)
 
 
-func select_province(id: int) -> bool:
+func select_province(id: int, reveal: bool = true) -> bool:
 	var packet: Dictionary = JSON.parse_string(session.query_province(id))
 	if not packet.ok:
 		status.text = packet.error
 		return false
 	var province: Dictionary = packet.value
+	selected_province_id = id
 	var development := "未载入"
 	if province.tax_milli != null and province.production_milli != null and province.manpower_milli != null:
 		development = "%.3f / %.3f / %.3f" % [province.tax_milli / 1000.0, province.production_milli / 1000.0, province.manpower_milli / 1000.0]
@@ -750,6 +760,15 @@ func select_province(id: int) -> bool:
 		buildings = "无历史记载" if province.buildings.is_empty() else ", ".join(province.buildings)
 	province_details.text += "\n历史记载建筑：" + buildings
 	province_details.text += "\n贸易节点：" + shown(province.trade_node)
+	var center: Variant = province.center_of_trade_level
+	province_details.text += "\n贸易中心：" + ("未知" if center == null else ("无" if int(center) == 0 else "%d 级" % int(center)))
+	if not selected_country_id.is_empty():
+		var knowledge: Dictionary = JSON.parse_string(session.query_province_discovery(id, selected_country_id))
+		if knowledge.ok:
+			var discovered: Variant = knowledge.value.discovered
+			province_details.text += "\n%s 的发现状态：%s" % [selected_country_id, "未知" if discovered == null else ("已发现" if discovered else "未发现")]
+		else:
+			status.text = knowledge.error
 	if province.trade_node_outgoing != null:
 		province_details.text += "\n流向：" + ("无下游" if province.trade_node_outgoing.is_empty() else ", ".join(province.trade_node_outgoing))
 	if not province.modifiers.is_empty():
@@ -760,7 +779,8 @@ func select_province(id: int) -> bool:
 	province_details.text += attribute_text(province.attributes)
 	province_details.text += administration_text(province.administration)
 	selection_revision += 1
-	reveal_province.call_deferred(selection_revision)
+	if reveal:
+		reveal_province.call_deferred(selection_revision)
 	return true
 
 func attribute_text(attributes: Dictionary) -> String:
@@ -873,7 +893,7 @@ func autonomy_percent(value) -> String:
 func reveal_province(revision: int) -> void:
 	await get_tree().process_frame
 	if revision == selection_revision:
-		details_scroll.ensure_control_visible(province_details)
+		details_scroll.scroll_vertical += roundi(province_details.global_position.y - details_scroll.global_position.y)
 
 func map_input(event: InputEvent) -> void:
 	if province_image == null or not event is InputEventMouseButton:

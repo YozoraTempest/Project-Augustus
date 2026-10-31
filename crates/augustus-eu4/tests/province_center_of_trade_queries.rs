@@ -17,16 +17,28 @@ fn province_center_of_trade_query_preserves_known_zero_and_unknown_state() {
         .query_vanilla_province_center_of_trade(&VanillaProvinceCenterOfTradeQuery { province: 1 })
         .unwrap();
     assert_eq!(zero.level, Some(0));
+    assert_eq!(
+        loaded.province(1).unwrap().center_of_trade_level,
+        zero.level
+    );
 
     let active = loaded
         .query_vanilla_province_center_of_trade(&VanillaProvinceCenterOfTradeQuery { province: 2 })
         .unwrap();
     assert_eq!(active.level, Some(2));
+    assert_eq!(
+        loaded.province(2).unwrap().center_of_trade_level,
+        active.level
+    );
 
     let unknown = loaded
         .query_vanilla_province_center_of_trade(&VanillaProvinceCenterOfTradeQuery { province: 3 })
         .unwrap();
     assert_eq!(unknown.level, None);
+    assert_eq!(
+        loaded.province(3).unwrap().center_of_trade_level,
+        unknown.level
+    );
     assert_eq!(loaded.save().unwrap(), before);
 }
 

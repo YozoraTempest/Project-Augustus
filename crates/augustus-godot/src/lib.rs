@@ -802,6 +802,19 @@ impl AugustusWorldSession {
     }
 
     #[func]
+    fn query_province_discovery(&self, id: i64, country: GString) -> GString {
+        world_reply(self.loaded().and_then(|loaded| {
+            let province = u32::try_from(id).map_err(|_| "invalid province identifier")?;
+            loaded
+                .query_vanilla_province_discovery(&augustus_eu4::VanillaProvinceDiscoveryQuery {
+                    province,
+                    country: Some(country.to_string()),
+                })
+                .map_err(|error| error.to_string())
+        }))
+    }
+
+    #[func]
     fn query_province(&self, id: i64) -> GString {
         world_reply(self.loaded().and_then(|loaded| {
             let id = u32::try_from(id).map_err(|_| "invalid province identifier")?;

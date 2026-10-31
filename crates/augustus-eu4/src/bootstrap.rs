@@ -128,6 +128,8 @@ pub struct ProvinceView<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tribal_owner: Option<Option<&'a str>>,
     pub terrain: Option<&'a str>,
+    /// Live core level; zero is known absence and `None` remains unknown.
+    pub center_of_trade_level: Option<u8>,
     pub metrics: Option<&'a BTreeMap<String, Option<i64>>>,
     pub buildings: Option<Vec<&'a str>>,
     pub trade_node: Option<&'a str>,
@@ -5515,6 +5517,11 @@ impl VanillaWorld {
         let trade_node = economy.province_node(entity);
         Some(ProvinceView {
             state,
+            center_of_trade_level: self
+                .initial
+                .world()
+                .province_center_of_trade_level(entity)
+                .expect("registered province"),
             previous_controller: self
                 .initial
                 .world()

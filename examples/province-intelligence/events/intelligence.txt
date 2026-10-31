@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+country_event = {
+    id = augustus_intelligence.1
+    is_triggered_only = yes
+    immediate = {
+        1 = { center_of_trade = 3 discover_country = BBB }
+    }
+    option = {
+        name = intelligence_continue
+        1 = { center_of_trade = 1 }
+        discover_province = 3
+    }
+}

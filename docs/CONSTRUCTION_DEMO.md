@@ -57,9 +57,13 @@ cargo test --workspace --locked
 cargo build -p augustus-godot --locked
 godot --headless --path godot --editor --import --quit
 godot --headless --path godot --script res://tests/session.gd
+godot --headless --path godot --script res://tests/world.gd
+godot --headless --path godot --script res://tests/province_intelligence.gd
 ```
 
 Godot 检查会加载真实 Rust 扩展，验证按钮操作、查询、两类输入、存档和随机状态。测试内容均为自制样本。
+
+`province_intelligence.gd` 配合 `examples/province-intelligence` 验证省份详情中的发现三态和贸易中心等级，并检查切换国家、推进时间、选择事件、恢复快照后的即时刷新及滚动位置。
 
 可以独立测量常量条件折叠的执行成本：
 
