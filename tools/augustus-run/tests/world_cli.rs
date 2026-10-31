@@ -2179,6 +2179,106 @@ fn world_cli_rejects_unknown_pending_event_query_fields() {
 }
 
 #[test]
+fn world_cli_reports_country_runtime_state_without_mutation() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let game_root = temp.path().join("game");
+    copy_directory(&fixture, &game_root);
+    fs::create_dir_all(game_root.join("missions")).unwrap();
+    fs::write(
+        game_root.join("missions/test.txt"),
+        "test_series={slot=1 sample_mission={position=1}}",
+    )
+    .unwrap();
+    let external = temp.path().join("external-state.json");
+    fs::write(
+        &external,
+        serde_json::json!({
+            "country_mission_completions": {"AAA": ["sample_mission"]},
+            "country_variables": {"AAA": {"saved_counter": 2375}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let queries = temp.path().join("country-runtime-queries.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA"}]).to_string(),
+    )
+    .unwrap();
+    let baseline = temp.path().join("baseline.json");
+    let queried = temp.path().join("queried.json");
+    let base = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&game_root)
+        .arg("--external-state")
+        .arg(&external)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&baseline)
+        .output()
+        .unwrap();
+    assert!(
+        base.status.success(),
+        "{}",
+        String::from_utf8_lossy(&base.stderr)
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&game_root)
+        .arg("--external-state")
+        .arg(&external)
+        .arg("--country-runtime-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&queried)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let report = &output["country_runtime_queries"][0];
+    assert_eq!(report["country"], "AAA");
+    assert_eq!(
+        report["completed_missions"],
+        serde_json::json!(["sample_mission"])
+    );
+    assert_eq!(
+        report["available_missions"],
+        serde_json::json!(["sample_mission"])
+    );
+    assert_eq!(report["variables"]["saved_counter"], 2375);
+    assert_eq!(report["variables_known"], true);
+    assert_eq!(fs::read(&queried).unwrap(), fs::read(&baseline).unwrap());
+}
+
+#[test]
+fn world_cli_rejects_unknown_country_runtime_query_fields() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let queries = temp.path().join("country-runtime-queries.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA", "unexpected": true}]).to_string(),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--country-runtime-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown field"));
+}
+
+#[test]
 fn world_cli_reports_yearly_event_configuration_without_execution() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();

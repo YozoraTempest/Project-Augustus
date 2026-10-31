@@ -116,6 +116,8 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 待选事件及其本地化展示信息可通过 `--vanilla-pending-event-queries queries.json` 只读检查。每项请求可省略过滤器返回全部 pending events，也可提供 `pending` 或 `country` 一个过滤器，或同时提供；报告返回 pending ID、event ID、标题、描述、当前作用域、日期、已捕获图片、事件/选项 location、当前可用 options 和本地化 option labels。`available_event_options` 会重新读取当前条件，但不执行效果、不推进日历、不消费 RNG、不选择选项，也不修改快照。未知 pending ID、未知国家或 JSON 未知字段报错；合法过滤器没有匹配项时返回空列表。程序入口为 `VanillaWorld::query_vanilla_pending_events`。
 
+国家存档任务和命名变量可通过 `--country-runtime-queries queries.json` 只读检查。每项请求包含 `country`；报告返回当前内容注册的任务 ID、已完成任务集合、当前已选可用任务集合，以及以千分位 `i64` 保存的命名变量。`null` 表示对应任务或变量命名空间尚未绑定，空对象/空数组表示已知为空；`variables_known` 为 `false` 时，变量条目可能已知但命名空间仍有未决部分。查询只读取已经绑定的 `World::completions`、`World::objectives` 和 `World::named_values`，不重新计算任务条件、不刷新可用任务、不执行奖励、不修改快照。未知国家和 JSON 未知字段报错。程序入口为 `VanillaWorld::query_vanilla_country_runtime`。
+
 省份内容生产绑定可通过 `--vanilla-content-production-queries queries.json` 预览。每项请求包含 `province` 与 `input`；查询先应用六项 goods-size 来源和截断，再读取当前商品基础价格，并解析所有者国家的行政科技 `production_efficiency`，最后返回与月度绑定路径相同的 `production_input`。结果同时保留 `goods_size`、`value`、`production_input` 和 `unresolved`；缺少商品价格时输入保持 `null` 并报告 `trade_good_price:unknown`，未知科技或其他未解析来源保留对应原因，不把临时的零值当成已知。查询只读，不安装月度生产输入、不推进月度结算、不改变快照。程序入口为 `VanillaWorld::query_vanilla_content_production_goods_size`，setter `set_vanilla_production_inputs_from_content_goods_size` 与该查询共享同一单省解析路径。
 
 黄金生产汇总可通过 `--vanilla-gold-production-queries queries.json` 查询。输入形状与普通生产相同，但每个省份使用 `gold_size_milli`、`mine_base_milli` 和 `external_gold_size_milli`；只有当前载入内容明确标记为黄金的省份进入汇总，普通商品省份会被跳过。缺失或未决输入保留已知黄金小计并将最终 `value_milli` 与 `monthly_value_milli` 置为 `null`。结果写入 `vanilla_gold_production_queries`，不会写入月度生产状态或快照。程序入口为 `VanillaWorld::query_vanilla_gold_production`。
