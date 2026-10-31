@@ -129,6 +129,7 @@ mod state_maintenance_queries;
 mod subject_modifiers;
 mod terrain_map;
 mod text;
+mod trade_price_queries;
 
 pub use administration::AdministrationReport;
 pub use administration_validation::{
@@ -282,6 +283,9 @@ pub use state_maintenance_queries::{
     VanillaStateMaintenanceQueryReport,
 };
 pub use text::{FieldSummary, ParsedText, TextDocument, TextEncoding};
+pub use trade_price_queries::{
+    VanillaTradeGoodPriceTableQuery, VanillaTradeGoodPriceTableQueryReport,
+};
 
 pub(crate) const EXPANSIONS: [&str; 22] = [
     "Conquest of Paradise",

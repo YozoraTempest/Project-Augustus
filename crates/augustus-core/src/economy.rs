@@ -74,7 +74,7 @@ pub struct VanillaTradeGoodPriceTableInput {
     pub price_impacts_milli: Vec<i32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct VanillaTradeGoodPriceTableResult {
     pub combined_impact_milli: i32,
     pub factor_milli: i32,
