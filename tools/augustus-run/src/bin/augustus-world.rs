@@ -13,7 +13,7 @@ use augustus_eu4::{
     VanillaGoldStageQuery, VanillaMonthlyAccrualQuery, VanillaMonthlyAutonomyQuery,
     VanillaMonthlyCashflowQuery, VanillaMonthlyConvergenceQuery, VanillaMonthlyEventQuery,
     VanillaMonthlyLedgerQuery, VanillaMonthlyProductionQuery, VanillaMonthlySettlementQuery,
-    VanillaMonthlyTaxQuery, VanillaPendingEventQuery,
+    VanillaMonthlyTaxQuery, VanillaPendingEventQuery, VanillaProvinceCenterOfTradeQuery,
     VanillaProvinceContentProductionGoodsSizeQuery, VanillaProvinceDiscoveryQuery,
     VanillaProvinceProductionBaseValueQuery, VanillaStateMaintenanceQuery,
     VanillaTradeGoodPriceTableQuery, VanillaWorld, VanillaYearlyEventQuery,
@@ -281,6 +281,14 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     vanilla_province_discovery_queries: Option<PathBuf>,
+    /// Inspect the current province center-of-trade level.
+    /// Queries run after restore and --days and do not change the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    vanilla_province_center_of_trade_queries: Option<PathBuf>,
     /// Query the caller-resolved ordinary province production value stage.
     /// Queries run after restore and --days and do not change the world.
     #[arg(
@@ -1100,6 +1108,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let vanilla_province_center_of_trade_queries = cli
+        .vanilla_province_center_of_trade_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<VanillaProvinceCenterOfTradeQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_vanilla_province_center_of_trade(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     let vanilla_yearly_event_queries = cli
         .vanilla_yearly_event_queries
         .as_ref()
@@ -1260,6 +1281,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = vanilla_province_discovery_queries {
         output["vanilla_province_discovery_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(queries) = vanilla_province_center_of_trade_queries {
+        output["vanilla_province_center_of_trade_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = vanilla_monthly_convergence_queries {
         output["vanilla_monthly_convergence_queries"] = serde_json::to_value(queries)?;

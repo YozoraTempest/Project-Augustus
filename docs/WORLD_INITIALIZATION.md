@@ -120,6 +120,8 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 省份发现和地图知识可通过 `--vanilla-province-discovery-queries queries.json` 只读检查。每项请求包含 `province`，可选 `country`；指定国家时，`discovered` 返回 `true`、`false` 或 `null`，分别表示已发现、已有完整记录但未发现、以及省份记录缺失或该国家仍未决。省略国家时，报告按 EU4 标签返回 `discovered_by`、`undiscovered_by` 和 `unresolved_by`，并用 `state_known` 区分完整记录与完全未知。查询只读取 core `MapKnowledge`，不刷新发现状态、不执行事件、不消费 RNG、不修改快照。未知省份、未知国家和 JSON 未知字段报错。程序入口为 `VanillaWorld::query_vanilla_province_discovery`。
 
+省份贸易中心等级可通过 `--vanilla-province-center-of-trade-queries queries.json` 只读检查。每项请求包含 `province`；报告返回当前 `level`。`null` 表示等级未知或尚未绑定，`0` 是已知没有贸易中心，`1..=3` 是当前等级。查询读取 core 省份实体的实时值，不执行 `center_of_trade` 或 `add_center_of_trade_level` 效果、不推进日历、不消费 RNG、不修改快照。未知省份和 JSON 未知字段报错。程序入口为 `VanillaWorld::query_vanilla_province_center_of_trade`。
+
 省份内容生产绑定可通过 `--vanilla-content-production-queries queries.json` 预览。每项请求包含 `province` 与 `input`；查询先应用六项 goods-size 来源和截断，再读取当前商品基础价格，并解析所有者国家的行政科技 `production_efficiency`，最后返回与月度绑定路径相同的 `production_input`。结果同时保留 `goods_size`、`value`、`production_input` 和 `unresolved`；缺少商品价格时输入保持 `null` 并报告 `trade_good_price:unknown`，未知科技或其他未解析来源保留对应原因，不把临时的零值当成已知。查询只读，不安装月度生产输入、不推进月度结算、不改变快照。程序入口为 `VanillaWorld::query_vanilla_content_production_goods_size`，setter `set_vanilla_production_inputs_from_content_goods_size` 与该查询共享同一单省解析路径。
 
 黄金生产汇总可通过 `--vanilla-gold-production-queries queries.json` 查询。输入形状与普通生产相同，但每个省份使用 `gold_size_milli`、`mine_base_milli` 和 `external_gold_size_milli`；只有当前载入内容明确标记为黄金的省份进入汇总，普通商品省份会被跳过。缺失或未决输入保留已知黄金小计并将最终 `value_milli` 与 `monthly_value_milli` 置为 `null`。结果写入 `vanilla_gold_production_queries`，不会写入月度生产状态或快照。程序入口为 `VanillaWorld::query_vanilla_gold_production`。
