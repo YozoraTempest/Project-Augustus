@@ -2279,6 +2279,95 @@ fn world_cli_rejects_unknown_country_runtime_query_fields() {
 }
 
 #[test]
+fn world_cli_reports_province_discovery_without_mutation() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let external = temp.path().join("external-state.json");
+    fs::write(
+        &external,
+        serde_json::json!({
+            "province_discovered_by": {"1": ["AAA"]}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let queries = temp.path().join("province-discovery-queries.json");
+    fs::write(
+        &queries,
+        serde_json::json!([
+            {"province": 1, "country": "AAA"},
+            {"province": 1, "country": "BBB"},
+            {"province": 3, "country": "BBB"}
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    let baseline = temp.path().join("baseline.json");
+    let queried = temp.path().join("queried.json");
+    let base = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&baseline)
+        .output()
+        .unwrap();
+    assert!(
+        base.status.success(),
+        "{}",
+        String::from_utf8_lossy(&base.stderr)
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external)
+        .arg("--vanilla-province-discovery-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&queried)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let reports = &output["vanilla_province_discovery_queries"];
+    assert_eq!(reports[0]["discovered"], true);
+    assert_eq!(reports[1]["discovered"], false);
+    assert_eq!(reports[2]["state_known"], false);
+    assert_eq!(reports[2]["discovered"], serde_json::Value::Null);
+    assert_eq!(fs::read(&queried).unwrap(), fs::read(&baseline).unwrap());
+}
+
+#[test]
+fn world_cli_rejects_unknown_province_discovery_query_fields() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let queries = temp.path().join("province-discovery-queries.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"province": 1, "unexpected": true}]).to_string(),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--vanilla-province-discovery-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown field"));
+}
+
+#[test]
 fn world_cli_reports_yearly_event_configuration_without_execution() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();

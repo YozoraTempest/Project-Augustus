@@ -83,6 +83,7 @@ mod power_income;
 mod prestige;
 mod production_queries;
 mod production_value_queries;
+mod province_discovery_queries;
 mod truces;
 mod unit_templates;
 mod yearly_event_queries;
@@ -153,6 +154,9 @@ pub use production_value_queries::{
     VanillaProvinceContentProductionGoodsSizeQuery,
     VanillaProvinceContentProductionGoodsSizeQueryReport, VanillaProvinceProductionBaseValueQuery,
     VanillaProvinceProductionBaseValueQueryReport,
+};
+pub use province_discovery_queries::{
+    VanillaProvinceDiscoveryQuery, VanillaProvinceDiscoveryQueryReport,
 };
 pub use yearly_event_queries::{VanillaYearlyEventQuery, VanillaYearlyEventQueryReport};
 mod politics;
