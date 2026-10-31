@@ -10,7 +10,7 @@ use augustus_core::{
 use augustus_eu4::{
     ContentSet, TextEncoding, VanillaEstateLoyaltyQuery, VanillaExternalState,
     VanillaFortMaintenanceQuery, VanillaGoldStageQuery, VanillaMonthlyAccrualQuery,
-    VanillaMonthlyAutonomyQuery, VanillaMonthlyProductionQuery,
+    VanillaMonthlyAutonomyQuery, VanillaMonthlyCashflowQuery, VanillaMonthlyProductionQuery,
     VanillaProvinceContentProductionGoodsSizeQuery, VanillaProvinceProductionBaseValueQuery,
     VanillaStateMaintenanceQuery, VanillaTradeGoodPriceTableQuery, VanillaWorld,
 };
@@ -189,6 +189,14 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     vanilla_monthly_production_queries: Option<PathBuf>,
+    /// Preview the next monthly cashflow settlement for one country.
+    /// Queries run after restore and --days and do not change the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    vanilla_monthly_cashflow_queries: Option<PathBuf>,
     /// Query the caller-resolved ordinary province production value stage.
     /// Queries run after restore and --days and do not change the world.
     #[arg(
@@ -878,6 +886,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let vanilla_monthly_cashflow_queries = cli
+        .vanilla_monthly_cashflow_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<VanillaMonthlyCashflowQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_vanilla_monthly_cashflow(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     let vanilla_production_value_queries = cli
         .vanilla_production_value_queries
         .as_ref()
@@ -1007,6 +1028,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = vanilla_monthly_production_queries {
         output["vanilla_monthly_production_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(queries) = vanilla_monthly_cashflow_queries {
+        output["vanilla_monthly_cashflow_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = vanilla_production_value_queries {
         output["vanilla_production_value_queries"] = serde_json::to_value(queries)?;

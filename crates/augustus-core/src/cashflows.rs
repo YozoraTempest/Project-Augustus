@@ -525,6 +525,59 @@ impl MonthlyExternalCashflows {
 }
 
 impl World {
+    /// Prepares the next monthly cashflow settlement without committing
+    /// refreshed prices, inputs, treasury, ledger entries, receipts, or
+    /// settlement counters. The staged calculation follows the complete
+    /// monthly executor order through taxation and ordinary production.
+    pub fn preview_monthly_cashflows(&self) -> Result<CashflowSettlement, Error> {
+        if self.monthly_cashflows.is_none() {
+            return Err(Error::Invalid("missing monthly cashflows".into()));
+        }
+        let mut staged = self.clone();
+        let refreshed_prices = staged.economy().refreshed_trade_good_prices()?;
+        let refreshed_production = staged
+            .monthly_production
+            .as_ref()
+            .map(|production| production.refreshed_prices(&staged, &refreshed_prices))
+            .transpose()?;
+        if let Some(administration) = staged.prepare_monthly_autonomy()? {
+            staged.replace_administration(administration)?;
+        }
+        let taxes = staged
+            .taxation()
+            .map(|taxation| taxation.prepare(&staged))
+            .transpose()?;
+        staged
+            .monthly_accruals
+            .as_ref()
+            .map(|accruals| accruals.prepare(&staged))
+            .transpose()?;
+        staged
+            .monthly_convergence
+            .as_ref()
+            .map(|convergence| convergence.prepare(&staged))
+            .transpose()?;
+        staged
+            .monthly_stocks
+            .as_ref()
+            .map(|stocks| stocks.prepare(&staged))
+            .transpose()?;
+        let production = match staged.monthly_production.as_ref() {
+            Some(_) => Some(
+                refreshed_production
+                    .as_ref()
+                    .expect("monthly production was checked before staging")
+                    .prepare(&staged, taxes.as_ref())?,
+            ),
+            None => None,
+        };
+        staged
+            .monthly_cashflows
+            .as_ref()
+            .expect("monthly cashflows was checked before staging")
+            .prepare(&staged, taxes.as_ref(), production.as_ref())
+    }
+
     pub fn monthly_cashflows(&self) -> Option<&MonthlyExternalCashflows> {
         self.monthly_cashflows.as_ref()
     }

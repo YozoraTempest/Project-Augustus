@@ -42,6 +42,7 @@ mod missions;
 mod monarch_power;
 mod monthly_accrual_queries;
 mod monthly_autonomy_queries;
+mod monthly_cashflow_queries;
 mod monthly_production_queries;
 mod native_development;
 mod native_migration_defines;
@@ -93,6 +94,9 @@ pub use missions::MissionReport;
 pub use monthly_accrual_queries::{VanillaMonthlyAccrualQuery, VanillaMonthlyAccrualQueryReport};
 pub use monthly_autonomy_queries::{
     VanillaMonthlyAutonomyQuery, VanillaMonthlyAutonomyQueryReport,
+};
+pub use monthly_cashflow_queries::{
+    VanillaMonthlyCashflowQuery, VanillaMonthlyCashflowQueryReport,
 };
 pub use monthly_production_queries::{
     VanillaMonthlyProductionQuery, VanillaMonthlyProductionQueryReport,

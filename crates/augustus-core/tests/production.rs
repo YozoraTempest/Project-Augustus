@@ -258,6 +258,33 @@ fn monthly_production_adds_after_a_known_tax_settlement() {
 }
 
 #[test]
+fn preview_monthly_cashflows_follows_production_without_mutation() {
+    let (mut world, country) = world(known_input());
+    world
+        .set_monthly_cashflows(Some(MonthlyExternalCashflows::new(BTreeMap::from([(
+            country,
+            Some(250),
+        )]))))
+        .unwrap();
+    let snapshot = world.save("cashflow-preview").unwrap();
+    let settlement = world.preview_monthly_cashflows().unwrap();
+    let account = &settlement.accounts[&country];
+    assert_eq!(settlement.day, 0);
+    assert_eq!(account.amount_milli, Some(250));
+    assert_eq!(account.treasury_before_milli, Some(10_084));
+    assert_eq!(account.treasury_after_milli, Some(10_334));
+    assert_eq!(account.credited_milli, Some(250));
+    assert!(account.unresolved.is_empty());
+    assert_eq!(world.save("cashflow-preview").unwrap(), snapshot);
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(10_000)
+    );
+    assert_eq!(world.monthly_cashflows().unwrap().settlement_count, 0);
+    assert!(world.monthly_cashflows().unwrap().last_settlement.is_none());
+}
+
+#[test]
 fn external_cashflows_settle_after_production_and_round_trip() {
     let (mut world, country) = world(known_input());
     world
