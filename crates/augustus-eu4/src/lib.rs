@@ -23,6 +23,7 @@ mod definitions;
 mod descriptor;
 mod diagnostic;
 mod economy;
+mod estate_loyalty_queries;
 mod estates;
 mod eu4_rng;
 mod event_ai;
@@ -72,6 +73,10 @@ mod production_queries;
 mod production_value_queries;
 mod truces;
 mod unit_templates;
+pub use estate_loyalty_queries::{
+    VanillaEstateLoyaltyEntry, VanillaEstateLoyaltyEvaluation, VanillaEstateLoyaltyQuery,
+    VanillaEstateLoyaltyQueryReport,
+};
 pub use fort_maintenance_queries::{
     VanillaFortMaintenanceBuildingsQuery, VanillaFortMaintenanceDirectQuery,
     VanillaFortMaintenanceQuery, VanillaFortMaintenanceQueryMode,

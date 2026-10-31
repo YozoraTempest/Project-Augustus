@@ -307,6 +307,8 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 启动效果完整执行后才保留结果；遇到未知指令或条件时，放弃本段中间改动，将最终忠诚度、土地份额与特权列表保留为未知，并记录位置和原因。报告新增 `applied_startup_effects`、`startup_effect_sources`、`pending_startup_effects` 和 `startup_unresolved`。已完成的授予检查与回调按国家记录，随存档保存；恢复后不会重复执行，也不会替其他国家消除缺项。
 
+国家阶层下一次日更忠诚度可通过 `--estate-loyalty-queries queries.json` 只读预览。请求包含 `country`，可选 `estate`；省略阶层时按当前国家已登记阶层的稳定顺序返回全部条目。每个条目保留 `active`、`evaluation` 和 `unresolved`；只有阶层处于 `active = true`，且当前忠诚度、目标忠诚度和已加载的 `ESTATE_LOYALTY_DECAY_BASE_MIN/MAX` 都已知时，`evaluation` 才给出 `current_loyalty_milli`、`target_loyalty_milli` 与下一次 `next_loyalty_milli`。未激活、活动状态未知、目标缺失或衰减规则缺失分别保留明确的 `estate_loyalty:*` 未决原因，不把缺项补为零。未知国家或未知阶层继续报错；查询复现 `World::update_estate_loyalty` 的单次衰减，不调用实际更新、不推进日历、不修改世界或快照。程序入口为 `VanillaWorld::query_vanilla_estate_loyalty`。
+
 启动事件从 `common/scripted_triggers` 和 `common/scripted_effects` 登记宏，使用已有编译器展开无参数调用；宏中的间接事件也进入同一目录。只读取直接 `.txt` 子文件，按原文件名字节顺序保留首个同名定义，忽略的声明位置见 `startup_script_ignored_definitions`。未调用模板不会因尚未支持的值形状阻止登记，实际绑定时仍检查并报告原位置；参数替换、循环和不支持的调用会阻止本次启动。自制输入及原生计划见 [脚本宏演示](../examples/scripted-events/README.md)。
 
 启动处理会从 `missions/*.txt` 索引任务标识，支持国家作用域的 `complete_mission` 和 `mission_completed`。固定 `1444.11.11` 新局在启动效果执行前使用空完成记录；其他日期保持未知。登记、条件查询、选项和延迟事件共用核心状态，重复登记不执行奖励。启动失败时，完成记录与事件及其他候选写入一起撤销；成功结果随项目存档保存。任务系列的列、行和声明顺序由兼容层译成核心选择条件，开局先初始化可用任务；`has_mission` 查询当前选择，`swap_non_generic_missions` 显式刷新。启动失败时保留任务定义，可用状态和完成记录保持未知；加载报告通过 `missions` 给出未解决条件。任务完成条件、领取奖励和任务界面尚未接入。自制示例与原生接口见 [事件演示](EVENT_DEMO.md)。
