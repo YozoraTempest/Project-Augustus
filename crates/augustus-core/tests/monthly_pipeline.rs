@@ -299,6 +299,16 @@ fn standard_monthly_economy_runs_inside_the_world_pipeline_and_resumes() {
     world
         .set_monthly_cashflows(Some(cashflows.clone()))
         .unwrap();
+    let snapshot_before_preview = world.save("ledger-preview").unwrap();
+    let ledger_preview = world.preview_monthly_ledger_updates().unwrap();
+    assert_eq!(ledger_preview[&country].income_accumulator_milli[0], 1_000);
+    assert_eq!(ledger_preview[&country].income_accumulator_milli[1], 84);
+    assert_eq!(ledger_preview[&country].income_total_milli, 0);
+    assert_eq!(
+        world.save("ledger-preview").unwrap(),
+        snapshot_before_preview
+    );
+    assert!(world.country_ledgers().is_empty());
 
     let economy = MonthlyEconomy;
     let parallel = Recorder {

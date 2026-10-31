@@ -1524,6 +1524,110 @@ fn world_cli_runs_and_resumes_the_monthly_ledger_pipeline() {
 }
 
 #[test]
+fn world_cli_previews_monthly_ledger_updates_without_mutating_snapshot() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let external = temp.path().join("external-state.json");
+    let queries = temp.path().join("monthly-ledger-queries.json");
+    let baseline = temp.path().join("baseline.json");
+    let queried = temp.path().join("queried.json");
+    fs::write(
+        &external,
+        serde_json::json!({
+            "country_resources": {
+                "AAA": {"treasury_milli": 1_000}
+            },
+            "country_monthly_cashflows_milli": {"AAA": 250},
+            "country_monthly_cashflow_breakdowns": {
+                "AAA": {
+                    "trade_milli": 200,
+                    "gold_milli": 100,
+                    "expenses_milli": 50
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA"}]).to_string(),
+    )
+    .unwrap();
+
+    let first = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&baseline)
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let queried_output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external)
+        .arg("--vanilla-monthly-ledger-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&queried)
+        .output()
+        .unwrap();
+    assert!(
+        queried_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&queried_output.stderr)
+    );
+    let output: serde_json::Value = serde_json::from_slice(&queried_output.stdout).unwrap();
+    assert_eq!(
+        output["vanilla_monthly_ledger_queries"][0]["country"],
+        "AAA"
+    );
+    assert_eq!(
+        output["vanilla_monthly_ledger_queries"][0]["evaluation"]["income_accumulator_milli"][2],
+        200
+    );
+    assert_eq!(
+        output["vanilla_monthly_ledger_queries"][0]["evaluation"]["income_accumulator_milli"][3],
+        100
+    );
+    assert_eq!(fs::read(&queried).unwrap(), fs::read(&baseline).unwrap());
+}
+
+#[test]
+fn world_cli_rejects_unknown_monthly_ledger_query_fields() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let queries = temp.path().join("monthly-ledger-queries.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA", "unexpected": true}]).to_string(),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--vanilla-monthly-ledger-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown field"));
+}
+
+#[test]
 fn world_cli_runs_and_resumes_an_explicit_annual_ledger_rollover() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();
