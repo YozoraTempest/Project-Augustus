@@ -83,7 +83,7 @@ pub use accruals::{
 };
 pub use administration::{
     Administration, AdministrationEvaluation, AdministrationRules, AdministrativeCategory,
-    AreaStatus, CoreType, GeographicLevel, ProvinceAdministration,
+    AreaStatus, CoreType, GeographicLevel, MonthlyAutonomyPreview, ProvinceAdministration,
 };
 pub use advisors::{AdvisorState, Advisors};
 pub use affiliations::{

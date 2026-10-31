@@ -83,6 +83,17 @@ pub struct AdministrationEvaluation {
     pub unresolved: BTreeSet<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MonthlyAutonomyPreview {
+    pub raw_autonomy_micros: Option<i64>,
+    pub monthly_delta_micros: Option<i64>,
+    pub minimum_autonomy_micros: Option<i64>,
+    pub maximum_autonomy_micros: Option<i64>,
+    pub next_raw_autonomy_micros: Option<i64>,
+    pub changed: bool,
+    pub unresolved: BTreeSet<String>,
+}
+
 impl AdministrationEvaluation {
     /// Classifies the current owner's claim and area status independently of autonomy.
     pub fn category(&self) -> Option<AdministrativeCategory> {
@@ -379,6 +390,105 @@ impl Administration {
 }
 
 impl World {
+    /// Previews the shared monthly province-autonomy phase without replacing
+    /// administration state. The calculation follows the same attribute,
+    /// bounds, missing-input, and clamp order as `update_monthly_autonomy`.
+    pub fn preview_monthly_autonomy(
+        &self,
+        province: EntityId,
+    ) -> Result<MonthlyAutonomyPreview, Error> {
+        if self.entity(province)?.kind != EntityKind::Province {
+            return Err(Error::Invalid(
+                "monthly autonomy preview requires a province".into(),
+            ));
+        }
+        let state = self
+            .administration()
+            .provinces
+            .get(&province)
+            .ok_or_else(|| Error::Invalid("missing province administration".into()))?;
+        let raw = state.raw_autonomy_micros;
+        let mut unresolved = BTreeSet::new();
+        if self.entity(province)?.owner.is_none() {
+            unresolved.insert("monthly_autonomy:owner".into());
+            return Ok(MonthlyAutonomyPreview {
+                raw_autonomy_micros: raw,
+                monthly_delta_micros: None,
+                minimum_autonomy_micros: None,
+                maximum_autonomy_micros: None,
+                next_raw_autonomy_micros: None,
+                changed: false,
+                unresolved,
+            });
+        }
+        let attribute = crate::MONTHLY_AUTONOMY_DELTA_ATTRIBUTE;
+        let has_any_formula = self
+            .attributes()
+            .formulas
+            .values()
+            .any(|formulas| formulas.contains_key(attribute));
+        if !has_any_formula
+            || !self
+                .attributes()
+                .formulas
+                .get(&province)
+                .is_some_and(|formulas| formulas.contains_key(attribute))
+        {
+            unresolved.insert("monthly_autonomy:no_formula".into());
+            return Ok(MonthlyAutonomyPreview {
+                raw_autonomy_micros: raw,
+                monthly_delta_micros: None,
+                minimum_autonomy_micros: None,
+                maximum_autonomy_micros: None,
+                next_raw_autonomy_micros: None,
+                changed: false,
+                unresolved,
+            });
+        }
+
+        let autonomy = self.attributes().evaluate(self, province, attribute)?;
+        let monthly_delta_micros = autonomy.value_micros;
+        if monthly_delta_micros.is_none() {
+            let detail = autonomy
+                .unresolved
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(",");
+            unresolved.insert(format!("monthly_autonomy:{detail}"));
+        }
+        let bounds = self.administration().autonomy_bounds(self, province)?;
+        if bounds.is_none() {
+            unresolved.insert("monthly_autonomy:autonomy_bounds".into());
+        }
+        if raw.is_none() {
+            unresolved.insert("monthly_autonomy:initial_autonomy".into());
+        }
+        let (minimum_autonomy_micros, maximum_autonomy_micros) = bounds
+            .map_or((None, None), |(minimum, maximum)| {
+                (Some(minimum), Some(maximum))
+            });
+        let next_raw_autonomy_micros = match (raw, monthly_delta_micros, bounds) {
+            (Some(raw), Some(delta), Some((minimum, maximum))) => Some(
+                i64::try_from(
+                    (i128::from(raw) + i128::from(delta))
+                        .clamp(i128::from(minimum), i128::from(maximum)),
+                )
+                .map_err(|_| Error::Overflow)?,
+            ),
+            _ => None,
+        };
+        let changed = next_raw_autonomy_micros.is_some_and(|next| Some(next) != raw);
+        Ok(MonthlyAutonomyPreview {
+            raw_autonomy_micros: raw,
+            monthly_delta_micros,
+            minimum_autonomy_micros,
+            maximum_autonomy_micros,
+            next_raw_autonomy_micros,
+            changed,
+            unresolved,
+        })
+    }
+
     /// Applies the shared monthly province-autonomy phase and reports whether
     /// any administration state was replaced. Custom monthly systems can use
     /// this before their own tax or country work.

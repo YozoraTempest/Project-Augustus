@@ -40,6 +40,7 @@ mod load;
 mod localisation;
 mod missions;
 mod monarch_power;
+mod monthly_autonomy_queries;
 mod native_development;
 mod native_migration_defines;
 mod native_migration_execution;
@@ -87,6 +88,9 @@ pub use gold_stage_queries::{
     VanillaGoldStageQuery, VanillaGoldStageQueryMode, VanillaGoldStageQueryReport,
 };
 pub use missions::MissionReport;
+pub use monthly_autonomy_queries::{
+    VanillaMonthlyAutonomyQuery, VanillaMonthlyAutonomyQueryReport,
+};
 pub use naval_construction_cost_queries::{
     VanillaNavalConstructionCostQuery, VanillaNavalConstructionCostQueryReport,
 };
