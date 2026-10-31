@@ -66,6 +66,7 @@ godot --headless --path godot --script res://tests/saved_subject_relations.gd
 godot --headless --path godot --script res://tests/military_roster.gd
 godot --headless --path godot --script res://tests/naval_constructions.gd
 godot --headless --path godot --script res://tests/economy.gd
+godot --headless --path godot --script res://tests/ledger.gd
 ```
 
 Godot 检查会加载真实 Rust 扩展，验证按钮操作、查询、两类输入、存档和随机状态。测试内容均为自制样本。
@@ -75,6 +76,8 @@ Godot 检查会加载真实 Rust 扩展，验证按钮操作、查询、两类�
 `naval_constructions.gd` 验证显式 FIFO 存档导入、当前排期和国家筛选、完工后待造订单与军力联动，以及保存恢复、失败载入和新世界替换后的状态。图形模式还须检查队列开关、订单详情和全局导入诊断的实际显示。
 
 `economy.gd` 验证财政记录的当前与历史日期、已知和未知金额、月结后刷新、国家与世界切换及快照恢复。图形模式还须检查阶段选择、缺项原因换行和大额正负金额显示。
+
+`ledger.gd` 验证当前分类账只读查询、收入与支出分类编号、六种视图、未载入与零值的区别，以及推进、恢复、国家和世界切换后的刷新与选择。图形模式还须检查折叠区、长分类条目、精确金额及详情在侧栏中的布局。样本及各向量的实际含义见[当前国家分类账样本](../examples/ledger/README.md)。
 
 `province_intelligence.gd` 配合 `examples/province-intelligence` 验证省份详情中的发现三态和贸易中心等级，并检查切换国家、推进时间、选择事件、恢复快照后的即时刷新及滚动位置。
 

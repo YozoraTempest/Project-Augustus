@@ -29,6 +29,7 @@ var country_details: Label
 var military_panel
 var naval_construction_panel
 var economy_panel
+var ledger_panel
 var politics_details: Label
 var diplomacy_details: Label
 var province_details: Label
@@ -226,6 +227,8 @@ func _ready() -> void:
 	panel.add_child(country_details)
 	economy_panel = preload("res://economy_panel.gd").new()
 	panel.add_child(economy_panel)
+	ledger_panel = preload("res://ledger_panel.gd").new()
+	panel.add_child(ledger_panel)
 	panel.add_child(label("兵种选择", 20))
 	unit_selection_status = label("尚未载入", 15)
 	unit_selection_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -539,6 +542,7 @@ func apply_loaded_world(candidate, data: Dictionary) -> bool:
 	military_panel.clear()
 	naval_construction_panel.clear()
 	economy_panel.clear()
+	ledger_panel.clear()
 	unit_country_id = ""
 	unit_option_cache.clear()
 	mission_expanded = false
@@ -749,12 +753,14 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 		military_panel.clear()
 		naval_construction_panel.clear()
 		economy_panel.clear()
+		ledger_panel.clear()
 		return
 	var id: String = country_choice.get_item_metadata(index)
 	if id != selected_country_id:
 		military_panel.clear()
 		naval_construction_panel.clear()
 		economy_panel.clear()
+		ledger_panel.clear()
 	if id != selected_country_id and not active_mission_highlight.is_empty():
 		clear_mission_highlight()
 	selection_revision += 1
@@ -774,6 +780,13 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 			status.text = str(economy_packet.get("error", "财政状态暂不可用。"))
 	else:
 		economy_panel.render_report(economy_packet.value)
+	var ledger_packet: Variant = JSON.parse_string(session.query_country_ledger(id))
+	if ledger_packet == null or ledger_packet.get("ok") != true:
+		ledger_panel.clear()
+		if ledger_packet != null:
+			status.text = str(ledger_packet.get("error", "分类账暂不可用。"))
+	else:
+		ledger_panel.render_report(ledger_packet.value)
 	refresh_unit_templates(id)
 	refresh_country_missions(id)
 	var military_packet: Variant = JSON.parse_string(session.query_military(id))

@@ -7,6 +7,9 @@ use serde::Serialize;
 use std::{collections::BTreeSet, path::PathBuf};
 
 mod frame_clock;
+mod ledger_view;
+#[cfg(test)]
+mod ledger_view_tests;
 
 struct AugustusExtension;
 
@@ -669,6 +672,14 @@ impl AugustusWorldSession {
             }
             Ok(value)
         }))
+    }
+
+    #[func]
+    fn query_country_ledger(&self, country: GString) -> GString {
+        world_reply(
+            self.loaded()
+                .and_then(|loaded| ledger_view::country_ledger_view(loaded, &country.to_string())),
+        )
     }
 
     #[func]
