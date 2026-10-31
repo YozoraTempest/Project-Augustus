@@ -382,6 +382,24 @@ impl MonthlySystem for MonthlyEconomy {
 }
 
 impl World {
+    /// Prepares the next monthly accrual settlement without committing any
+    /// metric, administration, receipt, or settlement-count changes.
+    ///
+    /// The temporary world first applies the same monthly autonomy phase used
+    /// by `MonthlyEconomy::settle`, then evaluates the accrual rules against
+    /// that staged administration state.
+    pub fn preview_monthly_accruals(&self) -> Result<AccrualSettlement, Error> {
+        let mut staged = self.clone();
+        if let Some(administration) = staged.prepare_monthly_autonomy()? {
+            staged.replace_administration(administration)?;
+        }
+        staged
+            .monthly_accruals
+            .as_ref()
+            .ok_or_else(|| Error::Invalid("missing monthly accruals".into()))?
+            .prepare(&staged)
+    }
+
     pub fn monthly_accruals(&self) -> Option<&MonthlyAccruals> {
         self.monthly_accruals.as_ref()
     }

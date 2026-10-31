@@ -168,6 +168,69 @@ fn income(world: &World) -> i64 {
 }
 
 #[test]
+fn preview_monthly_accruals_reuses_next_settlement_without_mutation() {
+    let mut world = fixture();
+    world
+        .attach_modifier(
+            EntityId(0),
+            "first",
+            Some(20),
+            None,
+            ModifierRenewal::Replace,
+        )
+        .unwrap();
+    let snapshot = world.save("fixture").unwrap();
+    let settlement = world.preview_monthly_accruals().unwrap();
+    let account = &settlement.accounts[&EntityId(0)]["power"];
+    assert_eq!(settlement.day, 0);
+    assert_eq!(
+        (
+            account.income,
+            account.quantity_before,
+            account.quantity_after,
+            account.credited,
+            account.growth_ceiling,
+        ),
+        (Some(5), Some(10), Some(15), Some(5), Some(15))
+    );
+    assert!(account.unresolved.is_empty());
+    assert_eq!(world.save("fixture").unwrap(), snapshot);
+    assert_eq!(world.monthly_accruals().unwrap().settlement_count, 0);
+    assert!(world.monthly_accruals().unwrap().last_settlement.is_none());
+}
+
+#[test]
+fn preview_monthly_accruals_preserves_unknown_ceiling_and_income() {
+    let mut world = fixture();
+    world
+        .set_metric_ceiling(EntityId(0), "power", None)
+        .unwrap();
+    let settlement = world.preview_monthly_accruals().unwrap();
+    let account = &settlement.accounts[&EntityId(0)]["power"];
+    assert_eq!(account.income, Some(5));
+    assert_eq!(account.quantity_before, Some(10));
+    assert_eq!(account.quantity_after, None);
+    assert!(account.unresolved.contains("unknown_growth_ceiling"));
+
+    let mut attributes = world.attributes().clone();
+    attributes
+        .formulas
+        .get_mut(&EntityId(0))
+        .unwrap()
+        .get_mut("income")
+        .unwrap()
+        .base = AttributeBase::Unknown {
+        reason: "test_income_unknown".into(),
+    };
+    world.set_attributes(attributes).unwrap();
+    let settlement = world.preview_monthly_accruals().unwrap();
+    let account = &settlement.accounts[&EntityId(0)]["power"];
+    assert_eq!(account.income, None);
+    assert_eq!(account.quantity_after, None);
+    assert!(account.unresolved.contains("unknown_income"));
+}
+
+#[test]
 fn grouped_truncation_live_people_focus_and_modifier_expiration_survive_resume() {
     let mut world = fixture();
     world

@@ -9,9 +9,10 @@ use augustus_core::{
 };
 use augustus_eu4::{
     ContentSet, TextEncoding, VanillaEstateLoyaltyQuery, VanillaExternalState,
-    VanillaFortMaintenanceQuery, VanillaGoldStageQuery, VanillaMonthlyAutonomyQuery,
-    VanillaProvinceContentProductionGoodsSizeQuery, VanillaProvinceProductionBaseValueQuery,
-    VanillaStateMaintenanceQuery, VanillaTradeGoodPriceTableQuery, VanillaWorld,
+    VanillaFortMaintenanceQuery, VanillaGoldStageQuery, VanillaMonthlyAccrualQuery,
+    VanillaMonthlyAutonomyQuery, VanillaProvinceContentProductionGoodsSizeQuery,
+    VanillaProvinceProductionBaseValueQuery, VanillaStateMaintenanceQuery,
+    VanillaTradeGoodPriceTableQuery, VanillaWorld,
 };
 use clap::Parser;
 use std::{collections::BTreeMap, fs::OpenOptions, io::Write, path::PathBuf, process::ExitCode};
@@ -172,6 +173,14 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     vanilla_monthly_autonomy_queries: Option<PathBuf>,
+    /// Preview the next shared monthly accrual settlement for one country.
+    /// Queries run after restore and --days and do not change the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    vanilla_monthly_accrual_queries: Option<PathBuf>,
     /// Query the caller-resolved ordinary province production value stage.
     /// Queries run after restore and --days and do not change the world.
     #[arg(
@@ -835,6 +844,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let vanilla_monthly_accrual_queries = cli
+        .vanilla_monthly_accrual_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<VanillaMonthlyAccrualQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_vanilla_monthly_accrual(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     let vanilla_production_value_queries = cli
         .vanilla_production_value_queries
         .as_ref()
@@ -958,6 +980,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = vanilla_monthly_autonomy_queries {
         output["vanilla_monthly_autonomy_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(queries) = vanilla_monthly_accrual_queries {
+        output["vanilla_monthly_accrual_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = vanilla_production_value_queries {
         output["vanilla_production_value_queries"] = serde_json::to_value(queries)?;
