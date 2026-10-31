@@ -9,8 +9,8 @@ use augustus_core::{
 };
 use augustus_eu4::{
     ContentSet, TextEncoding, VanillaExternalState, VanillaFortMaintenanceQuery,
-    VanillaProvinceContentProductionGoodsSizeQuery, VanillaProvinceProductionBaseValueQuery,
-    VanillaStateMaintenanceQuery, VanillaWorld,
+    VanillaGoldStageQuery, VanillaProvinceContentProductionGoodsSizeQuery,
+    VanillaProvinceProductionBaseValueQuery, VanillaStateMaintenanceQuery, VanillaWorld,
 };
 use clap::Parser;
 use std::{collections::BTreeMap, fs::OpenOptions, io::Write, path::PathBuf, process::ExitCode};
@@ -139,6 +139,14 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     vanilla_gold_production_queries: Option<PathBuf>,
+    /// Query caller-resolved single-province gold base or production stages.
+    /// Queries run after restore and --days and do not change the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    vanilla_gold_stage_queries: Option<PathBuf>,
     /// Query the caller-resolved ordinary province production value stage.
     /// Queries run after restore and --days and do not change the world.
     #[arg(
@@ -750,6 +758,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let vanilla_gold_stage_queries = cli
+        .vanilla_gold_stage_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<VanillaGoldStageQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_vanilla_gold_stage(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     let vanilla_production_value_queries = cli
         .vanilla_production_value_queries
         .as_ref()
@@ -861,6 +882,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = vanilla_gold_production_queries {
         output["vanilla_gold_production_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(queries) = vanilla_gold_stage_queries {
+        output["vanilla_gold_stage_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = vanilla_production_value_queries {
         output["vanilla_production_value_queries"] = serde_json::to_value(queries)?;

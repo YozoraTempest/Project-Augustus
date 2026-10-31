@@ -135,7 +135,7 @@ pub struct VanillaGoldBaseInput {
     pub global_base_milli: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct VanillaGoldBaseResult {
     pub selected_province_field_milli: i32,
     pub bounded_province_field_milli: i32,
@@ -177,7 +177,7 @@ pub struct VanillaGoldProductionInput {
     pub external_gold_size_milli: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct VanillaGoldProductionResult {
     pub combined_size_milli: i32,
     pub value_milli: i32,

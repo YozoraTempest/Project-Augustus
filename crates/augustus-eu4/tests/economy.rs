@@ -13,13 +13,15 @@ use augustus_eu4::{
     VanillaContentProductionValueInput, VanillaContentStateMaintenanceInput,
     VanillaExternalProductionInput, VanillaExternalState, VanillaFortMaintenanceBuildingsQuery,
     VanillaFortMaintenanceContextInput, VanillaFortMaintenanceDirectQuery,
-    VanillaFortMaintenanceInput, VanillaFortMaintenanceQuery, VanillaGoldProductionCountryQuery,
-    VanillaGoldProductionInput, VanillaGoldProductionInputState, VanillaProductionCountryQuery,
-    VanillaProductionInputState, VanillaProvinceContentProductionGoodsSizeQuery,
-    VanillaProvinceProductionBaseValueInput, VanillaProvinceProductionBaseValueQuery,
-    VanillaProvinceStateMaintenanceInput, VanillaStateMaintenanceContentQuery,
-    VanillaStateMaintenanceDirectQuery, VanillaStateMaintenanceQuery,
-    VanillaStateMaintenanceQueryMode, VanillaTradeGoodsSizeInput, VanillaWorld,
+    VanillaFortMaintenanceInput, VanillaFortMaintenanceQuery, VanillaGoldBaseInput,
+    VanillaGoldBaseQuery, VanillaGoldProductionCountryQuery, VanillaGoldProductionInput,
+    VanillaGoldProductionInputState, VanillaGoldProductionQuery, VanillaGoldStageQuery,
+    VanillaProductionCountryQuery, VanillaProductionInputState,
+    VanillaProvinceContentProductionGoodsSizeQuery, VanillaProvinceProductionBaseValueInput,
+    VanillaProvinceProductionBaseValueQuery, VanillaProvinceStateMaintenanceInput,
+    VanillaStateMaintenanceContentQuery, VanillaStateMaintenanceDirectQuery,
+    VanillaStateMaintenanceQuery, VanillaStateMaintenanceQueryMode, VanillaTradeGoodsSizeInput,
+    VanillaWorld,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -2168,6 +2170,111 @@ fn gold_production_country_query_wrapper_is_strict_and_read_only() {
     let mut unknown = query.clone();
     unknown.country = "ZZZ".into();
     assert!(loaded.query_vanilla_gold_production(&unknown).is_err());
+}
+
+#[test]
+fn gold_stage_queries_gate_loaded_gold_and_preserve_stage_boundaries() {
+    let fixture = copy_fixture();
+    fs::write(
+        fixture.path().join("common/tradegoods/test_goods.txt"),
+        "grain = { color = { 0.9 0.8 0.3 } }\ncloth = { color = { 0.2 0.3 0.8 } }\ngold = { color = { 1.0 0.9 0.0 } goldtype = yes }\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("history/provinces/2 - East.txt"),
+        "owner = AAA\ntrade_goods = gold",
+    )
+    .unwrap();
+    let loaded = VanillaWorld::load(fixture.path(), "1444.11.11").unwrap();
+    let base = loaded
+        .query_vanilla_gold_stage(&VanillaGoldStageQuery::Base(VanillaGoldBaseQuery {
+            province: 2,
+            input: VanillaGoldBaseInput {
+                province_field_2df0: 0,
+                province_field_428: 900,
+                province_field_2df4: 100_000,
+                global_base_milli: 40_000,
+            },
+        }))
+        .unwrap();
+    assert_eq!(base.trade_good.as_deref(), Some("gold"));
+    assert_eq!(base.gold_type, Some(true));
+    assert_eq!(
+        base.evaluation.as_ref().and_then(|value| match value {
+            augustus_eu4::VanillaGoldStageEvaluation::Base(value) => Some(value.base_value_milli),
+            _ => None,
+        }),
+        Some(39_640)
+    );
+    assert!(base.unresolved.is_empty());
+
+    let production = loaded
+        .query_vanilla_gold_stage(&VanillaGoldStageQuery::Production(
+            VanillaGoldProductionQuery {
+                province: 2,
+                input: VanillaGoldProductionInput {
+                    gold_size_milli: 800,
+                    mine_base_milli: 39_640,
+                    external_gold_size_milli: 0,
+                },
+            },
+        ))
+        .unwrap();
+    assert_eq!(
+        production
+            .evaluation
+            .as_ref()
+            .and_then(|value| match value {
+                augustus_eu4::VanillaGoldStageEvaluation::Production(value) => {
+                    Some((value.value_milli, value.monthly_value_milli))
+                }
+                _ => None,
+            }),
+        Some((31_712, 2_642))
+    );
+
+    let non_gold = loaded
+        .query_vanilla_gold_stage(&VanillaGoldStageQuery::Production(
+            VanillaGoldProductionQuery {
+                province: 1,
+                input: VanillaGoldProductionInput {
+                    gold_size_milli: 800,
+                    mine_base_milli: 39_640,
+                    external_gold_size_milli: 0,
+                },
+            },
+        ))
+        .unwrap();
+    assert_eq!(non_gold.gold_type, Some(false));
+    assert_eq!(non_gold.evaluation, None);
+    assert_eq!(non_gold.unresolved, vec!["gold_stage:not_gold"]);
+
+    assert!(
+        loaded
+            .query_vanilla_gold_stage(&VanillaGoldStageQuery::Base(VanillaGoldBaseQuery {
+                province: 999,
+                input: VanillaGoldBaseInput {
+                    province_field_2df0: 0,
+                    province_field_428: 0,
+                    province_field_2df4: 0,
+                    global_base_milli: 0,
+                },
+            }))
+            .is_err()
+    );
+
+    let mut value = serde_json::to_value(VanillaGoldStageQuery::Base(VanillaGoldBaseQuery {
+        province: 2,
+        input: VanillaGoldBaseInput {
+            province_field_2df0: 0,
+            province_field_428: 900,
+            province_field_2df4: 100_000,
+            global_base_milli: 40_000,
+        },
+    }))
+    .unwrap();
+    value["query"]["unexpected"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<VanillaGoldStageQuery>(value).is_err());
 }
 
 #[test]

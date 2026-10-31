@@ -94,6 +94,8 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 黄金生产汇总可通过 `--vanilla-gold-production-queries queries.json` 查询。输入形状与普通生产相同，但每个省份使用 `gold_size_milli`、`mine_base_milli` 和 `external_gold_size_milli`；只有当前载入内容明确标记为黄金的省份进入汇总，普通商品省份会被跳过。缺失或未决输入保留已知黄金小计并将最终 `value_milli` 与 `monthly_value_milli` 置为 `null`。结果写入 `vanilla_gold_production_queries`，不会写入月度生产状态或快照。程序入口为 `VanillaWorld::query_vanilla_gold_production`。
 
+单省黄金阶段可通过 `--vanilla-gold-stage-queries queries.json` 查询。每项请求使用相邻的 `mode` 和 `query` 字段：`mode = "base"` 时提供 `VanillaGoldBaseInput` 的四项调用者解析字段，`mode = "production"` 时提供 `VanillaGoldProductionInput` 的黄金数量、矿山基础值和额外黄金数量；两个阶段保持独立，查询不会把 base 结果自动作为 production 的 `mine_base_milli`。兼容层只读取当前省份商品及其已加载的 `gold_type` 标记，报告 `trade_good`、`gold_type`、阶段 `evaluation` 和 `unresolved`；缺失商品返回 `gold_stage:missing_trade_good`，普通商品返回 `gold_stage:not_gold`。结果写入 `vanilla_gold_stage_queries`，只复现黄金省份 gate 与核心阶段算术，不安装月度黄金输入、不推进生产或现金流，也不修改快照。程序入口为 `VanillaWorld::query_vanilla_gold_stage`，核心阶段分别为 `calculate_vanilla_gold_base` 与 `calculate_vanilla_gold_production`。
+
 省份州维护贡献可通过 `--state-maintenance-queries queries.json` 查询。每项请求使用相邻的 `mode` 和 `query` 字段：`mode = "direct"` 时由调用者提供 `development_scale_milli`，`mode = "content"` 时从已加载的 `STATE_MAINTENANCE_DEV_FACTOR` 读取该项；两种模式都要求调用者提供距离和关系修正等其余输入。返回的 `evaluation` 包含基础和最终维护值，未知省份、缺失 tax/production/manpower 或缺少内容 define 时返回 `evaluation: null` 与明确的 `state_maintenance:*` 未决原因。查询只读取当前省份状态，不安装月度维护输入、不推进现金流，也不修改快照。程序入口为 `VanillaWorld::query_vanilla_state_maintenance`。
 
 成本和工期查询的修正字段对应以下内容属性；表中的值均指完整修正总量，单位为千分位。字段名称沿用现有 JSON 契约。海军和陆军力限查询的三个输入由调用者完整解析，不对应这里的内容属性表。

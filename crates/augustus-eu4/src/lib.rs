@@ -29,6 +29,7 @@ mod event_ai;
 mod force_limit;
 mod fort_maintenance_queries;
 mod geography;
+mod gold_stage_queries;
 mod governments;
 mod ideas;
 mod imperial_membership;
@@ -75,6 +76,10 @@ pub use fort_maintenance_queries::{
     VanillaFortMaintenanceBuildingsQuery, VanillaFortMaintenanceDirectQuery,
     VanillaFortMaintenanceQuery, VanillaFortMaintenanceQueryMode,
     VanillaFortMaintenanceQueryReport,
+};
+pub use gold_stage_queries::{
+    VanillaGoldBaseQuery, VanillaGoldProductionQuery, VanillaGoldStageEvaluation,
+    VanillaGoldStageQuery, VanillaGoldStageQueryMode, VanillaGoldStageQueryReport,
 };
 pub use missions::MissionReport;
 pub use naval_construction_cost_queries::{
