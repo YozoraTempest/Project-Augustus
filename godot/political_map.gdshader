@@ -3,8 +3,11 @@
 
 shader_type canvas_item;
 uniform sampler2D province_palette : filter_nearest, repeat_disable;
+uniform sampler2D highlight_mask : filter_nearest, repeat_disable;
 uniform int palette_size = 0;
 uniform float palette_width = 1.0;
+uniform bool highlight_enabled = false;
+uniform vec3 highlight_color : source_color = vec3(1.0, 0.82, 0.18);
 
 int color_key(vec3 color) {
     ivec3 rgb = ivec3(round(color * 255.0));
@@ -23,6 +26,10 @@ void fragment() {
         int candidate = color_key(texture(province_palette, vec2(x, 0.25)).rgb);
         if (candidate == wanted) {
             result = texture(province_palette, vec2(x, 0.75)).rgb;
+            if (highlight_enabled) {
+                float mask = texture(highlight_mask, vec2(x, 0.5)).r;
+                result = mix(result, highlight_color, mask);
+            }
             break;
         }
         if (candidate < wanted) { low = middle + 1; }

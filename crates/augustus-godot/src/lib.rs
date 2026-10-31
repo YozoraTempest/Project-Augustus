@@ -651,6 +651,35 @@ impl AugustusWorldSession {
     }
 
     #[func]
+    fn map_palette(&self) -> GString {
+        world_reply(
+            self.loaded()
+                .map(|loaded| loaded.palette())
+                .map_err(|error| error.to_string()),
+        )
+    }
+
+    #[func]
+    fn mission_highlight_ids(&self) -> GString {
+        world_reply(
+            self.loaded()
+                .map(|loaded| loaded.mission_highlight_ids())
+                .map_err(|error| error.to_string()),
+        )
+    }
+
+    #[func]
+    fn query_mission_province_highlights(&self, country: GString, mission: GString) -> GString {
+        let country = country.to_string();
+        let mission = mission.to_string();
+        world_reply(self.loaded().and_then(|loaded| {
+            loaded
+                .query_mission_province_highlights(&country, &mission)
+                .map_err(|error| error.to_string())
+        }))
+    }
+
+    #[func]
     fn claim_mission(&mut self, country: GString, mission: GString) -> GString {
         let country = country.to_string();
         let mission = mission.to_string();

@@ -7,6 +7,12 @@ var session = AugustusWorldSession.new()
 var overview: Dictionary = {}
 var province_image: Image
 var color_ids: Dictionary = {}
+var province_palette_indices: Dictionary = {}
+var province_palette_image: Image
+var province_palette_texture: ImageTexture
+var highlight_mask_image: Image
+var highlight_mask_texture: ImageTexture
+var map_material: ShaderMaterial
 var game_path: LineEdit
 var baseline_save: LineEdit
 var eu4_save: LineEdit
@@ -46,7 +52,12 @@ var mission_expanded := false
 var mission_data_cache: Array[Dictionary] = []
 var mission_titles_cache: Dictionary = {}
 var mission_claim_buttons: Dictionary = {}
+var mission_highlight_buttons: Dictionary = {}
 var mission_status_labels: Dictionary = {}
+var mission_highlight_id_set: Dictionary = {}
+var active_mission_highlight: Dictionary = {}
+var map_highlight_status: Label
+var map_highlight_clear_button: Button
 var calendar_label: Label
 var run_button: Button
 var simulation_timer: Timer
@@ -160,15 +171,31 @@ func _ready() -> void:
 	middle.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	middle.add_theme_constant_override("separation", 20)
 	page.add_child(middle)
+	var map_column := VBoxContainer.new()
+	map_column.custom_minimum_size = Vector2(400, 250)
+	map_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	map_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	map_column.add_theme_constant_override("separation", 4)
+	middle.add_child(map_column)
+	var map_highlight_bar := HBoxContainer.new()
+	map_column.add_child(map_highlight_bar)
+	map_highlight_status = label("未显示目标", 14)
+	map_highlight_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	map_highlight_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	map_highlight_bar.add_child(map_highlight_status)
+	map_highlight_clear_button = button("清除", clear_mission_highlight)
+	map_highlight_clear_button.custom_minimum_size = Vector2(72, 32)
+	map_highlight_clear_button.disabled = true
+	map_highlight_clear_button.tooltip_text = "清除地图上的任务目标高亮"
+	map_highlight_bar.add_child(map_highlight_clear_button)
 	map_view = TextureRect.new()
 	map_view.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	map_view.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	map_view.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	map_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	map_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	map_view.custom_minimum_size = Vector2(400, 250)
 	map_view.gui_input.connect(map_input)
-	middle.add_child(map_view)
+	map_column.add_child(map_view)
 	var sidebar := ScrollContainer.new()
 	details_scroll = sidebar
 	sidebar.custom_minimum_size.x = 320
@@ -424,28 +451,49 @@ func apply_loaded_world(candidate, data: Dictionary) -> bool:
 	province_image = image
 	map_view.texture = ImageTexture.create_from_image(image)
 	color_ids.clear()
+	province_palette_indices.clear()
+	mission_highlight_id_set.clear()
+	active_mission_highlight.clear()
 	var width := 1
 	while width < data.palette.size():
 		width *= 2
-	var palette := Image.create(width, 2, false, Image.FORMAT_RGBA8)
-	palette.fill(Color(0.12, 0.12, 0.12))
+	province_palette_image = Image.create(width, 2, false, Image.FORMAT_RGBA8)
+	province_palette_image.fill(Color(0.12, 0.12, 0.12))
+	highlight_mask_image = Image.create(width, 1, false, Image.FORMAT_RGBA8)
+	highlight_mask_image.fill(Color(0, 0, 0, 0))
 	for i in data.palette.size():
 		var entry: Dictionary = data.palette[i]
-		palette.set_pixel(i, 0, rgb(entry.color))
-		palette.set_pixel(i, 1, rgb(entry.display_color))
+		province_palette_image.set_pixel(i, 0, rgb(entry.color))
+		province_palette_image.set_pixel(i, 1, rgb(entry.display_color))
 		color_ids[color_key(entry.color)] = int(entry.province)
-	var material := ShaderMaterial.new()
-	material.shader = load("res://political_map.gdshader")
-	material.set_shader_parameter("province_palette", ImageTexture.create_from_image(palette))
-	material.set_shader_parameter("palette_size", data.palette.size())
-	material.set_shader_parameter("palette_width", float(width))
-	map_view.material = material
+		province_palette_indices[int(entry.province)] = i
+	province_palette_texture = ImageTexture.create_from_image(province_palette_image)
+	highlight_mask_texture = ImageTexture.create_from_image(highlight_mask_image)
+	map_material = ShaderMaterial.new()
+	map_material.shader = load("res://political_map.gdshader")
+	map_material.set_shader_parameter("province_palette", province_palette_texture)
+	map_material.set_shader_parameter("highlight_mask", highlight_mask_texture)
+	map_material.set_shader_parameter("palette_size", data.palette.size())
+	map_material.set_shader_parameter("palette_width", float(width))
+	map_material.set_shader_parameter("highlight_enabled", false)
+	map_view.material = map_material
+	var highlight_ids_packet: Variant = JSON.parse_string(session.mission_highlight_ids())
+	if highlight_ids_packet == null or highlight_ids_packet.get("ok") != true:
+		map_highlight_status.text = "任务目标目录暂不可用"
+		map_highlight_status.tooltip_text = "" if highlight_ids_packet == null else str(highlight_ids_packet.get("error", ""))
+	else:
+		for mission_id in highlight_ids_packet.value:
+			mission_highlight_id_set[str(mission_id)] = true
+		map_highlight_status.text = "未显示目标" if not mission_highlight_id_set.is_empty() else "没有可显示的任务目标"
+		map_highlight_status.tooltip_text = ""
+	map_highlight_clear_button.disabled = true
 	country_choice.clear()
 	unit_country_id = ""
 	unit_option_cache.clear()
 	mission_expanded = false
 	mission_data_cache.clear()
 	mission_titles_cache.clear()
+	mission_highlight_buttons.clear()
 	mission_summary = "尚未载入"
 	mission_selection_status.text = "尚未载入"
 	mission_content.visible = false
@@ -491,7 +539,29 @@ func refresh_calendar() -> void:
 	if packet.ok:
 		var date: Dictionary = packet.value.date
 		calendar_label.text = "%d.%02d.%02d · 月结 %d 次" % [date.year, date.month, date.day, packet.value.tax_settlements]
+		refresh_map_palette()
 		refresh_pending_events()
+
+func refresh_map_palette() -> void:
+	if province_palette_image == null or province_palette_texture == null:
+		return
+	var packet: Variant = JSON.parse_string(session.map_palette())
+	if packet == null or packet.get("ok") != true:
+		status.text = "政治地图颜色刷新失败：" + ("状态暂不可用" if packet == null else str(packet.get("error", "")))
+		return
+	var changed := false
+	for entry in packet.value:
+		var province_id := int(entry.get("province", 0))
+		if not province_palette_indices.has(province_id):
+			continue
+		var index := int(province_palette_indices[province_id])
+		var color := rgb(entry.display_color)
+		if province_palette_image.get_pixel(index, 1).is_equal_approx(color):
+			continue
+		province_palette_image.set_pixel(index, 1, color)
+		changed = true
+	if changed:
+		province_palette_texture.update(province_palette_image)
 
 func refresh_pending_events() -> void:
 	var packet: Dictionary = JSON.parse_string(session.pending_event_choices())
@@ -621,6 +691,8 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 	if country_choice.item_count == 0:
 		return
 	var id: String = country_choice.get_item_metadata(index)
+	if id != selected_country_id and not active_mission_highlight.is_empty():
+		clear_mission_highlight()
 	selection_revision += 1
 	if reset_scroll:
 		details_scroll.scroll_vertical = 0
@@ -729,6 +801,7 @@ func clear_mission_list() -> void:
 		mission_list.remove_child(child)
 		child.queue_free()
 	mission_claim_buttons.clear()
+	mission_highlight_buttons.clear()
 	mission_status_labels.clear()
 
 func render_mission_list() -> void:
@@ -739,6 +812,7 @@ func render_mission_list() -> void:
 func refresh_country_missions(id: String) -> void:
 	var packet: Dictionary = JSON.parse_string(session.query_country_missions(id))
 	if not packet.ok:
+		clear_active_mission_highlight_for(id)
 		mission_summary = "未载入"
 		mission_selection_status.text = "任务状态暂不可用。"
 		mission_data_cache.clear()
@@ -754,6 +828,7 @@ func refresh_country_missions(id: String) -> void:
 	mission_data_cache.clear()
 	mission_titles_cache.clear()
 	if missions.is_empty():
+		clear_active_mission_highlight_for(id)
 		mission_summary = "无任务"
 		mission_selection_status.text = "当前内容没有任务。"
 		if mission_expanded:
@@ -763,6 +838,7 @@ func refresh_country_missions(id: String) -> void:
 		update_mission_header()
 		return
 	if data.get("selection_known") != true:
+		clear_active_mission_highlight_for(id)
 		mission_summary = "选择未知"
 		mission_selection_status.text = "当前国家的已选任务尚未确定。"
 		if mission_expanded:
@@ -785,6 +861,7 @@ func refresh_country_missions(id: String) -> void:
 	mission_selection_status.text = "当前没有已选任务。" if selected_missions.is_empty() else mission_summary + "。"
 	mission_data_cache = selected_missions
 	mission_titles_cache = titles
+	refresh_active_mission_highlight(id, selected_missions)
 	if mission_expanded:
 		render_mission_list()
 	else:
@@ -844,6 +921,12 @@ func add_mission_row(mission: Dictionary, titles: Dictionary) -> void:
 	claim.custom_minimum_size = Vector2(68, 32)
 	claim.disabled = not mission_can_be_claimed(mission)
 	claim.tooltip_text = mission_status_tooltip(mission)
+	if mission_highlight_id_set.has(mission_id):
+		var target := button("目标", show_mission_highlight.bind(mission_id))
+		target.custom_minimum_size = Vector2(68, 32)
+		target.tooltip_text = "在地图上显示此任务的省份目标"
+		header.add_child(target)
+		mission_highlight_buttons[mission_id] = target
 	header.add_child(claim)
 	mission_claim_buttons[mission_id] = claim
 	mission_status_labels[mission_id] = state
@@ -861,6 +944,99 @@ func add_mission_row(mission: Dictionary, titles: Dictionary) -> void:
 		row.add_child(prerequisites)
 	mission_list.add_child(row)
 	mission_list.add_child(HSeparator.new())
+
+func clear_active_mission_highlight_for(country: String) -> void:
+	if active_mission_highlight.get("country", "") == country:
+		clear_mission_highlight()
+
+func refresh_active_mission_highlight(country: String, selected_missions: Array[Dictionary]) -> void:
+	if active_mission_highlight.get("country", "") != country:
+		return
+	var active_mission := str(active_mission_highlight.get("mission", ""))
+	for mission in selected_missions:
+		if str(mission.get("id", "")) == active_mission:
+			show_mission_highlight(active_mission)
+			return
+	clear_mission_highlight()
+
+func show_mission_highlight(mission_id: String) -> void:
+	clear_mission_highlight()
+	if selected_country_id.is_empty():
+		map_highlight_status.text = "请先选择国家"
+		return
+	var packet: Variant = JSON.parse_string(session.query_mission_province_highlights(selected_country_id, mission_id))
+	if packet == null or packet.get("ok") != true:
+		map_highlight_status.text = "目标查询失败"
+		map_highlight_status.tooltip_text = "" if packet == null else str(packet.get("error", ""))
+		return
+	var report: Dictionary = packet.value
+	var unresolved: Array = report.get("unresolved", [])
+	var unknown_provinces: Dictionary = report.get("unknown_provinces", {})
+	if report.get("defined") != true:
+		map_highlight_status.text = "此任务没有可用目标定义"
+		var diagnostics: Array[String] = []
+		for item in unresolved:
+			diagnostics.append(str(item))
+		map_highlight_status.tooltip_text = "\n".join(diagnostics)
+		return
+	active_mission_highlight = {"country": selected_country_id, "mission": mission_id, "report": report}
+	map_highlight_clear_button.disabled = false
+	var provinces: Array = report.get("provinces", [])
+	var missing_palette_ids := apply_mission_highlight_mask(provinces)
+	var description: String
+	if provinces.is_empty():
+		description = "无匹配省份" if unknown_provinces.is_empty() and unresolved.is_empty() else "目标尚未完全确定"
+	else:
+		description = "已确认 %d 个省份" % provinces.size()
+	var details: Array[String] = [description]
+	if not unknown_provinces.is_empty():
+		details.append("%d 个省份未知" % unknown_provinces.size())
+	if not unresolved.is_empty():
+		details.append("%d 项配置诊断" % unresolved.size())
+	if not missing_palette_ids.is_empty():
+		details.append("%d 个目标不在地图调色板" % missing_palette_ids.size())
+	var title := str(mission_titles_cache.get(mission_id, mission_id))
+	map_highlight_status.text = "%s · %s" % [title, " · ".join(details)]
+	var tooltip_lines: Array[String] = []
+	for item in unresolved:
+		tooltip_lines.append(str(item))
+	for province_id in unknown_provinces:
+		tooltip_lines.append("省份 %s：%s" % [str(province_id), str(unknown_provinces[province_id])])
+	if not missing_palette_ids.is_empty():
+		tooltip_lines.append("无法在地图上绘制的省份：" + ", ".join(missing_palette_ids))
+	map_highlight_status.tooltip_text = "\n".join(tooltip_lines)
+
+func apply_mission_highlight_mask(provinces: Array) -> Array[String]:
+	var missing_palette_ids: Array[String] = []
+	if highlight_mask_image == null or highlight_mask_texture == null or map_material == null:
+		return missing_palette_ids
+	highlight_mask_image.fill(Color(0, 0, 0, 0))
+	var highlighted := 0
+	for value in provinces:
+		var province_id := int(value)
+		if not province_palette_indices.has(province_id):
+			missing_palette_ids.append(str(province_id))
+			continue
+		highlight_mask_image.set_pixel(int(province_palette_indices[province_id]), 0, Color(1, 0, 0, 1))
+		highlighted += 1
+	highlight_mask_texture.update(highlight_mask_image)
+	map_material.set_shader_parameter("highlight_mask", highlight_mask_texture)
+	map_material.set_shader_parameter("highlight_enabled", highlighted > 0)
+	return missing_palette_ids
+
+func clear_mission_highlight() -> void:
+	active_mission_highlight.clear()
+	if highlight_mask_image != null:
+		highlight_mask_image.fill(Color(0, 0, 0, 0))
+	if highlight_mask_texture != null and highlight_mask_image != null:
+		highlight_mask_texture.update(highlight_mask_image)
+	if map_material != null:
+		map_material.set_shader_parameter("highlight_enabled", false)
+	if map_highlight_clear_button != null:
+		map_highlight_clear_button.disabled = true
+	if map_highlight_status != null:
+		map_highlight_status.text = "未显示目标"
+		map_highlight_status.tooltip_text = ""
 
 func mission_status_tooltip(mission: Dictionary) -> String:
 	match mission_status(mission):

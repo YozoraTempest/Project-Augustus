@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+on_startup = {
+    if = {
+        limit = { tag = AAA }
+        country_event = { id = highlights.1 days = 1 }
+    }
+}

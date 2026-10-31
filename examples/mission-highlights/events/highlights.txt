@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+namespace = highlights
+
+country_event = {
+    id = highlights.1
+    title = highlights.1.title
+    desc = highlights.1.desc
+    is_triggered_only = yes
+    immediate = { 2 = { set_owner = ROOT } }
+    option = {
+        name = highlights.1.option
+        1 = { set_owner = BBB }
+    }
+}

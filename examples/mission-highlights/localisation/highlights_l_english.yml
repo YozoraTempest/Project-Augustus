@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+l_english:
+ aaa_highlight_owned_title:0 "Survey the Border"
+ aaa_highlight_owned_desc:0 "Inspect the provinces currently under our rule along this border."
+ aaa_highlight_none_title:0 "A Quiet Frontier"
+ aaa_highlight_none_desc:0 "This objective currently has no matching map targets."
+ aaa_highlight_unknown_title:0 "Chart the Unknown Coast"
+ aaa_highlight_unknown_desc:0 "Some target provinces depend on knowledge that has not been established."
+ aaa_highlight_unsupported_title:0 "Review the Unfinished Survey"
+ aaa_highlight_unsupported_desc:0 "The map filter is unsupported; the reward remains independently available."
+ aaa_highlight_empty_title:0 "Record the Findings"
+ aaa_highlight_empty_desc:0 "This objective has no configured province filter."
+ aaa_highlight_undeclared_title:0 "File the Report"
+ aaa_highlight_undeclared_desc:0 "This objective does not declare map targets."
+ bbb_highlight_owned_title:0 "Inspect the Eastern Border"
+ bbb_highlight_owned_desc:0 "View the same frontier from the other country's perspective."
+ highlights.1.title:0 "A Border Settlement"
+ highlights.1.desc:0 "The eastern province joins our administration. A final agreement will transfer the north."
+ highlights.1.option:0 "Confirm the agreement"

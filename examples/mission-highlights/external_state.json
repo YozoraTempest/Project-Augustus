@@ -1,0 +1,9 @@
+{
+  "country_resources": {
+    "AAA": { "treasury_milli": 0 },
+    "BBB": { "treasury_milli": 0 }
+  },
+  "country_mission_completions": { "AAA": [], "BBB": [] },
+  "province_owners": { "1": "AAA", "2": "BBB", "4": "AAA" },
+  "province_discovered_by": { "1": ["AAA"] }
+}

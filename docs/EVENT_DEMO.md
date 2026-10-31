@@ -298,6 +298,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 `religion = 字面宗教标识`、`religion_group = 字面分组标识` 支持国家和省份作用域，分别编译为核心 `AffiliationMember`、`AffiliationGroup`。查询从当前 `affiliations` 读取成员及其分组，不使用接受政策，也不缓存开局值。未知归属或分组会报错，不能通过取反变成已确定的真值。国家标签、省份编号、作用域引用、次要宗教、dominant 等特殊值和动态表达式尚未支持。自制场景、原生写法和交叉读档命令见 [宗教归属条件演示](../examples/affiliation-conditions/README.md)。
 
+省份条件 `owned_by = TAG` 比较当前所有者的字面国家标签；`owned_by = ROOT` 要求回调已声明国家根作用域，并比较该国家与当前省份的实时所有者。两者复用核心所有者作用域，不缓存归属；明确无主为假，未知所有者仍报错。错误作用域、非国家根、`FROM`、`PREV`、动态字符串及未支持引用使用严格诊断。任务的省份过滤器明确以任务国家作为 `ROOT`，可用该条件随归属改变更新地图目标。
+
 国家作用域的 `has_religious_school = yes/no` 查询当前学派是否存在，`religious_school = { group = 字面宗教组 school = 字面学派 }` 同时比较所选学派及其分组。明确无学派与未知数据分别表示，原生内容复用 `AffiliationPresent`、成员和分组查询。输入格式、演示和当前限制见 [宗教学派查询演示](../examples/religious-schools/README.md)。
 
 `set_religious_school = { group = 字面宗教组 school = 字面学派 }` 支持国家作用域。当前国教属于指定组时设置或替换学派，其他已知宗教组不执行修改；未知国教组报错。学派须已注册且分组相符，重复或未注册定义使用严格诊断。独立编译器通过 `with_religious_school_groups` 提供定义，事件演示从场景的归属数据提供。原生内容使用 `SetAffiliation`，可设置已注册成员或以 `null` 明确清除归属；EU4 的分组限制由兼容编译器翻译成条件。跨输入保存和实时属性查询见 [学派变更演示](../examples/school-effects/README.md)。运行时宗教转换、学者邀请及清除学派的兼容语法尚未接入。

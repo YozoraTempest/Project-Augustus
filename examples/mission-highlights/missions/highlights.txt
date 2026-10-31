@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+aaa_highlight_series = {
+    slot = 5
+    potential = { tag = AAA }
+
+    aaa_highlight_owned = {
+        position = 1
+        provinces_to_highlight = {
+            OR = { province_id = 1 province_id = 2 }
+            owned_by = ROOT
+        }
+        trigger = { always = yes }
+        effect = {
+            2 = { set_owner = ROOT }
+            add_treasury = 5
+        }
+    }
+    aaa_highlight_none = {
+        position = 2
+        provinces_to_highlight = { always = no }
+        trigger = { always = yes }
+        effect = {}
+    }
+    aaa_highlight_unknown = {
+        position = 3
+        provinces_to_highlight = {
+            OR = {
+                province_id = 1
+                AND = { province_id = 3 has_discovered = ROOT }
+            }
+        }
+        trigger = { always = yes }
+        effect = {}
+    }
+    aaa_highlight_unsupported = {
+        position = 4
+        provinces_to_highlight = { unsupported_map_condition = yes }
+        trigger = { always = yes }
+        effect = { add_treasury = 1 }
+    }
+    aaa_highlight_empty = {
+        position = 5
+        provinces_to_highlight = {}
+        trigger = { always = yes }
+        effect = {}
+    }
+    aaa_highlight_undeclared = {
+        position = 6
+        trigger = { always = yes }
+        effect = {}
+    }
+}
+
+bbb_highlight_series = {
+    slot = 5
+    potential = { tag = BBB }
+    bbb_highlight_owned = {
+        position = 1
+        provinces_to_highlight = {
+            OR = { province_id = 1 province_id = 2 }
+            owned_by = ROOT
+        }
+        trigger = { always = yes }
+        effect = {}
+    }
+}

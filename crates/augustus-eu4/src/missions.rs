@@ -50,6 +50,21 @@ pub struct VanillaMissionView {
     pub unresolved: Vec<String>,
 }
 
+/// Read-only province targets declared by a mission's `provinces_to_highlight` filter.
+///
+/// `defined` indicates that this adapter found a non-empty filter declaration.
+/// Its display convention treats an absent, empty object, or empty array as no
+/// filter and an explicit `always = yes` condition as matching all provinces.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct VanillaMissionProvinceHighlights {
+    pub country: String,
+    pub mission: String,
+    pub defined: bool,
+    pub provinces: BTreeSet<u32>,
+    pub unknown_provinces: BTreeMap<u32, String>,
+    pub unresolved: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct MissionProgram {
     id: String,
@@ -66,6 +81,14 @@ pub(crate) struct MissionProgram {
     unresolved: Vec<String>,
     reward_supported: bool,
     has_execution_rules: bool,
+    province_highlight: MissionProvinceHighlightProgram,
+}
+
+#[derive(Debug, Clone, Default)]
+struct MissionProvinceHighlightProgram {
+    defined: bool,
+    condition: Option<Condition>,
+    unresolved: Vec<String>,
 }
 
 pub(crate) struct MissionDraft {
@@ -471,6 +494,8 @@ fn compile_programs(
                 let mut effect_count = 0;
                 let mut required_count = 0;
                 let mut reward_supported = true;
+                let mut province_highlight = MissionProvinceHighlightProgram::default();
+                let mut province_highlight_count = 0;
 
                 for (field_key, field_operator, field_value) in mission.fields() {
                     let name = field_key.read_string();
@@ -617,14 +642,63 @@ fn compile_programs(
                                 root,
                             ));
                         }
-                        "position"
-                        | "_title"
-                        | "_desc"
-                        | "icon"
-                        | "ai"
-                        | "has_country_shield"
-                        | "highlight"
-                        | "provinces_to_highlight" => (),
+                        "provinces_to_highlight" => {
+                            province_highlight_count += 1;
+                            if let Err(error) = equal(field_operator, &|message| {
+                                Error::message(parsed.source(), message).with_location(field_at)
+                            }) {
+                                province_highlight.defined = true;
+                                province_highlight
+                                    .unresolved
+                                    .push(relative_error(&error, root));
+                            } else {
+                                match field_value.token() {
+                                    TextToken::Object { mixed: false, .. } => {
+                                        let block = field_value
+                                            .read_object()
+                                            .expect("object token has an object reader");
+                                        if block.fields().next().is_some() {
+                                            province_highlight.defined = true;
+                                            let compiler = mission_compiler(
+                                                world,
+                                                library,
+                                                geographic_scopes,
+                                                truce_months,
+                                            )
+                                            .with_root_scope(EntityKind::Country);
+                                            match compiler.compile_condition_reader(
+                                                &parsed,
+                                                block,
+                                                EntityKind::Province,
+                                            ) {
+                                                Ok(condition) => {
+                                                    province_highlight.condition = Some(condition);
+                                                }
+                                                Err(error) => province_highlight
+                                                    .unresolved
+                                                    .push(relative_error(&error, root)),
+                                            }
+                                        }
+                                    }
+                                    TextToken::Array { mixed: false, .. }
+                                        if field_value
+                                            .read_array()
+                                            .is_ok_and(|array| array.values().next().is_none()) => {
+                                    }
+                                    _ => {
+                                        province_highlight.defined = true;
+                                        province_highlight.unresolved.push(field_problem(
+                                            parsed.source(),
+                                            field_at,
+                                            "provinces_to_highlight requires a non-mixed object block",
+                                            root,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        "position" | "_title" | "_desc" | "icon" | "ai" | "has_country_shield"
+                        | "highlight" => (),
                         name if name.starts_with('@') => (),
                         _ => {
                             has_semantic_field = true;
@@ -681,6 +755,18 @@ fn compile_programs(
                         root,
                     ));
                 }
+                if province_highlight_count > 1 {
+                    province_highlight.defined = true;
+                    province_highlight.condition = None;
+                    province_highlight.unresolved.push(field_problem(
+                        parsed.source(),
+                        at,
+                        "duplicate mission provinces_to_highlight fields",
+                        root,
+                    ));
+                }
+                province_highlight.unresolved.sort();
+                province_highlight.unresolved.dedup();
                 for (name, count) in &critical_fields {
                     if *count > 1
                         && matches!(
@@ -754,6 +840,7 @@ fn compile_programs(
                         unresolved: normalized_unresolved,
                         reward_supported,
                         has_execution_rules,
+                        province_highlight,
                     },
                 );
             }
@@ -992,6 +1079,68 @@ fn relative_error(error: &Error, root: &impl ContentView) -> String {
 }
 
 impl VanillaWorld {
+    /// Returns mission identifiers whose declarations contain a non-empty
+    /// province highlight filter, including filters with compilation diagnostics.
+    pub fn mission_highlight_ids(&self) -> BTreeSet<String> {
+        self.mission_programs
+            .values()
+            .filter(|program| program.province_highlight.defined)
+            .map(|program| program.id.clone())
+            .collect()
+    }
+
+    /// Evaluates a mission's declared province highlight filter against live
+    /// province state. Mission selection and completion do not gate this view.
+    pub fn query_mission_province_highlights(
+        &self,
+        country: &str,
+        mission: &str,
+    ) -> Result<VanillaMissionProvinceHighlights, Error> {
+        let root = self
+            .initial
+            .country_entity(country)
+            .ok_or_else(|| Error::message("missions", format!("unknown country {country}")))?;
+        let program = self
+            .mission_programs
+            .get(mission)
+            .ok_or_else(|| Error::message("missions", format!("unknown mission {mission}")))?;
+        let highlight = &program.province_highlight;
+        let mut report = VanillaMissionProvinceHighlights {
+            country: country.into(),
+            mission: mission.into(),
+            defined: highlight.defined,
+            provinces: BTreeSet::new(),
+            unknown_provinces: BTreeMap::new(),
+            unresolved: highlight.unresolved.clone(),
+        };
+        let Some(condition) = &highlight.condition else {
+            return Ok(report);
+        };
+        let world = self.initial.world();
+        for province in self.initial.provinces() {
+            let id = province.id;
+            let Some(current) = self.initial.province_entity(id) else {
+                report
+                    .unknown_provinces
+                    .insert(id, "province entity is unavailable".into());
+                continue;
+            };
+            match condition.evaluate_in_context(
+                world,
+                augustus_core::ScopeContext::new(root).with_current(current),
+            ) {
+                Ok(true) => {
+                    report.provinces.insert(id);
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    report.unknown_provinces.insert(id, error.to_string());
+                }
+            }
+        }
+        Ok(report)
+    }
+
     /// Evaluates current mission requirements without refreshing series selection,
     /// executing effects, consuming randomness, or changing the snapshot.
     pub fn country_missions(&self, country: &str) -> Result<VanillaCountryMissions, Error> {

@@ -61,6 +61,7 @@ godot --headless --path godot --script res://tests/world.gd
 godot --headless --path godot --script res://tests/province_intelligence.gd
 godot --headless --path godot --script res://tests/mission_claims.gd
 godot --headless --path godot --script res://tests/mission_selection_import.gd
+godot --headless --path godot --script res://tests/mission_province_highlights.gd
 ```
 
 Godot 检查会加载真实 Rust 扩展，验证按钮操作、查询、两类输入、存档和随机状态。测试内容均为自制样本。
@@ -68,6 +69,8 @@ Godot 检查会加载真实 Rust 扩展，验证按钮操作、查询、两类�
 `province_intelligence.gd` 配合 `examples/province-intelligence` 验证省份详情中的发现三态和贸易中心等级，并检查切换国家、推进时间、选择事件、恢复快照后的即时刷新及滚动位置。
 
 `mission_selection_import.gd` 验证 EU4 中途存档中的任务选择可进入 Godot 会话，并在项目快照中保留。任务选择缓存与完成记录独立，导入不会领取奖励。
+
+`mission_province_highlights.gd` 配合 `examples/mission-highlights` 验证任务的地图目标、已知目标与未决省份并存、归属改变后的刷新、清除和国家切换，并检查目标查询不修改快照。附加 `-- --capture <绝对PNG路径>` 可在图形模式生成渲染检查截图。
 
 可以独立测量常量条件折叠的执行成本：
 

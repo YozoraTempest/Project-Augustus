@@ -3305,6 +3305,27 @@ impl<'a> ScriptCompiler<'a> {
                         }),
                     }
                 }
+                "owned_by" => {
+                    if scope != EntityKind::Province {
+                        return Err(field.error("owned_by requires province scope"));
+                    }
+                    let value = field.scalar()?;
+                    let owner = if value.eq_ignore_ascii_case("ROOT") {
+                        if self.root_kind(field)? != EntityKind::Country {
+                            return Err(field.error("owned_by ROOT requires a country root"));
+                        }
+                        Condition::ScopeIsCurrent(ScopeSelector::Root)
+                    } else if country_identifier(value) {
+                        Condition::EntityNamed { target: Target::Current, name: value.into() }
+                    } else {
+                        return Err(field.error("owned_by requires a literal country tag or typed ROOT"));
+                    };
+                    Condition::With {
+                        target: Target::Owner,
+                        kind: EntityKind::Country,
+                        condition: Box::new(owner),
+                    }
+                }
                 "province_id" => {
                     if scope != EntityKind::Province { return Err(field.error("province_id requires province scope")); }
                     let id = province_identifier(field.scalar()?)
@@ -4300,6 +4321,91 @@ fn mission_event_references_in_scope(
 #[cfg(test)]
 mod script_plan_tests {
     use super::*;
+
+    #[test]
+    fn owned_by_reads_live_owner_and_preserves_the_country_root() {
+        let schema = Schema::new([] as [&str; 0]).unwrap();
+        let library = ScriptLibrary::new();
+        for optimise in [false, true] {
+            let literal = TextDocument::from_bytes(
+                "owned-by.txt",
+                b"owned_by = AAA".to_vec(),
+                TextEncoding::Utf8,
+            );
+            let literal = literal.parse().unwrap();
+            let literal = ScriptCompiler::new(&schema, &library, optimise)
+                .compile_condition_reader(&literal, literal.reader(), EntityKind::Province)
+                .unwrap();
+            let root = TextDocument::from_bytes(
+                "owned-by-root.txt",
+                b"owned_by = ROOT".to_vec(),
+                TextEncoding::Utf8,
+            );
+            let root = root.parse().unwrap();
+            let root = ScriptCompiler::new(&schema, &library, optimise)
+                .with_root_scope(EntityKind::Country)
+                .compile_condition_reader(&root, root.reader(), EntityKind::Province)
+                .unwrap();
+            let mut world = augustus_core::World::new(schema.clone());
+            let alpha = world.add_entity("AAA", EntityKind::Country);
+            let beta = world.add_entity("BBB", EntityKind::Country);
+            let province = world.add_entity("1", EntityKind::Province);
+            let context = augustus_core::ScopeContext::new(alpha).with_current(province);
+            assert!(literal.evaluate(&world, province).is_err());
+            assert!(root.evaluate_in_context(&world, context).is_err());
+            world.mark_target_absent(province, Target::Owner).unwrap();
+            assert!(!literal.evaluate(&world, province).unwrap());
+            assert!(!root.evaluate_in_context(&world, context).unwrap());
+            world.set_owner(province, alpha).unwrap();
+            let before = world.save("owned-by").unwrap();
+            assert!(literal.evaluate(&world, province).unwrap());
+            assert!(root.evaluate_in_context(&world, context).unwrap());
+            assert!(
+                !root
+                    .evaluate_in_context(
+                        &world,
+                        augustus_core::ScopeContext::new(beta).with_current(province)
+                    )
+                    .unwrap()
+            );
+            assert_eq!(world.save("owned-by").unwrap(), before);
+            world.set_owner(province, beta).unwrap();
+            assert!(!literal.evaluate(&world, province).unwrap());
+            assert!(!root.evaluate_in_context(&world, context).unwrap());
+            assert!(
+                root.evaluate_in_context(
+                    &world,
+                    augustus_core::ScopeContext::new(beta).with_current(province)
+                )
+                .unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn owned_by_rejects_wrong_scope_untyped_root_and_dynamic_operands() {
+        let schema = Schema::new([] as [&str; 0]).unwrap();
+        let library = ScriptLibrary::new();
+        for (text, scope) in [
+            ("owned_by = AAA", EntityKind::Country),
+            ("owned_by = ROOT", EntityKind::Province),
+            ("owned_by = FROM", EntityKind::Province),
+            ("owned_by = PREV", EntityKind::Province),
+            ("owned_by = $country$", EntityKind::Province),
+            ("owned_by = { tag = AAA }", EntityKind::Province),
+        ] {
+            let document = TextDocument::from_bytes(
+                "owned-by-invalid.txt",
+                text.as_bytes().to_vec(),
+                TextEncoding::Utf8,
+            );
+            let parsed = document.parse().unwrap();
+            let error = ScriptCompiler::new(&schema, &library, true)
+                .compile_condition_reader(&parsed, parsed.reader(), scope)
+                .unwrap_err();
+            assert!(error.to_string().contains("owned-by-invalid.txt"));
+        }
+    }
 
     #[test]
     fn owns_reads_live_ownership_without_changing_the_world() {

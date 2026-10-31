@@ -105,7 +105,9 @@ pub use gold_stage_queries::{
     VanillaGoldBaseQuery, VanillaGoldProductionQuery, VanillaGoldStageEvaluation,
     VanillaGoldStageQuery, VanillaGoldStageQueryMode, VanillaGoldStageQueryReport,
 };
-pub use missions::{MissionReport, VanillaCountryMissions, VanillaMissionView};
+pub use missions::{
+    MissionReport, VanillaCountryMissions, VanillaMissionProvinceHighlights, VanillaMissionView,
+};
 pub use monthly_accrual_queries::{VanillaMonthlyAccrualQuery, VanillaMonthlyAccrualQueryReport};
 pub use monthly_autonomy_queries::{
     VanillaMonthlyAutonomyQuery, VanillaMonthlyAutonomyQueryReport,
