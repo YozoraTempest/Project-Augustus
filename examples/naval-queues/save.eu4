@@ -1,0 +1,21 @@
+EU4txt
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+# Self-authored input for examples/world; province 2 is a port, province 1 is not.
+date=1444.11.11
+player=AAA
+countries={
+    AAA={human=yes treasury=20.000}
+    BBB={human=no treasury=30.000}
+}
+provinces={
+    -2={
+        owner=AAA controller=AAA
+        military_construction={country=AAA envoy=-1 type=sample_light_ship start_date=1444.11.10 total=3 original_total=3 progress=0.333 date=1444.11.13 cost=5.000}
+        military_construction={country=AAA envoy=-1 type=sample_light_ship start_date=1444.11.11 total=2 original_total=2 date=1444.11.13 cost=5.000}
+    }
+    -1={
+        owner=BBB controller=BBB
+        military_construction={country=BBB envoy=-1 type=sample_light_ship start_date=1444.11.10 total=3 original_total=3 progress=0.333 date=1444.11.13 cost=5.000}
+    }
+}

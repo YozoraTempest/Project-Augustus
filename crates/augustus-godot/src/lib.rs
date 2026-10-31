@@ -156,6 +156,7 @@ fn load_world_from_eu4_save(
     mod_directories: Vec<PathBuf>,
     user_directory: Option<PathBuf>,
     launcher_config: Option<PathBuf>,
+    import_naval_queues: bool,
 ) -> Result<
     (
         augustus_eu4::VanillaWorld,
@@ -178,8 +179,15 @@ fn load_world_from_eu4_save(
         augustus_eu4::TextEncoding::Windows1252,
     )
     .map_err(|error| error.to_string())?;
-    let loaded = augustus_eu4::VanillaWorld::load_from_content_with_save(&content, save_path)
+    let mut loaded = augustus_eu4::VanillaWorld::load_from_content_with_save(&content, &save_path)
         .map_err(|error| error.to_string())?;
+    if import_naval_queues {
+        let queues = augustus_eu4::read_vanilla_naval_constructions_for_queue_import(&save_path)
+            .map_err(|error| error.to_string())?;
+        loaded
+            .import_naval_construction_queues(&queues)
+            .map_err(|error| error.to_string())?;
+    }
     Ok((loaded, None, None))
 }
 
@@ -238,6 +246,7 @@ impl AugustusWorldSession {
         mod_directories: Array<GString>,
         user_directory: GString,
         launcher_config: GString,
+        import_naval_queues: bool,
     ) -> GString {
         let mod_directories = mod_directories
             .iter_shared()
@@ -254,6 +263,7 @@ impl AugustusWorldSession {
             mod_directories,
             user_directory,
             launcher_config,
+            import_naval_queues,
         ) {
             Ok((loaded, saved_imperial_baseline, saved_office_preferences)) => {
                 self.loaded = Some(loaded);
@@ -411,6 +421,26 @@ impl AugustusWorldSession {
             mod_directories,
             user_directory,
             launcher_config,
+            false,
+        )
+    }
+
+    #[func]
+    fn load_world_with_eu4_save_and_naval_queues(
+        &mut self,
+        path: GString,
+        save_path: GString,
+        mod_directories: Array<GString>,
+        user_directory: GString,
+        launcher_config: GString,
+    ) -> GString {
+        self.load_world_from_eu4_save_internal(
+            path,
+            save_path,
+            mod_directories,
+            user_directory,
+            launcher_config,
+            true,
         )
     }
 
@@ -638,6 +668,37 @@ impl AugustusWorldSession {
                 value["last_monthly_accruals"] = serde_json::json!(accounts);
             }
             Ok(value)
+        }))
+    }
+
+    #[func]
+    fn query_naval_constructions(&self, country: GString) -> GString {
+        let country = country.to_string();
+        world_reply(self.loaded().and_then(|loaded| {
+            if !country.is_empty() && loaded.initial.country_entity(&country).is_none() {
+                return Err("unknown country".into());
+            }
+            let orders = loaded
+                .naval_construction_orders()
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .filter(|order| country.is_empty() || order.country == country)
+                .map(|order| -> Result<_, String> {
+                    let province = loaded
+                        .initial
+                        .province(order.province_id)
+                        .ok_or("order province is not loaded")?;
+                    let mut value =
+                        serde_json::to_value(&order).map_err(|error| error.to_string())?;
+                    value["id"] = order.id.0.to_string().into();
+                    value["province_name"] = province.name.clone().into();
+                    Ok(value)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(serde_json::json!({
+                "orders": orders,
+                "import_report": loaded.naval_construction_import_report(),
+            }))
         }))
     }
 

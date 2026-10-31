@@ -16,6 +16,7 @@ var map_material: ShaderMaterial
 var game_path: LineEdit
 var baseline_save: LineEdit
 var eu4_save: LineEdit
+var naval_queues_checkbox: CheckBox
 var external_state: LineEdit
 var date_input: LineEdit
 var player_countries_input: LineEdit
@@ -26,6 +27,7 @@ var status: Label
 var country_choice: OptionButton
 var country_details: Label
 var military_panel
+var naval_construction_panel
 var politics_details: Label
 var diplomacy_details: Label
 var province_details: Label
@@ -128,15 +130,22 @@ func _ready() -> void:
 	eu4_save_picker = FileDialog.new()
 	eu4_save_picker.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	eu4_save_picker.access = FileDialog.ACCESS_FILESYSTEM
-	eu4_save_picker.file_selected.connect(func(path): eu4_save.text = path)
+	eu4_save_picker.file_selected.connect(_set_eu4_save_path)
 	add_child(eu4_save_picker)
 	var eu4_save_form := HBoxContainer.new()
 	page.add_child(eu4_save_form)
 	eu4_save = LineEdit.new()
 	eu4_save.placeholder_text = "可选：导入自己的未压缩 EU4 存档，直接恢复开局状态"
 	eu4_save.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	eu4_save.text_changed.connect(_on_eu4_save_text_changed)
 	eu4_save_form.add_child(eu4_save)
 	eu4_save_form.add_child(button("选择 EU4 存档", func(): eu4_save_picker.popup_centered_ratio(0.7)))
+	naval_queues_checkbox = CheckBox.new()
+	naval_queues_checkbox.text = "载入舰船队列"
+	naval_queues_checkbox.tooltip_text = "从此 EU4 存档导入待造舰船订单；同一港口的多笔订单按存档原顺序接入。"
+	naval_queues_checkbox.button_pressed = false
+	naval_queues_checkbox.disabled = true
+	eu4_save_form.add_child(naval_queues_checkbox)
 	external_state_picker = FileDialog.new()
 	external_state_picker.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	external_state_picker.access = FileDialog.ACCESS_FILESYSTEM
@@ -257,6 +266,9 @@ func _ready() -> void:
 	military_panel = preload("res://military_panel.gd").new()
 	military_panel.province_selected.connect(_on_military_province_selected)
 	panel.add_child(military_panel)
+	naval_construction_panel = preload("res://naval_construction_panel.gd").new()
+	naval_construction_panel.province_selected.connect(_on_naval_province_selected)
+	panel.add_child(naval_construction_panel)
 	panel.add_child(label("统治者", 20))
 	politics_details = label("尚未载入", 16)
 	politics_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -316,6 +328,10 @@ func parse_launch_args(args: PackedStringArray) -> bool:
 	var index := 0
 	while index < args.size():
 		var option := args[index]
+		if option == "--import-naval-construction-queues":
+			naval_queues_checkbox.button_pressed = true
+			index += 1
+			continue
 		if option not in ["--game-root", "--date", "--player", "--mod", "--user-directory", "--launcher-config", "--baseline-save", "--eu4-save", "--external-state"]:
 			index += 1
 			continue
@@ -342,11 +358,22 @@ func parse_launch_args(args: PackedStringArray) -> bool:
 			"--baseline-save":
 				baseline_save.text = value
 			"--eu4-save":
-				eu4_save.text = value
+				_set_eu4_save_path(value)
 			"--external-state":
 				external_state.text = value
 		index += 2
 	return true
+
+func _set_eu4_save_path(path: String) -> void:
+	eu4_save.text = path
+	_on_eu4_save_text_changed(path)
+
+func _on_eu4_save_text_changed(value: String) -> void:
+	if naval_queues_checkbox == null:
+		return
+	naval_queues_checkbox.disabled = value.is_empty()
+	if value.is_empty():
+		naval_queues_checkbox.button_pressed = false
 
 func label(text: String, size: int) -> Label:
 	var node := Label.new()
@@ -364,6 +391,9 @@ func button(text: String, action: Callable) -> Button:
 func load_world() -> bool:
 	set_running(false)
 	var candidate = AugustusWorldSession.new()
+	if naval_queues_checkbox.button_pressed and eu4_save.text.is_empty():
+		status.text = "载入舰船队列需要先选择 EU4 存档。"
+		return false
 	if not eu4_save.text.is_empty() and not baseline_save.text.is_empty():
 		status.text = "EU4 存档导入不能同时使用基线存档。"
 		return false
@@ -371,13 +401,24 @@ func load_world() -> bool:
 		status.text = "EU4 存档导入不能同时使用外部状态包。"
 		return false
 	if not eu4_save.text.is_empty():
-		var save_packet: Dictionary = JSON.parse_string(candidate.load_world_with_eu4_save(
-			game_path.text,
-			eu4_save.text,
-			mod_directories,
-			user_directory,
-			launcher_config
-		))
+		var save_response: String
+		if naval_queues_checkbox.button_pressed:
+			save_response = candidate.load_world_with_eu4_save_and_naval_queues(
+				game_path.text,
+				eu4_save.text,
+				mod_directories,
+				user_directory,
+				launcher_config
+			)
+		else:
+			save_response = candidate.load_world_with_eu4_save(
+				game_path.text,
+				eu4_save.text,
+				mod_directories,
+				user_directory,
+				launcher_config
+			)
+		var save_packet: Dictionary = JSON.parse_string(save_response)
 		if not save_packet.ok:
 			status.text = save_packet.error
 			return false
@@ -493,6 +534,7 @@ func apply_loaded_world(candidate, data: Dictionary) -> bool:
 	map_highlight_clear_button.disabled = true
 	country_choice.clear()
 	military_panel.clear()
+	naval_construction_panel.clear()
 	unit_country_id = ""
 	unit_option_cache.clear()
 	mission_expanded = false
@@ -695,12 +737,18 @@ func shown(value: Variant) -> String:
 func _on_military_province_selected(province_id: int) -> void:
 	select_province(province_id)
 
+func _on_naval_province_selected(province_id: int) -> void:
+	select_province(province_id)
+
 func select_country(index: int, reset_scroll: bool = true) -> void:
 	if country_choice.item_count == 0:
+		military_panel.clear()
+		naval_construction_panel.clear()
 		return
 	var id: String = country_choice.get_item_metadata(index)
 	if id != selected_country_id:
 		military_panel.clear()
+		naval_construction_panel.clear()
 	if id != selected_country_id and not active_mission_highlight.is_empty():
 		clear_mission_highlight()
 	selection_revision += 1
@@ -722,6 +770,13 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 			status.text = str(military_packet.get("error", "军力状态暂不可用。"))
 	else:
 		military_panel.render_report(military_packet.value)
+	var naval_packet: Variant = JSON.parse_string(session.query_naval_constructions(id))
+	if naval_packet == null or naval_packet.get("ok") != true:
+		naval_construction_panel.clear()
+		if naval_packet != null:
+			status.text = str(naval_packet.get("error", "造船排期暂不可用。"))
+	else:
+		naval_construction_panel.render_report(naval_packet.value)
 	var government: Variant = packet.value.government
 	country_details.text = "%s · %s\n领土 %d 个省份 · 首都 %s\n文化 %s · 宗教 %s\n政体 %s" % [country.id, country.name, packet.value.owned_provinces.size(), shown(packet.value.bound_capital), shown(country.primary_culture), shown(country.religion), shown(null if government == null else government.kind)]
 	if government != null:

@@ -178,6 +178,12 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 程序调用者可使用 `VanillaWorld::submit_naval_construction_queues` 或 `submit_naval_construction_queues_with_ledger`；对应核心入口为 `World` / `InitialWorld` 的 `enqueue_paid_naval_construction_queues` 与 `enqueue_naval_construction_queues_with_expenses`。保存与恢复使用现有快照中的队列状态；恢复进度时省略请求文件，避免再次提交。`--show-naval-constructions` 可查看提交和推进后的当前 FIFO 位置。
 
+Godot 的 EU4 存档行提供默认关闭的“载入舰船队列”开关；启动参数 `--import-naval-construction-queues` 启用同一选项，须同时指定 `--eu4-save`。这个入口在新候选世界的基线加载完成后，调用与 CLI 相同的队列读取和导入方法；每次加载只接入一次，刷新界面和恢复项目快照时不会重新导入。原有 `load_world_with_eu4_save` 方法保留单订单行为，新 `load_world_with_eu4_save_and_naval_queues` 方法显式接入 FIFO。没有启用开关的旧输入与快照行为保持原样；显式接入也不改变同一基线的内容指纹，恢复时以项目快照中的队列状态为准。
+
+国家面板的“造船”区使用 `query_naval_constructions(country)` 查看当前已接入的订单。报告的 `orders` 按国家过滤，空国家参数表示全部，未知标签报错；ID 使用十进制字符串，省份使用 EU4 编号并附带名称。详情区区分独立订单和从 1 开始的 FIFO 位置，“查看驻地”打开订单港口。`completion_date` 是当前日保存的排期，等待项会随排队逐日顺延，不能作为最终完成预测。推进、事件与读取快照后，待造订单和军力列表一起刷新。
+
+报告的 `import_report` 保留输入存档的全局导入观察，包含当次接入数量与未接入记录，独立于当前国家筛选，也不会随完工或恢复快照重计。界面将未接入记录标为全局输入诊断；它们不是当前待造数量，缺少省份编号的记录也不会被归到所选国家。当前列表为空只表示没有已接入的待造订单。界面不提供未验证的自动报价、暂停或取消退款操作。
+
 需要显式取消待完成订单时，使用 `--cancel-naval-constructions ids.json`，文件内容是 Augustus 订单 ID 的 JSON 数组，例如 `[0, 2]`。取消在 `--load` 恢复之后、`--days` 推进之前执行；订单 ID 必须唯一且仍处于待完成状态，空数组为空操作。整批校验通过后才会删除订单及对应 FIFO 标记，队列位置会按剩余订单自然重编号；剩余订单已经保存的当前完成日不会回拨。取消不会退还提交时的费用，也不会反向修改 `CountryLedger`。未知、重复或已完成 ID 会使整批操作失败，并保持订单、FIFO 标记、资源、分类账和快照文件不变。该选项与 `--naval-constructions`、`--naval-construction-queues` 及 `--naval-construction-ledger` 互斥；可以单独配合 `--load`、`--days` 和 `--show-naval-constructions` 使用。核心调用者可直接使用 `World::cancel_naval_constructions`、`InitialWorld::cancel_naval_constructions` 或 `VanillaWorld::cancel_naval_constructions`。
 
 需要将本次费用登记为舰船建设支出时，在普通请求或 FIFO 请求选项之外同时传入 `--naval-construction-ledger`；单独提供分类账开关会报缺少请求文件。此模式使用 `EXPENSEFLEET` 类别，要求相关国家国库余额已知；它将费用计入分类项、来源、累计及辅助支出向量，同时扣减国库并入队。整批操作原子提交，分类账溢出或任何订单错误都不会留下部分扣费或账目。没有分类账时，沿用即时支出 API 的空账初始化规则，只记录本次费用，不重建历史账目。即时费用不增加待结算余额，保存恢复和完工也不会再次记账。恢复已有订单时无需再传请求选项和分类账开关。

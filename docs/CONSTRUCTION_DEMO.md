@@ -64,11 +64,14 @@ godot --headless --path godot --script res://tests/mission_selection_import.gd
 godot --headless --path godot --script res://tests/mission_province_highlights.gd
 godot --headless --path godot --script res://tests/saved_subject_relations.gd
 godot --headless --path godot --script res://tests/military_roster.gd
+godot --headless --path godot --script res://tests/naval_constructions.gd
 ```
 
 Godot 检查会加载真实 Rust 扩展，验证按钮操作、查询、两类输入、存档和随机状态。测试内容均为自制样本。
 
 `military_roster.gd` 验证按国家查看当前军队与舰队、团舰详情中的已知值与缺项、驻地跳转，以及推进、事件生成单位、保存恢复和新世界载入后的列表与选择状态；同时检查超出浮点精确整数范围的编号仍可区分和选中。使用图形模式时，也应检查展开列表、长名称和详情换行的实际显示。
+
+`naval_constructions.gd` 验证显式 FIFO 存档导入、当前排期和国家筛选、完工后待造订单与军力联动，以及保存恢复、失败载入和新世界替换后的状态。图形模式还须检查队列开关、订单详情和全局导入诊断的实际显示。
 
 `province_intelligence.gd` 配合 `examples/province-intelligence` 验证省份详情中的发现三态和贸易中心等级，并检查切换国家、推进时间、选择事件、恢复快照后的即时刷新及滚动位置。
 
