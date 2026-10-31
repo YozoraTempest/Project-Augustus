@@ -145,6 +145,50 @@ fn monthly_pipeline_requires_a_phase() {
 }
 
 #[test]
+fn standard_monthly_settlement_preview_reports_final_state_without_mutation() {
+    let (mut world, country) = world();
+    world
+        .set_country_resources(BTreeMap::from([(
+            country,
+            CountryResources {
+                treasury_milli: Some(10_000),
+                ..Default::default()
+            },
+        )]))
+        .unwrap();
+    world
+        .set_monthly_production(MonthlyProduction::new(BTreeMap::new()))
+        .unwrap();
+    world
+        .set_monthly_cashflows(Some(MonthlyExternalCashflows::new(BTreeMap::from([(
+            country,
+            Some(250),
+        )]))))
+        .unwrap();
+    let before = world.save("standard-settlement-preview").unwrap();
+
+    let preview = world.preview_standard_monthly_settlement().unwrap();
+    let account = &preview.accounts[&country];
+    assert_eq!(preview.day, 0);
+    assert_eq!(preview.system_id, "monthly-economy:1");
+    assert_eq!(account.treasury_before_milli, Some(10_000));
+    assert_eq!(account.treasury_after_milli, Some(10_250));
+    assert_eq!(account.pending_before_milli, 0);
+    assert_eq!(account.pending_after_milli, 0);
+    assert!(account.ledger.is_none());
+    assert!(account.unresolved.is_empty());
+    assert_eq!(world.save("standard-settlement-preview").unwrap(), before);
+
+    let custom = Recorder {
+        id: "custom-monthly:v1",
+        country,
+        message: "custom",
+    };
+    world.select_monthly_system(&custom).unwrap();
+    assert!(world.preview_standard_monthly_settlement().is_err());
+}
+
+#[test]
 fn custom_pipeline_can_rebind_standard_monthly_state_before_start() {
     let mut world = World::new(Schema::new(["annual_tax"]).unwrap());
     let country = world.add_entity("AAA", EntityKind::Country);

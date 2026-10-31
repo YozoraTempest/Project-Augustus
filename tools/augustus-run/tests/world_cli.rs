@@ -2001,6 +2001,94 @@ fn world_cli_rejects_unknown_monthly_event_query_fields() {
 }
 
 #[test]
+fn world_cli_reports_final_monthly_settlement_without_mutation() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let state = temp.path().join("external-state.json");
+    let queries = temp.path().join("monthly-settlement-queries.json");
+    let baseline = temp.path().join("baseline.json");
+    let queried = temp.path().join("queried.json");
+    fs::write(
+        &state,
+        serde_json::json!({
+            "country_resources": {"AAA": {"treasury_milli": 10000}},
+            "province_annual_tax_milli": {"1": 12000, "2": 8000},
+            "country_monthly_cashflows_milli": {"AAA": 250}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA"}]).to_string(),
+    )
+    .unwrap();
+
+    let first = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&state)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&baseline)
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let second = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&state)
+        .arg("--vanilla-monthly-settlement-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&queried)
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let output: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    let report = &output["vanilla_monthly_settlement_queries"][0];
+    assert_eq!(report["system_id"], "monthly-economy:1");
+    assert_eq!(report["evaluation"]["treasury_before_milli"], 10000);
+    assert_eq!(report["evaluation"]["treasury_after_milli"], 10916);
+    assert_eq!(fs::read(&queried).unwrap(), fs::read(&baseline).unwrap());
+}
+
+#[test]
+fn world_cli_rejects_unknown_monthly_settlement_query_fields() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let queries = temp.path().join("monthly-settlement-queries.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA", "unexpected": true}]).to_string(),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--vanilla-monthly-settlement-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown field"));
+}
+
+#[test]
 fn world_cli_reports_yearly_event_configuration_without_execution() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();

@@ -12,7 +12,7 @@ use augustus_eu4::{
     VanillaExternalState, VanillaFortMaintenanceQuery, VanillaGoldStageQuery,
     VanillaMonthlyAccrualQuery, VanillaMonthlyAutonomyQuery, VanillaMonthlyCashflowQuery,
     VanillaMonthlyConvergenceQuery, VanillaMonthlyEventQuery, VanillaMonthlyLedgerQuery,
-    VanillaMonthlyProductionQuery, VanillaMonthlyTaxQuery,
+    VanillaMonthlyProductionQuery, VanillaMonthlySettlementQuery, VanillaMonthlyTaxQuery,
     VanillaProvinceContentProductionGoodsSizeQuery, VanillaProvinceProductionBaseValueQuery,
     VanillaStateMaintenanceQuery, VanillaTradeGoodPriceTableQuery, VanillaWorld,
     VanillaYearlyEventQuery,
@@ -248,6 +248,14 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     vanilla_monthly_ledger_queries: Option<PathBuf>,
+    /// Preview the final state of the selected standard monthly executor.
+    /// Queries run after restore and --days and do not change the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    vanilla_monthly_settlement_queries: Option<PathBuf>,
     /// Query the caller-resolved ordinary province production value stage.
     /// Queries run after restore and --days and do not change the world.
     #[arg(
@@ -1015,6 +1023,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let vanilla_monthly_settlement_queries = cli
+        .vanilla_monthly_settlement_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<VanillaMonthlySettlementQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_vanilla_monthly_settlement(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     let vanilla_yearly_event_queries = cli
         .vanilla_yearly_event_queries
         .as_ref()
@@ -1163,6 +1184,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = vanilla_monthly_ledger_queries {
         output["vanilla_monthly_ledger_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(queries) = vanilla_monthly_settlement_queries {
+        output["vanilla_monthly_settlement_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = vanilla_monthly_convergence_queries {
         output["vanilla_monthly_convergence_queries"] = serde_json::to_value(queries)?;

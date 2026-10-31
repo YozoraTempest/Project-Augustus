@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::resources::{treasury_after_adjustment, treasury_after_adjustment_wide};
 use crate::{
-    CashflowSettlement, EntityId, EntityKind, Error, ProductionSettlement, TaxSettlement, World,
+    CashflowSettlement, EntityId, EntityKind, Error, MonthlyEconomy, MonthlySystem, MonthlyTax,
+    ProductionSettlement, TaxSettlement, World,
 };
 
 /// Native country-ledger income categories occupy slots 0 through 18.
@@ -170,6 +171,28 @@ pub struct CountryLedger {
     pub income_rollover_total_milli: i64,
     #[serde(default)]
     pub expense_rollover_total_milli: i64,
+}
+
+/// One country's result from the standard monthly settlement preview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonthlySettlementAccount {
+    pub treasury_before_milli: Option<i64>,
+    pub treasury_after_milli: Option<i64>,
+    pub pending_before_milli: i64,
+    pub pending_after_milli: i64,
+    pub ledger: Option<CountryLedger>,
+    pub unresolved: BTreeSet<String>,
+}
+
+/// Final state produced by the standard `MonthlyTax` or `MonthlyEconomy`
+/// executor, evaluated on a temporary clone without changing the live world.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonthlySettlementPreview {
+    pub day: u64,
+    pub system_id: String,
+    pub accounts: BTreeMap<EntityId, MonthlySettlementAccount>,
 }
 
 fn default_pending() -> i64 {
@@ -932,6 +955,185 @@ impl World {
             production.as_ref(),
             cashflows.as_ref(),
         )
+    }
+
+    /// Evaluates the final state produced by the selected standard monthly
+    /// executor without mutating the live world.
+    ///
+    /// Custom monthly pipelines, monthly pulse event providers, and explicit
+    /// ledger-consolidation providers are rejected because their effects and
+    /// ordering cannot be inferred from the standard settlement stages.
+    pub fn preview_standard_monthly_settlement(&self) -> Result<MonthlySettlementPreview, Error> {
+        let system_id = self
+            .monthly_system_id()
+            .ok_or_else(|| Error::Invalid("no standard monthly system is selected".into()))?;
+        let system: &dyn MonthlySystem = match system_id {
+            id if id == MonthlyTax.id() => &MonthlyTax,
+            id if id == MonthlyEconomy.id() => &MonthlyEconomy,
+            _ => {
+                return Err(Error::Invalid(
+                    "standard monthly settlement preview does not support the selected system"
+                        .into(),
+                ));
+            }
+        };
+        system.validate(self)?;
+
+        let before_ledgers = self.country_ledgers.clone();
+        let before_resources = self.country_resources.clone();
+        let before_tax_count = self.taxation.as_ref().map(|state| state.settlement_count);
+        let before_production_count = self
+            .monthly_production
+            .as_ref()
+            .map(|state| state.settlement_count);
+        let before_cashflow_count = self
+            .monthly_cashflows
+            .as_ref()
+            .map(|state| state.settlement_count);
+
+        let mut staged = self.clone();
+        system.settle(&mut staged)?;
+
+        let mut countries = BTreeSet::new();
+        let mut unresolved = BTreeMap::<EntityId, BTreeSet<String>>::new();
+        fn add_unresolved(
+            countries: &mut BTreeSet<EntityId>,
+            unresolved: &mut BTreeMap<EntityId, BTreeSet<String>>,
+            country: EntityId,
+            values: &BTreeSet<String>,
+        ) {
+            unresolved
+                .entry(country)
+                .or_default()
+                .extend(values.iter().cloned());
+            countries.insert(country);
+        }
+
+        if before_tax_count != staged.taxation.as_ref().map(|state| state.settlement_count)
+            && let Some(settlement) = staged
+                .taxation
+                .as_ref()
+                .and_then(|state| state.last_settlement.as_ref())
+        {
+            for (&country, account) in &settlement.accounts {
+                add_unresolved(
+                    &mut countries,
+                    &mut unresolved,
+                    country,
+                    &account.unresolved,
+                );
+            }
+        }
+        if before_production_count
+            != staged
+                .monthly_production
+                .as_ref()
+                .map(|state| state.settlement_count)
+            && let Some(settlement) = staged
+                .monthly_production
+                .as_ref()
+                .and_then(|state| state.last_settlement.as_ref())
+        {
+            for (&country, account) in &settlement.accounts {
+                add_unresolved(
+                    &mut countries,
+                    &mut unresolved,
+                    country,
+                    &account.unresolved,
+                );
+            }
+            for (&province, reasons) in &settlement.unresolved_provinces {
+                if let Some(owner) = staged.entity(province)?.owner {
+                    unresolved
+                        .entry(owner)
+                        .or_default()
+                        .extend(reasons.iter().cloned());
+                    countries.insert(owner);
+                }
+            }
+        }
+        if before_cashflow_count
+            != staged
+                .monthly_cashflows
+                .as_ref()
+                .map(|state| state.settlement_count)
+            && let Some(settlement) = staged
+                .monthly_cashflows
+                .as_ref()
+                .and_then(|state| state.last_settlement.as_ref())
+        {
+            for (&country, account) in &settlement.accounts {
+                add_unresolved(
+                    &mut countries,
+                    &mut unresolved,
+                    country,
+                    &account.unresolved,
+                );
+            }
+        }
+
+        for (&country, ledger) in &before_ledgers {
+            if ledger.pending_milli != 0 {
+                countries.insert(country);
+            }
+        }
+        for (&country, ledger) in &staged.country_ledgers {
+            if before_ledgers.get(&country) != Some(ledger) {
+                countries.insert(country);
+            }
+        }
+        for (&country, resources) in &before_resources {
+            let before = resources.treasury_milli;
+            let after = staged
+                .country_resources
+                .get(&country)
+                .and_then(|state| state.treasury_milli);
+            if before != after {
+                countries.insert(country);
+            }
+        }
+
+        let mut accounts = BTreeMap::new();
+        for country in countries {
+            let before = before_resources
+                .get(&country)
+                .and_then(|resources| resources.treasury_milli);
+            let after = staged
+                .country_resources
+                .get(&country)
+                .and_then(|resources| resources.treasury_milli);
+            let pending_before = before_ledgers
+                .get(&country)
+                .map_or(0, |ledger| ledger.pending_milli);
+            let pending_after = staged
+                .country_ledgers
+                .get(&country)
+                .map_or(0, |ledger| ledger.pending_milli);
+            let ledger = staged.country_ledgers.get(&country).cloned();
+            let mut reasons = unresolved.remove(&country).unwrap_or_default();
+            if before.is_none()
+                && (before != after || pending_before != 0 || pending_before != pending_after)
+            {
+                reasons.insert("unknown_treasury".into());
+            }
+            accounts.insert(
+                country,
+                MonthlySettlementAccount {
+                    treasury_before_milli: before,
+                    treasury_after_milli: after,
+                    pending_before_milli: pending_before,
+                    pending_after_milli: pending_after,
+                    ledger,
+                    unresolved: reasons,
+                },
+            );
+        }
+
+        Ok(MonthlySettlementPreview {
+            day: staged.day(),
+            system_id: system_id.into(),
+            accounts,
+        })
     }
 
     pub fn set_country_ledgers(
