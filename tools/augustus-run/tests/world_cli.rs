@@ -2089,6 +2089,96 @@ fn world_cli_rejects_unknown_monthly_settlement_query_fields() {
 }
 
 #[test]
+fn world_cli_reports_pending_event_choices_without_mutation() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let game_root = temp.path().join("game");
+    copy_directory(&fixture, &game_root);
+    let on_actions = game_root.join("common/on_actions/pending.txt");
+    fs::create_dir_all(on_actions.parent().unwrap()).unwrap();
+    fs::write(on_actions, "on_startup={events={pending.choice}}").unwrap();
+    let events = game_root.join("events/pending.txt");
+    fs::create_dir_all(events.parent().unwrap()).unwrap();
+    fs::write(
+        events,
+        "country_event={id=pending.choice is_triggered_only=yes trigger={tag=AAA} title=pending_choice_title desc=pending_choice_description goto=1 option={name=pending_choice_accept goto=2} option={name=pending_choice_stay}}",
+    )
+    .unwrap();
+    let localisation = game_root.join("localisation/pending_l_english.yml");
+    fs::create_dir_all(localisation.parent().unwrap()).unwrap();
+    fs::write(
+        localisation,
+        "l_english:\n pending_choice_title:0 \"Pending Title\"\n pending_choice_description:0 \"Pending Description\"\n pending_choice_accept:0 \"Accept Choice\"\n pending_choice_stay:0 \"Stay Choice\"\n",
+    )
+    .unwrap();
+    let queries = temp.path().join("pending-event-queries.json");
+    let baseline = temp.path().join("baseline.json");
+    let queried = temp.path().join("queried.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA"}]).to_string(),
+    )
+    .unwrap();
+
+    let first = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&game_root)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&baseline)
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let second = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&game_root)
+        .arg("--vanilla-pending-event-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&queried)
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let output: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    let report = &output["vanilla_pending_event_queries"][0]["pending_events"][0];
+    assert_eq!(report["event"], "pending.choice");
+    assert_eq!(report["title"], "Pending Title");
+    assert_eq!(report["option_labels"]["0"], "Accept Choice");
+    assert_eq!(fs::read(&queried).unwrap(), fs::read(&baseline).unwrap());
+}
+
+#[test]
+fn world_cli_rejects_unknown_pending_event_query_fields() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let queries = temp.path().join("pending-event-queries.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA", "unexpected": true}]).to_string(),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--vanilla-pending-event-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown field"));
+}
+
+#[test]
 fn world_cli_reports_yearly_event_configuration_without_execution() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();

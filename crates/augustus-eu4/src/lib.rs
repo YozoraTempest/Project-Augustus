@@ -57,6 +57,7 @@ mod native_migration_queries;
 mod native_migration_state;
 mod native_migration_state_queries;
 mod native_migration_transfer;
+mod pending_event_queries;
 pub use native_migration_execution::{
     VanillaNativeMigrationExecutionReport, VanillaNativeMigrationExecutionRequest,
     VanillaNativeMigrationExecutionStatus,
@@ -139,6 +140,9 @@ pub use naval_constructions::{
 };
 pub use naval_force_limit_queries::{
     VanillaNavalForceLimitQuery, VanillaNavalForceLimitQueryReport,
+};
+pub use pending_event_queries::{
+    VanillaPendingEventQuery, VanillaPendingEventQueryReport, VanillaPendingEventReport,
 };
 pub use production_queries::{
     VanillaGoldProductionCountryQuery, VanillaGoldProductionCountryQueryReport,
