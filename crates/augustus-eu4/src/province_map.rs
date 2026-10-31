@@ -27,6 +27,7 @@ impl ProvinceTopology {
         document: &TextDocument,
         provinces: &BTreeMap<u32, ProvinceState>,
     ) -> Result<(), Error> {
+        let source_lines = crate::csv_source_lines::CsvSourceLines::new(document.bytes());
         let mut reader = csv::ReaderBuilder::new()
             .delimiter(b';')
             .flexible(true)
@@ -53,7 +54,9 @@ impl ProvinceTopology {
             {
                 continue;
             }
-            let line = row.position().map_or(2, |position| position.line());
+            let line = row
+                .position()
+                .map_or(2, |position| source_lines.line(position));
             let fail = |message: &str| {
                 Error::message(
                     document.source(),

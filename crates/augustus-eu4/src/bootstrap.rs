@@ -3187,6 +3187,7 @@ impl VanillaWorld {
         let mut province_ids_by_color = BTreeMap::new();
         let mut province_sources = BTreeMap::new();
         let definitions = root.read_text(&definition_file, ENCODING)?;
+        let definition_lines = crate::csv_source_lines::CsvSourceLines::new(definitions.bytes());
         let mut csv = csv::ReaderBuilder::new()
             .delimiter(b';')
             .flexible(true)
@@ -3202,7 +3203,9 @@ impl VanillaWorld {
         }
         for row in csv.byte_records() {
             let row = row.map_err(|e| Error::caused_by(definitions.source(), e))?;
-            let line = row.position().map_or(1, |p| p.line() as usize);
+            let line = row
+                .position()
+                .map_or(1, |position| definition_lines.line(position));
             let fail = |m: &str| {
                 Error::message(definitions.source(), m)
                     .with_location(SourceLocation { line, column: 1 })
