@@ -388,6 +388,35 @@ impl MonthlyProduction {
 }
 
 impl World {
+    /// Prepares the next monthly production settlement without committing
+    /// prices, production inputs, treasury values, receipts, or settlement
+    /// counters. The staged calculation follows `MonthlyEconomy::settle`:
+    /// refresh prices and production value inputs, apply monthly autonomy,
+    /// prepare taxation, then evaluate production.
+    pub fn preview_monthly_production(&self) -> Result<ProductionSettlement, Error> {
+        if self.monthly_production.is_none() {
+            return Err(Error::Invalid("missing monthly production".into()));
+        }
+        let mut staged = self.clone();
+        let refreshed_prices = staged.economy().refreshed_trade_good_prices()?;
+        let refreshed_production = staged
+            .monthly_production
+            .as_ref()
+            .map(|production| production.refreshed_prices(&staged, &refreshed_prices))
+            .transpose()?;
+        if let Some(administration) = staged.prepare_monthly_autonomy()? {
+            staged.replace_administration(administration)?;
+        }
+        let taxes = staged
+            .taxation()
+            .map(|taxation| taxation.prepare(&staged))
+            .transpose()?;
+        refreshed_production
+            .as_ref()
+            .expect("monthly production was checked before staging")
+            .prepare(&staged, taxes.as_ref())
+    }
+
     pub fn monthly_production(&self) -> Option<&MonthlyProduction> {
         self.monthly_production.as_ref()
     }

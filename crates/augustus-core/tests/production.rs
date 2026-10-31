@@ -84,6 +84,75 @@ fn monthly_production_credits_known_income_and_round_trips() {
 }
 
 #[test]
+fn preview_monthly_production_reuses_prices_and_tax_order_without_mutation() {
+    let (mut world, country) = world(known_input());
+    let mut attributes = Attributes::default();
+    attributes.formulas.insert(
+        EntityId(1),
+        [(
+            "annual_tax".into(),
+            AttributeFormula {
+                base: AttributeBase::Constant { micros: 12_000_000 },
+                channels: Vec::new(),
+                minimum_micros: None,
+                maximum_micros: None,
+                result_quantum_micros: None,
+                unresolved: BTreeSet::new(),
+            },
+        )]
+        .into_iter()
+        .collect(),
+    );
+    world.set_attributes(attributes).unwrap();
+    world
+        .set_taxation(Taxation::new("annual_tax", [country].into()))
+        .unwrap();
+    let snapshot = world.save("production-preview").unwrap();
+    let settlement = world.preview_monthly_production().unwrap();
+    let account = &settlement.accounts[&country];
+    assert_eq!(settlement.day, 0);
+    assert_eq!(account.treasury_before_milli, Some(11_000));
+    assert_eq!(account.annual_value_milli, Some(1009));
+    assert_eq!(account.monthly_value_milli, Some(84));
+    assert_eq!(account.treasury_after_milli, Some(11_084));
+    assert_eq!(account.credited_milli, Some(84));
+    assert!(account.unresolved.is_empty());
+    assert_eq!(world.save("production-preview").unwrap(), snapshot);
+    assert_eq!(world.monthly_production().unwrap().settlement_count, 0);
+    assert!(
+        world
+            .monthly_production()
+            .unwrap()
+            .last_settlement
+            .is_none()
+    );
+    assert_eq!(
+        world.country_resources()[&country].treasury_milli,
+        Some(10_000)
+    );
+}
+
+#[test]
+fn preview_monthly_production_preserves_unknown_inputs_without_crediting_treasury() {
+    let (world, country) = world(VanillaProductionInputState {
+        input: None,
+        unresolved: ["native_source_unresolved".into()].into(),
+    });
+    let settlement = world.preview_monthly_production().unwrap();
+    let account = &settlement.accounts[&country];
+    assert_eq!(account.known_monthly_value_milli, 0);
+    assert_eq!(account.monthly_value_milli, None);
+    assert_eq!(account.treasury_before_milli, Some(10_000));
+    assert_eq!(account.treasury_after_milli, None);
+    assert_eq!(account.credited_milli, None);
+    assert!(
+        account
+            .unresolved
+            .contains("province_input:native_source_unresolved")
+    );
+}
+
+#[test]
 fn monthly_production_inputs_refresh_after_a_settlement_without_resetting_receipts() {
     let (mut world, _) = world(known_input());
     world.advance_to(20).unwrap();
