@@ -642,6 +642,33 @@ impl AugustusWorldSession {
     }
 
     #[func]
+    fn query_military(&self, country: GString) -> GString {
+        let country = country.to_string();
+        world_reply(self.loaded().and_then(|loaded| {
+            let report = loaded
+                .military_roster((!country.is_empty()).then_some(country.as_str()), None)
+                .map_err(|error| error.to_string())?;
+            let mut value = serde_json::to_value(report).map_err(|error| error.to_string())?;
+            // Use decimal strings for stable row identifiers in the UI.
+            for (formations, members) in [("armies", "regiments"), ("fleets", "ships")] {
+                for formation in value[formations]
+                    .as_array_mut()
+                    .expect("serialized military formations")
+                {
+                    formation["id"] = formation["id"].to_string().into();
+                    for member in formation[members]
+                        .as_array_mut()
+                        .expect("serialized military members")
+                    {
+                        member["id"] = member["id"].to_string().into();
+                    }
+                }
+            }
+            Ok(value)
+        }))
+    }
+
+    #[func]
     fn query_country_missions(&self, country: GString) -> GString {
         world_reply(self.loaded().and_then(|loaded| {
             loaded

@@ -41,6 +41,7 @@ mod land_force_limit_queries;
 mod liberty_desire;
 mod load;
 mod localisation;
+mod military_roster;
 mod mission_selection;
 mod missions;
 mod monarch_power;
@@ -105,6 +106,10 @@ pub use fort_maintenance_queries::{
 pub use gold_stage_queries::{
     VanillaGoldBaseQuery, VanillaGoldProductionQuery, VanillaGoldStageEvaluation,
     VanillaGoldStageQuery, VanillaGoldStageQueryMode, VanillaGoldStageQueryReport,
+};
+pub use military_roster::{
+    VanillaMilitaryArmy, VanillaMilitaryFleet, VanillaMilitaryRegiment, VanillaMilitaryReport,
+    VanillaMilitaryShip,
 };
 pub use missions::{
     MissionReport, VanillaCountryMissions, VanillaMissionProvinceHighlights, VanillaMissionView,

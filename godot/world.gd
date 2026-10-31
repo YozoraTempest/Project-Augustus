@@ -25,6 +25,7 @@ var launcher_config := ""
 var status: Label
 var country_choice: OptionButton
 var country_details: Label
+var military_panel
 var politics_details: Label
 var diplomacy_details: Label
 var province_details: Label
@@ -253,6 +254,9 @@ func _ready() -> void:
 	mission_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mission_list.add_theme_constant_override("separation", 8)
 	mission_list_scroll.add_child(mission_list)
+	military_panel = preload("res://military_panel.gd").new()
+	military_panel.province_selected.connect(_on_military_province_selected)
+	panel.add_child(military_panel)
 	panel.add_child(label("统治者", 20))
 	politics_details = label("尚未载入", 16)
 	politics_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -488,6 +492,7 @@ func apply_loaded_world(candidate, data: Dictionary) -> bool:
 		map_highlight_status.tooltip_text = ""
 	map_highlight_clear_button.disabled = true
 	country_choice.clear()
+	military_panel.clear()
 	unit_country_id = ""
 	unit_option_cache.clear()
 	mission_expanded = false
@@ -687,10 +692,15 @@ func shown(value: Variant) -> String:
 		return str(int(value))
 	return str(value)
 
+func _on_military_province_selected(province_id: int) -> void:
+	select_province(province_id)
+
 func select_country(index: int, reset_scroll: bool = true) -> void:
 	if country_choice.item_count == 0:
 		return
 	var id: String = country_choice.get_item_metadata(index)
+	if id != selected_country_id:
+		military_panel.clear()
 	if id != selected_country_id and not active_mission_highlight.is_empty():
 		clear_mission_highlight()
 	selection_revision += 1
@@ -705,6 +715,13 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 	country_choice.select(index)
 	refresh_unit_templates(id)
 	refresh_country_missions(id)
+	var military_packet: Variant = JSON.parse_string(session.query_military(id))
+	if military_packet == null or military_packet.get("ok") != true:
+		military_panel.clear()
+		if military_packet != null:
+			status.text = str(military_packet.get("error", "军力状态暂不可用。"))
+	else:
+		military_panel.render_report(military_packet.value)
 	var government: Variant = packet.value.government
 	country_details.text = "%s · %s\n领土 %d 个省份 · 首都 %s\n文化 %s · 宗教 %s\n政体 %s" % [country.id, country.name, packet.value.owned_provinces.size(), shown(packet.value.bound_capital), shown(country.primary_culture), shown(country.religion), shown(null if government == null else government.kind)]
 	if government != null:
