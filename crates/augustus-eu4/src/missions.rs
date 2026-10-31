@@ -153,6 +153,7 @@ impl MissionDraft {
         self,
         initial: &mut InitialWorld,
         saved_completions: Option<&BTreeMap<String, BTreeSet<String>>>,
+        saved_selection: Option<&crate::VanillaMissionSelectionImport>,
         root: &impl ContentView,
         files: &[FileEntry],
         startup: &mut crate::estates::EstateStartup,
@@ -165,7 +166,10 @@ impl MissionDraft {
             objectives: self.ids.len(),
             ..Default::default()
         };
-        if self.ids.is_empty() && self.objectives.groups.is_empty() {
+        if self.ids.is_empty()
+            && self.objectives.groups.is_empty()
+            && saved_selection.is_none_or(|selection| selection.countries.is_empty())
+        {
             return Ok(BoundMissions {
                 report,
                 programs: BTreeMap::new(),
@@ -207,12 +211,53 @@ impl MissionDraft {
                 entities,
             })
             .map_err(|e| Error::caused_by("missions", e))?;
+        let mut objectives = self.objectives;
+        if let Some(selection) = saved_selection {
+            let groups = objectives
+                .groups
+                .iter()
+                .map(|group| (group.id.as_str(), &group.objectives))
+                .collect::<BTreeMap<_, _>>();
+            for (tag, series) in &selection.countries {
+                let Some(entity) = initial.country_entity(tag) else {
+                    continue;
+                };
+                let unknown = series
+                    .iter()
+                    .filter(|id| !groups.contains_key(id.as_str()))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !unknown.is_empty() {
+                    report.unresolved.insert(
+                        tag.clone(),
+                        format!(
+                            "saved mission selection references unknown series: {}",
+                            unknown.join(", ")
+                        ),
+                    );
+                    continue;
+                }
+                objectives.entities.insert(
+                    entity,
+                    series
+                        .iter()
+                        .flat_map(|id| groups[id.as_str()].iter().cloned())
+                        .collect(),
+                );
+            }
+        }
         initial
-            .set_objectives(self.objectives)
+            .set_objectives(objectives)
             .map_err(|e| Error::caused_by("missions", e))?;
         let countries: Vec<_> = initial.countries().iter().map(|c| c.id.clone()).collect();
         for tag in countries {
             let entity = initial.country_entity(&tag).expect("registered country");
+            if saved_selection.is_some_and(|selection| selection.countries.contains_key(&tag)) {
+                if initial.world().objectives().entities.contains_key(&entity) {
+                    report.known_countries += 1;
+                }
+                continue;
+            }
             match fixed_start.then(|| initial.refresh_objectives(entity)) {
                 Some(Ok(())) => report.known_countries += 1,
                 Some(Err(error)) => {

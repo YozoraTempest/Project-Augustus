@@ -345,6 +345,10 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 
 启动处理会从 `missions/*.txt` 索引任务标识，支持国家作用域的 `complete_mission` 和 `mission_completed`。固定 `1444.11.11` 新局在启动效果执行前使用空完成记录；其他日期保持未知。登记、条件查询、选项和延迟事件共用核心状态，重复登记不执行奖励。启动失败时，完成记录与事件及其他候选写入一起撤销；成功结果随项目存档保存。任务系列的列、行和声明顺序由兼容层译成核心选择条件，开局先初始化可用任务；`has_mission` 查询当前选择，`swap_non_generic_missions` 显式刷新。启动失败时保留任务定义，可用状态和完成记录保持未知；加载报告通过 `missions` 给出未解决条件。自制示例与原生接口见 [事件演示](EVENT_DEMO.md)。
 
+通过 CLI 的 `--eu4-save` 或 Godot 的 EU4 存档入口载入时，会同时读取各国 `country_missions` 中 `mission_slot` 保存的系列标识，并在启动效果执行前绑定其任务集合。保存的选择保留到显式 `swap_non_generic_missions` 刷新，即使当前 `potential` 已改变，也不会在导入时重新选择。显式空块表示已知没有任务；缺少该字段时沿用既有日期初始化规则。只要保存的一个系列不在当前内容中，该国的整个选择就保持未知，原因见加载报告 `missions.unresolved`；其他国家仍可导入。任务完成记录独立处理，导入选择不会执行奖励。状态随项目快照保存恢复。
+
+程序调用方可用 `read_vanilla_mission_selection` 读取独立的 `VanillaMissionSelectionImport`，二进制存档可使用对应的 `_with_token_map` 或 `_with_token_resolver` 入口。记录的日期必须与基础存档一致；`VanillaWorld::load_from_content_with_save_state_and_mission_selection` 可将其和已翻译的存档、可选舰船订单及外部状态一起载入。现有 `VanillaSaveState` 和 `VanillaExternalState` 构造接口保持不变；只传入旧的已翻译状态时，不会凭空补出任务选择。
+
 Godot 国家面板的“任务”区提供独立的领取入口。`VanillaWorld::country_missions(country)` 只读返回任务选择、完成记录、`required_missions` 前置任务和 `trigger` 的当前求值，以及本地化标题、描述和奖励支持状态；已选任务不等于已经满足条件。`VanillaWorld::claim_mission(country, mission)` 会重新核验任务已选、完成记录已知且尚未完成、所有前置任务已完成、目标条件为真，以及奖励已经完整编译。未知状态和未支持内容不能领取。领取在克隆的世界中执行奖励，随后登记完成，全部成功才替换当前世界；失败保留原世界的国库、完成记录、随机状态和事件队列，已完成任务不能重复领取。
 
 领取使用现有条件和效果计划，不改变 `complete_mission` 只登记记录的语义，也不在查询时自动刷新系列选择。任务程序参与内容身份核验，规则变化后不能将旧快照恢复到不同内容中。非空 `potential_on_load` 尚未求值，包含该条件的系列保持未决；自动历史完成、AI 领取、任务图标与省份高亮仍未接入。奖励执行期间依赖本任务完成状态的程序，其原版时序尚未核验，保持未决；预览不执行，延迟任务及待选事件的选项、收尾效果在完成记录写入之后执行，不因这类后续查询而禁用领取。操作样本见 [任务领取演示](../examples/mission-claims/README.md)。

@@ -856,6 +856,7 @@ struct LoadOverrides<'a> {
     country_religions: Option<&'a BTreeMap<String, Option<String>>>,
     country_ideas: Option<&'a BTreeMap<String, augustus_core::IdeaState>>,
     country_mission_completions: Option<&'a BTreeMap<String, BTreeSet<String>>>,
+    mission_selection: Option<&'a crate::VanillaMissionSelectionImport>,
     country_variables: Option<&'a BTreeMap<String, BTreeMap<String, i64>>>,
     country_metric_ceilings: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_resources: Option<&'a BTreeMap<String, CountryResources>>,
@@ -948,6 +949,7 @@ impl<'a> LoadOverrides<'a> {
             country_ideas: (!state.country_ideas.is_empty()).then_some(&state.country_ideas),
             country_mission_completions: (!state.country_mission_completions.is_empty())
                 .then_some(&state.country_mission_completions),
+            mission_selection: None,
             country_variables: (!state.country_variables.is_empty())
                 .then_some(&state.country_variables),
             country_metric_ceilings: (!state.country_metric_ceilings.is_empty())
@@ -2707,6 +2709,7 @@ impl VanillaWorld {
         let path = path.as_ref();
         let save = crate::read_vanilla_save_state_with_state_edicts_and_administration(path)?;
         let constructions = crate::read_vanilla_naval_constructions(path)?;
+        let mission_selection = crate::read_vanilla_mission_selection(path)?;
         let mut save_state = save.save.clone();
         save_state.external_state.province_cores.clear();
         let save_input = crate::VanillaSaveStateWithStateEdicts {
@@ -2719,6 +2722,7 @@ impl VanillaWorld {
             None,
             Some(&constructions),
             Some(&save.administration),
+            Some(&mission_selection),
         )
     }
 
@@ -2735,6 +2739,7 @@ impl VanillaWorld {
         let path = path.as_ref();
         let save = crate::read_vanilla_save_state_with_state_edicts_and_administration(path)?;
         let constructions = crate::read_vanilla_naval_constructions(path)?;
+        let mission_selection = crate::read_vanilla_mission_selection(path)?;
         let mut save_state = save.save.clone();
         save_state.external_state.province_cores.clear();
         let save_input = crate::VanillaSaveStateWithStateEdicts {
@@ -2747,6 +2752,7 @@ impl VanillaWorld {
             Some(overlay),
             Some(&constructions),
             Some(&save.administration),
+            Some(&mission_selection),
         )
     }
 
@@ -2765,7 +2771,7 @@ impl VanillaWorld {
         overlay: Option<&VanillaExternalState>,
     ) -> Result<Self, Error> {
         Self::load_from_content_with_state_edicts_and_naval_constructions(
-            content, save, overlay, None, None,
+            content, save, overlay, None, None, None,
         )
     }
 
@@ -2775,11 +2781,13 @@ impl VanillaWorld {
         overlay: Option<&VanillaExternalState>,
         constructions: Option<&VanillaNavalConstructionReport>,
         administration: Option<&crate::VanillaSaveAdministration>,
+        mission_selection: Option<&crate::VanillaMissionSelectionImport>,
     ) -> Result<Self, Error> {
         let save = save.clone();
         let overlay = overlay.cloned();
         let constructions = constructions.cloned();
         let administration = administration.cloned();
+        let mission_selection = mission_selection.cloned();
         let root = content.base_root();
         std::thread::scope(|scope| {
             let handle = std::thread::Builder::new()
@@ -2793,6 +2801,7 @@ impl VanillaWorld {
                         Some(&save.state_edicts),
                         constructions.as_ref(),
                         administration.as_ref(),
+                        mission_selection.as_ref(),
                     )
                 })
                 .map_err(|error| Error::caused_by(root.path(), error))?;
@@ -2837,6 +2846,7 @@ impl VanillaWorld {
                         None,
                         None,
                         None,
+                        None,
                     )
                 })
                 .map_err(|error| Error::caused_by(root.path(), error))?;
@@ -2870,6 +2880,45 @@ impl VanillaWorld {
                         None,
                         Some(&constructions),
                         None,
+                        None,
+                    )
+                })
+                .map_err(|error| Error::caused_by(root.path(), error))?;
+            handle
+                .join()
+                .map_err(|_| Error::message(root.path(), "EU4 save loader thread panicked"))?
+        })
+    }
+
+    /// Loads translated save state with its saved mission-series selection.
+    /// Selection is bound before startup effects, without reevaluating series
+    /// eligibility. Optional naval orders retain the save loader's construction
+    /// validation; an external-state overlay does not replace mission selection.
+    pub fn load_from_content_with_save_state_and_mission_selection(
+        content: &ContentSet,
+        save: &crate::VanillaSaveState,
+        mission_selection: &crate::VanillaMissionSelectionImport,
+        constructions: Option<&VanillaNavalConstructionReport>,
+        overlay: Option<&VanillaExternalState>,
+    ) -> Result<Self, Error> {
+        let save = save.clone();
+        let mission_selection = mission_selection.clone();
+        let constructions = constructions.cloned();
+        let overlay = overlay.cloned();
+        let root = content.base_root();
+        std::thread::scope(|scope| {
+            let handle = std::thread::Builder::new()
+                .name("augustus-eu4-save-loader".into())
+                .stack_size(32 * 1024 * 1024)
+                .spawn_scoped(scope, || {
+                    Self::load_from_content_with_save_state_inner(
+                        content,
+                        &save,
+                        overlay.as_ref(),
+                        None,
+                        constructions.as_ref(),
+                        None,
+                        Some(&mission_selection),
                     )
                 })
                 .map_err(|error| Error::caused_by(root.path(), error))?;
@@ -2886,7 +2935,20 @@ impl VanillaWorld {
         state_edicts: Option<&VanillaExternalStateEdicts>,
         naval_constructions: Option<&VanillaNavalConstructionReport>,
         administration: Option<&crate::VanillaSaveAdministration>,
+        mission_selection: Option<&crate::VanillaMissionSelectionImport>,
     ) -> Result<Self, Error> {
+        if let Some(selection) = mission_selection {
+            let selection_date = Date::parse(&selection.date)
+                .map_err(|error| Error::caused_by("saved mission selection", error))?;
+            let save_date = Date::parse(&save.date)
+                .map_err(|error| Error::caused_by("saved mission selection", error))?;
+            if selection_date != save_date {
+                return Err(Error::message(
+                    "saved mission selection",
+                    "mission selection date does not match the save date",
+                ));
+            }
+        }
         let baseline = Self::load_from_content(content, &save.date)?;
         let (players, mut state) = save.for_world(&baseline)?;
         if let Some(overlay) = overlay {
@@ -2896,6 +2958,7 @@ impl VanillaWorld {
         overrides.state_edicts = state_edicts;
         overrides.naval_construction_report = naval_constructions;
         overrides.administration = administration;
+        overrides.mission_selection = mission_selection;
         Self::load_from_view(
             content,
             content.base_root(),
@@ -4996,6 +5059,7 @@ impl VanillaWorld {
         } = missions.bind(
             &mut initial,
             overrides.country_mission_completions,
+            overrides.mission_selection,
             &root,
             &files,
             &mut startup,

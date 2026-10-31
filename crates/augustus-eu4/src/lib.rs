@@ -40,6 +40,7 @@ mod land_force_limit_queries;
 mod liberty_desire;
 mod load;
 mod localisation;
+mod mission_selection;
 mod missions;
 mod monarch_power;
 mod monthly_accrual_queries;
@@ -292,6 +293,11 @@ pub use jomini::binary::TokenResolver as Eu4TokenResolver;
 pub use land_force_limit_queries::{VanillaLandForceLimitQuery, VanillaLandForceLimitQueryReport};
 pub use load::{ContentSet, ContentSource, FileCandidate, FileOrigin, FileTrace, Suppression};
 pub use localisation::EventText;
+pub use mission_selection::{
+    VanillaMissionSelectionImport, read_vanilla_mission_selection,
+    read_vanilla_mission_selection_with_token_map,
+    read_vanilla_mission_selection_with_token_resolver,
+};
 pub use native_migration_queries::{
     VanillaNativeMigrationContentPricing, VanillaNativeMigrationContentQuery,
     VanillaNativeMigrationPricing, VanillaNativeMigrationQuery, VanillaNativeMigrationQueryReport,

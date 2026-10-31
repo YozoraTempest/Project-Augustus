@@ -503,6 +503,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             None => augustus_eu4::read_vanilla_save_state_and_trade_node_runtime_states(path),
         })
         .transpose()?;
+    let mission_selection = cli
+        .eu4_save
+        .as_ref()
+        .map(|path| match cli.eu4_token_map.as_ref() {
+            Some(token_map) => {
+                augustus_eu4::read_vanilla_mission_selection_with_token_map(path, token_map)
+            }
+            None => augustus_eu4::read_vanilla_mission_selection(path),
+        })
+        .transpose()?;
     let naval_constructions = cli
         .eu4_save
         .as_ref()
@@ -539,12 +549,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         let save = save_state
             .as_ref()
             .expect("save state loaded from the selected EU4 save");
-        VanillaWorld::load_from_content_with_save_state_and_naval_constructions(
+        VanillaWorld::load_from_content_with_save_state_and_mission_selection(
             &content,
             &save.state,
-            naval_constructions
+            mission_selection
                 .as_ref()
-                .expect("naval constructions read from the selected EU4 save"),
+                .expect("mission selection read from the selected EU4 save"),
+            Some(
+                naval_constructions
+                    .as_ref()
+                    .expect("naval constructions read from the selected EU4 save"),
+            ),
             external_state.as_ref(),
         )?
     } else {

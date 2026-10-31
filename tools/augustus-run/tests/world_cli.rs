@@ -2257,6 +2257,117 @@ fn world_cli_reports_country_runtime_state_without_mutation() {
 }
 
 #[test]
+fn world_cli_imports_saved_mission_selection_before_startup_and_restores_it() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let game_root = temp.path().join("game");
+    copy_directory(&source, &game_root);
+    let mod_root = temp.path().join("mission-selection-mod");
+    fs::create_dir_all(mod_root.join("missions")).unwrap();
+    fs::create_dir_all(mod_root.join("common/on_actions")).unwrap();
+    fs::write(
+        mod_root.join("descriptor.mod"),
+        "name=\"CLI Mission Selection Fixture\"",
+    )
+    .unwrap();
+    fs::write(
+        mod_root.join("missions/selection.txt"),
+        "saved_series={slot=1 potential={always=no} aaa_saved_mission={position=1 trigger={always=yes} effect={}}} empty_series={slot=1 potential={always=yes} bbb_empty_mission={position=1 trigger={always=yes} effect={}}}",
+    )
+    .unwrap();
+    let startup_path = mod_root.join("common/on_actions/selection.txt");
+    fs::write(
+        &startup_path,
+        "on_startup={if={limit={tag=AAA has_mission=aaa_saved_mission} add_treasury=1} if={limit={tag=BBB NOT={has_mission=bbb_empty_mission}} add_treasury=2}}",
+    )
+    .unwrap();
+
+    let write_save = |path: &Path, alpha_series: &str| {
+        let contents = r#"EU4txt
+date=1445.1.1
+player=AAA
+countries={
+    AAA={ treasury=0 country_missions={mission_slot={SERIES_IDS}} }
+    BBB={ treasury=0 country_missions={mission_slot={}} }
+}
+provinces={}
+"#
+        .replace("SERIES_IDS", alpha_series);
+        fs::write(path, contents).unwrap();
+    };
+    let save_path = temp.path().join("mission-selection.eu4");
+    write_save(&save_path, "saved_series");
+    let queries = temp.path().join("country-runtime-queries.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA"}, {"country": "BBB"}]).to_string(),
+    )
+    .unwrap();
+
+    let run = |save: &Path, country: &str, load: Option<&Path>, snapshot: Option<&Path>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_augustus-world"));
+        command
+            .arg("--game-root")
+            .arg(&game_root)
+            .arg("--mod")
+            .arg(&mod_root)
+            .arg("--eu4-save")
+            .arg(save)
+            .arg("--country")
+            .arg(country)
+            .args(["--days", "0", "--omit-load-report"])
+            .arg("--country-runtime-queries")
+            .arg(&queries);
+        if let Some(load) = load {
+            command.arg("--load").arg(load);
+        }
+        if let Some(snapshot) = snapshot {
+            command.arg("--save").arg(snapshot);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+
+    let first_snapshot = temp.path().join("mission-selection.json");
+    let first = run(&save_path, "AAA", None, Some(&first_snapshot));
+    assert_eq!(first["country"]["resources"]["treasury_milli"], 1000);
+    assert_eq!(
+        first["country_runtime_queries"][0]["available_missions"],
+        serde_json::json!(["aaa_saved_mission"])
+    );
+    assert_eq!(
+        first["country_runtime_queries"][1]["available_missions"],
+        serde_json::json!([])
+    );
+
+    let resumed_snapshot = temp.path().join("mission-selection-resumed.json");
+    let resumed = run(
+        &save_path,
+        "AAA",
+        Some(&first_snapshot),
+        Some(&resumed_snapshot),
+    );
+    assert_eq!(resumed["country"]["resources"]["treasury_milli"], 1000);
+    assert_eq!(
+        resumed["country_runtime_queries"],
+        first["country_runtime_queries"]
+    );
+    let beta = run(&save_path, "BBB", None, None);
+    assert_eq!(beta["country"]["resources"]["treasury_milli"], 2000);
+
+    let unknown_save = temp.path().join("unknown-mission-selection.eu4");
+    write_save(&unknown_save, "saved_series missing_series");
+    fs::remove_file(startup_path).unwrap();
+    let unknown = run(&unknown_save, "AAA", None, None);
+    assert!(unknown["country_runtime_queries"][0]["available_missions"].is_null());
+}
+
+#[test]
 fn world_cli_rejects_unknown_country_runtime_query_fields() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();
