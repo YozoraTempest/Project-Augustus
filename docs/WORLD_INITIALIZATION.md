@@ -211,7 +211,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
   --load augustus-from-eu4.json --days 30
 ```
 
-恢复时必须使用生成快照时的同一份 EU4 存档和内容；存档或本地内容变化会被内容指纹拒绝。
+恢复时必须使用生成快照时的同一份 EU4 存档和内容；存档或本地内容变化会被内容指纹拒绝。引擎版本升级若改变了已绑定的初始化事实，也会改变指纹，仅保留相同输入文件不足以保证跨版本恢复。当前属国关系导入会替换旧版使用的历史图，或把缺失的保存图标为未知；由旧初始化结果生成的项目快照可能因此不再匹配。原始 EU4 存档仍可重新载入，这不会迁移旧项目快照中的后续进度；恢复不会绕过内容身份检查。
 
 需要读取目录 Mod 时，可重复提供 `--mod`，并用 `--launcher-config "<EU4 用户目录>/dlc_load.json"` 按启动器的 `enabled_mods` 筛选；Godot 启动参数也接受这些选项及 `--user-directory`。启用列表中的每个 Mod 仍须提供其目录。默认使用安装目录内可用的全部 DLC，不读取启动器的 DLC 禁用列表。
 
@@ -348,6 +348,10 @@ cargo run -p augustus-run --bin augustus-world --locked -- --game-root "/path/to
 通过 CLI 的 `--eu4-save` 或 Godot 的 EU4 存档入口载入时，会同时读取各国 `country_missions` 中 `mission_slot` 保存的系列标识，并在启动效果执行前绑定其任务集合。保存的选择保留到显式 `swap_non_generic_missions` 刷新，即使当前 `potential` 已改变，也不会在导入时重新选择。显式空块表示已知没有任务；缺少该字段时沿用既有日期初始化规则。只要保存的一个系列不在当前内容中，该国的整个选择就保持未知，原因见加载报告 `missions.unresolved`；其他国家仍可导入。任务完成记录独立处理，导入选择不会执行奖励。状态随项目快照保存恢复。
 
 程序调用方可用 `read_vanilla_mission_selection` 读取独立的 `VanillaMissionSelectionImport`，二进制存档可使用对应的 `_with_token_map` 或 `_with_token_resolver` 入口。记录的日期必须与基础存档一致；`VanillaWorld::load_from_content_with_save_state_and_mission_selection` 可将其和已翻译的存档、可选舰船订单及外部状态一起载入。现有 `VanillaSaveState` 和 `VanillaExternalState` 构造接口保持不变；只传入旧的已翻译状态时，不会凭空补出任务选择。
+
+EU4 存档入口还会读取顶层 `diplomacy` 中的当前 `dependency` 关系，以 `first` 为宗主、`second` 为属国，并保留保存的 `subject_type`。这张图替换历史中的属国关系，其他外交关系沿用现有来源；直接属国、宗主、类型和数量条件，以及国家面板的外交条目均使用绑定后的图。关系在任务选择和启动效果之前绑定，任务条件与领取读取同一状态，项目快照保存恢复这些关系。缺少整个顶层 `diplomacy` 时，当前属国关系与数量保持未知；显式空块或没有 `dependency` 的外交块表示已知空图，不能用历史关系填补缺项。依赖宗主图的殖民属国状态也保留未知，显式外部状态仍可覆盖。无法绑定的国家、未注册类型、重复关系、多重宗主和循环会使导入报错。
+
+`dependency` 的可选 `start_date`、`end_date` 标签会检查日期格式，导入保存的成员关系时不套用历史外交文件的日期窗口，也不会因推进到 `end_date` 而自动解除关系。程序调用方可使用 `read_vanilla_subject_relations` 及对应 token-map/resolver 入口得到独立的 `VanillaSubjectRelationsImport`，其日期必须与基础存档一致。新的 `VanillaSaveStateImports` 汇集已翻译的州法令、行政状态、舰船订单、任务选择和属国关系，通过 `VanillaWorld::load_from_content_with_save_state_and_imports` 统一绑定；原有公开加载方法继续保留。未提供属国导入的旧已翻译状态接口沿用原历史初始化路径，不推定其包含当前存档图。报告 `diplomatic_relations` 统计最终绑定图，`relation_sources` 继续记录读取过的历史声明来源。自制的 `saved_subject_relations` Rust、CLI 和 Godot 回归覆盖保存关系取代历史、任务领取、恢复、未知图及空图。
 
 Godot 国家面板的“任务”区提供独立的领取入口。`VanillaWorld::country_missions(country)` 只读返回任务选择、完成记录、`required_missions` 前置任务和 `trigger` 的当前求值，以及本地化标题、描述和奖励支持状态；已选任务不等于已经满足条件。`VanillaWorld::claim_mission(country, mission)` 会重新核验任务已选、完成记录已知且尚未完成、所有前置任务已完成、目标条件为真，以及奖励已经完整编译。未知状态和未支持内容不能领取。领取在克隆的世界中执行奖励，随后登记完成，全部成功才替换当前世界；失败保留原世界的国库、完成记录、随机状态和事件队列，已完成任务不能重复领取。
 

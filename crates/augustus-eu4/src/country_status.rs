@@ -202,7 +202,9 @@ impl CountryStatusDraft {
                 .relations
                 .iter()
                 .find(|r| r.kind == DiplomaticKind::Subject && r.second == entity);
-            let colonial = if history.is_none() || self.pending_origins.contains("colonial_nation")
+            let colonial = if !initial.world().subjects().known
+                || history.is_none()
+                || self.pending_origins.contains("colonial_nation")
             {
                 None
             } else if let Some(subject) = subject {

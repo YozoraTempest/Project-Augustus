@@ -523,6 +523,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             None => augustus_eu4::read_vanilla_naval_constructions(path),
         })
         .transpose()?;
+    let subject_relations = cli
+        .eu4_save
+        .as_ref()
+        .map(|path| match cli.eu4_token_map.as_ref() {
+            Some(token_map) => {
+                augustus_eu4::read_vanilla_subject_relations_with_token_map(path, token_map)
+            }
+            None => augustus_eu4::read_vanilla_subject_relations(path),
+        })
+        .transpose()?;
     let native_migration_import = if cli.import_native_migration_state {
         let path = cli.eu4_save.as_ref().expect("required by clap");
         Some(match cli.eu4_token_map.as_ref() {
@@ -549,17 +559,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         let save = save_state
             .as_ref()
             .expect("save state loaded from the selected EU4 save");
-        VanillaWorld::load_from_content_with_save_state_and_mission_selection(
+        VanillaWorld::load_from_content_with_save_state_and_imports(
             &content,
             &save.state,
-            mission_selection
-                .as_ref()
-                .expect("mission selection read from the selected EU4 save"),
-            Some(
-                naval_constructions
-                    .as_ref()
-                    .expect("naval constructions read from the selected EU4 save"),
-            ),
+            augustus_eu4::VanillaSaveStateImports {
+                mission_selection: mission_selection.as_ref(),
+                naval_constructions: naval_constructions.as_ref(),
+                subject_relations: subject_relations.as_ref(),
+                ..Default::default()
+            },
             external_state.as_ref(),
         )?
     } else {

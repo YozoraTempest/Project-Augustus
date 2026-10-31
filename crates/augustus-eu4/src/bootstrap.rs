@@ -85,9 +85,12 @@ pub struct BootstrapReport {
     pub province_history_files: usize,
     pub diplomacy_history_files: usize,
     pub people: usize,
+    /// Relations in the bound initial graph, including supplied saved subjects.
     pub diplomatic_relations: usize,
     pub duplicate_relation_records: usize,
     pub person_sources: BTreeMap<String, BTreeMap<String, LoadedSource>>,
+    /// Historical declarations read while constructing the baseline. Saved
+    /// subject imports can replace those edges in the bound initial graph.
     pub relation_sources: Vec<RelationSource>,
     pub office_sources: BTreeMap<String, LoadedSource>,
     pub expired_people: Vec<String>,
@@ -835,6 +838,17 @@ impl VanillaExternalState {
     }
 }
 
+/// Independently translated parts of the same EU4 save, bound before startup.
+/// The date-bearing imports must agree with the base save's date.
+#[derive(Clone, Copy, Default)]
+pub struct VanillaSaveStateImports<'a> {
+    pub state_edicts: Option<&'a VanillaExternalStateEdicts>,
+    pub administration: Option<&'a crate::VanillaSaveAdministration>,
+    pub naval_constructions: Option<&'a VanillaNavalConstructionReport>,
+    pub mission_selection: Option<&'a crate::VanillaMissionSelectionImport>,
+    pub subject_relations: Option<&'a crate::VanillaSubjectRelationsImport>,
+}
+
 #[derive(Clone, Copy, Default)]
 struct LoadOverrides<'a> {
     country_metric_values: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
@@ -857,6 +871,7 @@ struct LoadOverrides<'a> {
     country_ideas: Option<&'a BTreeMap<String, augustus_core::IdeaState>>,
     country_mission_completions: Option<&'a BTreeMap<String, BTreeSet<String>>>,
     mission_selection: Option<&'a crate::VanillaMissionSelectionImport>,
+    subject_relations: Option<&'a crate::VanillaSubjectRelationsImport>,
     country_variables: Option<&'a BTreeMap<String, BTreeMap<String, i64>>>,
     country_metric_ceilings: Option<&'a BTreeMap<String, BTreeMap<String, Option<i64>>>>,
     country_resources: Option<&'a BTreeMap<String, CountryResources>>,
@@ -950,6 +965,7 @@ impl<'a> LoadOverrides<'a> {
             country_mission_completions: (!state.country_mission_completions.is_empty())
                 .then_some(&state.country_mission_completions),
             mission_selection: None,
+            subject_relations: None,
             country_variables: (!state.country_variables.is_empty())
                 .then_some(&state.country_variables),
             country_metric_ceilings: (!state.country_metric_ceilings.is_empty())
@@ -2710,19 +2726,24 @@ impl VanillaWorld {
         let save = crate::read_vanilla_save_state_with_state_edicts_and_administration(path)?;
         let constructions = crate::read_vanilla_naval_constructions(path)?;
         let mission_selection = crate::read_vanilla_mission_selection(path)?;
+        let subject_relations = crate::read_vanilla_subject_relations(path)?;
         let mut save_state = save.save.clone();
         save_state.external_state.province_cores.clear();
         let save_input = crate::VanillaSaveStateWithStateEdicts {
             save: save_state,
             state_edicts: save.state_edicts.clone(),
         };
-        Self::load_from_content_with_state_edicts_and_naval_constructions(
+        Self::load_from_content_with_save_state_and_imports(
             content,
-            &save_input,
+            &save_input.save,
+            VanillaSaveStateImports {
+                state_edicts: Some(&save_input.state_edicts),
+                administration: Some(&save.administration),
+                naval_constructions: Some(&constructions),
+                mission_selection: Some(&mission_selection),
+                subject_relations: Some(&subject_relations),
+            },
             None,
-            Some(&constructions),
-            Some(&save.administration),
-            Some(&mission_selection),
         )
     }
 
@@ -2740,19 +2761,24 @@ impl VanillaWorld {
         let save = crate::read_vanilla_save_state_with_state_edicts_and_administration(path)?;
         let constructions = crate::read_vanilla_naval_constructions(path)?;
         let mission_selection = crate::read_vanilla_mission_selection(path)?;
+        let subject_relations = crate::read_vanilla_subject_relations(path)?;
         let mut save_state = save.save.clone();
         save_state.external_state.province_cores.clear();
         let save_input = crate::VanillaSaveStateWithStateEdicts {
             save: save_state,
             state_edicts: save.state_edicts.clone(),
         };
-        Self::load_from_content_with_state_edicts_and_naval_constructions(
+        Self::load_from_content_with_save_state_and_imports(
             content,
-            &save_input,
+            &save_input.save,
+            VanillaSaveStateImports {
+                state_edicts: Some(&save_input.state_edicts),
+                administration: Some(&save.administration),
+                naval_constructions: Some(&constructions),
+                mission_selection: Some(&mission_selection),
+                subject_relations: Some(&subject_relations),
+            },
             Some(overlay),
-            Some(&constructions),
-            Some(&save.administration),
-            Some(&mission_selection),
         )
     }
 
@@ -2770,45 +2796,15 @@ impl VanillaWorld {
         save: &crate::VanillaSaveStateWithStateEdicts,
         overlay: Option<&VanillaExternalState>,
     ) -> Result<Self, Error> {
-        Self::load_from_content_with_state_edicts_and_naval_constructions(
-            content, save, overlay, None, None, None,
+        Self::load_from_content_with_save_state_and_imports(
+            content,
+            &save.save,
+            VanillaSaveStateImports {
+                state_edicts: Some(&save.state_edicts),
+                ..Default::default()
+            },
+            overlay,
         )
-    }
-
-    fn load_from_content_with_state_edicts_and_naval_constructions(
-        content: &ContentSet,
-        save: &crate::VanillaSaveStateWithStateEdicts,
-        overlay: Option<&VanillaExternalState>,
-        constructions: Option<&VanillaNavalConstructionReport>,
-        administration: Option<&crate::VanillaSaveAdministration>,
-        mission_selection: Option<&crate::VanillaMissionSelectionImport>,
-    ) -> Result<Self, Error> {
-        let save = save.clone();
-        let overlay = overlay.cloned();
-        let constructions = constructions.cloned();
-        let administration = administration.cloned();
-        let mission_selection = mission_selection.cloned();
-        let root = content.base_root();
-        std::thread::scope(|scope| {
-            let handle = std::thread::Builder::new()
-                .name("augustus-eu4-save-loader".into())
-                .stack_size(32 * 1024 * 1024)
-                .spawn_scoped(scope, || {
-                    Self::load_from_content_with_save_state_inner(
-                        content,
-                        &save.save,
-                        overlay.as_ref(),
-                        Some(&save.state_edicts),
-                        constructions.as_ref(),
-                        administration.as_ref(),
-                        mission_selection.as_ref(),
-                    )
-                })
-                .map_err(|error| Error::caused_by(root.path(), error))?;
-            handle
-                .join()
-                .map_err(|_| Error::message(root.path(), "EU4 save loader thread panicked"))?
-        })
     }
 
     /// Variant of [`VanillaWorld::load_from_content_with_save`] for callers
@@ -2828,32 +2824,12 @@ impl VanillaWorld {
         save: &crate::VanillaSaveState,
         overlay: Option<&VanillaExternalState>,
     ) -> Result<Self, Error> {
-        // Save import builds a baseline world before rebuilding it with the
-        // translated state. Keep that nested compatibility path off the small
-        // caller stack used by desktop frontends and command-line tools.
-        let save = save.clone();
-        let overlay = overlay.cloned();
-        let root = content.base_root();
-        std::thread::scope(|scope| {
-            let handle = std::thread::Builder::new()
-                .name("augustus-eu4-save-loader".into())
-                .stack_size(32 * 1024 * 1024)
-                .spawn_scoped(scope, || {
-                    Self::load_from_content_with_save_state_inner(
-                        content,
-                        &save,
-                        overlay.as_ref(),
-                        None,
-                        None,
-                        None,
-                        None,
-                    )
-                })
-                .map_err(|error| Error::caused_by(root.path(), error))?;
-            handle
-                .join()
-                .map_err(|_| Error::message(root.path(), "EU4 save loader thread panicked"))?
-        })
+        Self::load_from_content_with_save_state_and_imports(
+            content,
+            save,
+            VanillaSaveStateImports::default(),
+            overlay,
+        )
     }
 
     /// Binds independently translated naval orders with a save state before
@@ -2864,30 +2840,15 @@ impl VanillaWorld {
         constructions: &VanillaNavalConstructionReport,
         overlay: Option<&VanillaExternalState>,
     ) -> Result<Self, Error> {
-        let save = save.clone();
-        let constructions = constructions.clone();
-        let overlay = overlay.cloned();
-        let root = content.base_root();
-        std::thread::scope(|scope| {
-            let handle = std::thread::Builder::new()
-                .name("augustus-eu4-save-loader".into())
-                .stack_size(32 * 1024 * 1024)
-                .spawn_scoped(scope, || {
-                    Self::load_from_content_with_save_state_inner(
-                        content,
-                        &save,
-                        overlay.as_ref(),
-                        None,
-                        Some(&constructions),
-                        None,
-                        None,
-                    )
-                })
-                .map_err(|error| Error::caused_by(root.path(), error))?;
-            handle
-                .join()
-                .map_err(|_| Error::message(root.path(), "EU4 save loader thread panicked"))?
-        })
+        Self::load_from_content_with_save_state_and_imports(
+            content,
+            save,
+            VanillaSaveStateImports {
+                naval_constructions: Some(constructions),
+                ..Default::default()
+            },
+            overlay,
+        )
     }
 
     /// Loads translated save state with its saved mission-series selection.
@@ -2901,9 +2862,30 @@ impl VanillaWorld {
         constructions: Option<&VanillaNavalConstructionReport>,
         overlay: Option<&VanillaExternalState>,
     ) -> Result<Self, Error> {
+        Self::load_from_content_with_save_state_and_imports(
+            content,
+            save,
+            VanillaSaveStateImports {
+                mission_selection: Some(mission_selection),
+                naval_constructions: constructions,
+                ..Default::default()
+            },
+            overlay,
+        )
+    }
+
+    /// Binds the supplied parts of a translated save before mission selection
+    /// and startup effects. An omitted import retains the existing translated
+    /// state loader's behavior; a present subject import can explicitly mark
+    /// the current graph unknown or known empty.
+    pub fn load_from_content_with_save_state_and_imports(
+        content: &ContentSet,
+        save: &crate::VanillaSaveState,
+        imports: VanillaSaveStateImports<'_>,
+        overlay: Option<&VanillaExternalState>,
+    ) -> Result<Self, Error> {
+        // Keep the nested baseline and binding work off small frontend stacks.
         let save = save.clone();
-        let mission_selection = mission_selection.clone();
-        let constructions = constructions.cloned();
         let overlay = overlay.cloned();
         let root = content.base_root();
         std::thread::scope(|scope| {
@@ -2915,10 +2897,7 @@ impl VanillaWorld {
                         content,
                         &save,
                         overlay.as_ref(),
-                        None,
-                        constructions.as_ref(),
-                        None,
-                        Some(&mission_selection),
+                        imports,
                     )
                 })
                 .map_err(|error| Error::caused_by(root.path(), error))?;
@@ -2932,12 +2911,9 @@ impl VanillaWorld {
         content: &ContentSet,
         save: &crate::VanillaSaveState,
         overlay: Option<&VanillaExternalState>,
-        state_edicts: Option<&VanillaExternalStateEdicts>,
-        naval_constructions: Option<&VanillaNavalConstructionReport>,
-        administration: Option<&crate::VanillaSaveAdministration>,
-        mission_selection: Option<&crate::VanillaMissionSelectionImport>,
+        imports: VanillaSaveStateImports<'_>,
     ) -> Result<Self, Error> {
-        if let Some(selection) = mission_selection {
+        if let Some(selection) = imports.mission_selection {
             let selection_date = Date::parse(&selection.date)
                 .map_err(|error| Error::caused_by("saved mission selection", error))?;
             let save_date = Date::parse(&save.date)
@@ -2949,16 +2925,29 @@ impl VanillaWorld {
                 ));
             }
         }
+        if let Some(subjects) = imports.subject_relations {
+            let subject_date = Date::parse(&subjects.date)
+                .map_err(|error| Error::caused_by("saved subject relations", error))?;
+            let save_date = Date::parse(&save.date)
+                .map_err(|error| Error::caused_by("saved subject relations", error))?;
+            if subject_date != save_date {
+                return Err(Error::message(
+                    "saved subject relations",
+                    "subject relations date does not match the save date",
+                ));
+            }
+        }
         let baseline = Self::load_from_content(content, &save.date)?;
         let (players, mut state) = save.for_world(&baseline)?;
         if let Some(overlay) = overlay {
             state.apply_overlay(overlay);
         }
         let mut overrides = LoadOverrides::from_external_state(&state);
-        overrides.state_edicts = state_edicts;
-        overrides.naval_construction_report = naval_constructions;
-        overrides.administration = administration;
-        overrides.mission_selection = mission_selection;
+        overrides.state_edicts = imports.state_edicts;
+        overrides.naval_construction_report = imports.naval_constructions;
+        overrides.administration = imports.administration;
+        overrides.mission_selection = imports.mission_selection;
+        overrides.subject_relations = imports.subject_relations;
         Self::load_from_view(
             content,
             content.base_root(),
@@ -4178,12 +4167,43 @@ impl VanillaWorld {
             politics::ruler_skill_bounds(&root, &files, &defines, &mut report.setup)?;
         let subject_types =
             politics::load_diplomacy(&root, &files, &initial, date, &mut politics, &mut report)?;
+        let mut subject_graph_known =
+            !subject_history_unknown && report.unapplied_diplomacy_fields.is_empty();
+        if let Some(saved) = overrides.subject_relations {
+            politics
+                .relations
+                .retain(|relation| relation.kind != augustus_core::DiplomaticKind::Subject);
+            subject_graph_known = saved.relations.is_some();
+            if let Some(relations) = &saved.relations {
+                for relation in relations {
+                    if !subject_types.contains(&relation.subject_type) {
+                        return Err(Error::message(
+                            "saved subject relations",
+                            format!("unregistered subject type {}", relation.subject_type),
+                        ));
+                    }
+                    let country = |tag: &str| {
+                        initial.country_entity(tag).ok_or_else(|| {
+                            Error::message(
+                                "saved subject relations",
+                                format!("unknown country {tag}"),
+                            )
+                        })
+                    };
+                    politics.relations.push(augustus_core::DiplomaticRelation {
+                        kind: augustus_core::DiplomaticKind::Subject,
+                        first: country(&relation.overlord)?,
+                        second: country(&relation.subject)?,
+                        subject_type: Some(relation.subject_type.clone()),
+                    });
+                }
+            }
+            report.diplomatic_relations = politics.relations.len();
+        }
         initial
             .set_politics(politics)
             .map_err(|e| Error::caused_by(root.path(), e))?;
-        let subject_history_known =
-            !subject_history_unknown && report.unapplied_diplomacy_fields.is_empty();
-        let mut subject_counts = if subject_history_known {
+        let mut subject_counts = if subject_graph_known {
             initial
                 .countries()
                 .iter()
@@ -4205,7 +4225,7 @@ impl VanillaWorld {
         initial
             .set_subjects(augustus_core::Subjects {
                 types: subject_types,
-                known: subject_history_known,
+                known: subject_graph_known,
                 counts: subject_counts,
             })
             .map_err(|e| Error::caused_by(root.path(), e))?;

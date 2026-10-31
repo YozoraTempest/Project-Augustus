@@ -62,6 +62,7 @@ godot --headless --path godot --script res://tests/province_intelligence.gd
 godot --headless --path godot --script res://tests/mission_claims.gd
 godot --headless --path godot --script res://tests/mission_selection_import.gd
 godot --headless --path godot --script res://tests/mission_province_highlights.gd
+godot --headless --path godot --script res://tests/saved_subject_relations.gd
 ```
 
 Godot 检查会加载真实 Rust 扩展，验证按钮操作、查询、两类输入、存档和随机状态。测试内容均为自制样本。

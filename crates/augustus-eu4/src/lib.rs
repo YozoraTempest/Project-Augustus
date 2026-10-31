@@ -172,6 +172,7 @@ mod province_metrics;
 mod religious_schools;
 mod save_binary;
 mod save_state;
+mod saved_subjects;
 mod script;
 mod setup;
 mod state_edicts;
@@ -276,7 +277,8 @@ pub use bootstrap::{
     VanillaExternalNavalUnit, VanillaExternalPerson, VanillaExternalProductionInput,
     VanillaExternalProvinceDevelopment, VanillaExternalRegimentState, VanillaExternalShipState,
     VanillaExternalState, VanillaFortMaintenanceContextInput,
-    VanillaProvinceProductionBaseValueInput, VanillaProvinceStateMaintenanceInput, VanillaWorld,
+    VanillaProvinceProductionBaseValueInput, VanillaProvinceStateMaintenanceInput,
+    VanillaSaveStateImports, VanillaWorld,
 };
 pub use casus_belli::{CasusBelliReport, CasusBelliType, CasusBelliTypes};
 pub use content::{ContentRoot, ContentView, FileEntry};
@@ -329,6 +331,11 @@ pub use save_state::{
     read_vanilla_save_state_with_state_edicts_with_token_map,
     read_vanilla_save_state_with_state_edicts_with_token_resolver,
     read_vanilla_save_state_with_token_map, read_vanilla_save_state_with_token_resolver,
+};
+pub use saved_subjects::{
+    VanillaSavedSubjectRelation, VanillaSubjectRelationsImport, read_vanilla_subject_relations,
+    read_vanilla_subject_relations_with_token_map,
+    read_vanilla_subject_relations_with_token_resolver,
 };
 pub use script::{CompiledEvents, CompiledScript, ScriptCompiler, ScriptLibrary};
 pub use setup::SetupReport;
