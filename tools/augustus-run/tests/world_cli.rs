@@ -1628,6 +1628,104 @@ fn world_cli_rejects_unknown_monthly_ledger_query_fields() {
 }
 
 #[test]
+fn world_cli_previews_monthly_convergence_without_mutating_snapshot() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let game_root = temp.path().join("game");
+    copy_directory(&fixture, &game_root);
+    let defines = game_root.join("common/defines.lua");
+    let old = fs::read_to_string(&defines).unwrap();
+    fs::write(
+        &defines,
+        old.replace(
+            "NCountry = {",
+            "NCountry = {\n MIN_LIBERTY_DESIRE = 0,\n MAX_LIBERTY_DESIRE = 100,\n MONTHLY_LIBERTY_DECREASE = 0.1,",
+        ),
+    )
+    .unwrap();
+    let startup = game_root.join("common/on_actions/control.txt");
+    fs::create_dir_all(startup.parent().unwrap()).unwrap();
+    fs::write(
+        startup,
+        "on_startup={if={limit={tag=BBB} add_liberty_desire=25}} ",
+    )
+    .unwrap();
+    let queries = temp.path().join("monthly-convergence-queries.json");
+    let baseline = temp.path().join("baseline.json");
+    let queried = temp.path().join("queried.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{
+            "country": "BBB",
+            "metric": "temporary_liberty_desire"
+        }])
+        .to_string(),
+    )
+    .unwrap();
+
+    let first = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&game_root)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&baseline)
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let second = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&game_root)
+        .arg("--vanilla-monthly-convergence-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&queried)
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let output: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    let account =
+        &output["vanilla_monthly_convergence_queries"][0]["accounts"]["temporary_liberty_desire"];
+    assert_eq!(account["applies"], true);
+    assert_eq!(account["quantity_before"], 25_000);
+    assert_eq!(account["quantity_after"], 24_900);
+    assert_eq!(account["changed"], -100);
+    assert_eq!(fs::read(&queried).unwrap(), fs::read(&baseline).unwrap());
+}
+
+#[test]
+fn world_cli_rejects_unknown_monthly_convergence_query_fields() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let queries = temp.path().join("monthly-convergence-queries.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA", "unexpected": true}]).to_string(),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--vanilla-monthly-convergence-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown field"));
+}
+
+#[test]
 fn world_cli_runs_and_resumes_an_explicit_annual_ledger_rollover() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();

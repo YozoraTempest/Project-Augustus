@@ -248,6 +248,21 @@ impl MonthlyConvergence {
 }
 
 impl World {
+    /// Prepares the next monthly convergence settlement without committing
+    /// metric values, receipts, or settlement counters. The staged world
+    /// applies the same monthly-autonomy phase used by `MonthlyEconomy`.
+    pub fn preview_monthly_convergence(&self) -> Result<ConvergenceSettlement, Error> {
+        let mut staged = self.clone();
+        if let Some(administration) = staged.prepare_monthly_autonomy()? {
+            staged.replace_administration(administration)?;
+        }
+        staged
+            .monthly_convergence
+            .as_ref()
+            .ok_or_else(|| Error::Invalid("missing monthly convergence".into()))?
+            .prepare(&staged)
+    }
+
     pub fn monthly_convergence(&self) -> Option<&MonthlyConvergence> {
         self.monthly_convergence.as_ref()
     }

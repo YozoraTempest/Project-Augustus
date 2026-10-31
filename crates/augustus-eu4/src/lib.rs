@@ -43,6 +43,7 @@ mod monarch_power;
 mod monthly_accrual_queries;
 mod monthly_autonomy_queries;
 mod monthly_cashflow_queries;
+mod monthly_convergence_queries;
 mod monthly_ledger_queries;
 mod monthly_production_queries;
 mod native_development;
@@ -98,6 +99,9 @@ pub use monthly_autonomy_queries::{
 };
 pub use monthly_cashflow_queries::{
     VanillaMonthlyCashflowQuery, VanillaMonthlyCashflowQueryReport,
+};
+pub use monthly_convergence_queries::{
+    VanillaMonthlyConvergenceQuery, VanillaMonthlyConvergenceQueryReport,
 };
 pub use monthly_ledger_queries::{VanillaMonthlyLedgerQuery, VanillaMonthlyLedgerQueryReport};
 pub use monthly_production_queries::{

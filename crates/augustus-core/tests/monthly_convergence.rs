@@ -74,6 +74,34 @@ fn quantity(world: &World, id: usize) -> Option<i64> {
 }
 
 #[test]
+fn preview_monthly_convergence_reuses_next_settlement_without_mutation() {
+    let world = fixture();
+    let snapshot = world.save("preview").unwrap();
+    let settlement = world.preview_monthly_convergence().unwrap();
+    assert_eq!(settlement.day, 0);
+    let account = &settlement.accounts[&EntityId(0)]["influence"];
+    assert_eq!(
+        (
+            account.applies,
+            account.quantity_before,
+            account.quantity_after,
+            account.changed,
+        ),
+        (Some(true), Some(250), Some(150), Some(-100))
+    );
+    assert!(account.unresolved.is_empty());
+    assert_eq!(world.save("preview").unwrap(), snapshot);
+    assert_eq!(world.monthly_convergence().unwrap().settlement_count, 0);
+    assert!(
+        world
+            .monthly_convergence()
+            .unwrap()
+            .last_settlement
+            .is_none()
+    );
+}
+
+#[test]
 fn both_signs_reach_zero_and_split_restore_preserves_months_and_receipts() {
     let mut whole = fixture();
     whole.advance_to(19).unwrap();
