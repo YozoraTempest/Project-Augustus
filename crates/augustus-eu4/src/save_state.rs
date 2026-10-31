@@ -2418,6 +2418,7 @@ fn saved_army(
     value: &Field<'_, '_>,
 ) -> Result<(u32, String, Vec<String>, Vec<VanillaExternalRegimentState>), Error> {
     let army = object(parsed, value)?;
+    let mut seen_single_fields = BTreeSet::new();
     let mut location = None;
     let mut name = String::new();
     let mut regiments = Vec::new();
@@ -2428,6 +2429,14 @@ fn saved_army(
             return Err(Error::message(
                 parsed.source(),
                 format!("invalid saved army field {field}"),
+            ));
+        }
+        if matches!(field.as_str(), "location" | "name")
+            && !seen_single_fields.insert(field.clone())
+        {
+            return Err(Error::message(
+                parsed.source(),
+                format!("duplicate saved army field {field}"),
             ));
         }
         match field.as_str() {
@@ -2549,6 +2558,7 @@ fn saved_regiment(
 
 fn saved_navy(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<SavedNavy, Error> {
     let navy = object(parsed, value)?;
+    let mut seen_single_fields = BTreeSet::new();
     let mut location = None;
     let mut name = None;
     let mut ships = Vec::new();
@@ -2559,6 +2569,14 @@ fn saved_navy(parsed: &ParsedText<'_>, value: &Field<'_, '_>) -> Result<SavedNav
             return Err(Error::message(
                 parsed.source(),
                 format!("invalid saved navy field {field}"),
+            ));
+        }
+        if matches!(field.as_str(), "location" | "name")
+            && !seen_single_fields.insert(field.clone())
+        {
+            return Err(Error::message(
+                parsed.source(),
+                format!("duplicate saved navy field {field}"),
             ));
         }
         match field.as_str() {
