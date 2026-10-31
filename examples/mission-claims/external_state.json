@@ -1,0 +1,16 @@
+{
+  "country_resources": {
+    "AAA": { "treasury_milli": 0 },
+    "BBB": { "treasury_milli": 0 }
+  },
+  "country_variables": {
+    "AAA": { "mission_claims_first": 0 }
+  },
+  "country_mission_completions": {
+    "AAA": [],
+    "BBB": []
+  },
+  "province_owners": {
+    "1": "AAA"
+  }
+}

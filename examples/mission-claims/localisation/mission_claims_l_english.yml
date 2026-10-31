@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+l_english:
+ aaa_claim_first_title:0 "Secure the Northern Province"
+ aaa_claim_first_desc:0 "Bring the northern province under our rule."
+ aaa_claim_second_title:0 "Reward the Northern Campaign"
+ aaa_claim_second_desc:0 "After securing the north, recognize the campaign's success."
+ aaa_claim_unknown_title:0 "Resolve the Eastern Question"
+ aaa_claim_unknown_desc:0 "The requirements for this objective are not fully defined."
+ aaa_claim_unsupported_title:0 "Establish a New Order"
+ aaa_claim_unsupported_desc:0 "This objective has a reward that this example cannot execute."
+ bbb_claim_first_title:0 "Defend the Northern Province"
+ bbb_claim_first_desc:0 "Keep the northern province under our rule."
+ mission_claims.reward.title:0 "The Northern Campaign"
+ mission_claims.reward.desc:0 "The successful campaign has reached the court."
+ mission_claims.reward.option:0 "Acknowledge the report"

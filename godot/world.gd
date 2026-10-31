@@ -35,6 +35,18 @@ var unit_country_id := ""
 var unit_option_cache: Dictionary = {}
 var unit_option_controls: Dictionary = {}
 var unit_selection_status: Label
+var mission_header: Button
+var mission_selection_status: Label
+var mission_list: VBoxContainer
+var mission_list_scroll: ScrollContainer
+var mission_list_frame: Control
+var mission_content: VBoxContainer
+var mission_summary := "尚未载入"
+var mission_expanded := false
+var mission_data_cache: Array[Dictionary] = []
+var mission_titles_cache: Dictionary = {}
+var mission_claim_buttons: Dictionary = {}
+var mission_status_labels: Dictionary = {}
 var calendar_label: Label
 var run_button: Button
 var simulation_timer: Timer
@@ -187,6 +199,33 @@ func _ready() -> void:
 		unit_option_controls[category] = option
 		row.add_child(option)
 		panel.add_child(row)
+	var mission_section := VBoxContainer.new()
+	mission_section.add_theme_constant_override("separation", 6)
+	panel.add_child(mission_section)
+	mission_header = button("任务 · 尚未载入 ▶", toggle_mission_section)
+	mission_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mission_section.add_child(mission_header)
+	mission_content = VBoxContainer.new()
+	mission_content.add_theme_constant_override("separation", 8)
+	mission_content.visible = false
+	mission_section.add_child(mission_content)
+	mission_selection_status = label("尚未载入", 14)
+	mission_selection_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	mission_content.add_child(mission_selection_status)
+	mission_list_frame = Control.new()
+	mission_list_frame.custom_minimum_size.y = 260
+	mission_list_frame.clip_contents = true
+	mission_list_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mission_content.add_child(mission_list_frame)
+	mission_list_scroll = ScrollContainer.new()
+	mission_list_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	mission_list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	mission_list_scroll.visible = false
+	mission_list_frame.add_child(mission_list_scroll)
+	mission_list = VBoxContainer.new()
+	mission_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mission_list.add_theme_constant_override("separation", 8)
+	mission_list_scroll.add_child(mission_list)
 	panel.add_child(label("统治者", 20))
 	politics_details = label("尚未载入", 16)
 	politics_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -404,6 +443,14 @@ func apply_loaded_world(candidate, data: Dictionary) -> bool:
 	country_choice.clear()
 	unit_country_id = ""
 	unit_option_cache.clear()
+	mission_expanded = false
+	mission_data_cache.clear()
+	mission_titles_cache.clear()
+	mission_summary = "尚未载入"
+	mission_selection_status.text = "尚未载入"
+	mission_content.visible = false
+	clear_mission_list()
+	update_mission_header()
 	for country in data.countries:
 		country_choice.add_item("%s · %s (%d)" % [country.id, country.name, country.province_count])
 		country_choice.set_item_metadata(country_choice.item_count - 1, country.id)
@@ -500,7 +547,7 @@ func choose_event_option(pending_id: int, option_id: String) -> void:
 		status.text = packet.error
 		return
 	event_overlay.visible = false
-	status.text = "已选择：%s" % option_id
+	status.text = "已处理事件选项。"
 	refresh_calendar()
 	select_country(country_choice.selected, false)
 
@@ -585,6 +632,7 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 	selected_country_id = id
 	country_choice.select(index)
 	refresh_unit_templates(id)
+	refresh_country_missions(id)
 	var government: Variant = packet.value.government
 	country_details.text = "%s · %s\n领土 %d 个省份 · 首都 %s\n文化 %s · 宗教 %s\n政体 %s" % [country.id, country.name, packet.value.owned_provinces.size(), shown(packet.value.bound_capital), shown(country.primary_culture), shown(country.religion), shown(null if government == null else government.kind)]
 	if government != null:
@@ -661,6 +709,179 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 	diplomacy_details.text = "没有已载入的外交关系" if relations.is_empty() else "\n".join(relations)
 	if selected_province_id != 0:
 		select_province(selected_province_id, false)
+
+func update_mission_header() -> void:
+	mission_header.text = "任务 · %s %s" % [mission_summary, "▼" if mission_expanded else "▶"]
+	mission_content.visible = mission_expanded
+	mission_list_frame.visible = mission_expanded and not mission_data_cache.is_empty()
+	mission_list_scroll.visible = mission_list_frame.visible
+
+func toggle_mission_section() -> void:
+	mission_expanded = not mission_expanded
+	update_mission_header()
+	if mission_expanded:
+		render_mission_list()
+	else:
+		clear_mission_list()
+
+func clear_mission_list() -> void:
+	for child in mission_list.get_children():
+		mission_list.remove_child(child)
+		child.queue_free()
+	mission_claim_buttons.clear()
+	mission_status_labels.clear()
+
+func render_mission_list() -> void:
+	clear_mission_list()
+	for mission in mission_data_cache:
+		add_mission_row(mission, mission_titles_cache)
+
+func refresh_country_missions(id: String) -> void:
+	var packet: Dictionary = JSON.parse_string(session.query_country_missions(id))
+	if not packet.ok:
+		mission_summary = "未载入"
+		mission_selection_status.text = "任务状态暂不可用。"
+		mission_data_cache.clear()
+		mission_titles_cache.clear()
+		if mission_expanded:
+			render_mission_list()
+		else:
+			clear_mission_list()
+		update_mission_header()
+		return
+	var data: Dictionary = packet.value
+	var missions: Array = data.get("missions", [])
+	mission_data_cache.clear()
+	mission_titles_cache.clear()
+	if missions.is_empty():
+		mission_summary = "无任务"
+		mission_selection_status.text = "当前内容没有任务。"
+		if mission_expanded:
+			render_mission_list()
+		else:
+			clear_mission_list()
+		update_mission_header()
+		return
+	if data.get("selection_known") != true:
+		mission_summary = "选择未知"
+		mission_selection_status.text = "当前国家的已选任务尚未确定。"
+		if mission_expanded:
+			render_mission_list()
+		else:
+			clear_mission_list()
+		update_mission_header()
+		return
+	var titles: Dictionary = {}
+	for mission in missions:
+		var mission_id := str(mission.get("id", ""))
+		var title := str(mission.get("title", ""))
+		if not mission_id.is_empty() and not title.is_empty() and title != mission_id and title != mission_id + "_title":
+			titles[mission_id] = title
+	var selected_missions: Array[Dictionary] = []
+	for mission in missions:
+		if mission.get("selected") == true:
+			selected_missions.append(mission)
+	mission_summary = "已选 %d 项" % selected_missions.size()
+	mission_selection_status.text = "当前没有已选任务。" if selected_missions.is_empty() else mission_summary + "。"
+	mission_data_cache = selected_missions
+	mission_titles_cache = titles
+	if mission_expanded:
+		render_mission_list()
+	else:
+		clear_mission_list()
+	update_mission_header()
+
+func mission_title(mission: Dictionary) -> String:
+	var title := str(mission.get("title", ""))
+	var mission_id := str(mission.get("id", ""))
+	if title.is_empty() or title == mission_id or title == mission_id + "_title":
+		return mission_id if not mission_id.is_empty() else "任务名称未知"
+	return title
+
+func mission_status(mission: Dictionary) -> String:
+	if mission.get("completed") == true:
+		return "已完成"
+	if mission.get("reward_supported") != true:
+		return "不支持"
+	if mission.get("completed") == false and mission.get("requirements_met") == false:
+		return "条件未满足"
+	if mission.get("completed") == false and mission.get("requirements_met") == true and mission.get("claimable") == true:
+		return "可领取"
+	return "未知"
+
+func mission_can_be_claimed(mission: Dictionary) -> bool:
+	return (
+		mission.get("selected") == true
+		and mission.get("completed") == false
+		and mission.get("requirements_met") == true
+		and mission.get("reward_supported") == true
+		and mission.get("claimable") == true
+	)
+
+func add_mission_row(mission: Dictionary, titles: Dictionary) -> void:
+	var mission_id := str(mission.get("id", ""))
+	var row := VBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 4)
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 6)
+	row.add_child(header)
+	var title := label(mission_title(mission), 16)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.custom_minimum_size.x = 64
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var description_value: Variant = mission.get("description")
+	var description := "" if description_value == null else str(description_value)
+	if not description.is_empty():
+		title.tooltip_text = description
+	header.add_child(title)
+	var state := label(mission_status(mission), 14)
+	state.custom_minimum_size.x = 72
+	state.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	state.tooltip_text = mission_status_tooltip(mission)
+	header.add_child(state)
+	var claim := button("领取", claim_country_mission.bind(mission_id))
+	claim.custom_minimum_size = Vector2(68, 32)
+	claim.disabled = not mission_can_be_claimed(mission)
+	claim.tooltip_text = mission_status_tooltip(mission)
+	header.add_child(claim)
+	mission_claim_buttons[mission_id] = claim
+	mission_status_labels[mission_id] = state
+	if not description.is_empty():
+		var details := label(description, 14)
+		details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.add_child(details)
+	var required: Array = mission.get("required_missions", [])
+	if not required.is_empty():
+		var required_titles: Array[String] = []
+		for required_id in required:
+			required_titles.append(str(titles.get(str(required_id), str(required_id))))
+		var prerequisites := label("前置任务：" + "、".join(required_titles), 14)
+		prerequisites.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.add_child(prerequisites)
+	mission_list.add_child(row)
+	mission_list.add_child(HSeparator.new())
+
+func mission_status_tooltip(mission: Dictionary) -> String:
+	match mission_status(mission):
+		"已完成": return "此任务已经完成。"
+		"条件未满足": return "前置任务或完成条件尚未满足。"
+		"可领取": return "目标已达成，可以领取奖励。"
+		"不支持": return "此任务的奖励目前无法执行。"
+	return "任务完成状态或目标条件尚未确定。"
+
+func claim_country_mission(mission_id: String) -> void:
+	if selected_country_id.is_empty():
+		return
+	var country_id := selected_country_id
+	var packet: Dictionary = JSON.parse_string(session.claim_mission(country_id, mission_id))
+	if not packet.ok:
+		status.text = packet.error
+		return
+	refresh_calendar()
+	if country_choice.selected >= 0:
+		select_country(country_choice.selected, false)
+	status.text = "已领取任务奖励。"
 
 func refresh_unit_templates(id: String) -> void:
 	var packet: Dictionary = JSON.parse_string(session.query_unit_templates(id))

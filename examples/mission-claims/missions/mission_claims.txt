@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+aaa_claim_series = {
+    slot = 5
+    potential = { tag = AAA }
+
+    aaa_claim_first = {
+        position = 1
+        trigger = { owns = 1 }
+        effect = {
+            add_treasury = 5
+            set_variable = { which = mission_claims_first value = 1 }
+            country_event = { id = mission_claims.reward }
+        }
+    }
+
+    aaa_claim_second = {
+        position = 2
+        required_missions = { aaa_claim_first }
+        trigger = { check_variable = { which = mission_claims_first value = 1 } }
+        effect = { add_treasury = 7 }
+    }
+
+    aaa_claim_unknown = {
+        position = 3
+        trigger = { unsupported_mission_goal = yes }
+        effect = { add_treasury = 1 }
+    }
+
+    aaa_claim_unsupported = {
+        position = 4
+        trigger = { always = yes }
+        effect = { augustus_unimplemented_mission_reward = yes }
+    }
+}
+
+bbb_claim_series = {
+    slot = 5
+    potential = { tag = BBB }
+
+    bbb_claim_first = {
+        position = 1
+        trigger = { owns = 1 }
+        effect = { add_treasury = 3 }
+    }
+}

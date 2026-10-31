@@ -718,25 +718,54 @@ impl<'a> ScriptCompiler<'a> {
         let mut groups = Vec::new();
         for series in fields.iter().filter(|f| !f.name.starts_with('@')) {
             let fields = series.block()?;
-            let slot = fields
-                .iter()
-                .find(|f| f.name == "slot")
+            let slot_field = Self::unique_mission_field(fields, "slot")?
                 .ok_or_else(|| series.error("mission series requires slot"))?;
-            let slot = slot
+            let slot = slot_field
                 .scalar()?
                 .parse::<u32>()
                 .ok()
                 .filter(|n| *n > 0)
-                .ok_or_else(|| slot.error("mission slot requires a positive literal integer"))?;
-            let generic = fields
-                .iter()
-                .find(|f| f.name == "generic")
+                .ok_or_else(|| {
+                    slot_field.error("mission slot requires a positive literal integer")
+                })?;
+            let generic = Self::unique_mission_field(fields, "generic")?
                 .map(boolean)
                 .transpose()?
                 .unwrap_or(false);
-            let condition = match fields.iter().find(|f| f.name == "potential") {
+            let mut conditions = vec![match Self::unique_mission_field(fields, "potential")? {
                 Some(field) => self.mission_condition(field.block()?),
                 None => Condition::Always(true),
+            }];
+            if let Some(field) = Self::unique_mission_field(fields, "potential_on_load")?
+                && !field.block()?.is_empty()
+            {
+                conditions.push(Condition::Unavailable(
+                    field
+                        .error("mission series potential_on_load is not evaluated")
+                        .to_string(),
+                ));
+            }
+            if let Some(field) = fields.iter().find(|field| {
+                !field.name.starts_with('@')
+                    && !matches!(
+                        field.name.as_str(),
+                        "slot"
+                            | "generic"
+                            | "ai"
+                            | "has_country_shield"
+                            | "potential"
+                            | "potential_on_load"
+                    )
+                    && field.block().is_err()
+            }) {
+                conditions.push(Condition::Unavailable(
+                    field.error("unsupported mission series field").to_string(),
+                ));
+            }
+            let condition = if conditions.len() == 1 {
+                conditions.pop().expect("single mission series condition")
+            } else {
+                Condition::All(conditions)
             };
             let mut objectives = BTreeSet::new();
             let mut next = 1_u32;
@@ -754,7 +783,7 @@ impl<'a> ScriptCompiler<'a> {
                     )
             }) {
                 let body = mission.block()?;
-                let position = match body.iter().find(|f| f.name == "position") {
+                let position = match Self::unique_mission_field(body, "position")? {
                     Some(field) => field
                         .scalar()?
                         .parse::<u32>()
@@ -793,6 +822,20 @@ impl<'a> ScriptCompiler<'a> {
             });
         }
         Ok(groups)
+    }
+
+    fn unique_mission_field<'b>(
+        fields: &'b [Field],
+        name: &str,
+    ) -> Result<Option<&'b Field>, Error> {
+        let mut matches = fields.iter().filter(|field| field.name == name);
+        let Some(first) = matches.next() else {
+            return Ok(None);
+        };
+        if let Some(duplicate) = matches.next() {
+            return Err(duplicate.error(format!("duplicate mission {name} field")));
+        }
+        Ok(Some(first))
     }
 
     fn mission_condition(&mut self, fields: &[Field]) -> Condition {
@@ -1360,6 +1403,16 @@ impl<'a> ScriptCompiler<'a> {
             }],
             scope,
         )
+    }
+
+    pub(crate) fn compile_effect_block_reader(
+        mut self,
+        parsed: &ParsedText<'_>,
+        reader: ObjectReader<'_, '_, TextEncoding>,
+        scope: EntityKind,
+    ) -> Result<Plan, Error> {
+        self.root_scope.get_or_insert(scope);
+        self.effects(&read_fields(parsed, reader, 1, false)?, scope)
     }
 
     /// Compile explicitly dispatched events with literal IDs and optional option guards.
@@ -3238,6 +3291,20 @@ impl<'a> ScriptCompiler<'a> {
                     };
                     Condition::NationalFocus { target: Target::Current, skill }
                 }
+                "owns" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("owns requires country scope"));
+                    }
+                    let id = province_identifier(field.scalar()?)
+                        .ok_or_else(|| field.error("owns requires a positive literal province identifier"))?;
+                    Condition::AnyOwnedProvince {
+                        target: Target::Current,
+                        condition: Box::new(Condition::EntityNamed {
+                            target: Target::Current,
+                            name: id.to_string(),
+                        }),
+                    }
+                }
                 "province_id" => {
                     if scope != EntityKind::Province { return Err(field.error("province_id requires province scope")); }
                     let id = province_identifier(field.scalar()?)
@@ -4138,8 +4205,93 @@ pub(crate) fn event_references(plan: &[Action], references: &mut BTreeSet<String
             | Action::ForEachOwnedProvince { plan, .. }
             | Action::ForEachSubjectCountry { plan, .. }
             | Action::RandomOwnedProvince { plan, .. }
+            | Action::RandomCountry { plan, .. }
             | Action::Schedule { plan, .. }
             | Action::Preview { plan } => event_references(plan, references),
+            _ => (),
+        }
+    }
+}
+
+pub(crate) fn mission_event_references(
+    plan: &[Action],
+    references: &mut BTreeSet<String>,
+    conditional: &mut BTreeSet<String>,
+    immediate: &mut BTreeSet<String>,
+) {
+    mission_event_references_in_scope(plan, references, conditional, immediate, false);
+}
+
+fn mission_event_references_in_scope(
+    plan: &[Action],
+    references: &mut BTreeSet<String>,
+    conditional: &mut BTreeSet<String>,
+    immediate: &mut BTreeSet<String>,
+    deferred: bool,
+) {
+    for action in plan {
+        match action {
+            Action::TryEvent { event } => {
+                references.insert(event.clone());
+                conditional.insert(event.clone());
+                if !deferred {
+                    immediate.insert(event.clone());
+                }
+            }
+            Action::TriggerEvent { event } => {
+                references.insert(event.clone());
+                if !deferred {
+                    immediate.insert(event.clone());
+                }
+            }
+            Action::EventCandidates { events } => {
+                references.extend(events.iter().cloned());
+                conditional.extend(events.iter().cloned());
+                if !deferred {
+                    immediate.extend(events.iter().cloned());
+                }
+            }
+            Action::If {
+                then, otherwise, ..
+            }
+            | Action::RandomBranch { then, otherwise } => {
+                mission_event_references_in_scope(
+                    then,
+                    references,
+                    conditional,
+                    immediate,
+                    deferred,
+                );
+                mission_event_references_in_scope(
+                    otherwise,
+                    references,
+                    conditional,
+                    immediate,
+                    deferred,
+                );
+            }
+            Action::With { plan, .. }
+            | Action::ChangeGovernment { before: plan, .. }
+            | Action::InScope { plan, .. }
+            | Action::InPreviousScope { plan, .. }
+            | Action::Repeat { plan, .. }
+            | Action::ForEach { plan, .. }
+            | Action::ForEachOwnedProvince { plan, .. }
+            | Action::ForEachSubjectCountry { plan, .. }
+            | Action::RandomOwnedProvince { plan, .. }
+            | Action::RandomCountry { plan, .. } => {
+                mission_event_references_in_scope(
+                    plan,
+                    references,
+                    conditional,
+                    immediate,
+                    deferred,
+                );
+            }
+            Action::Schedule { plan, .. } => {
+                mission_event_references_in_scope(plan, references, conditional, immediate, true);
+            }
+            Action::Preview { .. } => (),
             _ => (),
         }
     }
@@ -4148,6 +4300,74 @@ pub(crate) fn event_references(plan: &[Action], references: &mut BTreeSet<String
 #[cfg(test)]
 mod script_plan_tests {
     use super::*;
+
+    #[test]
+    fn owns_reads_live_ownership_without_changing_the_world() {
+        let schema = Schema::new([] as [&str; 0]).unwrap();
+        let library = ScriptLibrary::new();
+        let document =
+            TextDocument::from_bytes("owns.txt", b"owns = 1".to_vec(), TextEncoding::Utf8);
+        let parsed = document.parse().unwrap();
+        let condition = ScriptCompiler::new(&schema, &library, true)
+            .compile_condition_reader(&parsed, parsed.reader(), EntityKind::Country)
+            .unwrap();
+        let mut world = augustus_core::World::new(schema);
+        let alpha = world.add_entity("AAA", EntityKind::Country);
+        let beta = world.add_entity("BBB", EntityKind::Country);
+        let province = world.add_entity("1", EntityKind::Province);
+        assert!(condition.evaluate(&world, alpha).is_err());
+
+        world.set_owner(province, alpha).unwrap();
+        let unknown = world.add_entity("2", EntityKind::Province);
+        let before = world.save("owns-test").unwrap();
+        assert!(condition.evaluate(&world, alpha).unwrap());
+        assert_eq!(world.save("owns-test").unwrap(), before);
+
+        world.mark_target_absent(unknown, Target::Owner).unwrap();
+        world.set_owner(province, beta).unwrap();
+        assert!(!condition.evaluate(&world, alpha).unwrap());
+        assert!(
+            condition
+                .evaluate_in_context(
+                    &world,
+                    augustus_core::ScopeContext::new(alpha).with_current(beta),
+                )
+                .unwrap()
+        );
+        let restored = augustus_core::World::restore(
+            &world.save("owns-test").unwrap(),
+            "owns-test",
+            world.schema(),
+        )
+        .unwrap();
+        assert!(!condition.evaluate(&restored, alpha).unwrap());
+        assert!(condition.evaluate(&restored, beta).unwrap());
+    }
+
+    #[test]
+    fn owns_requires_country_scope_and_a_positive_literal_province() {
+        let schema = Schema::new([] as [&str; 0]).unwrap();
+        let library = ScriptLibrary::new();
+        for (text, scope) in [
+            ("owns = 1", EntityKind::Province),
+            ("owns = 0", EntityKind::Country),
+            ("owns = -1", EntityKind::Country),
+            ("owns = 1.5", EntityKind::Country),
+            ("owns = ROOT", EntityKind::Country),
+            ("owns = 4294967296", EntityKind::Country),
+            ("owns = { province = 1 }", EntityKind::Country),
+        ] {
+            let document =
+                TextDocument::from_bytes("owns.txt", text.as_bytes().to_vec(), TextEncoding::Utf8);
+            let parsed = document.parse().unwrap();
+            assert!(
+                ScriptCompiler::new(&schema, &library, true)
+                    .compile_condition_reader(&parsed, parsed.reader(), scope)
+                    .is_err(),
+                "unexpectedly compiled {text} in {scope:?}",
+            );
+        }
+    }
 
     #[test]
     fn optional_script_header_marks_its_parameter_block() {

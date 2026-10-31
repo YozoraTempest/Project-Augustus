@@ -494,6 +494,7 @@ pub struct VanillaWorld {
     province_mothball_status: BTreeMap<u32, u8>,
     state_maintenance_development_scale_milli: Option<i32>,
     event_texts: BTreeMap<String, crate::EventText>,
+    pub(crate) mission_programs: BTreeMap<String, crate::missions::MissionProgram>,
     monthly_event_rules: Option<MonthlyEventRules>,
     monthly_event_system_id: Option<String>,
     monthly_event_base: Option<MonthlyEventBase>,
@@ -4596,7 +4597,7 @@ impl VanillaWorld {
                         .collect()
                 });
         needed_privileges.extend(estates.history_privilege_ids());
-        let startup = crate::estates::EstateStartup::load(
+        let mut startup = crate::estates::EstateStartup::load(
             &root,
             &files,
             initial.world().schema(),
@@ -4970,7 +4971,9 @@ impl VanillaWorld {
         bind_external_country_variables(&mut initial, overrides.country_variables)?;
         if !dynamic_global_marker_history && !initial.world().global_markers().known {
             let mut global_markers = initial.world().global_markers().clone();
-            for name in startup.global_marker_references() {
+            let mut references = startup.global_marker_references();
+            references.extend(missions.global_marker_references());
+            for name in references {
                 if !history_global_marker_names.contains(&name) {
                     global_markers.values.insert(name, false);
                 }
@@ -4986,7 +4989,36 @@ impl VanillaWorld {
             overrides.naval_fleets,
         )?;
         bind_external_state_edicts(&mut initial, overrides.state_edicts, &mut report.setup)?;
-        report.missions = missions.bind(&mut initial, overrides.country_mission_completions)?;
+        let crate::missions::BoundMissions {
+            report: mission_report,
+            programs: mission_programs,
+            identity: mission_identity,
+        } = missions.bind(
+            &mut initial,
+            overrides.country_mission_completions,
+            &root,
+            &files,
+            &mut startup,
+            report.setup.truce_months,
+            report.setup.advisor_types.clone(),
+            &mut report.estates,
+        )?;
+        report.missions = mission_report;
+        if !dynamic_global_marker_history && !initial.world().global_markers().known {
+            let mut global_markers = initial.world().global_markers().clone();
+            let mut references = startup.global_marker_references();
+            for program in mission_programs.values() {
+                references.extend(program.global_marker_references());
+            }
+            for name in references {
+                if !history_global_marker_names.contains(&name) {
+                    global_markers.values.insert(name, false);
+                }
+            }
+            initial
+                .set_global_markers(global_markers)
+                .map_err(|e| Error::caused_by("missions", e))?;
+        }
         // Content identity is based on the bound initial world. Startup effects
         // and AI choices are runtime state and must not vary the hash by seed.
         let content_identity_initial = initial.clone();
@@ -5089,6 +5121,10 @@ impl VanillaWorld {
             digest.update(b"\0startup-program\0");
             digest.update(identity);
         }
+        if let Some(identity) = mission_identity {
+            digest.update(b"\0mission-execution-programs:1\0");
+            digest.update(identity);
+        }
         digest.update(
             content_identity_initial
                 .content_identity_state()
@@ -5177,6 +5213,7 @@ impl VanillaWorld {
             province_mothball_status,
             state_maintenance_development_scale_milli,
             event_texts,
+            mission_programs,
             monthly_event_rules,
             monthly_event_system_id,
             monthly_event_base,

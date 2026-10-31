@@ -262,6 +262,8 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 国家条件中的 `any_owned_province = { ... }` 在当前拥有省份上检查内部条件，翻译为共享核心 `AnyOwnedProvince`；空集合返回假。归属和省份状态变化后立即使用新值，未知归属不能被否定条件当作不存在。原生写法与跨输入读档见 [拥有省份查询](../examples/owned-provinces/README.md)。
 
+`owns = 正整数省份ID` 在当前国家拥有的省份中匹配指定标识，复用同一份实时归属索引。已知拥有时为真；没有匹配且归属资料完整时为假，资料不足时保持未知。它也可以用于任务目标，转移所有者和保存恢复后会读取新状态；省份作用域、动态名称、非正数及非整数字面值会报错。
+
 `every_owned_province` 与 `random_owned_province` 翻译为共享核心的拥有省份效果。前者进入时捕获取得顺序，逐项执行前读取筛选；后者筛选后执行一个随机成员。两者支持可选 `limit`、嵌套正文和延期调用，存档保留取得顺序与随机状态。用法及完整领土转移的限制见 [遍历与随机选择场景](../examples/owned-iteration/README.md)。
 
 选项可声明独立的 `trigger`，原生内容在可选的 `option_conditions.json` 中提供相同条件。待选查询按当前状态筛选选项，保留原始标识；没有可用选项时返回空列表。选项命令执行有效的原始标识，不重新检查显示条件。国家作用域的 `ai = yes/no` 读取明确的控制身份，未指定时报告未知。自制场景、跨输入读档和查询／命令的职责见 [条件选项演示](../examples/conditional-options/README.md)。
@@ -306,7 +308,7 @@ cargo run --locked -p augustus-run --bin augustus-events -- --content examples/c
 
 `has_dlc` 使用固定终版、全部 DLC 基线，识别 22 个玩法资料片以及 American Dream、Purple Phoenix、Star and Crescent、Women in History、Dharma 的两个单位包。已识别名称编译为真，名称大小写或其他名称不匹配会报错。这只表示所选规则基线的内容可用性，各机制与效果的支持范围仍分别校验。
 
-国家作用域支持 `complete_mission = 标识` 和 `mission_completed = 标识`，分别编译为核心 `RecordCompletion` 和 `CompletionRecorded`。登记只修改当前国家的记录，不检查任务条件、不执行奖励；条件读取执行时的状态。原生场景通过 `completions.identifiers` 注册标识，通过 `completions.entities` 提供已知记录；缺少实体条目表示状态未知，空列表表示已知未完成。标识要求已注册且非空，动态名称和错误作用域会报错；本入口对不存在的任务名称使用严格诊断，不沿用原版的假值查询。直接使用 `ScriptCompiler` 时，通过 `with_mission_ids` 提供注册标识。任务可用性由 `objectives` 保存，`has_mission` 读取当前选择，`swap_non_generic_missions` 显式重新选择且保留完成记录。任务完成条件、玩家领取奖励与任务界面尚未实现。自制示例见 [任务选择](../examples/objective-selection/README.md)。
+国家作用域支持 `complete_mission = 标识` 和 `mission_completed = 标识`，分别编译为核心 `RecordCompletion` 和 `CompletionRecorded`。登记只修改当前国家的记录，不检查任务条件、不执行奖励；条件读取执行时的状态。原生场景通过 `completions.identifiers` 注册标识，通过 `completions.entities` 提供已知记录；缺少实体条目表示状态未知，空列表表示已知未完成。标识要求已注册且非空，动态名称和错误作用域会报错；本入口对不存在的任务名称使用严格诊断，不沿用原版的假值查询。直接使用 `ScriptCompiler` 时，通过 `with_mission_ids` 提供注册标识。任务可用性由 `objectives` 保存，`has_mission` 读取当前选择，`swap_non_generic_missions` 显式重新选择且保留完成记录。自制示例见 [任务选择](../examples/objective-selection/README.md)。原版世界适配器另有核验条件并执行奖励的 `VanillaWorld::claim_mission`，Godot 国家任务区使用这个入口；它与只登记完成的脚本效果分开，使用方法与支持边界见 [任务领取演示](../examples/mission-claims/README.md)。
 
 原版世界入口可以读取 `on_startup` 的 `events` 列表和普通国家事件调用，只绑定直接及间接引用的受支持事件，先处理候选列表，再运行启动效果。启动事件使用已有脚本库展开无参数条件和效果宏，宏中的事件引用也会继续绑定。文件次序、重名处理、原生写法和跨输入读档见 [脚本宏演示](../examples/scripted-events/README.md)。其他事件字段及未注册状态字段仍会报告阻塞来源。启动处理未完成时，候选事件和其他启动写入一起撤销，避免留下部分初始化结果。
 

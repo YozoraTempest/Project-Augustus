@@ -69,6 +69,7 @@ pub(crate) struct EstateStartup {
     steps: Vec<Step>,
     callbacks: BTreeMap<String, Callback>,
     events: EventCatalog,
+    compiler: Compiler,
     monthly_events: Vec<String>,
     yearly_events: Vec<String>,
     pub(crate) event_texts: BTreeMap<String, crate::EventText>,
@@ -1115,10 +1116,131 @@ impl EstateStartup {
             steps,
             callbacks,
             events,
+            compiler,
             monthly_events,
             yearly_events,
             event_texts,
         })
+    }
+
+    pub(crate) fn event_catalog(&self) -> &EventCatalog {
+        &self.events
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn include_mission_events(
+        &mut self,
+        root: &impl ContentView,
+        files: &[FileEntry],
+        roots_by_mission: &BTreeMap<String, BTreeSet<String>>,
+        world: &augustus_core::World,
+        geographic_scopes: &BTreeMap<String, Vec<u32>>,
+        truce_months: Option<u32>,
+        report: &mut EstateReport,
+    ) -> BTreeMap<String, String> {
+        self.compiler.schema = world.schema().clone();
+        self.compiler.mission_ids = world.completions().identifiers.clone();
+        self.compiler.modifier_ids = world.modifiers().definitions.keys().cloned().collect();
+        self.compiler.subject_type_ids = world.subjects().types.clone();
+        self.compiler.government_metric_ids = world.governments().metrics.keys().cloned().collect();
+        self.compiler.government_form_ids = world.governments().forms.keys().cloned().collect();
+        self.compiler.metric_ids = world.metrics().definitions.keys().cloned().collect();
+        self.compiler.geographic_scopes = geographic_scopes.clone();
+        self.compiler.truce_months = truce_months;
+        self.compiler.religious_school_groups = world
+            .affiliations()
+            .0
+            .get("religious_school")
+            .map(|schools| schools.groups.clone())
+            .unwrap_or_default();
+
+        let base_ids: BTreeSet<_> = self.events.definitions().keys().cloned().collect();
+        let roots: BTreeSet<_> = roots_by_mission
+            .values()
+            .flat_map(|roots| roots.iter().cloned())
+            .filter(|id| !base_ids.contains(id))
+            .collect();
+        if roots.is_empty() {
+            return BTreeMap::new();
+        }
+
+        let mut loaded = Vec::new();
+        let mut failures = BTreeMap::new();
+        load_mission_event_groups(
+            root,
+            files,
+            roots.into_iter().collect(),
+            &self.compiler,
+            &mut loaded,
+            &mut failures,
+        );
+
+        let mut combined = self.events.clone();
+        let mut added_texts = BTreeMap::new();
+        let mut option_examples = BTreeMap::new();
+        let mut ignored_definitions =
+            BTreeMap::<String, BTreeSet<(std::path::PathBuf, usize, usize)>>::new();
+        for (requested, catalog, text_keys, diagnostics) in &loaded {
+            let merged = merge_event_catalog(&combined, catalog);
+            match merged {
+                Ok(events) => combined = events,
+                Err(error) => {
+                    let reason = error.to_string();
+                    for id in requested {
+                        failures.entry(id.clone()).or_insert_with(|| reason.clone());
+                    }
+                    continue;
+                }
+            }
+            added_texts.extend(load_event_texts(root, files, text_keys));
+            for (key, source) in &diagnostics.unsupported_examples {
+                option_examples
+                    .entry(key.clone())
+                    .or_insert_with(|| source.clone());
+            }
+            for (name, sources) in &diagnostics.startup_script_ignored_definitions {
+                let entries = ignored_definitions.entry(name.clone()).or_default();
+                for source in sources {
+                    entries.insert((source.path.clone(), source.line, source.column));
+                }
+            }
+        }
+        let new_event_ids: BTreeSet<_> = combined
+            .definitions()
+            .keys()
+            .filter(|id| !base_ids.contains(*id))
+            .cloned()
+            .collect();
+        for id in &new_event_ids {
+            if let Some(options) = combined.unavailable_options().get(id) {
+                for reason in options.values() {
+                    let key = format!("startup_event_option:{reason}");
+                    *report.unsupported_fields.entry(key.clone()).or_default() += 1;
+                    if let Some(source) = option_examples.get(&key) {
+                        report
+                            .unsupported_examples
+                            .entry(key)
+                            .or_insert_with(|| source.clone());
+                    }
+                }
+            }
+        }
+        for (name, sources) in ignored_definitions {
+            let existing = report
+                .startup_script_ignored_definitions
+                .entry(name)
+                .or_default();
+            for (path, line, column) in sources {
+                if !existing.iter().any(|source| {
+                    source.path == path && source.line == line && source.column == column
+                }) {
+                    existing.push(LoadedSource { path, line, column });
+                }
+            }
+        }
+        self.event_texts.extend(added_texts);
+        self.events = combined;
+        failures
     }
 
     pub(crate) fn monthly_event_rules(
@@ -1799,6 +1921,111 @@ fn load_events(
         .and_then(|catalog| catalog.with_unavailable_options(unavailable_options))
         .map_err(|e| Error::caused_by("events", e))?;
     Ok((catalog, event_text_keys))
+}
+
+type MissionEventLoad = (
+    BTreeSet<String>,
+    EventCatalog,
+    BTreeMap<String, EventTextKeys>,
+    EstateReport,
+);
+
+fn load_mission_event_groups(
+    root: &impl ContentView,
+    files: &[FileEntry],
+    roots: Vec<String>,
+    compiler: &Compiler,
+    loaded: &mut Vec<MissionEventLoad>,
+    failures: &mut BTreeMap<String, String>,
+) {
+    if roots.is_empty() {
+        return;
+    }
+    let requested: BTreeSet<_> = roots.iter().cloned().collect();
+    let mut diagnostics = EstateReport::default();
+    match load_events(root, files, requested.clone(), compiler, &mut diagnostics) {
+        Ok((catalog, text_keys)) => loaded.push((requested, catalog, text_keys, diagnostics)),
+        Err(error) if roots.len() == 1 => {
+            failures.insert(roots[0].clone(), relative_event_error(&error, root));
+        }
+        Err(_) => {
+            let middle = roots.len() / 2;
+            load_mission_event_groups(
+                root,
+                files,
+                roots[..middle].to_vec(),
+                compiler,
+                loaded,
+                failures,
+            );
+            load_mission_event_groups(
+                root,
+                files,
+                roots[middle..].to_vec(),
+                compiler,
+                loaded,
+                failures,
+            );
+        }
+    }
+}
+
+fn relative_event_error(error: &Error, root: &impl ContentView) -> String {
+    let mut path = error.path().to_string_lossy().into_owned();
+    for source_root in root.source_roots() {
+        let prefix = format!("{}{}", source_root.display(), std::path::MAIN_SEPARATOR);
+        path = path.replace(&prefix, "");
+    }
+    let location = error
+        .location()
+        .map(|at| format!(":{}:{}", at.line, at.column))
+        .unwrap_or_default();
+    format!("{path}{location}: {}", error.detail())
+}
+
+fn merge_event_catalog(
+    base: &EventCatalog,
+    extra: &EventCatalog,
+) -> Result<EventCatalog, augustus_core::Error> {
+    let mut definitions = base.definitions().clone();
+    definitions.extend(extra.definitions().clone());
+    let mut conditions = base.conditions().clone();
+    conditions.extend(extra.conditions().clone());
+    let mut option_conditions = base.option_conditions().clone();
+    for (event, options) in extra.option_conditions() {
+        option_conditions
+            .entry(event.clone())
+            .or_default()
+            .extend(options.clone());
+    }
+    let mut unavailable_options = base.unavailable_options().clone();
+    for (event, options) in extra.unavailable_options() {
+        unavailable_options
+            .entry(event.clone())
+            .or_default()
+            .extend(options.clone());
+    }
+    let mut option_weights = base.option_weights().clone();
+    for (event, options) in extra.option_weights() {
+        option_weights
+            .entry(event.clone())
+            .or_default()
+            .extend(options.clone());
+    }
+    let mut pictures = base.pictures().clone();
+    pictures.extend(extra.pictures().clone());
+    let mut locations = base.locations().clone();
+    locations.extend(extra.locations().clone());
+    let mut once_events = base.once_events().clone();
+    once_events.extend(extra.once_events().clone());
+    EventCatalog::new(definitions.into_values())
+        .and_then(|catalog| catalog.with_conditions(conditions))
+        .and_then(|catalog| catalog.with_option_conditions(option_conditions))
+        .and_then(|catalog| catalog.with_option_weights(option_weights))
+        .and_then(|catalog| catalog.with_pictures(pictures))
+        .and_then(|catalog| catalog.with_locations(locations))
+        .and_then(|catalog| catalog.with_once_events(once_events))
+        .and_then(|catalog| catalog.with_unavailable_options(unavailable_options))
 }
 
 struct Pending {

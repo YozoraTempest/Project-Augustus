@@ -642,6 +642,29 @@ impl AugustusWorldSession {
     }
 
     #[func]
+    fn query_country_missions(&self, country: GString) -> GString {
+        world_reply(self.loaded().and_then(|loaded| {
+            loaded
+                .country_missions(&country.to_string())
+                .map_err(|error| error.to_string())
+        }))
+    }
+
+    #[func]
+    fn claim_mission(&mut self, country: GString, mission: GString) -> GString {
+        let country = country.to_string();
+        let mission = mission.to_string();
+        match self.loaded_mut().and_then(|loaded| {
+            loaded
+                .claim_mission(&country, &mission)
+                .map_err(|error| error.to_string())
+        }) {
+            Ok(()) => self.query_country_missions(country.as_str().into()),
+            Err(error) => world_reply::<serde_json::Value>(Err(error)),
+        }
+    }
+
+    #[func]
     fn query_unit_templates(&self, id: GString) -> GString {
         world_reply(self.loaded().and_then(|loaded| {
             let id = id.to_string();

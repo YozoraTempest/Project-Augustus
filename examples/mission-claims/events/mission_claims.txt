@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+
+country_event = {
+    id = mission_claims.reward
+    is_triggered_only = yes
+    title = mission_claims.reward.title
+    desc = mission_claims.reward.desc
+    option = { name = mission_claims.reward.option }
+}
