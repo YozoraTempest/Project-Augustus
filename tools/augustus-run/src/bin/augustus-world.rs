@@ -15,6 +15,7 @@ use augustus_eu4::{
     VanillaMonthlyProductionQuery, VanillaMonthlyTaxQuery,
     VanillaProvinceContentProductionGoodsSizeQuery, VanillaProvinceProductionBaseValueQuery,
     VanillaStateMaintenanceQuery, VanillaTradeGoodPriceTableQuery, VanillaWorld,
+    VanillaYearlyEventQuery,
 };
 use clap::Parser;
 use std::{collections::BTreeMap, fs::OpenOptions, io::Write, path::PathBuf, process::ExitCode};
@@ -231,6 +232,14 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     vanilla_monthly_event_queries: Option<PathBuf>,
+    /// Inspect translated yearly pulse configuration for a country.
+    /// Queries run after restore and --days and do not change the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "compare_administration_save"
+    )]
+    vanilla_yearly_event_queries: Option<PathBuf>,
     /// Preview the next monthly country-ledger updates.
     /// Queries run after restore and --days and do not change the world.
     #[arg(
@@ -1006,6 +1015,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let vanilla_yearly_event_queries = cli
+        .vanilla_yearly_event_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<VanillaYearlyEventQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_vanilla_yearly_event(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     let vanilla_production_value_queries = cli
         .vanilla_production_value_queries
         .as_ref()
@@ -1153,6 +1175,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = vanilla_monthly_event_queries {
         output["vanilla_monthly_event_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(queries) = vanilla_yearly_event_queries {
+        output["vanilla_yearly_event_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = vanilla_production_value_queries {
         output["vanilla_production_value_queries"] = serde_json::to_value(queries)?;

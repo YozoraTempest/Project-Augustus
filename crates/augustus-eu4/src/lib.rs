@@ -82,6 +82,7 @@ mod production_queries;
 mod production_value_queries;
 mod truces;
 mod unit_templates;
+mod yearly_event_queries;
 pub use annual_ledger_rollover_queries::{
     VanillaAnnualLedgerRolloverQuery, VanillaAnnualLedgerRolloverQueryReport,
 };
@@ -144,6 +145,7 @@ pub use production_value_queries::{
     VanillaProvinceContentProductionGoodsSizeQueryReport, VanillaProvinceProductionBaseValueQuery,
     VanillaProvinceProductionBaseValueQueryReport,
 };
+pub use yearly_event_queries::{VanillaYearlyEventQuery, VanillaYearlyEventQueryReport};
 mod politics;
 mod province_map;
 mod province_metrics;

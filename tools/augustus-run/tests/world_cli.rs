@@ -2001,6 +2001,96 @@ fn world_cli_rejects_unknown_monthly_event_query_fields() {
 }
 
 #[test]
+fn world_cli_reports_yearly_event_configuration_without_execution() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let game_root = temp.path().join("game");
+    copy_directory(&fixture, &game_root);
+    let on_actions = game_root.join("common/on_actions/yearly.txt");
+    fs::create_dir_all(on_actions.parent().unwrap()).unwrap();
+    fs::write(on_actions, "on_yearly_pulse={events={yearly.pulse}}").unwrap();
+    let events = game_root.join("events/yearly.txt");
+    fs::create_dir_all(events.parent().unwrap()).unwrap();
+    fs::write(
+        events,
+        "country_event={id=yearly.pulse is_triggered_only=yes trigger={tag=AAA} immediate={log=yearly_pulse} option={name=yearly_pulse_a}}",
+    )
+    .unwrap();
+    let queries = temp.path().join("yearly-event-queries.json");
+    let baseline = temp.path().join("baseline.json");
+    let queried = temp.path().join("queried.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA"}]).to_string(),
+    )
+    .unwrap();
+
+    let first = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&game_root)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&baseline)
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let second = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&game_root)
+        .arg("--vanilla-yearly-event-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .arg("--save")
+        .arg(&queried)
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let output: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    let report = &output["vanilla_yearly_event_queries"][0];
+    assert_eq!(report["events"], serde_json::json!(["yearly.pulse"]));
+    assert_eq!(report["active"], true);
+    assert!(
+        report["system_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("eu4-on-yearly-pulse:1:")
+    );
+    assert_eq!(fs::read(&queried).unwrap(), fs::read(&baseline).unwrap());
+}
+
+#[test]
+fn world_cli_rejects_unknown_yearly_event_query_fields() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let queries = temp.path().join("yearly-event-queries.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA", "unexpected": true}]).to_string(),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--vanilla-yearly-event-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown field"));
+}
+
+#[test]
 fn world_cli_runs_and_resumes_an_explicit_annual_ledger_rollover() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();
