@@ -1009,6 +1009,16 @@ impl World {
         Ok(())
     }
 
+    /// Prepares the post-rollover country ledgers without changing the live
+    /// ledgers, yearly-system identity, or snapshot.
+    pub fn preview_country_ledgers_annual_rollover(
+        &self,
+    ) -> Result<BTreeMap<EntityId, CountryLedger>, Error> {
+        let mut staged = self.clone();
+        staged.rollover_country_ledgers_annual()?;
+        Ok(staged.country_ledgers)
+    }
+
     /// Records income and changes the treasury immediately.
     pub fn record_country_income(
         &mut self,

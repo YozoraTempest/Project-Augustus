@@ -8,12 +8,13 @@ use augustus_core::{
     select_vanilla_native_migration_candidate,
 };
 use augustus_eu4::{
-    ContentSet, TextEncoding, VanillaEstateLoyaltyQuery, VanillaExternalState,
-    VanillaFortMaintenanceQuery, VanillaGoldStageQuery, VanillaMonthlyAccrualQuery,
-    VanillaMonthlyAutonomyQuery, VanillaMonthlyCashflowQuery, VanillaMonthlyConvergenceQuery,
-    VanillaMonthlyLedgerQuery, VanillaMonthlyProductionQuery, VanillaMonthlyTaxQuery,
-    VanillaProvinceContentProductionGoodsSizeQuery, VanillaProvinceProductionBaseValueQuery,
-    VanillaStateMaintenanceQuery, VanillaTradeGoodPriceTableQuery, VanillaWorld,
+    ContentSet, TextEncoding, VanillaAnnualLedgerRolloverQuery, VanillaEstateLoyaltyQuery,
+    VanillaExternalState, VanillaFortMaintenanceQuery, VanillaGoldStageQuery,
+    VanillaMonthlyAccrualQuery, VanillaMonthlyAutonomyQuery, VanillaMonthlyCashflowQuery,
+    VanillaMonthlyConvergenceQuery, VanillaMonthlyLedgerQuery, VanillaMonthlyProductionQuery,
+    VanillaMonthlyTaxQuery, VanillaProvinceContentProductionGoodsSizeQuery,
+    VanillaProvinceProductionBaseValueQuery, VanillaStateMaintenanceQuery,
+    VanillaTradeGoodPriceTableQuery, VanillaWorld,
 };
 use clap::Parser;
 use std::{collections::BTreeMap, fs::OpenOptions, io::Write, path::PathBuf, process::ExitCode};
@@ -214,6 +215,14 @@ struct Cli {
         conflicts_with = "compare_administration_save"
     )]
     vanilla_monthly_tax_queries: Option<PathBuf>,
+    /// Preview the explicit annual country-ledger rollover stage.
+    /// Queries run after restore and --days and do not change the world.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with_all = ["compare_administration_save", "annual_ledger_rollover"]
+    )]
+    vanilla_annual_ledger_rollover_queries: Option<PathBuf>,
     /// Preview the next monthly country-ledger updates.
     /// Queries run after restore and --days and do not change the world.
     #[arg(
@@ -963,6 +972,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(Into::into)
         })
         .transpose()?;
+    let vanilla_annual_ledger_rollover_queries = cli
+        .vanilla_annual_ledger_rollover_queries
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn std::error::Error>> {
+            let queries: Vec<VanillaAnnualLedgerRolloverQuery> =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            queries
+                .iter()
+                .map(|query| loaded.query_vanilla_annual_ledger_rollover(query))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .transpose()?;
     let vanilla_production_value_queries = cli
         .vanilla_production_value_queries
         .as_ref()
@@ -1104,6 +1126,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(queries) = vanilla_monthly_tax_queries {
         output["vanilla_monthly_tax_queries"] = serde_json::to_value(queries)?;
+    }
+    if let Some(queries) = vanilla_annual_ledger_rollover_queries {
+        output["vanilla_annual_ledger_rollover_queries"] = serde_json::to_value(queries)?;
     }
     if let Some(queries) = vanilla_production_value_queries {
         output["vanilla_production_value_queries"] = serde_json::to_value(queries)?;

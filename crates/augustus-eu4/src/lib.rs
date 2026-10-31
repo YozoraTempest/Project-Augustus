@@ -7,6 +7,7 @@
 
 mod administration;
 mod administration_validation;
+mod annual_ledger_rollover_queries;
 mod attributes;
 mod autonomy;
 mod bootstrap;
@@ -80,6 +81,9 @@ mod production_queries;
 mod production_value_queries;
 mod truces;
 mod unit_templates;
+pub use annual_ledger_rollover_queries::{
+    VanillaAnnualLedgerRolloverQuery, VanillaAnnualLedgerRolloverQueryReport,
+};
 pub use estate_loyalty_queries::{
     VanillaEstateLoyaltyEntry, VanillaEstateLoyaltyEvaluation, VanillaEstateLoyaltyQuery,
     VanillaEstateLoyaltyQueryReport,

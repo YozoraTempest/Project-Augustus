@@ -1819,6 +1819,97 @@ fn world_cli_rejects_unknown_monthly_tax_query_fields() {
 }
 
 #[test]
+fn world_cli_previews_annual_ledger_rollover_without_mutating_snapshot() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let external = temp.path().join("external-state.json");
+    let queries = temp.path().join("annual-ledger-rollover-queries.json");
+    let baseline = temp.path().join("baseline.json");
+    let queried = temp.path().join("queried.json");
+    fs::write(
+        &external,
+        serde_json::json!({
+            "country_resources": {
+                "AAA": {"treasury_milli": 10_000}
+            },
+            "province_annual_tax_milli": {
+                "1": 12_000,
+                "2": 8_000
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA"}]).to_string(),
+    )
+    .unwrap();
+
+    let first = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external)
+        .args(["--days", "415", "--omit-load-report"])
+        .arg("--save")
+        .arg(&baseline)
+        .output()
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let second = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--external-state")
+        .arg(&external)
+        .arg("--vanilla-annual-ledger-rollover-queries")
+        .arg(&queries)
+        .args(["--days", "415", "--omit-load-report"])
+        .arg("--save")
+        .arg(&queried)
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let output: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    let ledger = &output["vanilla_annual_ledger_rollover_queries"][0]["evaluation"];
+    assert!(ledger["income_rollover_total_milli"].as_i64().unwrap() > 0);
+    assert_eq!(ledger["income_accumulator_milli"][0], 0);
+    assert_eq!(fs::read(&queried).unwrap(), fs::read(&baseline).unwrap());
+}
+
+#[test]
+fn world_cli_rejects_unknown_annual_ledger_rollover_query_fields() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
+    let temp = tempfile::tempdir().unwrap();
+    let queries = temp.path().join("annual-ledger-rollover-queries.json");
+    fs::write(
+        &queries,
+        serde_json::json!([{"country": "AAA", "unexpected": true}]).to_string(),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_augustus-world"))
+        .arg("--game-root")
+        .arg(&fixture)
+        .arg("--vanilla-annual-ledger-rollover-queries")
+        .arg(&queries)
+        .args(["--days", "0", "--omit-load-report"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown field"));
+}
+
+#[test]
 fn world_cli_runs_and_resumes_an_explicit_annual_ledger_rollover() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/world");
     let temp = tempfile::tempdir().unwrap();

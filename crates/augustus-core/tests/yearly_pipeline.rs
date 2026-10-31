@@ -172,6 +172,54 @@ fn annual_ledger_rollover_is_a_selected_yearly_phase_and_resumes() {
 }
 
 #[test]
+fn preview_annual_ledger_rollover_preserves_live_state_and_clears_sources() {
+    let (mut world, country) = world();
+    world
+        .set_country_resources(
+            [(
+                country,
+                CountryResources {
+                    treasury_milli: Some(1_000),
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+        )
+        .unwrap();
+    world.record_country_income(country, 2, 400).unwrap();
+    world.record_country_expense(country, 5, 120).unwrap();
+    let snapshot = world.save("annual-preview").unwrap();
+
+    let preview = world.preview_country_ledgers_annual_rollover().unwrap();
+    let ledger = &preview[&country];
+    assert_eq!(ledger.income_rollover_milli[2], 400);
+    assert_eq!(ledger.expense_rollover_milli[5], 120);
+    assert_eq!(ledger.income_rollover_total_milli, 400);
+    assert_eq!(ledger.expense_rollover_total_milli, 120);
+    assert!(
+        ledger
+            .income_accumulator_milli
+            .iter()
+            .all(|value| *value == 0)
+    );
+    assert!(
+        ledger
+            .expense_accumulator_milli
+            .iter()
+            .all(|value| *value == 0)
+    );
+    assert!(ledger.income_sources_milli.iter().all(|value| *value == 0));
+    assert!(ledger.expense_sources_milli.iter().all(|value| *value == 0));
+    assert_eq!(world.save("annual-preview").unwrap(), snapshot);
+    assert_eq!(
+        world.country_ledgers()[&country].income_accumulator_milli[2],
+        400
+    );
+    assert!(world.yearly_system_id().is_none());
+}
+
+#[test]
 fn annual_ledger_rollover_does_not_partially_update_countries_on_overflow() {
     let (mut world, first_country) = world();
     let second_country = world.add_entity("BBB", EntityKind::Country);
