@@ -3102,6 +3102,7 @@ impl VanillaWorld {
         let terrain_definition_file =
             optional_map_file(&map_parsed, map.clone(), "terrain_definition")?;
         let tree_bitmap_file = optional_map_file(&map_parsed, map.clone(), "tree_definition")?;
+        let adjacency_file = optional_map_file(&map_parsed, map.clone(), "adjacencies")?;
         let automatic_tree_indices = optional_ids(&map_parsed, map.clone(), "tree")?
             .into_iter()
             .map(|id| {
@@ -3364,13 +3365,19 @@ impl VanillaWorld {
             _ => None,
         };
         let files = root.files()?;
-        if let Some(adjacencies) = files.iter().find(|file| {
-            file.relative_path
-                .to_string_lossy()
-                .replace('\\', "/")
-                .eq_ignore_ascii_case("map/adjacencies.csv")
-        }) {
-            let document = root.read_text(&adjacencies.relative_path, ENCODING)?;
+        let adjacency_path = adjacency_file.map(PathBuf::from).or_else(|| {
+            files
+                .iter()
+                .find(|file| {
+                    file.relative_path
+                        .to_string_lossy()
+                        .replace('\\', "/")
+                        .eq_ignore_ascii_case("map/adjacencies.csv")
+                })
+                .map(|file| file.relative_path.clone())
+        });
+        if let Some(adjacencies) = adjacency_path {
+            let document = root.read_text(adjacencies, ENCODING)?;
             province_topology.add_special_adjacencies(&document, &provinces)?;
         }
         let defines = crate::Defines::load(root, &files, crate::DefineDifficulty::Normal)?;
