@@ -52,6 +52,10 @@ func _ready() -> void:
 	body_label = Label.new()
 	body_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	content.add_child(body_label)
+	for text_label in [title_label, body_label]:
+		var font: Font = text_label.get_theme_font("font")
+		var tab_width: float = font.get_string_size("    ", HORIZONTAL_ALIGNMENT_LEFT, -1, text_label.get_theme_font_size("font_size")).x
+		text_label.tab_stops = PackedFloat32Array([tab_width])
 	options = VBoxContainer.new()
 	options.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	options.add_theme_constant_override("separation", 8)
@@ -95,7 +99,7 @@ func present(choice: Dictionary, pending_count: int) -> void:
 	for option_id in choice.options:
 		var option_key := str(option_id)
 		var option := Button.new()
-		option.text = str(option_labels.get(option_key, option_key))
+		option.text = str(option_labels.get(option_key, option_key)).replace("\t", "    ")
 		option.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		option.custom_minimum_size.y = 50
 		option.size_flags_horizontal = Control.SIZE_EXPAND_FILL

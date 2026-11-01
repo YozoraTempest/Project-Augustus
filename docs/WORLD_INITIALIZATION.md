@@ -132,6 +132,8 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 待选事件及其本地化展示信息可通过 `--vanilla-pending-event-queries queries.json` 只读检查。每项请求可省略过滤器返回全部 pending events，也可提供 `pending` 或 `country` 一个过滤器，或同时提供；报告返回 pending ID、event ID、标题、描述、当前作用域、日期、已捕获图片、事件/选项 location、当前可用 options 和本地化 option labels。`available_event_options` 会重新读取当前条件，但不执行效果、不推进日历、不消费 RNG、不选择选项，也不修改快照。未知 pending ID、未知国家或 JSON 未知字段报错；合法过滤器没有匹配项时返回空列表。程序入口为 `VanillaWorld::query_vanilla_pending_events`。
 
+静态事件文本从 `*_l_english.yml` 读取，优先按 UTF-8（可带 BOM）读取；无效 UTF-8 按 Windows-1252 读取。引号内的 `\n`、`\r`、`\t`、`\"` 和 `\\` 只解码一次；例如 `\\n` 显示为字面反斜杠与 `n`，不会再变成换行。文本中的空白和 UTF-8 字符保留；缺失或冲突的翻译仍显示原键。Godot 标题与正文按四个字体空格设置制表位，选项按钮中的制表符展开为四个空格；查询保留实际制表符。展示文本由载入的内容重新解析，不写入核心快照，也不改变待选事件或随机状态。自制样本见[事件文本转义](../examples/event-text-escapes/README.md)。语言选择、动态本地化和自动效果说明仍未接入。
+
 国家存档任务和命名变量可通过 `--country-runtime-queries queries.json` 只读检查。每项请求包含 `country`；报告返回当前内容注册的任务 ID、已完成任务集合、当前已选可用任务集合，以及以千分位 `i64` 保存的命名变量。`null` 表示对应任务或变量命名空间尚未绑定，空对象/空数组表示已知为空；`variables_known` 为 `false` 时，变量条目可能已知但命名空间仍有未决部分。查询只读取已经绑定的 `World::completions`、`World::objectives` 和 `World::named_values`，不重新计算任务条件、不刷新可用任务、不执行奖励、不修改快照。未知国家和 JSON 未知字段报错。程序入口为 `VanillaWorld::query_vanilla_country_runtime`。
 
 省份发现和地图知识可通过 `--vanilla-province-discovery-queries queries.json` 只读检查。每项请求包含 `province`，可选 `country`；指定国家时，`discovered` 返回 `true`、`false` 或 `null`，分别表示已发现、已有完整记录但未发现、以及省份记录缺失或该国家仍未决。省略国家时，报告按 EU4 标签返回 `discovered_by`、`undiscovered_by` 和 `unresolved_by`，并用 `state_known` 区分完整记录与完全未知。查询只读取 core `MapKnowledge`，不刷新发现状态、不执行事件、不消费 RNG、不修改快照。未知省份、未知国家和 JSON 未知字段报错。程序入口为 `VanillaWorld::query_vanilla_province_discovery`。
@@ -241,7 +243,7 @@ cargo run -p augustus-run --bin augustus-world --locked -- \
 
 国家查询的 `metrics.stability` 使用整数，范围为 −3 到 3，`null` 表示未知。已接入国家作用域下的字面量 `stability` 条件与 `add_stability` 效果，小数部分向零截断；正负属性分别读取 `positive_stability` 和 `negative_stability`，税收与人力查询从省份所属国家读取当前修正。1444.11.11 的无歧义历史使用启动前零值，随后执行已支持的启动内容。尚未验证的历史赋值、间接历史操作、其他开局日期或失败的启动执行保留为未知；未支持国家间稳定度比较、购买稳定度及相关成本系统。
 
-`--country` 只选择查询对象。需要明确控制身份时使用 `--player HAB`，可以重复提供多个玩家国家；其余已载入国家标记为 AI。`--ai-only` 明确指定没有玩家国家，不能与 `--player` 同用。名单在启动效果执行前绑定，身份随存档保存；读档时使用相同的开局名单，恢复保存时的当前身份。不提供名单时身份未知，需要 `ai` 判断的启动内容会报告缺项。Godot 界面会为待选事件暂停时间推进并显示当前可用选项；本地化文本尚未接入，暂显示事件和选项键。
+`--country` 只选择查询对象。需要明确控制身份时使用 `--player HAB`，可以重复提供多个玩家国家；其余已载入国家标记为 AI。`--ai-only` 明确指定没有玩家国家，不能与 `--player` 同用。名单在启动效果执行前绑定，身份随存档保存；读档时使用相同的开局名单，恢复保存时的当前身份。不提供名单时身份未知，需要 `ai` 判断的启动内容会报告缺项。Godot 界面会为待选事件暂停时间推进并显示当前可用选项；已加载的英语本地化文件提供标题、正文和选项标签，缺失翻译时显示原键。
 
 Godot 界面使用 Godot 4.7.2：
 

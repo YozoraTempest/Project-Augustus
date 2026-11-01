@@ -3,7 +3,8 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::{Path, PathBuf},
+    path::Path,
+    sync::OnceLock,
 };
 
 use jomini::{Encoding, Windows1252Encoding};
@@ -134,7 +135,29 @@ fn decode_localisation(bytes: &[u8]) -> String {
     if let Ok(text) = std::str::from_utf8(bytes) {
         text.to_owned()
     } else {
-        Windows1252Encoding::new().decode(bytes).into_owned()
+        // Jomini's string decoder also removes backslashes and trims whitespace.
+        // Cache its single-byte mapping so file decoding preserves syntax and
+        // whitespace without allocating one temporary string per high byte.
+        static HIGH_BYTES: OnceLock<[char; 128]> = OnceLock::new();
+        let high_bytes = HIGH_BYTES.get_or_init(|| {
+            std::array::from_fn(|index| {
+                Windows1252Encoding::new()
+                    .decode(&[(index + 128) as u8])
+                    .chars()
+                    .next()
+                    .expect("a Windows-1252 byte decodes to one character")
+            })
+        });
+        bytes
+            .iter()
+            .map(|&byte| {
+                if byte.is_ascii() {
+                    char::from(byte)
+                } else {
+                    high_bytes[usize::from(byte) - 128]
+                }
+            })
+            .collect()
     }
 }
 
@@ -158,16 +181,15 @@ fn parse_entry(line: &str, source: &Path, wanted: &BTreeSet<String>) -> Option<(
     }
 
     let normalized = format!("{key} = {value}");
-    let document = TextDocument::from_bytes(
-        PathBuf::from(source),
-        normalized.into_bytes(),
-        TextEncoding::Utf8,
-    );
-    let fields = document.parse().ok()?.root_fields();
-    let [field] = fields.as_slice() else {
+    let document = TextDocument::from_bytes(source, normalized.into_bytes(), TextEncoding::Utf8);
+    let parsed = document.parse().ok()?;
+    let mut fields = parsed.reader().fields();
+    let (_, _, value) = fields.next()?;
+    if fields.next().is_some() {
         return None;
-    };
-    let text = field.scalar.as_deref()?;
+    }
+    let scalar = value.read_scalar().ok()?;
+    let text = std::str::from_utf8(scalar.as_bytes()).ok()?;
     Some((key.to_owned(), decode_escapes(text)))
 }
 
@@ -219,6 +241,66 @@ mod tests {
         assert_eq!(
             parsed,
             ("popup.title".into(), "The \"Imperial\" Diet".into())
+        );
+    }
+
+    #[test]
+    fn decodes_utf8_localisation_escapes_once_from_the_raw_scalar() {
+        let wanted = BTreeSet::from(["popup.title".to_owned()]);
+        let parsed = parse_entry(
+            r#" popup.title:0 "第一行\nSecond\r\t\"quote\"\\path\\n\q" # comment"#,
+            std::path::Path::new("popup_l_english.yml"),
+            &wanted,
+        )
+        .unwrap();
+        assert_eq!(parsed.1, "第一行\nSecond\r\t\"quote\"\\path\\n\\q");
+    }
+
+    #[test]
+    fn windows1252_decoding_preserves_escapes_and_whitespace_for_localisation() {
+        let bytes =
+            b"l_english:\n popup.title:0 \"Caf\xe9 \\n\\\"\x93Euro \x80\x94\\\" \\\\port  \"\n\t ";
+        let text = decode_localisation(bytes);
+        assert!(text.ends_with("\n\t "));
+        assert!(text.contains("Café \\n"));
+        let wanted = BTreeSet::from(["popup.title".to_owned()]);
+        let parsed = parse_entry(
+            text.lines().nth(1).unwrap(),
+            std::path::Path::new("popup_l_english.yml"),
+            &wanted,
+        )
+        .unwrap();
+        assert_eq!(parsed.1, "Café \n\"“Euro €”\" \\port  ");
+    }
+
+    #[test]
+    fn raw_localisation_values_keep_existing_grammar_validation() {
+        let wanted = BTreeSet::from(["popup.title".to_owned()]);
+        let source = std::path::Path::new("popup_l_english.yml");
+        for line in [
+            r#"popup.title:0 { nested = yes }"#,
+            r#"popup.title:0 "First" second = "Second""#,
+            r#"popup.title:0 "unterminated"#,
+            r#"popup.title: "no version""#,
+            r#"other.key:0 "not requested""#,
+        ] {
+            assert!(parse_entry(line, source, &wanted).is_none(), "{line}");
+        }
+        assert_eq!(
+            parse_entry("popup.title:0 bare_value", source, &wanted)
+                .unwrap()
+                .1,
+            "bare_value"
+        );
+        assert_eq!(
+            parse_entry(
+                r#"popup.title:0 "  text # inside  " # outside"#,
+                source,
+                &wanted
+            )
+            .unwrap()
+            .1,
+            "  text # inside  "
         );
     }
 
