@@ -2656,6 +2656,7 @@ pub(crate) fn validate_plan(
             } => {
                 crate::affiliations::validate_condition(dimension, Some(member))?;
             }
+            Action::SetCapital { province, .. } => province.validate()?,
             Action::SetSchoolOpinion {
                 target: crate::SchoolOpinionTarget::Country(target),
                 ..

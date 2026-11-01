@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "fields": ["probe"],
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 1,
+      "values": {}
+    },
+    {
+      "name": "Old",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {"probe": 11}
+    },
+    {
+      "name": "New",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {"probe": 22}
+    }
+  ]
+}

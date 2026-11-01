@@ -1,5 +1,7 @@
 # 事件演示
 
+[当前首都变更](../examples/capital-relocation/README.md) 演示原生 JSON 计划中的 `SetCapital`：国家可以把当前首都设为自己拥有的省份，后续 `Capital` 作用域立即读取新对象。目标省份可通过命名引用或已有实体引用提供；引用不存在、目标未拥有或执行对象不是国家时，计划按既有失败规则停止。该操作只更新当前首都关系，原首都与日期历史保持各自的输入状态。示例包含选择选项后迁移、保存延期计划、读档并于次日迁回的完整流程；EU4 `set_capital` 的兼容编译尚未接入。
+
 [独立倾向场景](../examples/liberty-desire/README.md) 演示临时值、最终值限制、条件结算和跨入口读档。EU4 写法翻译为共享数值操作，原生内容通过 `monthly_convergence` 自行定义趋近目标和条件。
 
 [省份核心场景](../examples/province-cores/README.md) 演示完整核心、领土核心、增删和跨入口读档。`add_core`、`add_territorial_core`、`remove_core`、`is_core` 与 `is_territorial_core` 支持国家和省份两种作用域，参数可以是字面标识、类型匹配的 `ROOT` 或已声明类型的全局事件引用。核心与拥有权独立；修改核心后，行政分类和相关属性读取当前关系。未实现的动态参数会报告来源位置。

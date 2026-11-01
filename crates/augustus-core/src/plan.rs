@@ -291,6 +291,12 @@ pub enum Action {
         target: Target,
         owner: crate::EntityRef,
     },
+    /// Rebinds the current capital to an owned province. This primitive does
+    /// not transfer ownership or rewrite separately supplied capital history.
+    SetCapital {
+        target: Target,
+        province: crate::EntityRef,
+    },
     CreateNavalUnit {
         owner: crate::EntityRef,
         unit_type: String,
@@ -1243,6 +1249,15 @@ impl World {
                         .resolve_in_context(self, context)?
                         .ok_or_else(|| Error::Invalid("owner reference is absent".into()))?;
                     self.set_owner(province, country)?;
+                }
+                Action::SetCapital { target, province } => {
+                    let country = self.target(current, *target)?;
+                    let province = province
+                        .resolve_in_context_with_previous(self, context, previous)?
+                        .ok_or_else(|| {
+                            Error::Invalid("capital province reference is absent".into())
+                        })?;
+                    self.set_capital(country, province)?;
                 }
                 Action::CreateNavalUnit { owner, unit_type } => {
                     let owner = owner
