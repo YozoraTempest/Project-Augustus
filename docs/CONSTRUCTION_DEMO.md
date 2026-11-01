@@ -32,6 +32,8 @@ godot --path godot res://main.tscn
 
 直接运行项目会进入原版开局查看，也可点击其中的“建造演示”。演示界面初始暂停。选中省份和建筑，点击“开始建造”；可以逐日推进、连续运行或保存、恢复。选择回调格式和建造系统后，点击“重新开始”生效。界面存档写入 Godot 的用户数据目录，不修改游戏安装。
 
+世界界面和建造演示共用原子保存实现：在目标目录完成临时文件的写入和同步后，才替换目标文件；任一步失败都会报告错误并保留原目标。保存成功以替换完成为准。快照字符串按原字节写入，不经过 GDScript 数值转换。
+
 固定工期使用自制的 30 天和 70 天。按建设能力推进时，每天累加省份当前能力；“调整施工安排”会随机改变能力，用于观察后续建造和存档是否一致。这些数值与规则属于演示，不代表 EU4 原版建造机制。
 
 Windows x86_64 已验证。扩展描述中也列出 Linux 与 macOS 的库路径，这两个平台尚未验证。
@@ -57,6 +59,7 @@ cargo test --workspace --locked
 cargo build -p augustus-godot --locked
 godot --headless --path godot --editor --import --quit
 godot --headless --path godot --script res://tests/session.gd
+godot --headless --path godot --script res://tests/snapshot_files.gd
 godot --headless --path godot --script res://tests/world.gd
 godot --headless --path godot --script res://tests/world_layout.gd
 godot --headless --path godot --script res://tests/demo_layout.gd
@@ -77,6 +80,8 @@ godot --headless --path godot --script res://tests/accepted_cultures.gd
 ```
 
 Godot 检查会加载真实 Rust 扩展，验证按钮操作、查询、两类输入、存档和随机状态。测试内容均为自制样本。
+
+`snapshot_files.gd` 验证世界界面和建造演示的首次保存、覆盖保存、推进后恢复，以及替换目标为目录、父目录缺失等失败情形。失败时原有内容与当前世界不变，不残留临时文件，也不显示成功。图形模式可附加 `-- --capture <绝对路径前缀>` 检查保存错误信息在宽、窄窗口中的显示。
 
 界面使用当前窗口的实际尺寸排版，最小窗口为 640×480。空间不足时，顶部操作折行、地图和详情上下排列，整页可纵向滚动；Tab 焦点会自动带动滚动。`world_layout.gd` 和 `demo_layout.gd` 在 1100×720、800×600、640×480 检查布局与操作可达、地图或省份选择、推进及存档不变性。图形模式可附加 `-- --capture <绝对路径前缀>` 保存相应界面截图。
 

@@ -2,7 +2,7 @@
 
 本项目通过 Cargo 使用下列依赖，没有复制或修改这些库的源码。实际版本由 Cargo.lock 固定。依赖包保留各自的版权和许可文件；发行包含第三方代码的二进制时，也须保留相应许可要求的声明。
 
-文件处理使用 jomini、walkdir、csv、image 和 thiserror；命令行使用 clap；存档使用 serde 与 serde_json，内容摘要使用 sha2；确定性随机状态使用 rand_chacha，范围采样使用 rand；Godot 扩展使用 godot-rust；测试使用 tempfile。下表包含它们的间接依赖和其他目标平台的依赖，依据锁定版本的包元数据整理。
+文件处理使用 jomini、walkdir、csv、image 和 thiserror；命令行使用 clap；存档使用 serde 与 serde_json，Godot 存档原子替换与测试使用 tempfile，内容摘要使用 sha2；确定性随机状态使用 rand_chacha，范围采样使用 rand；Godot 扩展使用 godot-rust。下表包含它们的间接依赖和其他目标平台的依赖，依据锁定版本的包元数据整理。
 
 Godot 引擎本身采用 MIT 许可，不随本仓库分发。若打包引擎，请同时保留 [Godot 版权与第三方声明](https://godotengine.org/license/)。
 

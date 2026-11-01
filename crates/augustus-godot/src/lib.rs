@@ -11,6 +11,7 @@ mod ledger_view;
 #[cfg(test)]
 mod ledger_view_tests;
 mod naval_cancellation;
+mod snapshot_files;
 
 struct AugustusExtension;
 
@@ -333,6 +334,16 @@ impl AugustusWorldSession {
             self.loaded()
                 .and_then(|loaded| loaded.save().map_err(|e| e.to_string())),
         )
+    }
+
+    #[func]
+    fn save_snapshot_to_file(&self, path: GString) -> GString {
+        let path = path.to_string();
+        let result = self.loaded().and_then(|loaded| {
+            let snapshot = loaded.save().map_err(|error| error.to_string())?;
+            snapshot_files::write_snapshot_to_file(&path, &snapshot)
+        });
+        world_reply::<()>(result)
     }
 
     #[func]
@@ -1090,6 +1101,16 @@ impl AugustusSession {
     #[func]
     fn save_snapshot(&self) -> GString {
         reply(self.demo().and_then(Demo::save))
+    }
+
+    #[func]
+    fn save_snapshot_to_file(&self, path: GString) -> GString {
+        let path = path.to_string();
+        let result = self.demo().and_then(|demo| {
+            let snapshot = demo.save()?;
+            snapshot_files::write_snapshot_to_file(&path, &snapshot).map_err(Error::Invalid)
+        });
+        reply::<()>(result)
     }
 
     #[func]

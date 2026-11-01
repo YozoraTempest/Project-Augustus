@@ -675,19 +675,12 @@ func advance_month() -> void:
 
 func save_world(path: String = "user://augustus-world.json") -> bool:
 	set_running(false)
-	var packet: Dictionary = JSON.parse_string(session.save_snapshot())
+	var packet: Dictionary = JSON.parse_string(session.save_snapshot_to_file(ProjectSettings.globalize_path(path)))
 	if not packet.ok:
-		status.text = packet.error
+		status.text = "战役保存失败：%s" % packet.error
 		return false
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		status.text = "无法保存战役。"
-		return false
-	file.store_string(packet.value)
-	var error := file.get_error()
-	file.close()
-	status.text = "已保存到用户数据目录。" if error == OK else "战役保存失败。"
-	return error == OK
+	status.text = "已保存到用户数据目录。"
+	return true
 
 func restore_world(path: String = "user://augustus-world.json") -> bool:
 	set_running(false)

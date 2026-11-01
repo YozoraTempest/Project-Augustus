@@ -18,3 +18,4 @@ augustus-eu4 = { path = "../augustus-eu4" }
 godot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true

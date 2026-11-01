@@ -104,6 +104,7 @@ dependencies = [
  "godot",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

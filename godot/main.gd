@@ -6,7 +6,6 @@ extends Control
 var session = AugustusSession.new()
 var state: Dictionary = {}
 var selected_province := 0
-var saved_snapshot := ""
 var paused := true
 var title_label: Label
 var date_label: Label
@@ -150,7 +149,6 @@ func _ready() -> void:
 	province_panel.add_child(reorganise_button)
 	status_label = label("", 15)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status_label.max_lines_visible = 2
 	province_panel.add_child(status_label)
 	events_label = label("", 15)
 	events_label.custom_minimum_size.y = 100
@@ -232,28 +230,25 @@ func toggle_pause() -> void:
 	paused = not paused
 	pause_button.text = "继续" if paused else "暂停"
 
-func save_game() -> void:
-	var packet: Dictionary = JSON.parse_string(session.save_snapshot())
+func save_game(path: String = "user://construction-save.json") -> bool:
+	var packet: Dictionary = JSON.parse_string(session.save_snapshot_to_file(ProjectSettings.globalize_path(path)))
 	if not packet.ok:
-		status_label.text = packet.error
-		return
-	var file := FileAccess.open("user://construction-save.json", FileAccess.WRITE)
-	if file == null:
-		status_label.text = "无法写入存档。"
-		return
-	saved_snapshot = packet.value
-	file.store_string(saved_snapshot)
+		status_label.text = "保存失败：%s" % packet.error
+		return false
 	status_label.text = "已保存到本地。"
+	return true
 
-func restore_game() -> void:
-	if not FileAccess.file_exists("user://construction-save.json"):
+func restore_game(path: String = "user://construction-save.json") -> bool:
+	if not FileAccess.file_exists(path):
 		status_label.text = "还没有存档。"
-		return
-	var snapshot := FileAccess.get_file_as_string("user://construction-save.json")
+		return false
+	var snapshot := FileAccess.get_file_as_string(path)
 	if apply_packet(session.restore_snapshot(snapshot)):
 		paused = true
 		pause_button.text = "继续"
 		status_label.text = "已恢复，当前暂停。"
+		return true
+	return false
 
 func refresh() -> void:
 	if state.is_empty():
