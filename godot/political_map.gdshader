@@ -8,6 +8,8 @@ uniform int palette_size = 0;
 uniform float palette_width = 1.0;
 uniform bool highlight_enabled = false;
 uniform vec3 highlight_color : source_color = vec3(1.0, 0.82, 0.18);
+uniform int selected_province_key = -1;
+uniform vec3 selection_color : source_color = vec3(0.55, 0.95, 1.0);
 
 int color_key(vec3 color) {
     ivec3 rgb = ivec3(round(color * 255.0));
@@ -15,6 +17,8 @@ int color_key(vec3 color) {
 }
 
 void fragment() {
+    // Keep the inner border in screen pixels, even on magnified low-resolution maps.
+    vec2 outline_step = fwidth(UV) * 2.0;
     int wanted = color_key(texture(TEXTURE, UV).rgb);
     int low = 0;
     int high = palette_size - 1;
@@ -34,6 +38,15 @@ void fragment() {
         }
         if (candidate < wanted) { low = middle + 1; }
         else { high = middle - 1; }
+    }
+    if (wanted == selected_province_key) {
+        bool border = UV.x < outline_step.x || UV.y < outline_step.y
+            || UV.x > 1.0 - outline_step.x || UV.y > 1.0 - outline_step.y
+            || color_key(texture(TEXTURE, UV - vec2(outline_step.x, 0.0)).rgb) != wanted
+            || color_key(texture(TEXTURE, UV + vec2(outline_step.x, 0.0)).rgb) != wanted
+            || color_key(texture(TEXTURE, UV - vec2(0.0, outline_step.y)).rgb) != wanted
+            || color_key(texture(TEXTURE, UV + vec2(0.0, outline_step.y)).rgb) != wanted;
+        if (border) { result = selection_color; }
     }
     COLOR = vec4(result, 1.0);
 }

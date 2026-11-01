@@ -39,6 +39,7 @@ func run() -> void:
 	await process_frame
 	select_country(ui, "AAA")
 	check(ui.select_province(1), "select a province")
+	var selected_key: int = ui.map_material.get_shader_parameter("selected_province_key")
 	await process_frame
 	await process_frame
 	check(absf(ui.province_details.global_position.y - ui.details_scroll.global_position.y) <= 1.0, "province selection reveals the start of its details")
@@ -66,9 +67,11 @@ func run() -> void:
 	await process_frame
 	check(ui.details_scroll.scroll_vertical == scroll_before, "automatic refresh does not reveal the province again")
 	check(ui.event_overlay.visible and ui.event_option_buttons.size() == 1, "delayed event exposes a choice")
+	check(ui.map_material.get_shader_parameter("selected_province_key") == selected_key, "delayed event preserves the selected province outline")
 	if ui.event_option_buttons.size() == 1:
 		ui.event_option_buttons[0].pressed.emit()
 		check(ui.province_details.text.contains("贸易中心：1 级"), "event choice refreshes the province immediately")
+		check(ui.map_material.get_shader_parameter("selected_province_key") == selected_key, "event option refresh preserves the selected province outline")
 		select_country(ui, "AAA")
 		ui.select_province(3)
 		check(ui.province_details.text.contains("AAA 的发现状态：已发现"), "event effect creates individually known discovery")

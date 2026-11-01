@@ -220,6 +220,7 @@ func _ready() -> void:
 	map_view.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	map_view.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	map_view.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	map_view.tooltip_text = "点击查看省份，青白色轮廓表示当前选择；黄色填色表示任务目标。"
 	map_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	map_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	map_view.gui_input.connect(map_input)
@@ -546,6 +547,7 @@ func apply_loaded_world(candidate, data: Dictionary) -> bool:
 	map_material.set_shader_parameter("palette_size", data.palette.size())
 	map_material.set_shader_parameter("palette_width", float(width))
 	map_material.set_shader_parameter("highlight_enabled", false)
+	map_material.set_shader_parameter("selected_province_key", -1)
 	map_view.material = map_material
 	var highlight_ids_packet: Variant = JSON.parse_string(session.mission_highlight_ids())
 	if highlight_ids_packet == null or highlight_ids_packet.get("ok") != true:
@@ -1249,6 +1251,10 @@ func select_province(id: int, reveal: bool = true) -> bool:
 		return false
 	var province: Dictionary = packet.value
 	selected_province_id = id
+	if map_material != null:
+		var palette_index := int(province_palette_indices.get(id, -1))
+		var selected_key := -1 if palette_index < 0 else color_key(overview.palette[palette_index].color)
+		map_material.set_shader_parameter("selected_province_key", selected_key)
 	var development := "未载入"
 	if province.tax_milli != null and province.production_milli != null and province.manpower_milli != null:
 		development = "%.3f / %.3f / %.3f" % [province.tax_milli / 1000.0, province.production_milli / 1000.0, province.manpower_milli / 1000.0]
