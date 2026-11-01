@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Project Augustus contributors
 
-use std::{
-    ffi::OsStr,
-    io::Write,
-    path::{Path, PathBuf},
-};
+use std::{ffi::OsStr, io::Write, path::Path};
 
 pub(crate) fn write_snapshot_to_file(path: &str, snapshot: &str) -> Result<(), String> {
     if path.is_empty() || path.contains('\0') {
@@ -23,9 +19,12 @@ pub(crate) fn write_snapshot_to_file(path: &str, snapshot: &str) -> Result<(), S
     let parent = target
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
-        .map(|parent| parent.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .unwrap_or_else(|| Path::new("."))
+        .canonicalize()
+        .map_err(|error| format!("could not resolve snapshot directory: {error}"))?;
+    // Keep both rename paths absolute, including Windows extended-length syntax.
+    let target = parent.join(file_name);
+    let mut temporary = tempfile::NamedTempFile::new_in(&parent)
         .map_err(|error| format!("could not create snapshot temporary file: {error}"))?;
     temporary
         .write_all(snapshot.as_bytes())
@@ -62,6 +61,26 @@ mod tests {
 
         write_snapshot_to_file(path_text, second).unwrap();
         assert_eq!(fs::read(path).unwrap(), second.as_bytes());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn saves_and_replaces_windows_paths_longer_than_260_characters() {
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory
+            .path()
+            .join("campaign-snapshots-".repeat(8))
+            .join("province-history-".repeat(8));
+        fs::create_dir_all(&parent).unwrap();
+        let path = parent.join("世界.snapshot.json");
+        let path_text = path.to_str().unwrap().replace('\\', "/");
+        assert!(path_text.chars().count() > 260);
+
+        write_snapshot_to_file(&path_text, "first snapshot").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"first snapshot");
+        write_snapshot_to_file(&path_text, "replacement snapshot").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"replacement snapshot");
+        assert_eq!(fs::read_dir(parent).unwrap().count(), 1);
     }
 
     #[test]

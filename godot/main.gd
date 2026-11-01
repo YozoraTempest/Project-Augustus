@@ -23,11 +23,14 @@ var pause_button: Button
 var advance_one_button: Button
 var save_button: Button
 var restore_button: Button
+var snapshot_save_as_button: Button
+var snapshot_open_button: Button
 var build_button: Button
 var reorganise_button: Button
 var status_label: Label
 var events_label: Label
 var clock: Timer
+var snapshot_dialogs
 
 func _ready() -> void:
 	var font := SystemFont.new()
@@ -101,10 +104,14 @@ func _ready() -> void:
 	advance_one_button = button("推进 1 天", func(): apply_packet(session.advance(1)))
 	controls.add_child(advance_one_button)
 	controls.add_child(button("推进 15 天", func(): apply_packet(session.advance(15))))
-	save_button = button("保存", save_game)
+	save_button = button("快速保存", save_game)
 	controls.add_child(save_button)
-	restore_button = button("恢复", restore_game)
+	restore_button = button("快速读取", restore_game)
 	controls.add_child(restore_button)
+	snapshot_save_as_button = button("另存为…", open_snapshot_save_dialog)
+	controls.add_child(snapshot_save_as_button)
+	snapshot_open_button = button("打开存档…", open_snapshot_load_dialog)
+	controls.add_child(snapshot_open_button)
 	columns = BoxContainer.new()
 	columns.name = "ConstructionColumns"
 	columns.vertical = false
@@ -162,6 +169,11 @@ func _ready() -> void:
 			apply_packet(session.advance(1)))
 	add_child(clock)
 	clock.start()
+	snapshot_dialogs = preload("res://snapshot_file_dialogs.gd").new()
+	add_child(snapshot_dialogs)
+	snapshot_dialogs.setup("user://construction-save.json")
+	snapshot_dialogs.save_selected.connect(save_game)
+	snapshot_dialogs.load_selected.connect(restore_game)
 	get_viewport().size_changed.connect(_update_columns_layout)
 	_update_columns_layout.call_deferred()
 	new_session()
@@ -208,6 +220,7 @@ func apply_packet(json: String) -> bool:
 	return true
 
 func new_session() -> void:
+	snapshot_dialogs.dismiss()
 	paused = true
 	pause_button.text = "继续"
 	selected_province = 0
@@ -235,20 +248,31 @@ func save_game(path: String = "user://construction-save.json") -> bool:
 	if not packet.ok:
 		status_label.text = "保存失败：%s" % packet.error
 		return false
-	status_label.text = "已保存到本地。"
+	status_label.text = "已保存：%s" % path.get_file()
 	return true
 
 func restore_game(path: String = "user://construction-save.json") -> bool:
 	if not FileAccess.file_exists(path):
-		status_label.text = "还没有存档。"
+		status_label.text = "存档不存在：%s" % path.get_file()
 		return false
 	var snapshot := FileAccess.get_file_as_string(path)
 	if apply_packet(session.restore_snapshot(snapshot)):
+		snapshot_dialogs.dismiss()
 		paused = true
 		pause_button.text = "继续"
-		status_label.text = "已恢复，当前暂停。"
+		status_label.text = "已读取：%s，当前暂停。" % path.get_file()
 		return true
 	return false
+
+func open_snapshot_save_dialog() -> void:
+	paused = true
+	pause_button.text = "继续"
+	snapshot_dialogs.show_save()
+
+func open_snapshot_load_dialog() -> void:
+	paused = true
+	pause_button.text = "继续"
+	snapshot_dialogs.show_load()
 
 func refresh() -> void:
 	if state.is_empty():

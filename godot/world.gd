@@ -42,6 +42,9 @@ var directory_picker: FileDialog
 var save_picker: FileDialog
 var eu4_save_picker: FileDialog
 var external_state_picker: FileDialog
+var snapshot_dialogs
+var snapshot_save_as_button: Button
+var snapshot_open_button: Button
 var details_scroll: ScrollContainer
 var selection_revision := 0
 var selected_province_id := 0
@@ -170,13 +173,20 @@ func _ready() -> void:
 	status = label("选择安装目录和玩家国家后载入；标签留空时控制身份保持未知。", 15)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	page.add_child(status)
+	snapshot_dialogs = preload("res://snapshot_file_dialogs.gd").new()
+	add_child(snapshot_dialogs)
+	snapshot_dialogs.setup("user://augustus-world.json")
+	snapshot_dialogs.save_selected.connect(save_world)
+	snapshot_dialogs.load_selected.connect(restore_world)
 	var clock_bar := HFlowContainer.new()
 	page.add_child(clock_bar)
 	calendar_label = label("尚未载入", 16)
 	calendar_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	clock_bar.add_child(calendar_label)
 	run_button = button("运行", toggle_running)
-	time_controls = [run_button, button("推进一天", func(): advance_world(1)), button("至下月", advance_month), button("保存", save_world), button("读取", restore_world)]
+	snapshot_save_as_button = button("另存为…", open_snapshot_save_dialog)
+	snapshot_open_button = button("打开存档…", open_snapshot_load_dialog)
+	time_controls = [run_button, button("推进一天", func(): advance_world(1)), button("至下月", advance_month), button("快速保存", save_world), button("快速读取", restore_world), snapshot_save_as_button, snapshot_open_button]
 	for control in time_controls:
 		control.disabled = true
 		clock_bar.add_child(control)
@@ -504,6 +514,7 @@ func apply_loaded_world(candidate, data: Dictionary) -> bool:
 	if image.get_width() != data.report.map_width or image.get_height() != data.report.map_height:
 		status.text = "省份地图尺寸与开局数据不一致。"
 		return false
+	snapshot_dialogs.dismiss()
 	event_dialog.dismiss()
 	session = candidate
 	overview = data
@@ -673,13 +684,27 @@ func advance_month() -> void:
 			if not advance_world(1) or event_overlay.visible:
 				return
 
+func open_snapshot_save_dialog() -> void:
+	if overview.is_empty():
+		return
+	set_running(false)
+	naval_construction_panel.dismiss_cancellation()
+	snapshot_dialogs.show_save()
+
+func open_snapshot_load_dialog() -> void:
+	if overview.is_empty():
+		return
+	set_running(false)
+	naval_construction_panel.dismiss_cancellation()
+	snapshot_dialogs.show_load()
+
 func save_world(path: String = "user://augustus-world.json") -> bool:
 	set_running(false)
 	var packet: Dictionary = JSON.parse_string(session.save_snapshot_to_file(ProjectSettings.globalize_path(path)))
 	if not packet.ok:
 		status.text = "战役保存失败：%s" % packet.error
 		return false
-	status.text = "已保存到用户数据目录。"
+	status.text = "已保存战役：%s" % path.get_file()
 	return true
 
 func restore_world(path: String = "user://augustus-world.json") -> bool:
@@ -694,10 +719,11 @@ func restore_world(path: String = "user://augustus-world.json") -> bool:
 	if not packet.ok:
 		status.text = packet.error
 		return false
+	snapshot_dialogs.dismiss()
 	naval_construction_panel.dismiss_cancellation()
 	refresh_calendar()
 	select_country(country_choice.selected, false)
-	status.text = "已恢复战役，当前暂停。"
+	status.text = "已恢复战役：%s，当前暂停。" % path.get_file()
 	return true
 
 func rgb(values: Array) -> Color:
