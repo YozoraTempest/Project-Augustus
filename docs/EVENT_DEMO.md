@@ -1,5 +1,7 @@
 # 事件演示
 
+[省份控制者变更](../examples/province-controller-actions/README.md) 演示原生 JSON 计划中的 `SetProvinceController`：目标通过 `target` 选择省份，`controller` 使用现有国家实体引用，或以 `null` 记录已知无控制者。引用在执行时解析，失效或类型不匹配的引用按现有执行失败规则报错，不当成清除操作。当前控制者与所有者、前控制者历史分别保存；该原语只更新当前控制者，不自动转移领土或写入历史。示例包含事件选项、延迟交还控制及保存恢复。已有 EU4 世界通过 `InitialWorld` 执行该计划时，省份视图与海军建造的控制者准入检查读取更新后的状态；EU4 `change_controller` 编译与完整占领副作用尚未接入，部分占领属性仍按开局内容绑定。
+
 [当前首都变更](../examples/capital-relocation/README.md) 演示原生 JSON 计划中的 `SetCapital`：国家可以把当前首都设为自己拥有的省份，后续 `Capital` 作用域立即读取新对象。目标省份可通过命名引用或已有实体引用提供；引用不存在、目标未拥有或执行对象不是国家时，计划按既有失败规则停止。该操作只更新当前首都关系，原首都与日期历史保持各自的输入状态。示例包含选择选项后迁移、保存延期计划、读档并于次日迁回的完整流程；EU4 `set_capital` 的兼容编译尚未接入。
 
 [独立倾向场景](../examples/liberty-desire/README.md) 演示临时值、最终值限制、条件结算和跨入口读档。EU4 写法翻译为共享数值操作，原生内容通过 `monthly_convergence` 自行定义趋近目标和条件。

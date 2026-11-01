@@ -254,6 +254,13 @@ pub enum Action {
         country: crate::EntityRef,
         discovered: bool,
     },
+    /// Updates the explicit controller state independently of ownership and
+    /// previous-controller history. Systems manage their own occupation side
+    /// effects; `None` records known controller absence.
+    SetProvinceController {
+        target: Target,
+        controller: Option<crate::EntityRef>,
+    },
     SetProvinceCenterOfTradeLevel {
         target: Target,
         level: u8,
@@ -1210,6 +1217,20 @@ impl World {
                     ) {
                         self.set_province_discovered_by(province, country, *discovered)?;
                     }
+                }
+                Action::SetProvinceController { target, controller } => {
+                    let province = self.target(current, *target)?;
+                    let controller = controller
+                        .as_ref()
+                        .map(|controller| {
+                            controller
+                                .resolve_in_context_with_previous(self, context, previous)?
+                                .ok_or_else(|| {
+                                    Error::Invalid("province controller reference is absent".into())
+                                })
+                        })
+                        .transpose()?;
+                    self.set_province_controller(province, controller)?;
                 }
                 Action::SetProvinceCenterOfTradeLevel { target, level } => {
                     self.set_province_center_of_trade_level(
