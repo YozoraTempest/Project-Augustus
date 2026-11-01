@@ -11,12 +11,19 @@ var paused := true
 var title_label: Label
 var date_label: Label
 var treasury_label: Label
+var page_scroll: ScrollContainer
+var columns: BoxContainer
+var map_column: HBoxContainer
+var province_panel: VBoxContainer
 var province_buttons: Array[Button] = []
 var province_details: Label
 var building_choice: OptionButton
 var system_choice: OptionButton
 var input_choice: OptionButton
 var pause_button: Button
+var advance_one_button: Button
+var save_button: Button
+var restore_button: Button
 var build_button: Button
 var reorganise_button: Button
 var status_label: Label
@@ -35,47 +42,80 @@ func _ready() -> void:
 	for side in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 24)
 	add_child(margin)
+	page_scroll = ScrollContainer.new()
+	page_scroll.name = "ConstructionPageScroll"
+	page_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	page_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	page_scroll.follow_focus = true
+	page_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	margin.add_child(page_scroll)
 	var page := VBoxContainer.new()
 	page.add_theme_constant_override("separation", 12)
-	margin.add_child(page)
-	var header := HBoxContainer.new()
+	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page_scroll.add_child(page)
+	var header := hflow()
 	page.add_child(header)
 	title_label = label("PROJECT AUGUSTUS", 28)
-	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title_label)
 	date_label = label("第 0 天", 22)
+	date_label.custom_minimum_size.x = 120
+	date_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	date_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	header.add_child(date_label)
 	treasury_label = label("国库", 22)
+	treasury_label.custom_minimum_size.x = 160
+	treasury_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	treasury_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	header.add_child(treasury_label)
-	page.add_child(label("建造演示 · 两个省份，一套世界状态", 16))
-	var settings := HBoxContainer.new()
+	var subtitle := label("建造演示 · 两个省份，一套世界状态", 16)
+	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	page.add_child(subtitle)
+	var settings := hflow()
 	page.add_child(settings)
 	input_choice = OptionButton.new()
 	input_choice.add_item("EU4 写法的回调")
 	input_choice.add_item("原生规则")
+	input_choice.fit_to_longest_item = false
+	input_choice.clip_text = true
+	input_choice.custom_minimum_size.x = 170
 	settings.add_child(input_choice)
 	system_choice = OptionButton.new()
 	system_choice.add_item("固定工期")
 	system_choice.add_item("按建设能力推进")
+	system_choice.fit_to_longest_item = false
+	system_choice.clip_text = true
+	system_choice.custom_minimum_size.x = 170
 	settings.add_child(system_choice)
 	settings.add_child(button("重新开始", new_session))
 	settings.add_child(button("原版开局", func(): get_tree().change_scene_to_file("res://world.tscn")))
-	settings.add_child(label("切换规则后重新开始", 15))
-	var controls := HBoxContainer.new()
+	var settings_hint := label("切换规则后重新开始", 15)
+	settings_hint.custom_minimum_size.x = 180
+	settings_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	settings_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	settings.add_child(settings_hint)
+	var controls := hflow()
 	page.add_child(controls)
 	pause_button = button("继续", toggle_pause)
 	controls.add_child(pause_button)
-	controls.add_child(button("推进 1 天", func(): apply_packet(session.advance(1))))
+	advance_one_button = button("推进 1 天", func(): apply_packet(session.advance(1)))
+	controls.add_child(advance_one_button)
 	controls.add_child(button("推进 15 天", func(): apply_packet(session.advance(15))))
-	controls.add_child(button("保存", save_game))
-	controls.add_child(button("恢复", restore_game))
-	var middle := HBoxContainer.new()
-	middle.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	middle.add_theme_constant_override("separation", 24)
-	page.add_child(middle)
-	var map := HBoxContainer.new()
-	map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	middle.add_child(map)
+	save_button = button("保存", save_game)
+	controls.add_child(save_button)
+	restore_button = button("恢复", restore_game)
+	controls.add_child(restore_button)
+	columns = BoxContainer.new()
+	columns.name = "ConstructionColumns"
+	columns.vertical = false
+	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	columns.add_theme_constant_override("separation", 24)
+	page.add_child(columns)
+	map_column = HBoxContainer.new()
+	map_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	columns.add_child(map_column)
 	for index in 2:
 		var region := button("", func(): select_province(index))
 		region.custom_minimum_size = Vector2(240, 260)
@@ -87,29 +127,35 @@ func _ready() -> void:
 		style.border_color = Color("668c84") if index == 0 else Color("7294ad")
 		region.add_theme_stylebox_override("normal", style)
 		province_buttons.append(region)
-		map.add_child(region)
-	var panel := VBoxContainer.new()
-	panel.custom_minimum_size.x = 310
-	panel.add_theme_constant_override("separation", 10)
-	middle.add_child(panel)
-	panel.add_child(label("省份建设", 22))
+		map_column.add_child(region)
+	province_panel = VBoxContainer.new()
+	province_panel.custom_minimum_size.x = 310
+	province_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	province_panel.add_theme_constant_override("separation", 10)
+	columns.add_child(province_panel)
+	province_panel.add_child(label("省份建设", 22))
 	province_details = label("", 17)
 	province_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	panel.add_child(province_details)
+	province_panel.add_child(province_details)
 	building_choice = OptionButton.new()
-	panel.add_child(building_choice)
+	building_choice.fit_to_longest_item = false
+	building_choice.clip_text = true
+	building_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	province_panel.add_child(building_choice)
 	building_choice.item_selected.connect(func(_index): refresh())
 	build_button = button("开始建造", build_selected)
-	panel.add_child(build_button)
+	province_panel.add_child(build_button)
 	reorganise_button = button("调整施工安排", func(): apply_packet(session.reorganise(selected_province)))
 	reorganise_button.tooltip_text = "演示行动：随机将建设能力设为 1 或 2。结果随存档保存。"
-	panel.add_child(reorganise_button)
+	province_panel.add_child(reorganise_button)
 	status_label = label("", 15)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_label.max_lines_visible = 2
-	panel.add_child(status_label)
+	province_panel.add_child(status_label)
 	events_label = label("", 15)
 	events_label.custom_minimum_size.y = 100
+	events_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	events_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	page.add_child(events_label)
 	clock = Timer.new()
 	clock.wait_time = 0.5
@@ -118,7 +164,28 @@ func _ready() -> void:
 			apply_packet(session.advance(1)))
 	add_child(clock)
 	clock.start()
+	get_viewport().size_changed.connect(_update_columns_layout)
+	_update_columns_layout.call_deferred()
 	new_session()
+
+func hflow() -> HFlowContainer:
+	var flow := HFlowContainer.new()
+	flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	flow.add_theme_constant_override("h_separation", 12)
+	flow.add_theme_constant_override("v_separation", 6)
+	return flow
+
+func _update_columns_layout() -> void:
+	if page_scroll == null or columns == null or map_column == null or province_panel == null:
+		return
+	var scrollbar_width: float = page_scroll.get_v_scroll_bar().get_combined_minimum_size().x
+	var available_width := get_viewport_rect().size.x - 48.0 - scrollbar_width
+	var required_width := (
+		map_column.get_combined_minimum_size().x
+		+ province_panel.get_combined_minimum_size().x
+		+ float(columns.get_theme_constant("separation"))
+	)
+	columns.vertical = available_width < required_width
 
 func label(text: String, size: int) -> Label:
 	var node := Label.new()

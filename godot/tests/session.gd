@@ -11,6 +11,7 @@ func check(condition: bool, message: String) -> void:
 		failures += 1
 
 func _initialize() -> void:
+	root.set_deferred("size", Vector2i(1100, 720))
 	var clock_session := AugustusWorldSession.new()
 	var initial_timing: Dictionary = JSON.parse_string(clock_session.update_frame_timing(1.0))
 	check(initial_timing.ok and initial_timing.value.raw_delta == 0.0 and initial_timing.value.smoothed_delta == 0.0, "frame clock initializes without inventing a delta")

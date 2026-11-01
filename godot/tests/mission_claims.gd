@@ -14,6 +14,7 @@ func check(condition: bool, message: String) -> void:
 		failures += 1
 
 func _initialize() -> void:
+	root.set_deferred("size", Vector2i(1100, 720))
 	run.call_deferred()
 
 func run() -> void:
@@ -92,9 +93,9 @@ func run() -> void:
 	await process_frame
 	await process_frame
 	ui.details_scroll.scroll_vertical = 120
-	var scroll_before_claim: int = ui.details_scroll.scroll_vertical
 	ui.set_running(true)
 	ui.mission_claim_buttons["aaa_claim_first"].grab_focus()
+	var scroll_before_claim: int = ui.details_scroll.scroll_vertical
 	ui.mission_claim_buttons["aaa_claim_first"].pressed.emit()
 	var after_first: Dictionary = JSON.parse_string(ui.session.query_country_missions("AAA"))
 	var after_first_country: Dictionary = JSON.parse_string(ui.session.query_country("AAA"))

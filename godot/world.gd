@@ -14,6 +14,10 @@ var highlight_mask_image: Image
 var highlight_mask_texture: ImageTexture
 var map_material: ShaderMaterial
 var game_path: LineEdit
+var load_button: Button
+var page_scroll: ScrollContainer
+var columns: BoxContainer
+var map_column: VBoxContainer
 var baseline_save: LineEdit
 var eu4_save: LineEdit
 var naval_queues_checkbox: CheckBox
@@ -87,23 +91,30 @@ func _ready() -> void:
 	for side in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 24)
 	add_child(margin)
+	page_scroll = ScrollContainer.new()
+	page_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	page_scroll.follow_focus = true
+	margin.add_child(page_scroll)
 	var page := VBoxContainer.new()
+	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page.add_theme_constant_override("separation", 12)
-	margin.add_child(page)
-	var header := HBoxContainer.new()
+	page_scroll.add_child(page)
+	var header := HFlowContainer.new()
 	page.add_child(header)
 	var heading := label("PROJECT AUGUSTUS · 原版开局", 26)
 	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	header.add_child(heading)
 	header.add_child(button("建造演示", func(): get_tree().change_scene_to_file("res://main.tscn")))
-	page.add_child(label("EU4 终版 · 全部 DLC 机制基线 · 已接入日历与税收月结，其余机制尚待实现", 15))
-	var form := HBoxContainer.new()
+	var subtitle := label("EU4 终版 · 全部 DLC 机制基线 · 已接入日历与税收月结，其余机制尚待实现", 15)
+	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	page.add_child(subtitle)
+	var form := HFlowContainer.new()
 	page.add_child(form)
 	game_path = LineEdit.new()
 	game_path.placeholder_text = "选择本地 Europa Universalis IV 安装目录"
-	game_path.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	form.add_child(game_path)
-	form.add_child(button("选择目录", func(): directory_picker.popup_centered_ratio(0.7)))
+	add_path_picker(form, game_path, button("选择目录", func(): directory_picker.popup_centered_ratio(0.7)))
 	date_input = LineEdit.new()
 	date_input.text = "1444.11.11"
 	date_input.custom_minimum_size.x = 130
@@ -112,14 +123,13 @@ func _ready() -> void:
 	player_countries_input.placeholder_text = "玩家国家标签，可用逗号分隔"
 	player_countries_input.custom_minimum_size.x = 220
 	form.add_child(player_countries_input)
-	form.add_child(button("载入开局", load_world))
-	var save_form := HBoxContainer.new()
+	load_button = button("载入开局", load_world)
+	form.add_child(load_button)
+	var save_form := HFlowContainer.new()
 	page.add_child(save_form)
 	baseline_save = LineEdit.new()
 	baseline_save.placeholder_text = "可选：1444.11.11 全 DLC、无 Mod 的明文存档，仅导入 HRE 归属与帝位偏好"
-	baseline_save.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	save_form.add_child(baseline_save)
-	save_form.add_child(button("选择存档", func(): save_picker.popup_centered_ratio(0.7)))
+	add_path_picker(save_form, baseline_save, button("选择存档", func(): save_picker.popup_centered_ratio(0.7)))
 	directory_picker = FileDialog.new()
 	directory_picker.file_mode = FileDialog.FILE_MODE_OPEN_DIR
 	directory_picker.access = FileDialog.ACCESS_FILESYSTEM
@@ -135,14 +145,12 @@ func _ready() -> void:
 	eu4_save_picker.access = FileDialog.ACCESS_FILESYSTEM
 	eu4_save_picker.file_selected.connect(_set_eu4_save_path)
 	add_child(eu4_save_picker)
-	var eu4_save_form := HBoxContainer.new()
+	var eu4_save_form := HFlowContainer.new()
 	page.add_child(eu4_save_form)
 	eu4_save = LineEdit.new()
 	eu4_save.placeholder_text = "可选：导入自己的未压缩 EU4 存档，直接恢复开局状态"
-	eu4_save.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	eu4_save.text_changed.connect(_on_eu4_save_text_changed)
-	eu4_save_form.add_child(eu4_save)
-	eu4_save_form.add_child(button("选择 EU4 存档", func(): eu4_save_picker.popup_centered_ratio(0.7)))
+	add_path_picker(eu4_save_form, eu4_save, button("选择 EU4 存档", func(): eu4_save_picker.popup_centered_ratio(0.7)))
 	naval_queues_checkbox = CheckBox.new()
 	naval_queues_checkbox.text = "载入舰船队列"
 	naval_queues_checkbox.tooltip_text = "从此 EU4 存档导入待造舰船订单；同一港口的多笔订单按存档原顺序接入。"
@@ -154,18 +162,15 @@ func _ready() -> void:
 	external_state_picker.access = FileDialog.ACCESS_FILESYSTEM
 	external_state_picker.file_selected.connect(func(path): external_state.text = path)
 	add_child(external_state_picker)
-	var external_state_form := HBoxContainer.new()
+	var external_state_form := HFlowContainer.new()
 	page.add_child(external_state_form)
 	external_state = LineEdit.new()
 	external_state.placeholder_text = "可选：由其他读取器或模拟器提供的已翻译状态包（VanillaExternalState JSON）"
-	external_state.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	external_state_form.add_child(external_state)
-	external_state_form.add_child(button("选择状态包", func(): external_state_picker.popup_centered_ratio(0.7)))
+	add_path_picker(external_state_form, external_state, button("选择状态包", func(): external_state_picker.popup_centered_ratio(0.7)))
 	status = label("选择安装目录和玩家国家后载入；标签留空时控制身份保持未知。", 15)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status.max_lines_visible = 3
 	page.add_child(status)
-	var clock_bar := HBoxContainer.new()
+	var clock_bar := HFlowContainer.new()
 	page.add_child(clock_bar)
 	calendar_label = label("尚未载入", 16)
 	calendar_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -180,16 +185,16 @@ func _ready() -> void:
 	simulation_timer.timeout.connect(func(): advance_world(1))
 	add_child(simulation_timer)
 	create_event_overlay()
-	var middle := HBoxContainer.new()
-	middle.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	middle.add_theme_constant_override("separation", 20)
-	page.add_child(middle)
-	var map_column := VBoxContainer.new()
+	columns = BoxContainer.new()
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	columns.add_theme_constant_override("separation", 20)
+	page.add_child(columns)
+	map_column = VBoxContainer.new()
 	map_column.custom_minimum_size = Vector2(400, 250)
 	map_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	map_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	map_column.add_theme_constant_override("separation", 4)
-	middle.add_child(map_column)
+	columns.add_child(map_column)
 	var map_highlight_bar := HBoxContainer.new()
 	map_column.add_child(map_highlight_bar)
 	map_highlight_status = label("未显示目标", 14)
@@ -213,7 +218,8 @@ func _ready() -> void:
 	details_scroll = sidebar
 	sidebar.custom_minimum_size.x = 320
 	sidebar.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	middle.add_child(sidebar)
+	sidebar.follow_focus = true
+	columns.add_child(sidebar)
 	var panel := VBoxContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.add_theme_constant_override("separation", 12)
@@ -221,6 +227,9 @@ func _ready() -> void:
 	panel.add_child(label("国家", 20))
 	country_choice = OptionButton.new()
 	country_choice.custom_minimum_size.x = 300
+	country_choice.fit_to_longest_item = false
+	country_choice.clip_text = true
+	country_choice.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	country_choice.item_selected.connect(select_country)
 	panel.add_child(country_choice)
 	country_details = label("尚未载入", 16)
@@ -239,6 +248,9 @@ func _ready() -> void:
 		row.add_child(label({"infantry": "步兵", "cavalry": "骑兵", "artillery": "炮兵"}[category], 15))
 		var option := OptionButton.new()
 		option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		option.fit_to_longest_item = false
+		option.clip_text = true
+		option.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		option.item_selected.connect(choose_unit_template.bind(category))
 		unit_option_controls[category] = option
 		row.add_child(option)
@@ -290,10 +302,30 @@ func _ready() -> void:
 	province_details = label("尚未选择", 16)
 	province_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	panel.add_child(province_details)
+	resized.connect(_update_columns_layout)
+	_update_columns_layout.call_deferred()
 	if not parse_launch_args(OS.get_cmdline_user_args()):
 		return
 	if not game_path.text.is_empty():
 		load_world()
+
+func _update_columns_layout() -> void:
+	var available_width := size.x - 48.0 - page_scroll.get_v_scroll_bar().get_combined_minimum_size().x
+	var horizontal_width := map_column.get_combined_minimum_size().x + details_scroll.get_combined_minimum_size().x + columns.get_theme_constant("separation")
+	var stacked := available_width < horizontal_width
+	if columns.vertical == stacked:
+		return
+	columns.vertical = stacked
+	details_scroll.custom_minimum_size.y = 320.0 if columns.vertical else 0.0
+
+func add_path_picker(row: Container, field: LineEdit, picker: Button) -> void:
+	var group := HBoxContainer.new()
+	group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	field.custom_minimum_size.x = 240
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	group.add_child(field)
+	group.add_child(picker)
+	row.add_child(group)
 
 func create_event_overlay() -> void:
 	event_dialog = preload("res://event_dialog.gd").new()
@@ -533,6 +565,7 @@ func apply_loaded_world(candidate, data: Dictionary) -> bool:
 	for country in data.countries:
 		country_choice.add_item("%s · %s (%d)" % [country.id, country.name, country.province_count])
 		country_choice.set_item_metadata(country_choice.item_count - 1, country.id)
+		country_choice.set_item_tooltip(country_choice.item_count - 1, country_choice.get_item_text(country_choice.item_count - 1))
 	var unapplied := 0
 	for count in data.report.unapplied_country_fields.values():
 		unapplied += int(count)
@@ -731,6 +764,7 @@ func select_country(index: int, reset_scroll: bool = true) -> void:
 	var country: Dictionary = packet.value.state
 	selected_country_id = id
 	country_choice.select(index)
+	country_choice.tooltip_text = country_choice.get_item_text(index)
 	var economy_packet: Variant = JSON.parse_string(session.query_economy(id))
 	if economy_packet == null or economy_packet.get("ok") != true:
 		economy_panel.clear()
@@ -1138,9 +1172,11 @@ func refresh_unit_templates(id: String) -> void:
 		for unit_type in choices:
 			option.add_item(unit_type)
 			option.set_item_metadata(option.item_count - 1, unit_type)
+			option.set_item_tooltip(option.item_count - 1, unit_type)
 			if unit_type == chosen:
 				selected_index = option.item_count - 1
 		option.select(selected_index)
+		option.tooltip_text = option.get_item_text(selected_index)
 		option.disabled = choices.is_empty()
 		unit_option_cache[category] = signature
 	unit_country_id = id
@@ -1341,6 +1377,8 @@ func autonomy_percent(value) -> String:
 func reveal_province(revision: int) -> void:
 	await get_tree().process_frame
 	if revision == selection_revision:
+		if columns.vertical:
+			page_scroll.ensure_control_visible(details_scroll)
 		details_scroll.scroll_vertical += roundi(province_details.global_position.y - details_scroll.global_position.y)
 
 func map_input(event: InputEvent) -> void:

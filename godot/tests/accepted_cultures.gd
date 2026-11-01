@@ -10,6 +10,7 @@ var snapshot_path: String = "user://accepted-cultures-%d.json" % OS.get_process_
 var ui: Variant
 
 func _initialize() -> void:
+	root.set_deferred("size", Vector2i(1100, 720))
 	run.call_deferred()
 
 func run() -> void:

@@ -12,6 +12,7 @@ func check(condition: bool, message: String) -> void:
 		failures += 1
 
 func _initialize() -> void:
+	root.set_deferred("size", Vector2i(1100, 720))
 	var ui = load("res://world.tscn").instantiate()
 	root.add_child.call_deferred(ui)
 	verify_ui.call_deferred(ui)

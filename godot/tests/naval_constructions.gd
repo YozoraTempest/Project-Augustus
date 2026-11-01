@@ -15,6 +15,7 @@ func check(condition: bool, message: String) -> void:
 		failures += 1
 
 func _initialize() -> void:
+	root.set_deferred("size", Vector2i(1100, 720))
 	run.call_deferred()
 
 func run() -> void:

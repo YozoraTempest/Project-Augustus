@@ -13,6 +13,7 @@ func check(condition: bool, message: String) -> void:
 		failures += 1
 
 func _initialize() -> void:
+	root.set_deferred("size", Vector2i(1100, 720))
 	var session := AugustusWorldSession.new()
 	var no_mods: Array[String] = []
 	check(not JSON.parse_string(session.query_country("AAA")).ok, "queries require a loaded world")
