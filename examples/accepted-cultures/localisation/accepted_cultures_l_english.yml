@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+l_english:
+ accepted_cultures.start.t:0 "A New People in the Realm"
+ accepted_cultures.start.d:0 "The people of the northern province speak a related culture."
+ accepted_cultures.accept_alpha:0 "Recognize their culture"
+ accepted_cultures.remove_alpha.t:0 "A Change of Policy"
+ accepted_cultures.remove_alpha.d:0 "The court reviews its recognition of alpha."
+ accepted_cultures.remove_alpha_option:0 "Withdraw recognition"

@@ -2639,6 +2639,33 @@ impl<'a> ScriptCompiler<'a> {
                         name: name.into(),
                     });
                 }
+                "add_accepted_culture" | "remove_accepted_culture" => {
+                    if scope != EntityKind::Country {
+                        return Err(field.error("accepted culture effects require country scope"));
+                    }
+                    let member = field.scalar()?;
+                    if member.trim().is_empty()
+                        || member
+                            .chars()
+                            .any(|c| matches!(c, '$' | '@' | '[' | ']' | ':' | '.'))
+                        || member
+                            .trim_start_matches(['+', '-'])
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit())
+                        || country_identifier(member)
+                        || ["root", "from", "prev", "this", "primary", "dominant"]
+                            .iter()
+                            .any(|name| member.eq_ignore_ascii_case(name))
+                    {
+                        return Err(field.error("accepted culture effects require a literal culture identifier; dynamic operands are unsupported"));
+                    }
+                    plan.push(Action::SetAffiliationAcceptance {
+                        target: Target::Current,
+                        dimension: "culture".into(),
+                        member: member.into(),
+                        accepted: field.name == "add_accepted_culture",
+                    });
+                }
                 "set_religious_school" => {
                     if scope != EntityKind::Country {
                         return Err(field.error("religious school effects require country scope"));

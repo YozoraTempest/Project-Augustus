@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+on_monthly_pulse = {
+	events = { accepted_cultures.start }
+}

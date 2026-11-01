@@ -369,6 +369,12 @@ pub enum Action {
         dimension: String,
         member: Option<String>,
     },
+    SetAffiliationAcceptance {
+        target: Target,
+        dimension: String,
+        member: String,
+        accepted: bool,
+    },
     SetSchoolOpinion {
         target: SchoolOpinionTarget,
         opinion: i64,
@@ -1448,6 +1454,15 @@ impl World {
                 } => {
                     let entity = self.target(current, *target)?;
                     self.set_affiliation_member(entity, dimension, member.as_deref())?;
+                }
+                Action::SetAffiliationAcceptance {
+                    target,
+                    dimension,
+                    member,
+                    accepted,
+                } => {
+                    let country = self.target(current, *target)?;
+                    self.set_affiliation_acceptance_member(country, dimension, member, *accepted)?;
                 }
                 Action::SetSchoolOpinion { target, opinion } => {
                     let target = match target {

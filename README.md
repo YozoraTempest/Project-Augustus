@@ -28,6 +28,8 @@ EU4 存档导入还支持已支付的普通舰船订单：受支持的单订单�
 
 国家是否拥有领土也由共享核心查询，已登记标签与存活国家分别处理，见 [国家领土条件演示](examples/country-existence/README.md)。[拥有省份查询](examples/owned-provinces/README.md) 可进一步检查当前成员的条件，并在归属或省份状态变化后读取新结果。[遍历与随机选择](examples/owned-iteration/README.md) 共用核心计划，保留取得顺序、实时筛选和读档后的随机状态。
 
+事件和任务奖励可用字面文化标识执行 `add_accepted_culture` 与 `remove_accepted_culture`，修改国家已知的显式接纳名单。文化待遇、相关条件和省份属性立即读取新状态，保存恢复后保留；文化联盟的组接纳独立于显式名单。自制事件链见[运行时文化接纳](examples/accepted-cultures/README.md)。
+
 项目也提供本地文件检查工具，用于读取目录、Mod 描述和文本，查询文件覆盖及定义来源。使用方法见 [EU4 文件工具](docs/EU4_CONTENT.md)。
 
 ## 参与开发

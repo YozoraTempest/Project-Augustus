@@ -67,9 +67,12 @@ godot --headless --path godot --script res://tests/military_roster.gd
 godot --headless --path godot --script res://tests/naval_constructions.gd
 godot --headless --path godot --script res://tests/economy.gd
 godot --headless --path godot --script res://tests/ledger.gd
+godot --headless --path godot --script res://tests/accepted_cultures.gd
 ```
 
 Godot 检查会加载真实 Rust 扩展，验证按钮操作、查询、两类输入、存档和随机状态。测试内容均为自制样本。
+
+`accepted_cultures.gd` 验证文化接纳事件、后续移除事件、省份文化待遇和属性刷新，以及接纳后的保存恢复与事件续行。它使用[运行时文化接纳](../examples/accepted-cultures/README.md)中的自制 Mod。
 
 `military_roster.gd` 验证按国家查看当前军队与舰队、团舰详情中的已知值与缺项、驻地跳转，以及推进、事件生成单位、保存恢复和新世界载入后的列表与选择状态；同时检查超出浮点精确整数范围的编号仍可区分和选中。使用图形模式时，也应检查展开列表、长名称和详情换行的实际显示。
 

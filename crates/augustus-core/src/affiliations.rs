@@ -197,6 +197,44 @@ pub(crate) fn validate_condition(dimension: &str, value: Option<&str>) -> Result
 }
 
 impl World {
+    /// Adds or removes one explicitly accepted member in a known country policy.
+    /// Group acceptance, memberships and unrelated policies remain independent.
+    /// An unknown explicit set cannot be inferred from an individual change.
+    pub fn set_affiliation_acceptance_member(
+        &mut self,
+        country: EntityId,
+        dimension: &str,
+        member: &str,
+        accepted: bool,
+    ) -> Result<(), Error> {
+        self.require_running()?;
+        if self.entity(country)?.kind != EntityKind::Country {
+            return Err(Error::Invalid(
+                "affiliation acceptance requires a country".into(),
+            ));
+        }
+        validate_condition(dimension, Some(member))?;
+        let data = self.affiliations.0.get_mut(dimension).ok_or_else(|| {
+            Error::Invalid(format!("unregistered affiliation dimension {dimension}"))
+        })?;
+        if !data.groups.contains_key(member) {
+            return Err(Error::Invalid(format!(
+                "unregistered affiliation member {member}"
+            )));
+        }
+        let members = data
+            .acceptance
+            .get_mut(&country)
+            .and_then(|policy| policy.members.as_mut())
+            .ok_or_else(|| Error::Invalid("unknown explicit affiliation acceptance".into()))?;
+        if accepted {
+            members.insert(member.into());
+        } else {
+            members.remove(member);
+        }
+        Ok(())
+    }
+
     /// Set a registered member, or explicitly clear membership. Other dimensions
     /// and acceptance policies remain independent of this operation.
     pub fn set_affiliation_member(

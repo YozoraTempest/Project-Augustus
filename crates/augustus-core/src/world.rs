@@ -2651,6 +2651,11 @@ pub(crate) fn validate_plan(
             } => {
                 crate::affiliations::validate_condition(dimension, member.as_deref())?;
             }
+            Action::SetAffiliationAcceptance {
+                dimension, member, ..
+            } => {
+                crate::affiliations::validate_condition(dimension, Some(member))?;
+            }
             Action::SetSchoolOpinion {
                 target: crate::SchoolOpinionTarget::Country(target),
                 ..
