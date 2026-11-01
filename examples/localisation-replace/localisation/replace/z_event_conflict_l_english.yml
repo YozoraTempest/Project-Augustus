@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+l_english:
+ localisation_replace.option_reject:0 "替换拒绝乙"

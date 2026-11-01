@@ -132,7 +132,8 @@ cargo run -p augustus-run --bin augustus-world -- --game-root /path/to/eu4 --eu4
 
 待选事件及其本地化展示信息可通过 `--vanilla-pending-event-queries queries.json` 只读检查。每项请求可省略过滤器返回全部 pending events，也可提供 `pending` 或 `country` 一个过滤器，或同时提供；报告返回 pending ID、event ID、标题、描述、当前作用域、日期、已捕获图片、事件/选项 location、当前可用 options 和本地化 option labels。`available_event_options` 会重新读取当前条件，但不执行效果、不推进日历、不消费 RNG、不选择选项，也不修改快照。未知 pending ID、未知国家或 JSON 未知字段报错；合法过滤器没有匹配项时返回空列表。程序入口为 `VanillaWorld::query_vanilla_pending_events`。
 
-静态事件文本从 `*_l_english.yml` 读取，优先按 UTF-8（可带 BOM）读取；无效 UTF-8 按 Windows-1252 读取。引号内的 `\n`、`\r`、`\t`、`\"` 和 `\\` 只解码一次；例如 `\\n` 显示为字面反斜杠与 `n`，不会再变成换行。文本中的空白和 UTF-8 字符保留；缺失或冲突的翻译仍显示原键。Godot 标题与正文按四个字体空格设置制表位，选项按钮中的制表符展开为四个空格；查询保留实际制表符。展示文本由载入的内容重新解析，不写入核心快照，也不改变待选事件或随机状态。自制样本见[事件文本转义](../examples/event-text-escapes/README.md)。语言选择、动态本地化和自动效果说明仍未接入。
+静态事件文本从 `*_l_english.yml` 读取，优先按 UTF-8（可带 BOM）读取；无效 UTF-8 按 Windows-1252 读取。引号内的 `\n`、`\r`、`\t`、`\"` 和 `\\` 只解码一次；例如 `\\n` 显示为字面反斜杠与 `n`，不会再变成换行。文本中的空白和 UTF-8 字符保留；缺失翻译或当前取值层内的冲突仍显示原键。Godot 标题与正文按四个字体空格设置制表位，选项按钮中的制表符展开为四个空格；查询保留实际制表符。展示文本由载入的内容重新解析，不写入核心快照，也不改变待选事件或随机状态。自制样本见[事件文本转义](../examples/event-text-escapes/README.md)。语言选择、动态本地化和自动效果说明仍未接入。
+`localisation/replace` 目录中的有效英语文本优先于普通本地化目录，可替换事件标题、正文、选项以及任务标题和说明。文件名的排序不改变这个层级关系。替换层缺少某键时使用普通层；当前取值层内，同名键的相同值可重复，不同值则显示原键。替换层自身存在冲突时也显示原键。整文件遮蔽及描述文件的 `replace_path` 先由内容层筛选有效文件，再执行这两层文本解析。自制样本见[本地化替换目录](../examples/localisation-replace/README.md)。
 
 国家存档任务和命名变量可通过 `--country-runtime-queries queries.json` 只读检查。每项请求包含 `country`；报告返回当前内容注册的任务 ID、已完成任务集合、当前已选可用任务集合，以及以千分位 `i64` 保存的命名变量。`null` 表示对应任务或变量命名空间尚未绑定，空对象/空数组表示已知为空；`variables_known` 为 `false` 时，变量条目可能已知但命名空间仍有未决部分。查询只读取已经绑定的 `World::completions`、`World::objectives` 和 `World::named_values`，不重新计算任务条件、不刷新可用任务、不执行奖励、不修改快照。未知国家和 JSON 未知字段报错。程序入口为 `VanillaWorld::query_vanilla_country_runtime`。
 

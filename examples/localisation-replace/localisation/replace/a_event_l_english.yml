@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+l_english:
+ localisation_replace.title:0 "替换议案\n“北方”"
+ localisation_replace.description:0 "替换正文第一行\n替换正文第二行"
+ localisation_replace.option_support:0 "替换赞成\n立即实施"
+ localisation_replace.option_reject:0 "替换拒绝甲"

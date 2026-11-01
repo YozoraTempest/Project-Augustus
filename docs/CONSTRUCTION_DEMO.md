@@ -60,6 +60,7 @@ godot --headless --path godot --script res://tests/session.gd
 godot --headless --path godot --script res://tests/world.gd
 godot --headless --path godot --script res://tests/event_dialog.gd
 godot --headless --path godot --script res://tests/event_text_escapes.gd
+godot --headless --path godot --script res://tests/localisation_replace.gd
 godot --headless --path godot --script res://tests/province_intelligence.gd
 godot --headless --path godot --script res://tests/mission_claims.gd
 godot --headless --path godot --script res://tests/mission_selection_import.gd
@@ -77,6 +78,8 @@ Godot 检查会加载真实 Rust 扩展，验证按钮操作、查询、两类�
 `event_dialog.gd` 配合 `examples/event-dialog` 检查 UTF-8 中文标题、使用 Unicode 行分隔符的十二段正文、八个长选项的自动换行与滚动，以及 1100×720 和 800×600 视口中的弹窗边界。它也验证刷新时保留滚动位置、焦点滚动到末项、待选事件阻止时间推进，以及末项选择关闭弹窗、opaque snapshot 恢复后重新显示并再次执行效果。图形模式可附加 `-- --capture <绝对路径前缀>` 保存顶部、底部和窄视口截图。
 
 `event_text_escapes.gd` 配合 `examples/event-text-escapes` 检查 UTF-8 BOM 与 Windows-1252 本地化中的换行、制表符、引号和字面反斜杠，验证查询与弹窗显示一致、缺失翻译保留原键，以及保存恢复待选事件后选择仍执行真实效果。
+
+`localisation_replace.gd` 配合 `examples/localisation-replace` 检查替换目录的事件文本覆盖、替换层冲突时的原键显示，以及查询只读、待选事件保存恢复和实际选项效果。图形模式可附加 `-- --capture <绝对路径前缀>` 保存替换文本弹窗截图。
 
 `accepted_cultures.gd` 验证文化接纳事件、后续移除事件、省份文化待遇和属性刷新，以及接纳后的保存恢复与事件续行。它使用[运行时文化接纳](../examples/accepted-cultures/README.md)中的自制 Mod。
 

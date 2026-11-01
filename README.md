@@ -28,6 +28,8 @@ Godot 事件弹窗显示已加载的英文文件中的标题、正文和选项�
 
 静态事件文本保留 UTF-8 与 Windows-1252 字符，并正确解码换行、制表符、引号和反斜杠；双反斜杠后的 `n` 保持字面文本，不会重复解码为换行。查询和 Godot 弹窗共享这套文本解析，样本与准确输出见[事件文本转义](examples/event-text-escapes/README.md)。
 
+Mod 可在 `localisation/replace` 中提供事件和任务的替换文本，覆盖普通目录中的同名键。两层各自保留重复键冲突检查，替换层的冲突显示原键；整文件覆盖仍遵循内容层的有效文件选择。用法与示例输出见[本地化替换目录](examples/localisation-replace/README.md)。
+
 原生事件计划支持把当前首都设为国家拥有的省份；后续首都作用域立即更新，延迟变更随项目存档保存和恢复。自制[当前首都变更场景](examples/capital-relocation/README.md)演示迁移、保存和次日迁回；原首都与日期历史独立保存，EU4 `set_capital` 兼容编译尚未接入。
 
 条件可以进入首都、所有者、职位和命名对象，读取共享世界中的地理成员关系；自制样本与操作见 [作用域条件演示](examples/scoped-conditions/README.md)。

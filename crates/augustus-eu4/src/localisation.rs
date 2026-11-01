@@ -26,12 +26,12 @@ pub struct EventText {
 }
 
 #[derive(Debug, Default)]
-struct EnglishLocalisation {
+struct LocalisationLayer {
     values: BTreeMap<String, String>,
     conflicts: BTreeSet<String>,
 }
 
-impl EnglishLocalisation {
+impl LocalisationLayer {
     fn insert(&mut self, key: String, value: String) {
         if self.conflicts.contains(&key) {
             return;
@@ -46,11 +46,28 @@ impl EnglishLocalisation {
         }
     }
 
+    fn resolve<'a>(&'a self, key: &'a str) -> Option<&'a str> {
+        if self.conflicts.contains(key) {
+            Some(key)
+        } else {
+            self.values.get(key).map(String::as_str)
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct EnglishLocalisation {
+    standard: LocalisationLayer,
+    replacements: LocalisationLayer,
+}
+
+impl EnglishLocalisation {
     fn resolve(&self, key: &str) -> String {
-        self.values
-            .get(key)
-            .cloned()
-            .unwrap_or_else(|| key.to_owned())
+        self.replacements
+            .resolve(key)
+            .or_else(|| self.standard.resolve(key))
+            .unwrap_or(key)
+            .to_owned()
     }
 }
 
@@ -83,11 +100,16 @@ pub(crate) fn load_event_texts(
                 continue;
             };
             let text = decode_localisation(document.bytes());
+            let layer = if is_replacement_localisation(&file.relative_path) {
+                &mut localisation.replacements
+            } else {
+                &mut localisation.standard
+            };
             for line in text.lines() {
                 let Some((key, value)) = parse_entry(line, document.source(), &wanted) else {
                     continue;
                 };
-                localisation.insert(key, value);
+                layer.insert(key, value);
             }
         }
     }
@@ -128,6 +150,18 @@ fn is_english_localisation(path: &Path) -> bool {
         .split('/')
         .any(|component| component == "localisation")
         && lower.ends_with("_l_english.yml")
+}
+
+fn is_replacement_localisation(path: &Path) -> bool {
+    let normalized = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    normalized
+        .split('/')
+        .collect::<Vec<_>>()
+        .windows(2)
+        .any(|components| components == ["localisation", "replace"])
 }
 
 fn decode_localisation(bytes: &[u8]) -> String {
@@ -226,6 +260,79 @@ mod tests {
         fs,
     };
     use tempfile::tempdir;
+
+    fn title_from_files(files: &[(&str, &str)]) -> String {
+        let directory = tempdir().unwrap();
+        for (relative, text) in files {
+            let path = directory.path().join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        }
+        let root = ContentRoot::open(directory.path()).unwrap();
+        let keys = BTreeMap::from([(
+            "popup.event".to_owned(),
+            EventTextKeys {
+                title: Some("popup.title".to_owned()),
+                ..Default::default()
+            },
+        )]);
+        load_event_texts(&root, &root.files().unwrap(), &keys)["popup.event"]
+            .title
+            .clone()
+    }
+
+    #[test]
+    fn replacement_text_overrides_standard_conflicts_independent_of_file_order() {
+        for replacement in [
+            "localisation/replace/aaa_l_english.yml",
+            "LOCALISATION/REPLACE/zzz_l_english.yml",
+        ] {
+            assert_eq!(
+                title_from_files(&[
+                    ("localisation/aaa_l_english.yml", "popup.title:0 \"First\""),
+                    ("localisation/zzz_l_english.yml", "popup.title:0 \"Second\""),
+                    (replacement, "popup.title:0 \"Replacement\""),
+                ]),
+                "Replacement"
+            );
+        }
+    }
+
+    #[test]
+    fn replacement_conflicts_remain_unresolved_and_identical_values_are_retained() {
+        for (second, expected) in [
+            ("popup.title:0 \"Other replacement\"", "popup.title"),
+            ("popup.title:0 \"Replacement\"", "Replacement"),
+        ] {
+            assert_eq!(
+                title_from_files(&[
+                    (
+                        "localisation/normal_l_english.yml",
+                        "popup.title:0 \"Normal\""
+                    ),
+                    (
+                        "localisation/replace/a_l_english.yml",
+                        "popup.title:0 \"Replacement\""
+                    ),
+                    ("localisation/replace/z_l_english.yml", second),
+                ]),
+                expected
+            );
+        }
+        assert_eq!(
+            title_from_files(&[
+                (
+                    "localisation/normal_l_english.yml",
+                    "popup.title:0 \"Normal\""
+                ),
+                (
+                    "localisation/replacement/a_l_english.yml",
+                    "popup.title:0 \"Other\""
+                ),
+            ]),
+            "popup.title"
+        );
+    }
 
     #[test]
     fn parses_bom_utf8_localisation_and_decodes_escaped_quotes() {

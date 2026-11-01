@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+country_event = {
+    id = localisation_replace.1
+    is_triggered_only = yes
+    title = localisation_replace.title
+    desc = localisation_replace.description
+    option = {
+        name = localisation_replace.option_support
+    }
+    option = {
+        name = localisation_replace.option_reject
+        add_treasury = 4
+    }
+}
