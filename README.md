@@ -38,7 +38,7 @@ Mod 可在 `localisation/replace` 中提供事件和任务的替换文本，覆�
 
 原生事件计划支持把当前首都设为国家拥有的省份；后续首都作用域立即更新，延迟变更随项目存档保存和恢复。自制[当前首都变更场景](examples/capital-relocation/README.md)演示迁移、保存和次日迁回；原首都与日期历史独立保存，EU4 `set_capital` 兼容编译尚未接入。
 
-原生计划也可独立修改省份当前控制者，或记录已知无控制者，保留所有权和前控制者历史。自制[控制者变更场景](examples/province-controller-actions/README.md)演示事件更换控制者、保存恢复及次日交还控制。通过既有世界执行入口修改后，省份视图及海军建造准入读取新状态；该状态原语不包含 EU4 `change_controller` 兼容编译或完整占领副作用，部分占领属性仍按开局绑定。
+原生计划也可独立修改省份当前控制者，或记录已知无控制者，保留所有权和前控制者历史。自制[控制者变更场景](examples/province-controller-actions/README.md)演示事件更换控制者、保存恢复及次日交还控制。省份视图、海军建造准入和已接入的占领属性读取当前关系；[占领与月税场景](examples/live-occupation/README.md)验证占领、交还和保存恢复后的实际税款入账。当前支持税收、人力、商品数量、要塞维护及月度自治属性中的 `occupied` 来源，不包含 EU4 `change_controller` 兼容编译或完整占领副作用。
 
 条件可以进入首都、所有者、职位和命名对象，读取共享世界中的地理成员关系；自制样本与操作见 [作用域条件演示](examples/scoped-conditions/README.md)。
 

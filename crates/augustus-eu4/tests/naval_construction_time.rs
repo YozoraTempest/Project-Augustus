@@ -319,13 +319,21 @@ fn unknown_and_known_absent_controllers_do_not_produce_a_duration() {
     let patch = naval_time_mod(&temp, &valid_defines("365", "0.2"));
     let content = ContentSet::from_installation(
         temp.path().join("game"),
-        &[patch],
+        std::slice::from_ref(&patch),
         None,
         None,
         TextEncoding::Utf8,
     )
     .unwrap();
-    let unknown = VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+    let historical = VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+    assert!(
+        historical
+            .query_naval_construction_time(&query("BBB"))
+            .unwrap()
+            .evaluation
+            .is_some()
+    );
+    let (_, unknown) = load_world(&temp, &[patch], None);
     let unknown = unknown
         .query_naval_construction_time(&query("AAA"))
         .unwrap();

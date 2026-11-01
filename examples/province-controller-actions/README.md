@@ -23,7 +23,7 @@ let previous_controller = world.province_previous_controller_state(province)?;
 
 当前控制者返回的三态分别是未知、已知无控制者和已知国家；`previous_controller` 是独立历史关系。本示例只改当前控制者，不推断或改写 owner 与 previous-controller。
 
-该原语不执行完整 EU4 占领副作用，也不接入 EU4 `change_controller` 编译；兼容层中按开局绑定的占领属性不会因此自动重算。包含这个新动作的延迟任务需要由支持该动作的程序版本读取。
+省份视图、海军建造准入和已接入的 `occupied` 属性来源读取当前控制关系；[占领与月税](../live-occupation/README.md) 提供实时属性和实际月结示例。该原语不执行完整 EU4 占领副作用，也不接入 EU4 `change_controller` 编译。包含这个动作的延迟任务需要由支持该动作的程序版本读取。
 
 回归测试检查保存快照中的 `province_controllers`、事件日志、延迟计划和连续/恢复执行结果。它同时确认 owner 保持为 AAA，previous-controller 关系保持未知。
 

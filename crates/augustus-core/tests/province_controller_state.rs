@@ -42,6 +42,19 @@ fn fixture() -> (InitialWorld, EntityId, EntityId) {
 }
 
 #[test]
+fn initial_known_controller_is_bound_to_the_shared_world() {
+    let (initial, country, province) = fixture();
+    let mut provinces = initial.provinces().to_vec();
+    provinces[0].controller = Some("AAA".into());
+    let known = InitialWorld::new(initial.countries().to_vec(), provinces).unwrap();
+    assert_eq!(
+        known.world().province_controller_state(province).unwrap(),
+        Some(Some(country))
+    );
+    assert!(!known.world().province_is_occupied(province).unwrap());
+}
+
+#[test]
 fn controller_state_distinguishes_unknown_present_and_known_absent_through_restore() {
     let (mut initial, country, province) = fixture();
     assert_eq!(

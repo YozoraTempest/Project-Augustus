@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "fields": [],
+  "treasury_slot": {
+    "Resource": "Treasury"
+  },
+  "entities": [
+    {
+      "name": "AAA",
+      "kind": "Country",
+      "owner": null,
+      "capital": 2,
+      "values": {}
+    },
+    {
+      "name": "BBB",
+      "kind": "Country",
+      "owner": null,
+      "capital": null,
+      "values": {}
+    },
+    {
+      "name": "Occupied Province",
+      "kind": "Province",
+      "owner": 0,
+      "capital": null,
+      "values": {}
+    }
+  ],
+  "country_resources": {
+    "0": {
+      "treasury_milli": 0,
+      "manpower_milli": 0,
+      "mercantilism_milli": null
+    },
+    "1": {
+      "treasury_milli": 0,
+      "manpower_milli": 0,
+      "mercantilism_milli": null
+    }
+  },
+  "attributes": {
+    "formulas": {
+      "2": {
+        "annual_tax": {
+          "base": {
+            "kind": "constant",
+            "micros": 12000000
+          },
+          "channels": [
+            {
+              "flat": [],
+              "rates": [
+                {
+                  "kind": "conditional",
+                  "condition": "ProvinceOccupied",
+                  "then": [
+                    {
+                      "kind": "constant",
+                      "source": "occupied_local_tax_modifier",
+                      "micros": -500000
+                    }
+                  ],
+                  "otherwise": []
+                }
+              ]
+            }
+          ],
+          "minimum_micros": null,
+          "maximum_micros": null,
+          "unresolved": []
+        }
+      }
+    },
+    "static_modifiers": {},
+    "building_modifiers": {},
+    "trade_good_modifiers": {}
+  },
+  "taxation": {
+    "annual_attribute": "annual_tax",
+    "countries": [
+      0
+    ],
+    "settlement_count": 0,
+    "last_settlement": null
+  },
+  "calendar": {
+    "start": {
+      "year": 1444,
+      "month": 11,
+      "day": 30
+    },
+    "month_lengths": [
+      31,
+      28,
+      31,
+      30,
+      31,
+      30,
+      31,
+      31,
+      30,
+      31,
+      30,
+      31
+    ]
+  }
+}

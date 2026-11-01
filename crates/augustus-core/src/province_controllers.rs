@@ -29,6 +29,23 @@ pub(crate) fn validate(states: &ProvinceControllerStates, world: &World) -> Resu
 }
 
 impl World {
+    /// Whether a known country controls a province owned by another country.
+    /// A known absent owner or controller is false; missing relationship data
+    /// stays unknown. This only compares current relations, without side effects.
+    pub fn province_is_occupied(&self, province: EntityId) -> Result<bool, Error> {
+        let controller = self.province_controller_state(province)?;
+        if controller == Some(None) {
+            return Ok(false);
+        }
+        let Some(owner) = self.condition_target(province, crate::Target::Owner)? else {
+            return Ok(false);
+        };
+        let controller = controller
+            .flatten()
+            .ok_or_else(|| Error::Invalid("province occupation controller is unknown".into()))?;
+        Ok(controller != owner)
+    }
+
     /// Returns `None` for an unknown controller, `Some(None)` for a known
     /// absent controller, and `Some(Some(country))` for a known controller.
     pub fn province_controller_state(

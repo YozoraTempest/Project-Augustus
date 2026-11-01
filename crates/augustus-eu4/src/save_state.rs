@@ -5169,7 +5169,7 @@ provinces={
                 .world()
                 .province_controller_state(province_two)
                 .unwrap(),
-            Some(None)
+            None
         );
         let province_four = loaded.initial.province_entity(4).unwrap();
         assert_eq!(

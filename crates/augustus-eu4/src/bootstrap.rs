@@ -4070,13 +4070,6 @@ impl VanillaWorld {
                     .map_err(|e| Error::caused_by(root.path(), e))?;
             }
         }
-        if let Some(controllers) = overrides.province_controllers {
-            for (&province, controller) in controllers {
-                initial
-                    .set_province_controller(province, controller.as_deref())
-                    .map_err(|e| Error::caused_by(root.path(), e))?;
-            }
-        }
         if let Some(previous_controllers) = overrides.province_previous_controllers {
             for (&province, controller) in previous_controllers {
                 initial

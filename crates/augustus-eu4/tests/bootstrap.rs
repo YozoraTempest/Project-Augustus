@@ -2914,6 +2914,8 @@ fn dated_history_reaches_shared_native_state_and_preserves_provenance() {
         .unwrap();
     native.set_owner(north, beta).unwrap();
     native.set_owner(east, alpha).unwrap();
+    native.set_province_controller(north, Some(beta)).unwrap();
+    native.set_province_controller(east, Some(alpha)).unwrap();
     native.set_capital(alpha, east).unwrap();
     native.set_capital(beta, north).unwrap();
     for (entity, values) in [(north, [2125, 2000, 3500]), (east, [4000, 5000, 6000])] {

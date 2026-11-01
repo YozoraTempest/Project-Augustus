@@ -377,13 +377,21 @@ fn unknown_owner_and_controller_remain_unresolved() {
     let patch = naval_cost_mod(&temp, "10");
     let content = ContentSet::from_installation(
         temp.path().join("game"),
-        &[patch],
+        std::slice::from_ref(&patch),
         None,
         None,
         TextEncoding::Utf8,
     )
     .unwrap();
-    let world = VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+    let historical = VanillaWorld::load_from_content(&content, "1444.11.11").unwrap();
+    assert!(
+        historical
+            .query_naval_construction_cost(&query("BBB"))
+            .unwrap()
+            .evaluation
+            .is_some()
+    );
+    let (_, world) = load_world(&temp, &[patch], None);
     let unknown_controller = world.query_naval_construction_cost(&query("AAA")).unwrap();
     assert_eq!(unknown_controller.evaluation, None);
     assert!(

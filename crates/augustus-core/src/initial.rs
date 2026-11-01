@@ -238,6 +238,9 @@ impl InitialWorld {
             if let Some(owner) = &province.owner {
                 world.set_owner(entity, EntityId(country_index[owner]))?;
             }
+            if let Some(controller) = &province.controller {
+                world.set_province_controller(entity, Some(EntityId(country_index[controller])))?;
+            }
         }
         for (index, country) in countries.iter().enumerate() {
             if let Some(capital) = country.declared_capital {

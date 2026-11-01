@@ -1101,20 +1101,9 @@ impl AttributeDraft {
                     }
                     _ => (),
                 }
-                match (&province.owner, &province.controller) {
-                    (Some(owner), Some(controller)) if owner != controller => self.static_term(
-                        &mut channel,
-                        "occupied",
-                        local_rate,
-                        true,
-                        report,
-                        &mut unresolved,
-                    )?,
-                    (Some(_), None) => {
-                        unresolved.insert("controller".into());
-                    }
-                    _ => (),
-                }
+                channel
+                    .rates
+                    .push(self.occupied_modifier_term(local_rate, report));
                 Self::ambiguities(initial, entity, &channel, report, setup, &mut unresolved);
                 let tax_efficiency_terms = (name == "tax_basis").then(|| channel.rates.clone());
                 if let Some(terms) = &tax_efficiency_terms {
@@ -1260,20 +1249,9 @@ impl AttributeDraft {
                 }
                 _ => (),
             }
-            match (&province.owner, &province.controller) {
-                (Some(owner), Some(controller)) if owner != controller => self.static_term(
-                    &mut trade_goods_size_channel,
-                    "occupied",
-                    property,
-                    false,
-                    report,
-                    &mut trade_goods_size_unresolved,
-                )?,
-                (Some(_), None) => {
-                    trade_goods_size_unresolved.insert("controller".into());
-                }
-                _ => (),
-            }
+            trade_goods_size_channel
+                .flat
+                .push(self.occupied_modifier_term(property, report));
             if tolerance_effects_available {
                 trade_goods_size_unresolved.insert("tolerance:additional_sources_not_bound".into());
                 for definition in ["tolerance", "intolerance"] {
@@ -1358,20 +1336,9 @@ impl AttributeDraft {
                 }
                 _ => (),
             }
-            match (&province.owner, &province.controller) {
-                (Some(owner), Some(controller)) if owner != controller => self.static_term(
-                    &mut local_fort_channel,
-                    "occupied",
-                    PROVINCE_FORT_MAINTENANCE,
-                    false,
-                    report,
-                    &mut local_fort_unresolved,
-                )?,
-                (Some(_), None) => {
-                    local_fort_unresolved.insert("controller".into());
-                }
-                _ => (),
-            }
+            local_fort_channel
+                .flat
+                .push(self.occupied_modifier_term(PROVINCE_FORT_MAINTENANCE, report));
             Self::ambiguities(
                 initial,
                 entity,
@@ -2075,6 +2042,48 @@ impl AttributeDraft {
         Ok(())
     }
 
+    fn occupied_modifier_term(&self, property: &str, report: &AttributeReport) -> AttributeTerm {
+        let definition_name = "occupied";
+        let definition_key = format!("static_modifiers:{definition_name}");
+        let property_key = format!("{definition_key}:{property}");
+        let definition = self.attributes.static_modifiers.get(definition_name);
+        let unresolved_reason = if report.ambiguous_definitions.contains_key(&definition_key) {
+            Some(format!("ambiguous_static_modifier:{definition_name}"))
+        } else if definition.is_none() {
+            Some(format!("missing_static_modifier:{definition_name}"))
+        } else if report.ambiguous_properties.contains_key(&property_key) {
+            Some(format!("ambiguous:{property_key}"))
+        } else if self
+            .static_unresolved
+            .get(definition_name)
+            .is_some_and(|properties| properties.contains(property))
+        {
+            Some(format!("unresolved:{property_key}"))
+        } else if definition.is_some_and(|definition| definition.flags.contains_key(property)) {
+            Some(format!("non_numeric:{property_key}"))
+        } else {
+            None
+        };
+        let then = if let Some(reason) = unresolved_reason {
+            vec![AttributeTerm::Unknown { reason }]
+        } else if definition
+            .is_some_and(|definition| definition.values_micros.contains_key(property))
+        {
+            vec![AttributeTerm::Static {
+                definition: definition_name.into(),
+                property: property.into(),
+            }]
+        } else {
+            Vec::new()
+        };
+
+        AttributeTerm::Conditional {
+            condition: Box::new(Condition::ProvinceOccupied),
+            then,
+            otherwise: Vec::new(),
+        }
+    }
+
     fn monthly_autonomy_formula(
         &self,
         initial: &InitialWorld,
@@ -2180,20 +2189,9 @@ impl AttributeDraft {
             }
             _ => (),
         }
-        match (&province.owner, &province.controller) {
-            (Some(owner), Some(controller)) if owner != controller => self.static_term(
-                &mut sources,
-                "occupied",
-                "local_autonomy",
-                false,
-                report,
-                &mut unresolved,
-            )?,
-            (Some(_), None) => {
-                unresolved.insert("controller".into());
-            }
-            _ => (),
-        }
+        sources
+            .flat
+            .push(self.occupied_modifier_term("local_autonomy", report));
         Self::ambiguities(initial, entity, &sources, report, setup, &mut unresolved);
 
         let mut inputs = sources.flat;

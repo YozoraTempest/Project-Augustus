@@ -1,0 +1,85 @@
+[
+  {
+    "id": "live_occupation.tax",
+    "scope": "Country",
+    "immediate": [
+      {
+        "SetProvinceController": {
+          "target": "Capital",
+          "controller": {
+            "Selected": {
+              "Named": {
+                "kind": "Country",
+                "name": "AAA"
+              }
+            }
+          }
+        }
+      },
+      {
+        "Emit": "controller-established-as-aaa"
+      }
+    ],
+    "options": [
+      {
+        "id": "0",
+        "effects": [
+          {
+            "SetProvinceController": {
+              "target": "Capital",
+              "controller": {
+                "Selected": {
+                  "Named": {
+                    "kind": "Country",
+                    "name": "BBB"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Emit": "province-occupied-by-bbb"
+          },
+          {
+            "Schedule": {
+              "delay": 2,
+              "plan": [
+                {
+                  "SetProvinceController": {
+                    "target": "Capital",
+                    "controller": {
+                      "Selected": {
+                        "Named": {
+                          "kind": "Country",
+                          "name": "AAA"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "Emit": "controller-returned-to-aaa"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "1",
+        "effects": [
+          {
+            "SetProvinceController": {
+              "target": "Capital",
+              "controller": null
+            }
+          },
+          {
+            "Emit": "controller-marked-known-absent"
+          }
+        ]
+      }
+    ],
+    "after": []
+  }
+]

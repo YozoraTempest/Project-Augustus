@@ -1722,6 +1722,16 @@ fn accepted_cultures_unions_and_current_owners_select_cultural_sources() {
         Some(AffiliationRelation::Accepted)
     );
     world.set_owner(north, alpha).unwrap();
+    // Changing the owner leaves the existing BBB controller in place.
+    assert_eq!(
+        world
+            .attributes()
+            .evaluate(&world, north, "tax_basis")
+            .unwrap()
+            .known_subtotal_micros,
+        Some(0)
+    );
+    world.set_province_controller(north, Some(alpha)).unwrap();
     assert_eq!(
         world
             .attributes()

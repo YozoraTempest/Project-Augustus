@@ -47,6 +47,9 @@ pub enum Condition {
         country: crate::EntityRef,
     },
     ProvinceHasPort,
+    /// A known country controls a province owned by a different country.
+    /// Unknown relations remain errors; explicit absence is not occupation.
+    ProvinceOccupied,
     ProvinceCenterOfTradeAtLeast {
         target: Target,
         level: u8,
@@ -694,6 +697,7 @@ impl Condition {
                     .ok_or_else(|| Error::Invalid("province discovery state is unknown".into()))
             }
             Self::ProvinceHasPort => world.province_has_port(current),
+            Self::ProvinceOccupied => world.province_is_occupied(current),
             Self::ProvinceCenterOfTradeAtLeast { target, level } => {
                 if *level == 0 {
                     return Err(Error::Invalid(
