@@ -94,6 +94,7 @@ func run() -> void:
 	ui.details_scroll.scroll_vertical = 120
 	var scroll_before_claim: int = ui.details_scroll.scroll_vertical
 	ui.set_running(true)
+	ui.mission_claim_buttons["aaa_claim_first"].grab_focus()
 	ui.mission_claim_buttons["aaa_claim_first"].pressed.emit()
 	var after_first: Dictionary = JSON.parse_string(ui.session.query_country_missions("AAA"))
 	var after_first_country: Dictionary = JSON.parse_string(ui.session.query_country("AAA"))
@@ -116,6 +117,7 @@ func run() -> void:
 		return
 	ui.event_option_buttons[0].pressed.emit()
 	check(not ui.event_overlay.visible and ui.mission_claim_buttons["aaa_claim_second"].disabled == false, "choosing the event keeps the second objective available")
+	check(ui.country_choice.has_focus(), "closing a mission event returns focus to the country selector after its claim button was rebuilt")
 	if not capture_path.is_empty():
 		await capture_mission_panel(ui)
 	check(ui.save_world(snapshot_path), "save after the first objective")
