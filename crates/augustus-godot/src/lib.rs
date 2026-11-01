@@ -10,6 +10,7 @@ mod frame_clock;
 mod ledger_view;
 #[cfg(test)]
 mod ledger_view_tests;
+mod naval_cancellation;
 
 struct AugustusExtension;
 
@@ -759,6 +760,15 @@ impl AugustusWorldSession {
                 "orders": orders,
                 "import_report": loaded.naval_construction_import_report(),
             }))
+        }))
+    }
+
+    #[func]
+    fn cancel_naval_construction(&mut self, country: GString, order_id: GString) -> GString {
+        let country = country.to_string();
+        let order_id = order_id.to_string();
+        world_reply(self.loaded_mut().and_then(|loaded| {
+            naval_cancellation::cancel_naval_construction(loaded, &country, &order_id)
         }))
     }
 

@@ -275,6 +275,8 @@ func _ready() -> void:
 	panel.add_child(military_panel)
 	naval_construction_panel = preload("res://naval_construction_panel.gd").new()
 	naval_construction_panel.province_selected.connect(_on_naval_province_selected)
+	naval_construction_panel.cancellation_started.connect(set_running.bind(false))
+	naval_construction_panel.cancellation_confirmed.connect(cancel_naval_construction)
 	panel.add_child(naval_construction_panel)
 	panel.add_child(label("统治者", 20))
 	politics_details = label("尚未载入", 16)
@@ -666,6 +668,7 @@ func restore_world(path: String = "user://augustus-world.json") -> bool:
 	if not packet.ok:
 		status.text = packet.error
 		return false
+	naval_construction_panel.dismiss_cancellation()
 	refresh_calendar()
 	select_country(country_choice.selected, false)
 	status.text = "已恢复战役，当前暂停。"
@@ -689,6 +692,19 @@ func _on_military_province_selected(province_id: int) -> void:
 
 func _on_naval_province_selected(province_id: int) -> void:
 	select_province(province_id)
+
+func cancel_naval_construction(country: String, order_id: String) -> void:
+	if country != selected_country_id:
+		status.text = "所选国家已改变，请重新选择订单。"
+		return
+	var packet: Dictionary = JSON.parse_string(session.cancel_naval_construction(country, order_id))
+	if not packet.ok:
+		select_country(country_choice.selected, false)
+		status.text = packet.error
+		return
+	refresh_calendar()
+	select_country(country_choice.selected, false)
+	status.text = "已取消待造舰船订单；未退款，已记录支出保持不变。"
 
 func select_country(index: int, reset_scroll: bool = true) -> void:
 	if country_choice.item_count == 0:

@@ -4,12 +4,16 @@
 extends VBoxContainer
 
 signal province_selected(province_id: int)
+signal cancellation_started
+signal cancellation_confirmed(country: String, order_id: String)
 
 var section_button: Button
 var report_status: Label
 var tree: Tree
 var detail_label: Label
 var location_button: Button
+var cancel_button: Button
+var cancel_dialog: ConfirmationDialog
 var section_expanded := false
 var selected_key := ""
 
@@ -18,6 +22,8 @@ var _report_data: Dictionary = {}
 var _has_report := false
 var _items_by_key: Dictionary = {}
 var _target_province_id := 0
+var _pending_cancel_country := ""
+var _pending_cancel_id := ""
 
 func _ready() -> void:
 	add_theme_constant_override("separation", 6)
@@ -56,6 +62,22 @@ func _ready() -> void:
 	location_button.visible = false
 	location_button.pressed.connect(_on_location_pressed)
 	_content.add_child(location_button)
+	cancel_button = Button.new()
+	cancel_button.text = "取消此订单（不退款）"
+	cancel_button.custom_minimum_size.y = 36
+	cancel_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cancel_button.disabled = true
+	cancel_button.visible = false
+	cancel_button.pressed.connect(_on_cancel_pressed)
+	_content.add_child(cancel_button)
+	cancel_dialog = ConfirmationDialog.new()
+	cancel_dialog.title = "取消待造舰船"
+	cancel_dialog.dialog_autowrap = true
+	cancel_dialog.ok_button_text = "取消订单"
+	cancel_dialog.cancel_button_text = "保留订单"
+	cancel_dialog.confirmed.connect(_on_cancel_confirmed)
+	cancel_dialog.canceled.connect(dismiss_cancellation)
+	add_child(cancel_dialog)
 	_update_header()
 	_show_empty_selection()
 
@@ -67,6 +89,7 @@ func toggle_section() -> void:
 func render_report(data: Dictionary) -> void:
 	if _has_report and data == _report_data:
 		return
+	dismiss_cancellation()
 	if _has_report:
 		var selected := tree.get_selected()
 		if selected != null:
@@ -80,6 +103,7 @@ func render_report(data: Dictionary) -> void:
 	_restore_selection()
 
 func clear() -> void:
+	dismiss_cancellation()
 	_report_data.clear()
 	_has_report = false
 	selected_key = ""
@@ -153,6 +177,7 @@ func _add_order(root: TreeItem, order: Dictionary) -> void:
 	item.set_tooltip_text(0, title)
 	item.set_metadata(0, {
 		"id": id,
+		"country": str(order.get("country", "")),
 		"province_id": province_id,
 		"details": _order_details(order, queue_label, unit_type, province_name, province_id),
 	})
@@ -176,6 +201,7 @@ func _restore_selection() -> void:
 	_show_selection(item)
 
 func _on_item_selected() -> void:
+	dismiss_cancellation()
 	var item := tree.get_selected()
 	if item == null:
 		selected_key = ""
@@ -196,6 +222,8 @@ func _show_selection(item: TreeItem) -> void:
 	_target_province_id = int(metadata.get("province_id", 0))
 	location_button.disabled = _target_province_id <= 0
 	location_button.visible = true
+	cancel_button.disabled = selected_key.is_empty() or str(metadata.get("country", "")).is_empty()
+	cancel_button.visible = true
 
 func _show_empty_selection() -> void:
 	if detail_label == null:
@@ -204,11 +232,39 @@ func _show_empty_selection() -> void:
 	detail_label.visible = false
 	location_button.disabled = true
 	location_button.visible = false
+	cancel_button.disabled = true
+	cancel_button.visible = false
 	_target_province_id = 0
 
 func _on_location_pressed() -> void:
 	if _target_province_id > 0:
 		province_selected.emit(_target_province_id)
+
+func dismiss_cancellation() -> void:
+	_pending_cancel_country = ""
+	_pending_cancel_id = ""
+	if cancel_dialog != null:
+		cancel_dialog.hide()
+
+func _on_cancel_pressed() -> void:
+	if cancel_button.disabled or not _items_by_key.has(selected_key):
+		return
+	var item: TreeItem = _items_by_key[selected_key]
+	var metadata: Dictionary = item.get_metadata(0)
+	_pending_cancel_country = str(metadata.get("country", ""))
+	_pending_cancel_id = selected_key
+	var details: Dictionary = metadata.get("details", {})
+	cancel_dialog.dialog_text = "国家：%s\n%s\n\n取消后不会退款，也不会撤回已记录的支出。\n其余订单保留当前排期。" % [_pending_cancel_country, str(details.get("text", ""))]
+	cancellation_started.emit()
+	cancel_dialog.popup_centered_clamped(Vector2i(480, 0))
+	cancel_dialog.get_cancel_button().grab_focus()
+
+func _on_cancel_confirmed() -> void:
+	var country := _pending_cancel_country
+	var order_id := _pending_cancel_id
+	dismiss_cancellation()
+	if not country.is_empty() and not order_id.is_empty():
+		cancellation_confirmed.emit(country, order_id)
 
 func _shown(value: Variant) -> String:
 	if value is int or value is float:
