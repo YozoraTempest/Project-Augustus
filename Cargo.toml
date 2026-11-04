@@ -1,7 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 [workspace]
-members = ["crates/augustus-core", "crates/augustus-eu4", "apps/augustus-cli"]
+members = [
+    "crates/augustus-core",
+    "crates/augustus-eu4",
+    "crates/augustus-godot",
+    "apps/augustus-cli",
+]
 default-members = ["apps/augustus-cli"]
 resolver = "3"
 
@@ -14,6 +19,7 @@ publish = false
 [workspace.dependencies]
 clap = { version = "4.6", features = ["derive"] }
 csv = "1.4"
+godot = { version = "0.5.5", features = ["api-4-7"] }
 image = { version = "0.25", default-features = false, features = ["bmp"] }
 jomini = { version = "0.37", default-features = false }
 tempfile = "3"

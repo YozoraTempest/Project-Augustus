@@ -61,6 +61,12 @@ impl ProvinceMap {
         &self.summary
     }
 
+    /// 按从上到下、从左到右的顺序借用像素编号，供显示层生成纹理。
+    /// 编号 0 表示没有对应省份；显示层与坐标查询共用这一份数据。
+    pub fn province_ids(&self) -> &[u32] {
+        &self.pixels
+    }
+
     /// 按像素坐标查询省份：左上角为 (0, 0)，向右、向下递增。
     /// 无省份的像素返回 `Ok(None)`，坐标越界返回错误。
     pub fn province_at(&self, x: u32, y: u32) -> Result<Option<u32>, Error> {
