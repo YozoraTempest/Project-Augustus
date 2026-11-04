@@ -3,12 +3,14 @@ extends Control
 
 const MAIN_MENU := "res://scenes/main_menu/main_menu.tscn"
 const NEW_GAME := "res://scenes/new_game/new_game.tscn"
+const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 
 @onready var status_label: Label = %Status
 @onready var map_view: ProvinceMapView = %MapView
 @onready var selection_label: Label = %Selection
 @onready var reset_view_button: Button = %ResetView
 @onready var menu_button: Button = %MainMenu
+@onready var settings_button: Button = %Settings
 
 var backend: AugustusMap
 var selected_province := 0
@@ -23,6 +25,7 @@ func _ready() -> void:
 	map_view.province_clicked.connect(_on_province_clicked)
 	reset_view_button.pressed.connect(map_view.reset_view)
 	menu_button.pressed.connect(_return_to_menu)
+	settings_button.pressed.connect(_open_settings)
 	# 复用开局页已生成的纹理，进入游戏无需再次读取游戏文件。
 	map_view.show_map(backend.get_map_texture(), backend.get_political_texture())
 	var map_size := backend.get_map_size()
@@ -32,6 +35,12 @@ func _ready() -> void:
 func _return_to_menu() -> void:
 	GameSession.clear_game()
 	get_tree().change_scene_to_file(MAIN_MENU)
+
+
+func _open_settings() -> void:
+	var dialog := SETTINGS_SCENE.instantiate()
+	add_child(dialog)
+	dialog.popup_centered()
 
 
 func _on_province_clicked(pixel: Vector2i) -> void:

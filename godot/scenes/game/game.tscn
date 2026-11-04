@@ -50,6 +50,11 @@ size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 26
 text = "Project Augustus"
 
+[node name="Settings" type="Button" parent="Margin/Page/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "设置"
+
 [node name="MainMenu" type="Button" parent="Margin/Page/Header"]
 unique_name_in_owner = true
 layout_mode = 2

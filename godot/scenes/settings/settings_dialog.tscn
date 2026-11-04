@@ -1,0 +1,85 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/settings/settings_dialog.gd" id="1_script"]
+[ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
+
+[node name="SettingsDialog" type="Window"]
+process_mode = 3
+title = "设置"
+size = Vector2i(520, 300)
+min_size = Vector2i(520, 300)
+visible = false
+unresizable = true
+transient = true
+exclusive = true
+wrap_controls = true
+theme = ExtResource("2_theme")
+script = ExtResource("1_script")
+
+[node name="Margin" type="MarginContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
+
+[node name="Form" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Title" type="Label" parent="Margin/Form"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "显示设置"
+
+[node name="ModeRow" type="HBoxContainer" parent="Margin/Form"]
+layout_mode = 2
+
+[node name="ModeLabel" type="Label" parent="Margin/Form/ModeRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "窗口模式"
+
+[node name="WindowMode" type="OptionButton" parent="Margin/Form/ModeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(240, 0)
+layout_mode = 2
+
+[node name="VSync" type="CheckButton" parent="Margin/Form"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "垂直同步"
+
+[node name="Hint" type="Label" parent="Margin/Form"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.69, 0.76, 1)
+text = "应用后立即生效，并在下次启动时恢复。"
+autowrap_mode = 2
+
+[node name="Error" type="Label" parent="Margin/Form"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_colors/font_color = Color(1, 0.55, 0.48, 1)
+autowrap_mode = 2
+
+[node name="Actions" type="HBoxContainer" parent="Margin/Form"]
+layout_mode = 2
+theme_override_constants/separation = 12
+alignment = 2
+
+[node name="Cancel" type="Button" parent="Margin/Form/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(100, 40)
+layout_mode = 2
+text = "取消"
+
+[node name="Apply" type="Button" parent="Margin/Form/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 40)
+layout_mode = 2
+text = "应用并关闭"
