@@ -1,5 +1,0 @@
-# Event Dialog Fixture
-
-This self-authored Mod queues one AAA country event at startup. Its Chinese title and twelve-paragraph description exercise UTF-8 text, using Unicode line separators (U+2028) within a single physical localisation line. Eight long option labels exercise wrapping and scrolling; the final option adds 17 treasury units.
-
-The current loader selects `_l_english.yml` files and preserves their UTF-8 text. This fixture uses Unicode line separators to test layout. The separate [event text escape fixture](../event-text-escapes/README.md) tests escaped newlines, quotes, literal backslashes, and Windows-1252 text through the same dialog.

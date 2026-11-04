@@ -1,5 +1,0 @@
-﻿# SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Project Augustus contributors
-l_english:
- event_text_escapes.title:0 "议案：\"北方议事会\""
- event_text_escapes.description:0 "第一段\n第二段\t缩进；字面序列 \\n 保留"

@@ -1,2 +1,0 @@
-AAA = "countries/Alpha.txt"
-BBB = "countries/Beta.txt"
