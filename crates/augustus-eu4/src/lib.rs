@@ -4,6 +4,8 @@
 
 mod content;
 pub mod map;
+mod script;
+pub mod world;
 
 use std::path::PathBuf;
 

@@ -65,11 +65,15 @@ dependencies = [
 [[package]]
 name = "augustus-core"
 version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
 
 [[package]]
 name = "augustus-eu4"
 version = "0.1.0"
 dependencies = [
+ "augustus-core",
  "csv",
  "image",
  "jomini",
@@ -81,6 +85,7 @@ dependencies = [
 name = "augustus-godot"
 version = "0.1.0"
 dependencies = [
+ "augustus-core",
  "augustus-eu4",
  "godot",
 ]

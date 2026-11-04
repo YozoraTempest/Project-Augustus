@@ -5,6 +5,8 @@ render_mode unshaded;
 
 // 编号纹理是原始数据，不使用颜色空间转换、线性过滤或重复采样。
 uniform sampler2D province_ids : filter_nearest, repeat_disable;
+// 国家颜色是显示数据，使用颜色空间转换；编号纹理仍按原始字节读取。
+uniform sampler2D political_colors : source_color, filter_nearest, repeat_disable;
 uniform uint selected_province = 0u;
 
 uint province_id(vec2 uv) {
@@ -12,16 +14,9 @@ uint province_id(vec2 uv) {
     return bytes.r | (bytes.g << 8u) | (bytes.b << 16u) | (bytes.a << 24u);
 }
 
-vec3 province_color(uint id) {
-    // 根据编号生成稳定的区分色；当前显示省份，不表示国家归属或地形。
-    uvec3 mixed = uvec3(id * 1664525u + 1013904223u,
-        id * 22695477u + 1u, id * 1103515245u + 12345u);
-    return vec3(0.24) + vec3(mixed % uvec3(131u)) / 131.0 * 0.48;
-}
-
 void fragment() {
     uint id = province_id(UV);
-    vec3 color = id == 0u ? vec3(0.06, 0.08, 0.10) : province_color(id);
+    vec3 color = texture(political_colors, UV).rgb;
     if (id != 0u && id == selected_province) {
         color = mix(color, vec3(1.0, 0.78, 0.24), 0.7);
         // 轮廓宽度使用屏幕像素，窗口缩放后仍能看清选中的省份。

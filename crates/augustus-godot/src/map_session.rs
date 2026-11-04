@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use augustus_eu4::map::ProvinceMap;
+use std::collections::HashMap;
+
+use augustus_core::ProvinceKind;
+use augustus_eu4::world::{OpeningWorld, START_DATE};
 use godot::{
     classes::{Image, ImageTexture, image::Format},
     prelude::*,
@@ -9,8 +12,9 @@ use godot::{
 #[derive(GodotClass)]
 #[class(init, base = RefCounted)]
 struct AugustusMap {
-    map: Option<ProvinceMap>,
+    world: Option<OpeningWorld>,
     texture: Option<Gd<ImageTexture>>,
+    political_texture: Option<Gd<ImageTexture>>,
 }
 
 #[godot_api]
@@ -18,10 +22,11 @@ impl AugustusMap {
     /// 成功时返回空字符串；失败时返回原因，并保留当前地图。
     #[func]
     fn load_map(&mut self, game_dir: GString) -> GString {
-        let map = match ProvinceMap::load(game_dir.to_string()) {
-            Ok(map) => map,
+        let world = match OpeningWorld::load(game_dir.to_string()) {
+            Ok(world) => world,
             Err(error) => return error.to_string().as_str().into(),
         };
+        let map = world.map();
         let summary = map.summary();
         let (Ok(width), Ok(height)) = (i32::try_from(summary.width), i32::try_from(summary.height))
         else {
@@ -36,9 +41,19 @@ impl AugustusMap {
             return "无法创建省份编号纹理".into();
         };
 
+        let bytes = PackedByteArray::from(political_colors(&world).as_slice());
+        let Some(image) = Image::create_from_data(width, height, false, Format::RGBA8, &bytes)
+        else {
+            return "无法创建政治地图图像".into();
+        };
+        let Some(political_texture) = ImageTexture::create_from_image(&image) else {
+            return "无法创建政治地图纹理".into();
+        };
+
         // 完整载入并创建纹理后再替换状态，失败的重新载入不会清除现有地图。
-        self.map = Some(map);
+        self.world = Some(world);
         self.texture = Some(texture);
+        self.political_texture = Some(political_texture);
         GString::new()
     }
 
@@ -48,30 +63,80 @@ impl AugustusMap {
     }
 
     #[func]
+    fn get_political_texture(&self) -> Option<Gd<ImageTexture>> {
+        self.political_texture.clone()
+    }
+
+    #[func]
+    fn get_start_date(&self) -> GString {
+        START_DATE.into()
+    }
+
+    #[func]
+    fn get_country_count(&self) -> i64 {
+        self.world
+            .as_ref()
+            .map_or(0, |world| world.landed_country_count() as i64)
+    }
+
+    /// 空字符串表示无所有者；海洋、湖泊和荒地由类型查询区分。
+    #[func]
+    fn get_province_owner(&self, id: i64) -> GString {
+        self.world
+            .as_ref()
+            .and_then(|world| {
+                u32::try_from(id)
+                    .ok()
+                    .and_then(|id| world.state().province(id))
+            })
+            .and_then(|province| province.owner.as_deref())
+            .unwrap_or("")
+            .into()
+    }
+
+    #[func]
+    fn get_province_kind(&self, id: i64) -> GString {
+        let province = self.world.as_ref().and_then(|world| {
+            u32::try_from(id)
+                .ok()
+                .and_then(|id| world.state().province(id))
+        });
+        match province.map(|province| province.kind) {
+            Some(ProvinceKind::Land) => "land",
+            Some(ProvinceKind::Sea) => "sea",
+            Some(ProvinceKind::Lake) => "lake",
+            Some(ProvinceKind::Wasteland) => "wasteland",
+            None => "",
+        }
+        .into()
+    }
+
+    #[func]
     fn get_map_size(&self) -> Vector2i {
-        self.map.as_ref().map_or(Vector2i::ZERO, |map| {
+        self.world.as_ref().map_or(Vector2i::ZERO, |world| {
+            let map = world.map();
             Vector2i::new(map.summary().width as i32, map.summary().height as i32)
         })
     }
 
     #[func]
     fn get_province_count(&self) -> i64 {
-        self.map
+        self.world
             .as_ref()
-            .map_or(0, |map| map.summary().mapped_provinces as i64)
+            .map_or(0, |world| world.map().summary().mapped_provinces as i64)
     }
 
     /// 返回省份编号；0 表示无省份，-1 表示未载入地图或坐标越界。
     #[func]
     fn province_at(&self, pixel: Vector2i) -> i64 {
-        let (Some(map), Ok(x), Ok(y)) = (
-            self.map.as_ref(),
+        let (Some(world), Ok(x), Ok(y)) = (
+            self.world.as_ref(),
             u32::try_from(pixel.x),
             u32::try_from(pixel.y),
         ) else {
             return -1;
         };
-        match map.province_at(x, y) {
+        match world.map().province_at(x, y) {
             Ok(Some(id)) => i64::from(id),
             Ok(None) => 0,
             Err(_) => -1,
@@ -82,6 +147,26 @@ impl AugustusMap {
 fn encode_ids(ids: &[u32]) -> Vec<u8> {
     // RGBA 四通道保存完整的 32 位编号；使用最近邻采样，禁止颜色插值。
     ids.iter().flat_map(|id| id.to_le_bytes()).collect()
+}
+
+fn political_colors(world: &OpeningWorld) -> Vec<u8> {
+    // 同一省份只解析一次颜色；编号保持稀疏，不按最大编号分配颜色表。
+    let colors: HashMap<_, _> = world
+        .map()
+        .defined_province_ids()
+        .iter()
+        .chain(std::iter::once(&0))
+        .map(|&id| {
+            let [r, g, b] = world.province_color(id);
+            (id, [r, g, b, 255])
+        })
+        .collect();
+    world
+        .map()
+        .province_ids()
+        .iter()
+        .flat_map(|id| colors[id])
+        .collect()
 }
 
 #[cfg(test)]
