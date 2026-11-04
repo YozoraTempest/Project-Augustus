@@ -1,0 +1,42 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/map/province_map_view.gd" id="1_script"]
+[ext_resource type="Shader" path="res://scenes/map/province_map.gdshader" id="2_shader"]
+
+[sub_resource type="ShaderMaterial" id="Material_map"]
+resource_local_to_scene = true
+shader = ExtResource("2_shader")
+
+[node name="MapView" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+clip_contents = true
+mouse_default_cursor_shape = 2
+script = ExtResource("1_script")
+
+[node name="ViewportContainer" type="SubViewportContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+stretch = true
+
+[node name="MapViewport" type="SubViewport" parent="ViewportContainer"]
+disable_3d = true
+handle_input_locally = false
+size = Vector2i(1, 1)
+
+[node name="Map" type="Sprite2D" parent="ViewportContainer/MapViewport"]
+texture_filter = 1
+material = SubResource("Material_map")
+centered = false
+
+[node name="Camera" type="Camera2D" parent="ViewportContainer/MapViewport"]
+position_smoothing_enabled = false

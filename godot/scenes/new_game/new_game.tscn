@@ -1,0 +1,102 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/new_game/new_game.gd" id="1_script"]
+[ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
+
+[node name="NewGame" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_script")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 24
+
+[node name="Center" type="CenterContainer" parent="Margin"]
+layout_mode = 2
+
+[node name="Form" type="VBoxContainer" parent="Margin/Center"]
+custom_minimum_size = Vector2(580, 0)
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="Title" type="Label" parent="Margin/Center/Form"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 30
+text = "新游戏"
+
+[node name="DirectoryLabel" type="Label" parent="Margin/Center/Form"]
+layout_mode = 2
+text = "EU4 游戏安装目录"
+
+[node name="DirectoryRow" type="HBoxContainer" parent="Margin/Center/Form"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="GameDirectory" type="LineEdit" parent="Margin/Center/Form/DirectoryRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "选择本地 EU4 安装目录"
+
+[node name="Browse" type="Button" parent="Margin/Center/Form/DirectoryRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "选择目录…"
+
+[node name="Status" type="Label" parent="Margin/Center/Form"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 140)
+layout_mode = 2
+text = "开局日期：1444.11.11\n请选择本地 EU4 安装目录，然后载入开局。"
+autowrap_mode = 2
+vertical_alignment = 1
+
+[node name="Actions" type="HBoxContainer" parent="Margin/Center/Form"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Back" type="Button" parent="Margin/Center/Form/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "返回主菜单"
+
+[node name="Spacer" type="Control" parent="Margin/Center/Form/Actions"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="Load" type="Button" parent="Margin/Center/Form/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+disabled = true
+text = "载入开局"
+
+[node name="EnterGame" type="Button" parent="Margin/Center/Form/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+disabled = true
+text = "进入游戏"
+
+[node name="DirectoryDialog" type="FileDialog" parent="."]
+title = "选择 EU4 安装目录"
+size = Vector2i(900, 600)
+file_mode = 2
+access = 2
+use_native_dialog = true

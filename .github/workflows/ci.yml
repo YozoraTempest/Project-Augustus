@@ -62,5 +62,7 @@ jobs:
           PY
       - name: Import Godot project
         run: '"$GODOT_COMMAND" --headless --path godot --editor --import'
-      - name: Test Godot map
+      - name: Test Godot game flow and map
         run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/map_view_test.gd'
+      - name: Test Godot command-line startup
+        run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/startup_test.gd -- --game-dir "$GITHUB_WORKSPACE/godot/tests/data/game"'
