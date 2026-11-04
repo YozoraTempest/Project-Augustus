@@ -23,6 +23,10 @@ impl ContentRoot {
         }
     }
 
+    pub fn path(&self) -> &Path {
+        &self.root
+    }
+
     pub fn read(&self, relative: impl AsRef<Path>) -> Result<ContentFile, Error> {
         let relative = relative.as_ref();
         // 内容引用使用相对路径，禁止绝对路径和父目录跳转。
@@ -38,5 +42,37 @@ impl ContentRoot {
             source,
         })?;
         Ok(ContentFile { path, bytes })
+    }
+
+    /// EU4 的国家标签和省份历史按目录中的文件加载；排序使覆盖顺序固定。
+    pub fn text_files(&self, relative: &str) -> Result<Vec<PathBuf>, Error> {
+        let path = self.root.join(relative);
+        let entries = std::fs::read_dir(&path).map_err(|source| Error::Read {
+            path: path.clone(),
+            source,
+        })?;
+        let mut files = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|source| Error::Read {
+                path: path.clone(),
+                source,
+            })?;
+            if entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("txt"))
+                && entry
+                    .file_type()
+                    .map_err(|source| Error::Read {
+                        path: entry.path(),
+                        source,
+                    })?
+                    .is_file()
+            {
+                files.push(PathBuf::from(relative).join(entry.file_name()));
+            }
+        }
+        files.sort();
+        Ok(files)
     }
 }

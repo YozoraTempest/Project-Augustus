@@ -6,7 +6,7 @@ mod bitmap;
 mod config;
 mod definitions;
 
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path};
 
 use crate::{Error, content::ContentRoot};
 
@@ -25,6 +25,8 @@ pub struct MapSummary {
 #[derive(Debug)]
 pub struct ProvinceMap {
     summary: MapSummary,
+    defined_ids: BTreeSet<u32>,
+    mapped_ids: BTreeSet<u32>,
     // 按行保存省份编号，行内从左到右；0 表示该像素没有对应省份。
     pixels: Vec<u32>,
 }
@@ -50,15 +52,26 @@ impl ProvinceMap {
                 width: config.width,
                 height: config.height,
                 defined_provinces: definitions.len(),
-                mapped_provinces: raster.mapped_provinces,
+                mapped_provinces: raster.mapped_ids.len(),
                 unassigned_pixels: raster.unassigned_pixels,
             },
             pixels: raster.pixels,
+            defined_ids: definitions.ids,
+            mapped_ids: raster.mapped_ids,
         })
     }
 
     pub fn summary(&self) -> &MapSummary {
         &self.summary
+    }
+
+    /// 包含未绘制的省份定义，用于校对历史文件和地理分类的引用。
+    pub fn defined_province_ids(&self) -> &BTreeSet<u32> {
+        &self.defined_ids
+    }
+
+    pub fn mapped_province_ids(&self) -> &BTreeSet<u32> {
+        &self.mapped_ids
     }
 
     /// 按从上到下、从左到右的顺序借用像素编号，供显示层生成纹理。

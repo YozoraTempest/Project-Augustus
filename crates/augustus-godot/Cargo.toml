@@ -12,5 +12,6 @@ publish.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
+augustus-core = { path = "../augustus-core" }
 augustus-eu4 = { path = "../augustus-eu4" }
 godot.workspace = true

@@ -3,7 +3,7 @@
 //! 建立颜色到省份编号的索引，保留重复颜色的信息供位图加载时判断。
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap},
     path::PathBuf,
 };
 
@@ -11,7 +11,7 @@ use crate::{Error, content::ContentFile};
 
 pub(super) struct Definitions {
     source: PathBuf,
-    count: usize,
+    pub(super) ids: BTreeSet<u32>,
     // Some(id) 表示唯一编号，None 表示多个定义共享颜色；缺失的键表示未定义。
     by_color: HashMap<[u8; 3], Option<u32>>,
 }
@@ -23,7 +23,7 @@ impl Definitions {
             .flexible(true)
             .trim(csv::Trim::All)
             .from_reader(file.bytes.as_slice());
-        let mut ids = HashSet::new();
+        let mut ids = BTreeSet::new();
         let mut by_color = HashMap::new();
         // 名称等附加列可能包含 Windows-1252 字符，按字节读取，只解码数值列。
         for row in reader.byte_records() {
@@ -60,13 +60,13 @@ impl Definitions {
         }
         Ok(Self {
             source: file.path.clone(),
-            count: ids.len(),
+            ids,
             by_color,
         })
     }
 
     pub fn len(&self) -> usize {
-        self.count
+        self.ids.len()
     }
 
     pub fn province_for_color(&self, color: [u8; 3]) -> Result<Option<u32>, Error> {

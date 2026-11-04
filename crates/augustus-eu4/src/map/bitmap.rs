@@ -2,7 +2,7 @@
 
 //! 将省份位图转换为按行排列的编号数组，并统计实际出现的省份。
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use crate::{Error, content::ContentFile};
 
@@ -10,7 +10,7 @@ use super::definitions::Definitions;
 
 pub(super) struct Raster {
     pub pixels: Vec<u32>,
-    pub mapped_provinces: usize,
+    pub mapped_ids: BTreeSet<u32>,
     pub unassigned_pixels: usize,
 }
 
@@ -50,7 +50,7 @@ pub(super) fn load(
     }
     Ok(Raster {
         pixels,
-        mapped_provinces: mapped.len(),
+        mapped_ids: mapped.into_iter().collect(),
         unassigned_pixels,
     })
 }

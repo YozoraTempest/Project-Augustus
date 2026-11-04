@@ -79,6 +79,20 @@ fn loads_configured_files_and_maps_pixels_from_the_top_left() {
     assert_eq!(summary.defined_provinces, 4);
     assert_eq!(summary.mapped_provinces, 2);
     assert_eq!(summary.unassigned_pixels, 1);
+    assert_eq!(
+        map.defined_province_ids()
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
+        [1, 7, 9, 11]
+    );
+    assert_eq!(
+        map.mapped_province_ids()
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
+        [1, 7]
+    );
     for (x, y, expected) in [
         (0, 0, Some(1)),
         (1, 0, Some(7)),
