@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "augustus-cli"
+description = "Command-line application for Project Augustus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+default-run = "augustus"
+
+[[bin]]
+name = "augustus"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true

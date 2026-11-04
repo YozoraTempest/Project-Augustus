@@ -1,6 +1,8 @@
-# Local game content and generated caches are not project distribution assets.
+# Build output and local data.
 /local-data/
 /local-cache/
 /target/
 /godot/.godot/
+
+# Previous implementation, maintained as a separate local checkout.
 /demo/
