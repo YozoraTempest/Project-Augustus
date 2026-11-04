@@ -96,6 +96,17 @@ fn loads_opening_ownership_and_political_colors() {
     let input = TestWorld::new();
     let world = input.load().unwrap();
     assert_eq!(world.state().countries().len(), 3);
+    let country = world.state().country("AAA").unwrap();
+    assert_eq!(country.tag(), "AAA");
+    assert!(std::ptr::eq(
+        country,
+        world.state().province_owner(1).unwrap()
+    ));
+    assert_eq!(world.state().province_owner(2).unwrap().tag(), "BBB");
+    // 已注册的国家即使没有地图上的领土，仍保留可查询的实体。
+    assert_eq!(world.state().country("CCC").unwrap().tag(), "CCC");
+    assert!(world.state().country("ZZZ").is_none());
+    assert!(world.state().province_owner(6).is_none());
     assert_eq!(world.landed_country_count(), 2);
     assert_eq!(
         world.state().province(1).unwrap().owner.as_deref(),

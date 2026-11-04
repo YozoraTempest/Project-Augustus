@@ -87,9 +87,9 @@ impl AugustusMap {
             .and_then(|world| {
                 u32::try_from(id)
                     .ok()
-                    .and_then(|id| world.state().province(id))
+                    .and_then(|id| world.state().province_owner(id))
             })
-            .and_then(|province| province.owner.as_deref())
+            .map(|country| country.tag())
             .unwrap_or("")
             .into()
     }

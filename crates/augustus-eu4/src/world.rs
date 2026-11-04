@@ -11,7 +11,7 @@ use std::{
     path::Path,
 };
 
-use augustus_core::{Province, ProvinceKind, World};
+use augustus_core::{Country, Province, ProvinceKind, World};
 
 use crate::{Error, content::ContentRoot, map::ProvinceMap};
 
@@ -58,7 +58,8 @@ impl OpeningWorld {
                 ));
             }
         }
-        let state = World::new(country_colors.keys().cloned().collect(), provinces)
+        let countries = country_colors.keys().cloned().map(Country::new);
+        let state = World::new(countries, provinces)
             .map_err(|error| Error::invalid(content.path(), error.to_string()))?;
         Ok(Self {
             map,
@@ -80,8 +81,8 @@ impl OpeningWorld {
         self.map
             .mapped_province_ids()
             .iter()
-            .filter_map(|id| self.state.province(*id))
-            .filter_map(|province| province.owner.as_deref())
+            .filter_map(|id| self.state.province_owner(*id))
+            .map(Country::tag)
             .collect::<BTreeSet<_>>()
             .len()
     }
@@ -95,10 +96,12 @@ impl OpeningWorld {
             ProvinceKind::Sea => [48, 78, 108],
             ProvinceKind::Lake => [63, 98, 130],
             ProvinceKind::Wasteland => [83, 80, 72],
-            ProvinceKind::Land => province
-                .owner
-                .as_ref()
-                .map_or([170, 164, 145], |owner| self.country_colors[owner]),
+            ProvinceKind::Land => self
+                .state
+                .province_owner(id)
+                .map_or([170, 164, 145], |country| {
+                    self.country_colors[country.tag()]
+                }),
         }
     }
 }
