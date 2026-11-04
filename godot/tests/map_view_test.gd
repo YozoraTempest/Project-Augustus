@@ -1,7 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 extends SceneTree
 
+const MAIN_MENU := "res://scenes/main_menu/main_menu.tscn"
+const NEW_GAME := "res://scenes/new_game/new_game.tscn"
+const GAME_SCENE := "res://scenes/game/game.tscn"
+
 var failures: Array[String] = []
+var session: Node
 
 
 func _init() -> void:
@@ -16,13 +21,52 @@ func check(condition: bool, message: String) -> void:
 
 func _run() -> void:
 	root.size = Vector2i(1000, 700)
-	var screen = load("res://main.tscn").instantiate()
-	root.add_child(screen)
 	await process_frame
+	session = root.get_node("GameSession")
+	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
+	var menu = await wait_for_scene(MAIN_MENU)
+	if menu == null:
+		return
+	check(not session.has_game(), "正常启动应显示主菜单且不创建游戏会话")
+	await click_control(menu.get_node("%NewGame"))
+	var setup = await wait_for_scene(NEW_GAME)
+	if setup == null:
+		return
+	check(setup.enter_button.disabled, "开局尚未载入时不能进入游戏")
+	check(setup.load_button.disabled, "空目录不能发起载入")
+	# 新游戏页可以取消，返回后不遗留会话。
+	await click_control(setup.back_button)
+	menu = await wait_for_scene(MAIN_MENU)
+	if menu == null:
+		return
+	check(not session.has_game(), "取消新游戏不应创建会话")
+	await click_control(menu.get_node("%NewGame"))
+	setup = await wait_for_scene(NEW_GAME)
+	if setup == null:
+		return
 	var directory := ProjectSettings.globalize_path("res://tests/data/game")
-	check(await screen.load_map(directory), "自制地图应成功载入")
-	await process_frame
+	await load_directory(setup, directory.path_join("missing"))
+	check(current_scene == setup and setup.enter_button.disabled, "载入失败应留在新游戏页且不能进入游戏")
+	check(setup.status_label.text.contains("载入失败") and not session.has_game(), "首次载入失败应显示原因且没有会话")
+	await load_directory(setup, directory)
+	check(not setup.enter_button.disabled and session.has_game(), "修正目录后应能成功载入开局")
+	check(current_scene == setup, "手动载入成功后应等待用户点击进入游戏")
+	var loaded_backend = session.backend
+	# 修改来源后必须重新载入，失败不能把旧会话当成新目录的开局。
+	await load_directory(setup, directory.path_join("missing"))
+	check(session.backend == loaded_backend, "新开局载入失败应保留先前成功的会话")
+	check(setup.enter_button.disabled, "失败的开局不能通过进入按钮继续")
+	await load_directory(setup, directory)
+	loaded_backend = session.backend
+	var loaded_texture: Texture2D = loaded_backend.get_map_texture()
+	await click_control(setup.enter_button)
+	var screen = await wait_for_scene(GAME_SCENE)
+	if screen == null:
+		return
+	check(not is_instance_valid(setup), "进入游戏后应释放新游戏页面")
+	check(screen.backend == loaded_backend, "场景切换应复用已载入的 Rust 会话")
 	var view: ProvinceMapView = screen.map_view
+	check(view.map_sprite.texture == loaded_texture, "进入游戏不应重新生成纹理")
 	check(screen.backend.get_map_size() == Vector2i(3, 2), "绑定返回的地图尺寸应正确")
 	check(screen.backend.get_province_count() == 2, "绑定应统计位图中的省份")
 	check(screen.backend.province_at(Vector2i(-1, 0)) == -1, "负坐标应返回越界")
@@ -69,21 +113,83 @@ func _run() -> void:
 	var previous_texture: Texture2D = view.map_sprite.texture
 	view.zoom_at(view.size * 0.5, 3.0)
 	var previous_transform := view.map_viewport.canvas_transform
-	check(not await screen.load_map(directory.path_join("missing")), "不存在的目录应报告载入失败")
+	check(not session.load_game(directory.path_join("missing")).is_empty(), "不存在的目录应报告载入失败")
 	check(view.map_sprite.texture == previous_texture, "载入失败应保留旧地图")
 	check(screen.backend.get_political_texture() == political_texture, "载入失败应保留政治颜色")
 	check(screen.backend.get_province_owner(7) == "AAA", "载入失败应保留开局归属")
 	check(screen.selected_province == 7, "载入失败应保留原选择")
 	check(view.map_viewport.canvas_transform.is_equal_approx(previous_transform), "载入失败应保留缩放与位置")
-	check(await screen.load_map(directory), "地图应能重新载入")
+	# 通过实际页面按钮结束会话，再开始一局，检查场景与选择状态的生命周期。
+	await click_control(screen.menu_button)
+	menu = await wait_for_scene(MAIN_MENU)
+	if menu == null:
+		return
+	check(not is_instance_valid(screen), "返回主菜单后应释放游戏场景")
+	check(not session.has_game() and session.backend == null, "返回主菜单应结束游戏会话")
+	await click_control(menu.get_node("%NewGame"))
+	setup = await wait_for_scene(NEW_GAME)
+	if setup == null:
+		return
+	check(setup.path_input.text == directory, "新开局应记住上一次成功使用的目录")
+	check(setup.enter_button.disabled, "新的一局应重新载入开局")
+	await load_directory(setup, directory)
+	await click_control(setup.enter_button)
+	screen = await wait_for_scene(GAME_SCENE)
+	if screen == null:
+		return
+	view = screen.map_view
+	check(screen.backend != loaded_backend, "重新开始应创建独立的游戏会话")
 	check(screen.selected_province == 0, "重新载入成功后应清除旧选择")
 	check(view.map_sprite.material.get_shader_parameter("selected_province") == 0, "重新载入应清除高亮")
 	check(is_equal_approx(view.zoom_level, 1.0), "重新载入成功后应显示全图")
-	screen.queue_free()
-	await process_frame
+	await click_control(screen.menu_button)
+	menu = await wait_for_scene(MAIN_MENU)
+	if menu == null:
+		return
+	# 无会话时单独运行游戏场景，应进入开局页而不是显示空地图。
+	change_scene_to_file(GAME_SCENE)
+	setup = await wait_for_scene(NEW_GAME)
+	if setup == null:
+		return
+	check(not session.has_game(), "单独打开游戏场景不应创建空世界")
+	await load_directory(setup, directory)
+	await click_control(setup.back_button)
+	menu = await wait_for_scene(MAIN_MENU)
+	if menu == null:
+		return
+	check(not session.has_game(), "取消已载入的开局也应释放会话")
 	if failures.is_empty():
-		print("Godot 地图集成测试通过")
+		print("Godot 场景流程与地图集成测试通过")
 	quit(0 if failures.is_empty() else 1)
+
+
+func wait_for_scene(path: String) -> Node:
+	# 场景切换在帧结束时完成；等待新页面入树并完成布局后再分发输入。
+	for frame in range(30):
+		if current_scene != null and current_scene.scene_file_path == path:
+			await process_frame
+			await process_frame
+			return current_scene
+		await process_frame
+	check(false, "未能进入场景：" + path)
+	quit(1)
+	return null
+
+
+func load_directory(setup: Control, directory: String) -> void:
+	setup.path_input.text = directory
+	setup.path_input.text_changed.emit(directory)
+	check(setup.enter_button.disabled, "修改目录后应禁用进入游戏")
+	await click_control(setup.load_button)
+	for frame in range(30):
+		if not setup._loading:
+			return
+		await process_frame
+	check(false, "开局载入未完成")
+
+
+func click_control(control: Control) -> void:
+	await click_at(control.global_position + control.size * 0.5)
 
 
 func navigation_checks(screen: Control, view: ProvinceMapView) -> void:

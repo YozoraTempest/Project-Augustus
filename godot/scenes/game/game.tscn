@@ -1,0 +1,96 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/game.gd" id="1_script"]
+[ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
+[ext_resource type="PackedScene" path="res://scenes/map/province_map_view.tscn" id="3_map"]
+
+[sub_resource type="StyleBoxFlat" id="Style_map"]
+content_margin_left = 8.0
+content_margin_top = 8.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
+bg_color = Color(0.025, 0.034, 0.047, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[node name="Game" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_script")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
+
+[node name="Page" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Header" type="HBoxContainer" parent="Margin/Page"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Margin/Page/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 26
+text = "Project Augustus"
+
+[node name="MainMenu" type="Button" parent="Margin/Page/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "返回主菜单"
+
+[node name="Status" type="Label" parent="Margin/Page"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2
+
+[node name="MapPanel" type="PanelContainer" parent="Margin/Page"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("Style_map")
+
+[node name="MapView" parent="Margin/Page/MapPanel" instance=ExtResource("3_map")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Footer" type="HBoxContainer" parent="Margin/Page"]
+layout_mode = 2
+
+[node name="Selection" type="Label" parent="Margin/Page/Footer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 0.84, 0.43, 1)
+theme_override_font_sizes/font_size = 20
+text = "未选择省份"
+text_overrun_behavior = 3
+clip_text = true
+
+[node name="ResetView" type="Button" parent="Margin/Page/Footer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "显示全图"
+
+[node name="Hint" type="Label" parent="Margin/Page/Footer"]
+custom_minimum_size = Vector2(180, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.62, 0.69, 0.76, 1)
+text = "滚轮缩放 · 中键拖动 · 左键选择"
+autowrap_mode = 2
