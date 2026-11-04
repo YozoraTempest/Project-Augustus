@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "augustus-eu4"
+description = "EU4 content loading for Project Augustus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+csv.workspace = true
+image.workspace = true
+jomini.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
