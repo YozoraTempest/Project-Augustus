@@ -1,0 +1,125 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://main.gd" id="1_main"]
+[ext_resource type="Script" path="res://province_map_view.gd" id="2_map"]
+[ext_resource type="Shader" path="res://province_map.gdshader" id="3_shader"]
+
+[sub_resource type="Theme" id="Theme_main"]
+default_font_size = 17
+
+[sub_resource type="StyleBoxFlat" id="Style_map"]
+content_margin_left = 8.0
+content_margin_top = 8.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
+bg_color = Color(0.025, 0.034, 0.047, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="ShaderMaterial" id="Material_map"]
+shader = ExtResource("3_shader")
+
+[node name="Augustus" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = SubResource("Theme_main")
+script = ExtResource("1_main")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
+
+[node name="Page" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="Margin/Page"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+text = "Project Augustus"
+
+[node name="Toolbar" type="HBoxContainer" parent="Margin/Page"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="GameDirectory" type="LineEdit" parent="Margin/Page/Toolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "EU4 游戏安装目录"
+
+[node name="Browse" type="Button" parent="Margin/Page/Toolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "选择目录…"
+
+[node name="Load" type="Button" parent="Margin/Page/Toolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "载入地图"
+
+[node name="Status" type="Label" parent="Margin/Page"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "选择本地 EU4 安装目录以载入省份地图"
+autowrap_mode = 2
+
+[node name="MapPanel" type="PanelContainer" parent="Margin/Page"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("Style_map")
+
+[node name="MapView" type="TextureRect" parent="Margin/Page/MapPanel"]
+unique_name_in_owner = true
+material = SubResource("Material_map")
+texture_filter = 1
+layout_mode = 2
+mouse_default_cursor_shape = 2
+expand_mode = 1
+stretch_mode = 5
+script = ExtResource("2_map")
+
+[node name="EmptyMap" type="Label" parent="Margin/Page/MapPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+text = "省份地图\n\n载入后点击地图，查看并选中省份"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Footer" type="HBoxContainer" parent="Margin/Page"]
+layout_mode = 2
+
+[node name="Selection" type="Label" parent="Margin/Page/Footer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 0.84, 0.43, 1)
+theme_override_font_sizes/font_size = 20
+text = "未选择省份"
+
+[node name="Hint" type="Label" parent="Margin/Page/Footer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.69, 0.76, 1)
+text = "点击选中省份"
+
+[node name="DirectoryDialog" type="FileDialog" parent="."]
+title = "选择 EU4 安装目录"
+size = Vector2i(900, 600)
+file_mode = 2
+access = 2
+use_native_dialog = true
