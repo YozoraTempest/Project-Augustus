@@ -56,6 +56,12 @@ custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "新游戏"
 
+[node name="Settings" type="Button" parent="Margin/Center/Menu"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "设置"
+
 [node name="Quit" type="Button" parent="Margin/Center/Menu"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)

@@ -102,6 +102,12 @@ func _end_drag() -> void:
 	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
 
+func _notification(what: int) -> void:
+	# 设置窗口暂停场景时结束拖动，避免暂停期间松开中键后仍保留拖动状态。
+	if what == NOTIFICATION_PAUSED:
+		_end_drag()
+
+
 func _input(event: InputEvent) -> void:
 	# 在地图外松开中键或窗口失焦，也应结束拖拽。
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_MIDDLE and not event.pressed:

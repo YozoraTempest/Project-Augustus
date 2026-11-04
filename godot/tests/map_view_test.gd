@@ -7,6 +7,7 @@ const GAME_SCENE := "res://scenes/game/game.tscn"
 
 var failures: Array[String] = []
 var session: Node
+var preferences: Node
 
 
 func _init() -> void:
@@ -23,11 +24,18 @@ func _run() -> void:
 	root.size = Vector2i(1000, 700)
 	await process_frame
 	session = root.get_node("GameSession")
+	preferences = root.get_node("AppSettings")
+	# 设置测试使用构建目录中的独立文件，避免改动本机用户偏好。
+	var settings_directory := ProjectSettings.globalize_path("res://../target/godot-settings-tests")
+	check(DirAccess.make_dir_recursive_absolute(settings_directory) == OK, "应能创建设置测试目录")
+	preferences.config_path = settings_directory.path_join("display-%d.cfg" % OS.get_process_id())
+	check(preferences.save_and_apply(Window.MODE_WINDOWED, true) == OK, "应能写入初始设置")
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	var menu = await wait_for_scene(MAIN_MENU)
 	if menu == null:
 		return
 	check(not session.has_game(), "正常启动应显示主菜单且不创建游戏会话")
+	await menu_settings_checks(menu)
 	await click_control(menu.get_node("%NewGame"))
 	var setup = await wait_for_scene(NEW_GAME)
 	if setup == null:
@@ -95,6 +103,7 @@ func _run() -> void:
 	check(screen.selected_province == 16777217, "大编号省份应能准确选中")
 	check(screen.selection_label.text.contains("所属国家：BBB"), "切换选择后应更新国家归属")
 	await navigation_checks(screen, view)
+	await game_settings_checks(screen, view)
 
 	# 改变窗口比例后重新选中，留白区域不能误选边缘省份。
 	root.size = Vector2i(740, 900)
@@ -158,9 +167,87 @@ func _run() -> void:
 	if menu == null:
 		return
 	check(not session.has_game(), "取消已载入的开局也应释放会话")
+	check(DirAccess.remove_absolute(preferences.config_path) == OK, "应能清理本次设置测试文件")
 	if failures.is_empty():
 		print("Godot 场景流程与地图集成测试通过")
 	quit(0 if failures.is_empty() else 1)
+
+
+func menu_settings_checks(menu: Control) -> void:
+	await click_control(menu.settings_button)
+	var dialog: Window = menu.get_node("SettingsDialog")
+	check(paused and dialog.visible and dialog.exclusive, "设置应以模态窗口打开并暂停底层页面")
+	check(dialog.mode_option.get_selected_id() == Window.MODE_WINDOWED and dialog.vsync_toggle.button_pressed, "设置窗口应显示当前偏好")
+	dialog.mode_option.select(dialog.mode_option.get_item_index(Window.MODE_FULLSCREEN))
+	dialog.vsync_toggle.button_pressed = false
+	dialog.cancel_button.pressed.emit()
+	await process_frame
+	await process_frame
+	check(not paused and not is_instance_valid(dialog), "取消应关闭窗口并恢复页面处理")
+	check(preferences.window_mode == Window.MODE_WINDOWED and preferences.vsync_enabled, "取消不应应用草稿")
+	await click_control(menu.settings_button)
+	dialog = menu.get_node("SettingsDialog")
+	check(dialog.mode_option.get_selected_id() == Window.MODE_WINDOWED and dialog.vsync_toggle.button_pressed, "重新打开应丢弃之前取消的草稿")
+	dialog.mode_option.select(dialog.mode_option.get_item_index(Window.MODE_FULLSCREEN))
+	dialog.vsync_toggle.button_pressed = false
+	dialog.apply_button.pressed.emit()
+	await process_frame
+	await process_frame
+	check(not paused and not is_instance_valid(dialog), "应用成功应关闭设置并恢复页面处理")
+	check(preferences.window_mode == Window.MODE_FULLSCREEN and not preferences.vsync_enabled, "应用后应更新显示偏好")
+	# 用新的设置实例读取磁盘，验证下次启动能恢复保存的选项。
+	var restored = load("res://autoload/app_settings.gd").new()
+	restored.config_path = preferences.config_path
+	check(restored.load_settings() == OK, "已保存的设置应能重新读取")
+	check(restored.window_mode == Window.MODE_FULLSCREEN and not restored.vsync_enabled, "重新读取应恢复窗口模式与垂直同步")
+	restored.free()
+	check(preferences.save_and_apply(Window.MODE_WINDOWED, true) == OK, "测试后应恢复窗口化选项")
+	root.size = Vector2i(1000, 700)
+	await process_frame
+	await process_frame
+	await click_control(menu.settings_button)
+	dialog = menu.get_node("SettingsDialog")
+	var escape := InputEventKey.new()
+	escape.keycode = KEY_ESCAPE
+	escape.pressed = true
+	dialog.push_input(escape)
+	await process_frame
+	await process_frame
+	check(not paused and not is_instance_valid(dialog), "Escape 应取消设置并恢复页面处理")
+	check(current_scene == menu and not session.has_game(), "主菜单设置不能创建或切换游戏会话")
+
+
+func game_settings_checks(screen: Control, view: ProvinceMapView) -> void:
+	var previous_backend = screen.backend
+	var previous_texture := view.map_sprite.texture
+	var previous_selection: int = screen.selected_province
+	var point := view.size * 0.5
+	view.zoom_at(point, 2.0)
+	await mouse_button(view.global_position + point, MOUSE_BUTTON_MIDDLE, true)
+	check(view._dragging, "中键按下后应开始拖动")
+	var previous_transform := view.map_viewport.canvas_transform
+	screen.settings_button.pressed.emit()
+	await process_frame
+	await process_frame
+	var dialog: Window = screen.get_node("SettingsDialog")
+	check(paused and not view._dragging, "打开设置应暂停地图并结束当前拖动")
+	await click_pixel(view, Vector2i(0, 0))
+	await mouse_button(view.global_position + point, MOUSE_BUTTON_WHEEL_UP, true)
+	await mouse_button(view.global_position + point, MOUSE_BUTTON_WHEEL_UP, false)
+	await mouse_button(view.global_position + point, MOUSE_BUTTON_MIDDLE, false)
+	check(screen.selected_province == previous_selection, "设置窗口打开时不能选择底层地图")
+	check(view.map_viewport.canvas_transform.is_equal_approx(previous_transform), "设置窗口打开时不能缩放或拖动底层地图")
+	dialog.cancel_button.pressed.emit()
+	await process_frame
+	await process_frame
+	check(not paused and not is_instance_valid(dialog), "关闭游戏内设置应恢复游戏页面")
+	check(session.backend == previous_backend and screen.backend == previous_backend, "关闭设置应保留同一个游戏会话")
+	check(view.map_sprite.texture == previous_texture and screen.selected_province == previous_selection, "关闭设置应保留地图纹理和省份选择")
+	await mouse_motion(view.global_position + point, Vector2(20, 20), 0)
+	check(view.map_viewport.canvas_transform.is_equal_approx(previous_transform), "暂停期间松开中键后不能继续拖动")
+	view.reset_view()
+	await click_pixel(view, Vector2i(1, 0))
+	check(screen.selected_province == 16777217, "关闭设置后地图应继续响应省份选择")
 
 
 func wait_for_scene(path: String) -> Node:

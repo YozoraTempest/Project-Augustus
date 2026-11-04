@@ -7,6 +7,7 @@ run/main_scene="res://scenes/main_menu/main_menu.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 
 [autoload]
+AppSettings="*res://autoload/app_settings.gd"
 GameSession="*res://autoload/game_session.gd"
 
 [display]
