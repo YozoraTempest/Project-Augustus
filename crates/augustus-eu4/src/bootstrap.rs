@@ -3365,6 +3365,7 @@ impl VanillaWorld {
             _ => None,
         };
         let files = root.files()?;
+        let script_library = crate::ScriptLibrary::from_root(root, &files, ENCODING)?;
         let adjacency_path = adjacency_file.map(PathBuf::from).or_else(|| {
             files
                 .iter()
@@ -3473,7 +3474,13 @@ impl VanillaWorld {
         let mut economy = EconomyDraft::load(&root, &files, &mut report.economy)?;
         let mut governments = GovernmentDraft::load(&root, &files, &mut report.governments)?;
         let mut status_draft = CountryStatusDraft::load(&root, &files, &mut report.ideas)?;
-        let mut estates = EstateDraft::load(&root, &files, &defines, &mut report.estates)?;
+        let mut estates = EstateDraft::load(
+            &root,
+            &files,
+            script_library.clone(),
+            &defines,
+            &mut report.estates,
+        )?;
         let mut markers = crate::country_markers::CountryMarkers::default();
         let mut global_markers = augustus_core::GlobalMarkers {
             known: true,
@@ -4634,8 +4641,12 @@ impl VanillaWorld {
         initial
             .set_attributes(attributes.clone())
             .map_err(|e| Error::caused_by(root.path(), e))?;
-        let casus_belli =
-            crate::CasusBelliTypes::from_root(&root, &files, initial.world().schema())?;
+        let casus_belli = crate::CasusBelliTypes::from_root(
+            &root,
+            &files,
+            initial.world().schema(),
+            &script_library,
+        )?;
         initial
             .set_justifications(augustus_core::Justifications {
                 definitions: casus_belli.definitions(),
@@ -4659,6 +4670,7 @@ impl VanillaWorld {
         let missions = crate::missions::MissionDraft::load(
             &root,
             &files,
+            script_library.clone(),
             initial.world(),
             &geographic_scopes,
         )?;
@@ -4686,6 +4698,7 @@ impl VanillaWorld {
         let mut startup = crate::estates::EstateStartup::load(
             &root,
             &files,
+            script_library.clone(),
             initial.world().schema(),
             initial
                 .world()

@@ -306,6 +306,7 @@ impl Condition {
                     | "is_territorial_core"
                     | "has_port"
                     | "has_terrain"
+                    | "controlled_by"
                     | "province_has_center_of_trade_of_level" => {
                         let schema =
                             augustus_core::Schema::new(Vec::<String>::new()).expect("empty schema");
@@ -359,6 +360,7 @@ impl Condition {
                                     name.as_str(),
                                     "has_port"
                                         | "has_terrain"
+                                        | "controlled_by"
                                         | "province_has_center_of_trade_of_level"
                                 ) {
                                     Self::Scoped(condition)

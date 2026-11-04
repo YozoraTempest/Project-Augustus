@@ -44,6 +44,7 @@ pub(crate) fn validate_attribute_condition(condition: &Condition) -> Result<(), 
             | Condition::AnySubjectCountry { condition, .. }
             | Condition::With { condition, .. }
             | Condition::SubjectOverlord { condition }
+            | Condition::ProvinceController { condition }
             | Condition::InScope { condition, .. } => pending.push(condition),
             _ => (),
         }

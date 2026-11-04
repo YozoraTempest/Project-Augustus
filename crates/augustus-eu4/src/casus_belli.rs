@@ -55,9 +55,9 @@ impl CasusBelliTypes {
         root: &impl ContentView,
         files: &[FileEntry],
         schema: &Schema,
+        library: &ScriptLibrary,
     ) -> Result<Self, Error> {
         let mut result = Self::default();
-        let library = ScriptLibrary::from_root(root, files, TextEncoding::Windows1252)?;
         for file in files
             .iter()
             .filter(|file| direct_txt(&file.relative_path, "common/cb_types"))
@@ -65,7 +65,7 @@ impl CasusBelliTypes {
             result.document(
                 &root.read_text(&file.relative_path, TextEncoding::Windows1252)?,
                 schema,
-                &library,
+                library,
             )?;
         }
         Ok(result)

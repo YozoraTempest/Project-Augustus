@@ -44,6 +44,8 @@ Mod 可在 `localisation/replace` 中提供事件和任务的替换文本，覆�
 
 原生计划也可独立修改省份当前控制者，或记录已知无控制者，保留所有权和前控制者历史。自制[控制者变更场景](examples/province-controller-actions/README.md)演示事件更换控制者、保存恢复及次日交还控制。省份视图、海军建造准入和已接入的占领属性读取当前关系；[占领与月税场景](examples/live-occupation/README.md)验证占领、交还和保存恢复后的实际税款入账。当前支持税收、人力、商品数量、要塞维护及月度自治属性中的 `occupied` 来源，不包含 EU4 `change_controller` 兼容编译或完整占领副作用。
 
+EU4任务、事件和开局有效性条件可用 `controlled_by` 查询省份当前控制者，支持国家标签、`ROOT`、`owner`、`emperor` 和已声明的国家事件目标。控制者未知时条件保持未决。`REB`、`FROM` 及完整控制者变更效果仍未接入；自制输入见[当前省份控制者条件](examples/controlled-by/README.md)。
+
 条件可以进入首都、所有者、职位和命名对象，读取共享世界中的地理成员关系；自制样本与操作见 [作用域条件演示](examples/scoped-conditions/README.md)。
 
 国家是否拥有领土也由共享核心查询，已登记标签与存活国家分别处理，见 [国家领土条件演示](examples/country-existence/README.md)。[拥有省份查询](examples/owned-provinces/README.md) 可进一步检查当前成员的条件，并在归属或省份状态变化后读取新结果。[遍历与随机选择](examples/owned-iteration/README.md) 共用核心计划，保留取得顺序、实时筛选和读档后的随机状态。

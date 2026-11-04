@@ -61,6 +61,8 @@ cargo run -p eu4-inspect -- script-files "<原版目录>" scripted-effects --mod
 
 这个列表用于脚本编译，只选择类别目录直接包含的 `.txt` 文件，并按物理文件名的原有字节顺序排列。支持 `scripted-effects` 和 `scripted-triggers`。同名脚本定义保留先读到的一项，标识符区分大小写。定义索引仍保留全部声明，两者用途不同。
 
+省份条件 `controlled_by` 已支持字面国家标签、国家类型的 `ROOT`、`owner`、`emperor` 及 `event_target`。目标必须能从本次有效任务奖励或事件效果（含展开后的 scripted effects）中的 `save_global_event_target_as` 声明推导为国家作用域；未声明、仅在省份作用域声明或类型冲突的目标会在编译时拒绝。符合类型的目标仍按运行时绑定读取，未绑定时不匹配。条件读取当前控制者；缺失的控制者或关系保留未决。控制者与所有者互不改写。叛军控制者 `REB` 和需要前一作用域的 `FROM` 尚未接入。
+
 当前编译器只支持建造演示使用的一小部分效果、触发器与作用域，未知操作会报告来源和行列，具体范围见 [建造演示](CONSTRUCTION_DEMO.md)。建筑定义可以索引和解析；建筑效果自动接入游戏规则尚未实现。
 
 ## 编码与限制

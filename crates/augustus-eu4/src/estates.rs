@@ -113,6 +113,7 @@ impl EstateDraft {
     pub(super) fn load(
         root: &impl ContentView,
         files: &[FileEntry],
+        script_library: crate::ScriptLibrary,
         defines: &crate::Defines,
         report: &mut EstateReport,
     ) -> Result<Self, Error> {
@@ -131,7 +132,7 @@ impl EstateDraft {
             return Ok(draft);
         }
         let library = library(root, files, report)?;
-        draft.script_library = crate::ScriptLibrary::from_root(root, files, ENCODING)?;
+        draft.script_library = script_library;
         for file in files
             .iter()
             .filter(|f| direct_txt(&f.relative_path, "common/estates"))

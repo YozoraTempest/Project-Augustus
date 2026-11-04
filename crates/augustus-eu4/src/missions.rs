@@ -125,11 +125,11 @@ impl MissionDraft {
     pub(crate) fn load(
         root: &impl ContentView,
         files: &[FileEntry],
+        library: ScriptLibrary,
         world: &World,
         geographic_scopes: &BTreeMap<String, Vec<u32>>,
     ) -> Result<Self, Error> {
         let ids = identifiers(root, files)?;
-        let library = ScriptLibrary::from_root(root, files, TextEncoding::Windows1252)?;
         let documents = files
             .iter()
             .filter(|f| direct_txt(&f.relative_path, "missions"))

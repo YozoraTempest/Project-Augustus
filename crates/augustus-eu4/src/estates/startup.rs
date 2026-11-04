@@ -743,6 +743,7 @@ impl EstateStartup {
     pub(crate) fn load(
         root: &impl ContentView,
         files: &[FileEntry],
+        script_library: crate::ScriptLibrary,
         schema: &Schema,
         modifier_ids: BTreeSet<String>,
         subject_type_ids: BTreeSet<String>,
@@ -762,8 +763,7 @@ impl EstateStartup {
             hidden_descriptions: false,
             schema: schema.clone(),
             advisor_types: advisor_types.clone(),
-            library: crate::ScriptLibrary::from_root(root, files, ENCODING)?
-                .with_advisor_types(advisor_types),
+            library: script_library.with_advisor_types(advisor_types),
             effects: Vec::new(),
             effect_index: BTreeMap::new(),
             triggers: super::library(root, files, report)?,
@@ -1816,7 +1816,9 @@ fn load_events(
     if needed.is_empty() {
         return Ok((EventCatalog::default(), BTreeMap::new()));
     }
-    let library = crate::ScriptLibrary::from_root(root, files, ENCODING)?
+    let library = compiler
+        .library
+        .clone()
         .with_advisor_types(compiler.advisor_types.clone());
     for (name, path, location) in library.ignored_definitions() {
         report

@@ -71,6 +71,7 @@ godot --headless --path godot --script res://tests/event_text_escapes.gd
 godot --headless --path godot --script res://tests/localisation_replace.gd
 godot --headless --path godot --script res://tests/province_intelligence.gd
 godot --headless --path godot --script res://tests/province_selection.gd
+godot --headless --path godot --script res://tests/controlled_by.gd
 godot --headless --path godot --script res://tests/mission_claims.gd
 godot --headless --path godot --script res://tests/mission_selection_import.gd
 godot --headless --path godot --script res://tests/mission_province_highlights.gd
@@ -86,6 +87,8 @@ godot --headless --path godot --script res://tests/accepted_cultures.gd
 Godot 检查会加载真实 Rust 扩展，验证按钮操作、查询、两类输入、存档和随机状态。测试内容均为自制样本。
 
 `province_selection.gd` 检查世界地图的省份选择轮廓、驻地入口、无效选择、刷新与重新载入时的状态，以及纯界面操作的快照不变性。图形模式检查轮廓与政治色、任务填色的共存及宽窄窗口的实际像素，可附加 `-- --capture <绝对路径前缀>` 保存截图。
+
+`controlled_by.gd` 配合 `examples/controlled-by` 验证按当前国家查询控制者条件与地图目标、所有权独立性、控制者未知时的未决状态、任务奖励及项目存档恢复。
 
 `snapshot_files.gd` 验证世界界面和建造演示的首次保存、覆盖保存、推进后恢复，以及替换目标为目录、父目录缺失等失败情形。失败时原有内容与当前世界不变，不残留临时文件，也不显示成功。图形模式可附加 `-- --capture <绝对路径前缀>` 检查保存错误信息在宽、窄窗口中的显示。
 

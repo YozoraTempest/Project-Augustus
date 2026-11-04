@@ -226,13 +226,14 @@ fn rebase_inline_effect_fields(fields: &mut [Field], source: &Field) {
 
 /// Ordered, explicitly supplied declarations. The first same-name script is retained.
 /// File enumeration is the caller's responsibility; this is not a full-game loader.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ScriptLibrary {
     effects: BTreeMap<String, Field>,
     triggers: BTreeMap<String, Field>,
     ignored: Vec<(String, PathBuf, SourceLocation)>,
     government_callbacks: BTreeMap<String, Field>,
     advisor_types: BTreeMap<String, augustus_core::RulerSkill>,
+    global_scope_types: BTreeMap<String, EntityKind>,
 }
 
 impl ScriptLibrary {
@@ -252,27 +253,25 @@ impl ScriptLibrary {
     /// Load the supported script categories from selected effective files.
     /// Only direct .txt children participate; identifiers retain their spelling.
     pub fn from_content(content: &ContentSet, encoding: TextEncoding) -> Result<Self, Error> {
-        let mut library = Self::new();
-        for (kind, triggers) in [
-            (DefinitionKind::ScriptedEffects, false),
-            (DefinitionKind::ScriptedTriggers, true),
-        ] {
-            for (logical_path, _) in Self::files(content, kind)? {
-                library.add(&content.read_text(logical_path, encoding)?, triggers)?;
-            }
-        }
-        for (path, _) in content.effective_files().filter(|(path, _)| {
-            crate::bootstrap::direct_txt(std::path::Path::new(path), "common/on_actions")
-        }) {
-            library.add_on_actions(&content.read_text(path, encoding)?)?;
-        }
-        Ok(library)
+        Self::from_root(content, &content.files()?, encoding)
     }
 
     pub(crate) fn from_root(
         root: &impl ContentView,
         files: &[FileEntry],
         encoding: TextEncoding,
+    ) -> Result<Self, Error> {
+        let mut library =
+            Self::from_root_with_global_scope_types(root, files, encoding, BTreeMap::new())?;
+        library.global_scope_types = collect_global_scope_types(root, files, encoding, &library)?;
+        Ok(library)
+    }
+
+    pub(crate) fn from_root_with_global_scope_types(
+        root: &impl ContentView,
+        files: &[FileEntry],
+        encoding: TextEncoding,
+        global_scope_types: BTreeMap<String, EntityKind>,
     ) -> Result<Self, Error> {
         let mut library = Self::new();
         for (kind, triggers) in [
@@ -304,6 +303,7 @@ impl ScriptLibrary {
         {
             library.add_on_actions(&root.read_text(&file.relative_path, encoding)?)?;
         }
+        library.global_scope_types = global_scope_types;
         Ok(library)
     }
 
@@ -386,6 +386,317 @@ impl ScriptLibrary {
     }
 }
 
+fn collect_global_scope_types(
+    root: &impl ContentView,
+    files: &[FileEntry],
+    encoding: TextEncoding,
+    library: &ScriptLibrary,
+) -> Result<BTreeMap<String, EntityKind>, Error> {
+    let selected: Vec<_> = files
+        .iter()
+        .filter(|file| {
+            crate::bootstrap::direct_txt(&file.relative_path, "missions")
+                || crate::bootstrap::direct_txt(&file.relative_path, "events")
+        })
+        .collect();
+    let mut types = BTreeMap::new();
+    for _ in 0..64 {
+        let mut declarations = BTreeMap::<String, Option<EntityKind>>::new();
+        let mut needs_resolution = false;
+        for file in &selected {
+            let document = root.read_text(&file.relative_path, encoding)?;
+            let parsed = document.parse()?;
+            let fields = read_fields(&parsed, parsed.reader(), 0, true)?;
+            if crate::bootstrap::direct_txt(&file.relative_path, "missions") {
+                collect_mission_scope_declarations(
+                    &fields,
+                    library,
+                    &types,
+                    &mut declarations,
+                    &mut needs_resolution,
+                );
+            } else {
+                collect_event_scope_declarations(
+                    &fields,
+                    library,
+                    &types,
+                    &mut declarations,
+                    &mut needs_resolution,
+                );
+            }
+        }
+
+        let next: BTreeMap<_, _> = declarations
+            .into_iter()
+            .filter_map(|(name, kind)| kind.map(|kind| (name, kind)))
+            .collect();
+        if next == types {
+            return Ok(types);
+        }
+        if !needs_resolution {
+            return Ok(next);
+        }
+        types = next;
+    }
+    Ok(types)
+}
+
+fn collect_mission_scope_declarations(
+    fields: &[Field],
+    library: &ScriptLibrary,
+    types: &BTreeMap<String, EntityKind>,
+    declarations: &mut BTreeMap<String, Option<EntityKind>>,
+    needs_resolution: &mut bool,
+) {
+    for series in fields {
+        let Ok(series_fields) = series.block() else {
+            continue;
+        };
+        for mission in series_fields.iter().filter(|field| {
+            !field.name.starts_with('@')
+                && !matches!(
+                    field.name.as_str(),
+                    "slot" | "generic" | "ai" | "has_country_shield" | "potential"
+                )
+        }) {
+            let Ok(mission_fields) = mission.block() else {
+                continue;
+            };
+            for effect in mission_fields.iter().filter(|field| field.name == "effect") {
+                if let Ok(body) = effect.block() {
+                    collect_effect_scope_declarations(
+                        body,
+                        Some(EntityKind::Country),
+                        EntityKind::Country,
+                        None,
+                        library,
+                        types,
+                        declarations,
+                        needs_resolution,
+                        &mut Vec::new(),
+                        0,
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn collect_event_scope_declarations(
+    fields: &[Field],
+    library: &ScriptLibrary,
+    types: &BTreeMap<String, EntityKind>,
+    declarations: &mut BTreeMap<String, Option<EntityKind>>,
+    needs_resolution: &mut bool,
+) {
+    for event in fields {
+        let scope = match event.name.as_str() {
+            "country_event" => EntityKind::Country,
+            "province_event" => EntityKind::Province,
+            _ => continue,
+        };
+        let Ok(parts) = event.block() else {
+            continue;
+        };
+        for part in parts {
+            match part.name.as_str() {
+                "immediate" | "after" => {
+                    if let Ok(body) = part.block() {
+                        collect_effect_scope_declarations(
+                            body,
+                            Some(scope),
+                            scope,
+                            None,
+                            library,
+                            types,
+                            declarations,
+                            needs_resolution,
+                            &mut Vec::new(),
+                            0,
+                        );
+                    }
+                }
+                "option" => {
+                    let Ok(option_fields) = part.block() else {
+                        continue;
+                    };
+                    for effect in option_fields.iter().filter(|field| {
+                        !matches!(
+                            field.name.as_str(),
+                            "name" | "trigger" | "ai_chance" | "goto"
+                        )
+                    }) {
+                        collect_effect_scope_declarations(
+                            std::slice::from_ref(effect),
+                            Some(scope),
+                            scope,
+                            None,
+                            library,
+                            types,
+                            declarations,
+                            needs_resolution,
+                            &mut Vec::new(),
+                            0,
+                        );
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_effect_scope_declarations(
+    fields: &[Field],
+    scope: Option<EntityKind>,
+    root_scope: EntityKind,
+    previous_scope: Option<EntityKind>,
+    library: &ScriptLibrary,
+    types: &BTreeMap<String, EntityKind>,
+    declarations: &mut BTreeMap<String, Option<EntityKind>>,
+    needs_resolution: &mut bool,
+    stack: &mut Vec<String>,
+    depth: usize,
+) {
+    if depth > 64 {
+        return;
+    }
+    for field in fields {
+        if field.name == "save_global_event_target_as" {
+            if let Ok(name) = field.scalar() {
+                if name.is_empty() || name.contains('$') {
+                    continue;
+                }
+                match declarations.entry(name.into()) {
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(scope);
+                    }
+                    std::collections::btree_map::Entry::Occupied(entry)
+                        if entry.get().is_some() && *entry.get() == scope => {}
+                    std::collections::btree_map::Entry::Occupied(mut entry) => {
+                        entry.insert(None);
+                    }
+                }
+            }
+            continue;
+        }
+        if field.name == "clear_global_event_target"
+            || matches!(field.name.as_str(), "country_event" | "province_event")
+        {
+            continue;
+        }
+        if let Some(definition) = library.effects.get(&field.name) {
+            if stack.len() >= 64 || stack.contains(&field.name) {
+                continue;
+            }
+            let mut expanded = definition.clone();
+            match &field.value {
+                Value::Scalar(value) if value == "yes" => (),
+                Value::Block(parameters) => {
+                    let mut bindings = BTreeMap::new();
+                    let mut valid = true;
+                    for parameter in parameters {
+                        let Ok(value) = parameter.scalar() else {
+                            valid = false;
+                            break;
+                        };
+                        if bindings
+                            .insert(parameter.name.clone(), value.to_owned())
+                            .is_some()
+                        {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    if !valid {
+                        continue;
+                    }
+                    let Some(used) = expanded.substitute_parameters(&bindings) else {
+                        continue;
+                    };
+                    if (used.is_empty() && !bindings.is_empty())
+                        || bindings.keys().any(|name| !used.contains(name))
+                    {
+                        continue;
+                    }
+                }
+                _ => continue,
+            }
+            let Ok(body) = expanded.block() else {
+                continue;
+            };
+            stack.push(field.name.clone());
+            collect_effect_scope_declarations(
+                body,
+                scope,
+                root_scope,
+                previous_scope,
+                library,
+                types,
+                declarations,
+                needs_resolution,
+                stack,
+                depth + 1,
+            );
+            stack.pop();
+            continue;
+        }
+
+        let Ok(body) = field.block() else {
+            continue;
+        };
+        let scope_transition = match field.name.as_str() {
+            "ROOT" | "root" => Some((Some(root_scope), scope)),
+            "PREV" | "prev" => Some((previous_scope, scope)),
+            "owner" => Some((
+                (scope == Some(EntityKind::Province)).then_some(EntityKind::Country),
+                scope,
+            )),
+            "capital_scope" => Some((
+                (scope == Some(EntityKind::Country)).then_some(EntityKind::Province),
+                scope,
+            )),
+            "emperor" => Some((Some(EntityKind::Country), scope)),
+            "every_subject_country" => Some((
+                (scope == Some(EntityKind::Country)).then_some(EntityKind::Country),
+                scope,
+            )),
+            "every_owned_province" | "random_owned_province" => Some((
+                (scope == Some(EntityKind::Country)).then_some(EntityKind::Province),
+                scope,
+            )),
+            "random_country" => Some((
+                (scope == Some(EntityKind::Country)).then_some(EntityKind::Country),
+                scope,
+            )),
+            name if name.starts_with("event_target:") => {
+                let target_type = name
+                    .strip_prefix("event_target:")
+                    .and_then(|name| types.get(name).copied());
+                *needs_resolution |= target_type.is_none();
+                Some((target_type, scope))
+            }
+            "if" | "else_if" | "else" | "limit" | "hidden_effect" | "effect" | "random_list"
+            | "repeat" => Some((scope, previous_scope)),
+            _ => None,
+        };
+        let (nested_scope, nested_previous) = scope_transition.unwrap_or((None, previous_scope));
+        collect_effect_scope_declarations(
+            body,
+            nested_scope,
+            root_scope,
+            nested_previous,
+            library,
+            types,
+            declarations,
+            needs_resolution,
+            stack,
+            depth + 1,
+        );
+    }
+}
+
 #[derive(Debug)]
 pub struct CompiledScript {
     pub plan: Plan,
@@ -427,6 +738,7 @@ pub struct ScriptCompiler<'a> {
     sources: Vec<(PathBuf, SourceLocation)>,
     folded: usize,
     global_scope_types: BTreeMap<String, EntityKind>,
+    controlled_by_global_scope_types: BTreeMap<String, EntityKind>,
     mission_ids: BTreeSet<String>,
     modifier_ids: BTreeSet<String>,
     subject_type_ids: Option<BTreeSet<String>>,
@@ -456,6 +768,7 @@ impl<'a> ScriptCompiler<'a> {
             sources: Vec::new(),
             folded: 0,
             global_scope_types: BTreeMap::new(),
+            controlled_by_global_scope_types: library.global_scope_types.clone(),
             mission_ids: BTreeSet::new(),
             modifier_ids: BTreeSet::new(),
             subject_type_ids: Some(BTreeSet::new()),
@@ -536,6 +849,7 @@ impl<'a> ScriptCompiler<'a> {
 
     /// Types come from selected content declarations, not current target values.
     pub fn with_global_scope_types(mut self, types: BTreeMap<String, EntityKind>) -> Self {
+        self.controlled_by_global_scope_types = types.clone();
         self.global_scope_types = types;
         self
     }
@@ -3337,7 +3651,7 @@ impl<'a> ScriptCompiler<'a> {
                         return Err(field.error("owned_by requires province scope"));
                     }
                     let value = field.scalar()?;
-                    let owner = if value.eq_ignore_ascii_case("ROOT") {
+                    let country_condition = if value.eq_ignore_ascii_case("ROOT") {
                         if self.root_kind(field)? != EntityKind::Country {
                             return Err(field.error("owned_by ROOT requires a country root"));
                         }
@@ -3350,7 +3664,56 @@ impl<'a> ScriptCompiler<'a> {
                     Condition::With {
                         target: Target::Owner,
                         kind: EntityKind::Country,
-                        condition: Box::new(owner),
+                        condition: Box::new(country_condition),
+                    }
+                }
+                "controlled_by" => {
+                    if scope != EntityKind::Province {
+                        return Err(field.error("controlled_by requires province scope"));
+                    }
+                    let value = field.scalar()?;
+                    if value.eq_ignore_ascii_case("owner") {
+                        Condition::ProvinceControllerIsOwner
+                    } else if value.eq_ignore_ascii_case("REB") {
+                        return Err(field.error("controlled_by REB requires rebel-controller state"));
+                    } else if value.eq_ignore_ascii_case("FROM") {
+                        return Err(field.error("controlled_by FROM requires a previous-country condition scope"));
+                    } else if value.eq_ignore_ascii_case("ROOT") {
+                        if self.root_kind(field)? != EntityKind::Country {
+                            return Err(field.error("controlled_by ROOT requires a country root"));
+                        }
+                        Condition::ProvinceController {
+                            condition: Box::new(Condition::ScopeIsCurrent(ScopeSelector::Root)),
+                        }
+                    } else if let Some(name) = value.strip_prefix("event_target:") {
+                        if name.is_empty() {
+                            return Err(field.error("controlled_by requires a named country event target"));
+                        }
+                        if self.controlled_by_global_scope_types.get(name)
+                            != Some(&EntityKind::Country)
+                        {
+                            return Err(field.error("controlled_by event target must be a country"));
+                        }
+                        Condition::ProvinceController {
+                            condition: Box::new(Condition::ScopeIsCurrent(ScopeSelector::Global(
+                                name.into(),
+                            ))),
+                        }
+                    } else if country_identifier(value) {
+                        Condition::ProvinceController {
+                            condition: Box::new(Condition::EntityNamed {
+                                target: Target::Current,
+                                name: value.into(),
+                            }),
+                        }
+                    } else {
+                        let target = self.country_reference(field)?;
+                        let augustus_core::EntityRef::Selected(selector) = target else {
+                            return Err(field.error("controlled_by requires a selected country reference"));
+                        };
+                        Condition::ProvinceController {
+                            condition: Box::new(Condition::ScopeIsCurrent(selector)),
+                        }
                     }
                 }
                 "province_id" => {
@@ -4431,6 +4794,157 @@ mod script_plan_tests {
                 .compile_condition_reader(&parsed, parsed.reader(), scope)
                 .unwrap_err();
             assert!(error.to_string().contains("owned-by-invalid.txt"));
+        }
+    }
+
+    #[test]
+    fn controlled_by_reads_live_controller_root_owner_emperor_and_declared_country_target() {
+        let schema = Schema::new([] as [&str; 0]).unwrap();
+        let library = ScriptLibrary::new();
+        for optimise in [false, true] {
+            let compile = |source: &str, root| {
+                let document = TextDocument::from_bytes(
+                    "controlled-by.txt",
+                    source.as_bytes().to_vec(),
+                    TextEncoding::Utf8,
+                );
+                let parsed = document.parse().unwrap();
+                ScriptCompiler::new(&schema, &library, optimise)
+                    .with_root_scope(root)
+                    .compile_condition_reader(&parsed, parsed.reader(), EntityKind::Province)
+                    .unwrap()
+            };
+            let literal = compile("controlled_by = BBB", EntityKind::Country);
+            let root = compile("controlled_by = ROOT", EntityKind::Country);
+            let owner = compile("controlled_by = owner", EntityKind::Country);
+            let emperor = compile("controlled_by = emperor", EntityKind::Country);
+            let event_target = {
+                let document = TextDocument::from_bytes(
+                    "controlled-by-event-target.txt",
+                    b"controlled_by = event_target:controller".to_vec(),
+                    TextEncoding::Utf8,
+                );
+                let parsed = document.parse().unwrap();
+                ScriptCompiler::new(&schema, &library, optimise)
+                    .with_root_scope(EntityKind::Country)
+                    .with_global_scope_types(BTreeMap::from([(
+                        "controller".into(),
+                        EntityKind::Country,
+                    )]))
+                    .compile_condition_reader(&parsed, parsed.reader(), EntityKind::Province)
+                    .unwrap()
+            };
+            let mut world = augustus_core::World::new(schema.clone());
+            let aaa = world.add_entity("AAA", EntityKind::Country);
+            let bbb = world.add_entity("BBB", EntityKind::Country);
+            let province = world.add_entity("1", EntityKind::Province);
+            world.set_owner(province, aaa).unwrap();
+            world.set_province_controller(province, Some(bbb)).unwrap();
+            world.bind_global_scope("controller", bbb).unwrap();
+            let context = augustus_core::ScopeContext::new(aaa).with_current(province);
+
+            assert!(literal.evaluate_in_context(&world, context).unwrap());
+            assert!(event_target.evaluate_in_context(&world, context).unwrap());
+            assert!(!emperor.evaluate_in_context(&world, context).unwrap());
+            assert!(!root.evaluate_in_context(&world, context).unwrap());
+            assert!(!owner.evaluate_in_context(&world, context).unwrap());
+            world
+                .set_politics(augustus_core::Politics {
+                    offices: [("imperial_emperor".into(), bbb)].into(),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert!(emperor.evaluate_in_context(&world, context).unwrap());
+            world.set_province_controller(province, Some(aaa)).unwrap();
+            assert!(root.evaluate_in_context(&world, context).unwrap());
+            assert!(!emperor.evaluate_in_context(&world, context).unwrap());
+            assert!(owner.evaluate_in_context(&world, context).unwrap());
+            world.set_province_controller(province, None).unwrap();
+            assert!(!literal.evaluate_in_context(&world, context).unwrap());
+            assert!(!owner.evaluate_in_context(&world, context).unwrap());
+        }
+    }
+
+    #[test]
+    fn library_global_scope_index_only_enables_controlled_by_target_validation() {
+        let schema = Schema::new([] as [&str; 0]).unwrap();
+        let mut library = ScriptLibrary::new();
+        library
+            .global_scope_types
+            .insert("controller".into(), EntityKind::Country);
+
+        let condition = TextDocument::from_bytes(
+            "controlled-by-index.txt",
+            b"controlled_by = event_target:controller".to_vec(),
+            TextEncoding::Utf8,
+        );
+        let parsed = condition.parse().unwrap();
+        assert!(ScriptCompiler::new(&schema, &library, true)
+            .with_root_scope(EntityKind::Country)
+            .compile_condition_reader(&parsed, parsed.reader(), EntityKind::Province)
+            .is_ok());
+
+        let unrelated = TextDocument::from_bytes(
+            "unrelated-event-target.txt",
+            b"event_target:controller = { always = yes }".to_vec(),
+            TextEncoding::Utf8,
+        );
+        let parsed = unrelated.parse().unwrap();
+        let error = ScriptCompiler::new(&schema, &library, true)
+            .compile_condition_reader(&parsed, parsed.reader(), EntityKind::Country)
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("global event target condition requires a declared entity type"));
+    }
+
+    #[test]
+    fn controlled_by_rejects_wrong_scope_rebel_previous_and_malformed_targets() {
+        let schema = Schema::new([] as [&str; 0]).unwrap();
+        let library = ScriptLibrary::new();
+        for (text, scope, root) in [
+            (
+                "controlled_by = BBB",
+                EntityKind::Country,
+                EntityKind::Province,
+            ),
+            (
+                "controlled_by = ROOT",
+                EntityKind::Province,
+                EntityKind::Province,
+            ),
+            (
+                "controlled_by = REB",
+                EntityKind::Province,
+                EntityKind::Country,
+            ),
+            (
+                "controlled_by = FROM",
+                EntityKind::Province,
+                EntityKind::Country,
+            ),
+            (
+                "controlled_by = event_target:",
+                EntityKind::Province,
+                EntityKind::Country,
+            ),
+            (
+                "controlled_by = { tag = BBB }",
+                EntityKind::Province,
+                EntityKind::Country,
+            ),
+        ] {
+            let document = TextDocument::from_bytes(
+                "controlled-by-invalid.txt",
+                text.as_bytes().to_vec(),
+                TextEncoding::Utf8,
+            );
+            let parsed = document.parse().unwrap();
+            let error = ScriptCompiler::new(&schema, &library, true)
+                .with_root_scope(root)
+                .compile_condition_reader(&parsed, parsed.reader(), scope)
+                .unwrap_err();
+            assert!(error.to_string().contains("controlled-by-invalid.txt"));
         }
     }
 

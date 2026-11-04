@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Project Augustus contributors
+l_english:
+ control_north_title:0 "Control the Northern Province"
+ control_north_desc:0 "The province's current controller must be our country. Ownership is checked separately."
+ control_literal_title:0 "Recognize Northern Control"
+ control_literal_desc:0 "The northern province must currently be controlled by BBB."
+ control_owner_title:0 "Restore Local Control"
+ control_owner_desc:0 "The province's controller must match its current owner."
+ control_unknown_title:0 "Resolve the Uncharted Province"
+ control_unknown_desc:0 "Unknown controller data cannot prove the absence of our control."

@@ -3040,6 +3040,7 @@ pub(crate) fn validate_condition(
         crate::Condition::AnySubjectCountry { condition, .. }
         | crate::Condition::With { condition, .. }
         | crate::Condition::AnyOwnedProvince { condition, .. }
+        | crate::Condition::ProvinceController { condition }
         | crate::Condition::SubjectOverlord { condition } => validate_condition(
             condition,
             schema,

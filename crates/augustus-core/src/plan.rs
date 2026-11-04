@@ -50,6 +50,14 @@ pub enum Condition {
     /// A known country controls a province owned by a different country.
     /// Unknown relations remain errors; explicit absence is not occupation.
     ProvinceOccupied,
+    /// Evaluate a country condition on the current province's live controller.
+    /// Known absence is false; missing controller data remains unknown.
+    ProvinceController {
+        condition: Box<Condition>,
+    },
+    /// Whether the current province's known controller matches its owner.
+    /// Missing controller or owner data remains unknown.
+    ProvinceControllerIsOwner,
     ProvinceCenterOfTradeAtLeast {
         target: Target,
         level: u8,
@@ -605,6 +613,7 @@ impl Condition {
             | Self::AnySubjectCountry { condition, .. }
             | Self::With { condition, .. }
             | Self::SubjectOverlord { condition }
+            | Self::ProvinceController { condition }
             | Self::InScope { condition, .. }
             | Self::Not(condition) => condition.collect_global_marker_references(names),
             Self::If {
@@ -698,6 +707,24 @@ impl Condition {
             }
             Self::ProvinceHasPort => world.province_has_port(current),
             Self::ProvinceOccupied => world.province_is_occupied(current),
+            Self::ProvinceController { condition } => {
+                let controller = world
+                    .province_controller_state(current)?
+                    .ok_or_else(|| Error::Invalid("province controller is unknown".into()))?;
+                let Some(controller) = controller else {
+                    return Ok(false);
+                };
+                condition.evaluate_in_context(world, context.with_current(controller))
+            }
+            Self::ProvinceControllerIsOwner => {
+                let controller = world
+                    .province_controller_state(current)?
+                    .ok_or_else(|| Error::Invalid("province controller is unknown".into()))?;
+                let Some(controller) = controller else {
+                    return Ok(false);
+                };
+                Ok(world.condition_target(current, crate::Target::Owner)? == Some(controller))
+            }
             Self::ProvinceCenterOfTradeAtLeast { target, level } => {
                 if *level == 0 {
                     return Err(Error::Invalid(
