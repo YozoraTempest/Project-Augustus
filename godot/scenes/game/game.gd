@@ -25,7 +25,9 @@ func _ready() -> void:
 		return
 	backend = GameSession.backend
 	map_view.selection_changed.connect(_refresh_selection)
+	info_panel.construction_requested.connect(_start_construction)
 	GameSession.clock_changed.connect(func(): _refresh_selection(false))
+	GameSession.world_changed.connect(func(): _refresh_selection(false))
 	map_view.projection_changed.connect(func(_projection: MapMode.ViewType): _refresh_projection())
 	reset_view_button.pressed.connect(map_view.reset_view)
 	menu_button.pressed.connect(_return_to_menu)
@@ -58,6 +60,13 @@ func _refresh_projection() -> void:
 	navigation_hint.text = "滚轮缩放 · 中键旋转 · 左键选择" if is_globe else "滚轮缩放 · 中键拖动 · 左键选择"
 
 
+func _start_construction(province_id: int, building: String) -> void:
+	var error := GameSession.start_construction(province_id, building)
+	if not error.is_empty():
+		_refresh_selection(false)
+		info_panel.show_construction_error(error)
+
+
 func _refresh_selection(select_tab: bool = true) -> void:
 	# 地图模块决定选中了什么；游戏场景只查询并显示对应信息。
 	var province_id := map_view.selected_province
@@ -69,7 +78,7 @@ func _refresh_selection(select_tab: bool = true) -> void:
 		province_info = backend.get_province_info(province_id)
 		if province_info.get("owner") != null:
 			country_info = backend.get_country_info(province_info.owner)
-	info_panel.show_info(province_info, country_info)
+	info_panel.show_info(province_info, country_info, backend.get_construction_info(province_id))
 	# 日期推进会刷新财政；保留玩家手动选中的信息页签。
 	if select_tab:
 		info_panel.tabs.current_tab = 1 if map_view.mode == MapMode.Type.COUNTRY else 0

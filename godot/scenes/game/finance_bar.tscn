@@ -5,7 +5,7 @@
 [node name="FinanceBar" type="VBoxContainer"]
 theme_override_constants/separation = 4
 script = ExtResource("1_script")
-tooltip_text = "基础税收：所属省份的税收发展度合计 ÷ 12。每月 1 日结算，开局国库为 0，首月按整月结算。"
+tooltip_text = "月度税收包含所属省份的税收发展度与已建税收建筑加成。每月 1 日结算，开局国库为 0，首月按整月结算。"
 
 [node name="Budget" type="HBoxContainer" parent="."]
 layout_mode = 2

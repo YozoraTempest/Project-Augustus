@@ -2,9 +2,11 @@
 
 //! 管理国家和省份实体，并解析它们之间的归属关系。
 
+mod construction;
+
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
-use crate::{Country, GameDate, Money, Province, ProvinceKind};
+use crate::{BuildingDefinition, Country, GameDate, Money, Province, ProvinceKind};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorldError {
@@ -24,6 +26,10 @@ pub enum WorldError {
     UnknownActiveProvince(u32),
     #[error("owned active province {0} has no base tax")]
     MissingBaseTax(u32),
+    #[error("invalid or duplicate building definition: {0}")]
+    InvalidBuilding(String),
+    #[error("province {province} references unknown building {building}")]
+    UnknownBuilding { province: u32, building: String },
 }
 
 #[derive(Debug)]
@@ -32,15 +38,38 @@ pub struct World {
     provinces: BTreeMap<u32, Province>,
     // 内容可以保留废弃省份定义，只有实际存在于地图上的省份参与模拟。
     active_provinces: BTreeSet<u32>,
+    buildings: BTreeMap<String, BuildingDefinition>,
 }
 
 impl World {
     /// 索引使用实体自身的标识，避免调用者提供不一致的键和值。
     pub fn new(
         countries: impl IntoIterator<Item = Country>,
-        provinces: BTreeMap<u32, Province>,
+        mut provinces: BTreeMap<u32, Province>,
         active_provinces: impl IntoIterator<Item = u32>,
+        buildings: impl IntoIterator<Item = BuildingDefinition>,
     ) -> Result<Self, WorldError> {
+        let mut definitions = BTreeMap::new();
+        for building in buildings {
+            let id = building.id.clone();
+            if building.cost < Money::ZERO
+                || building.months == 0
+                || definitions.insert(id.clone(), building).is_some()
+            {
+                return Err(WorldError::InvalidBuilding(id));
+            }
+        }
+        for (&id, province) in &mut provinces {
+            for building in &province.buildings {
+                if !definitions.contains_key(building) {
+                    return Err(WorldError::UnknownBuilding {
+                        province: id,
+                        building: building.clone(),
+                    });
+                }
+            }
+            construction::remove_obsolete(province, &definitions);
+        }
         let mut registry = BTreeMap::new();
         for country in countries {
             match registry.entry(country.tag().to_owned()) {
@@ -99,6 +128,7 @@ impl World {
             countries: registry,
             provinces,
             active_provinces,
+            buildings: definitions,
         })
     }
 
@@ -122,7 +152,7 @@ impl World {
         if !self.active_provinces.contains(&id) {
             return None;
         }
-        self.province(id)?.monthly_tax()
+        Some(self.province_annual_tax(id)? / Money::from(12))
     }
 
     pub fn country_monthly_tax(&self, tag: &str) -> Option<Money> {
@@ -131,7 +161,7 @@ impl World {
         for id in &self.active_provinces {
             let province = &self.provinces[id];
             if province.owner.as_deref() == Some(tag) {
-                annual += province.annual_tax()?;
+                annual += self.province_annual_tax(*id)?;
             }
         }
         Some(annual / Money::from(12))
@@ -148,7 +178,7 @@ impl World {
             let province = &self.provinces[id];
             if let Some(tag) = &province.owner {
                 *annual.get_mut(tag).expect("省份所有者已注册") +=
-                    province.annual_tax().expect("有效领土具备基础税收");
+                    self.province_annual_tax(*id).expect("有效领土具备基础税收");
             }
         }
         for (tag, country) in &mut self.countries {

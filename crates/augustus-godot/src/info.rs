@@ -69,6 +69,16 @@ pub(crate) fn province_info(world: &OpeningWorld, id: u32) -> VarDictionary {
         "monthly_tax",
         world.state().province_monthly_tax(id),
     );
+    money(&mut info, "base_monthly_tax", province.monthly_tax());
+    text(
+        &mut info,
+        "building_tax_bonus",
+        world
+            .state()
+            .province_building_tax_modifier(id)
+            .map(|modifier| format!("{}%", (modifier * Money::from(100)).normalize()))
+            .as_deref(),
+    );
     info
 }
 
@@ -163,7 +173,7 @@ pub(crate) fn kind_name(kind: ProvinceKind) -> &'static str {
     }
 }
 
-fn text(info: &mut VarDictionary, key: &str, value: Option<&str>) {
+pub(crate) fn text(info: &mut VarDictionary, key: &str, value: Option<&str>) {
     match value {
         Some(value) => info.set(key, value),
         None => info.set(key, &Variant::nil()),
@@ -177,7 +187,7 @@ fn number(info: &mut VarDictionary, key: &str, value: Option<u64>) {
     }
 }
 
-fn money(info: &mut VarDictionary, key: &str, value: Option<Money>) {
+pub(crate) fn money(info: &mut VarDictionary, key: &str, value: Option<Money>) {
     // 金额由 Rust 格式化后传给界面，Godot 不进行浮点转换或财政计算。
     text(
         info,

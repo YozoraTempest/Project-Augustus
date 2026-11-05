@@ -34,6 +34,8 @@ impl Simulation {
             if date.day() == 1 {
                 world.settle_monthly_taxes(date);
             }
+            // 月初先支付此前月份的税收，再完成当天建设，避免新建筑追溯增加上月收入。
+            world.complete_constructions(date);
         })
     }
 }

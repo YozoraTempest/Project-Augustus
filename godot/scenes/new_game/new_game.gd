@@ -122,7 +122,7 @@ func _refresh_selection() -> void:
 		province_info = _preview_backend.get_province_info(map_view.selected_province)
 		if province_info.get("owner") != null:
 			country_info = _preview_backend.get_country_info(province_info.owner)
-	info_panel.show_info(province_info, country_info)
+	info_panel.show_info(province_info, country_info, _preview_backend.get_construction_info(map_view.selected_province))
 	info_panel.tabs.current_tab = 1 if map_view.mode == MapMode.Type.COUNTRY else 0
 	_viewed_country = "" if country_info.is_empty() else str(country_info.tag)
 	choose_button.disabled = country_info.is_empty() or country_info.province_count == 0 or _viewed_country == _chosen_country

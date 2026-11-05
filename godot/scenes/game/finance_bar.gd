@@ -8,6 +8,7 @@ extends VBoxContainer
 
 func _ready() -> void:
 	GameSession.clock_changed.connect(_refresh)
+	GameSession.world_changed.connect(_refresh)
 	_refresh()
 
 

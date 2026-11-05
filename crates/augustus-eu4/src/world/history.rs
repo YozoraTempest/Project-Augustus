@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use augustus_core::{Country, Province};
+use augustus_core::{BuildingDefinition, Country, Province};
 use jomini::{Windows1252Encoding, common::Date, text::ValueReader};
 
 use crate::{
@@ -90,6 +90,7 @@ pub(super) fn apply_provinces(
     content: &ContentRoot,
     countries: &BTreeMap<String, [u8; 3]>,
     provinces: &mut BTreeMap<u32, Province>,
+    buildings: &BTreeMap<String, BuildingDefinition>,
 ) -> Result<BTreeSet<u32>, Error> {
     let mut loaded = BTreeSet::new();
     let at = Date::parse(super::START_DATE).expect("固定开局日期必须有效");
@@ -176,6 +177,19 @@ pub(super) fn apply_provinces(
                                 ),
                             )
                         })?);
+                    }
+                    _ if buildings.contains_key(name.as_ref()) => {
+                        script::equal(&file, operator, &name)?;
+                        let present = value
+                            .read_scalar()
+                            .map_err(|error| Error::invalid(&file.path, error.to_string()))?
+                            .to_bool()
+                            .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
+                        if present {
+                            province.buildings.insert(name.into_owned());
+                        } else {
+                            province.buildings.remove(name.as_ref());
+                        }
                     }
                     _ => (),
                 }

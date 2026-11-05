@@ -2,6 +2,7 @@
 
 //! 将 EU4 的国家定义、地理分类和省份历史组合为固定日期的开局。
 
+mod buildings;
 mod countries;
 mod geography;
 mod history;
@@ -41,6 +42,7 @@ impl OpeningWorld {
         let content = ContentRoot::new(game_dir.as_ref());
         let map = ProvinceMap::load(game_dir)?;
         let mut countries = countries::load(&content)?;
+        let buildings = buildings::load(&content)?;
         let mut provinces: BTreeMap<_, _> = map
             .defined_province_ids()
             .iter()
@@ -48,7 +50,8 @@ impl OpeningWorld {
             .collect();
         geography::apply(&content, &mut provinces)?;
         let country_history_conflicts = history::apply_countries(&content, &mut countries.states)?;
-        let histories = history::apply_provinces(&content, &countries.colors, &mut provinces)?;
+        let histories =
+            history::apply_provinces(&content, &countries.colors, &mut provinces, &buildings)?;
         // 已绘制的陆地必须有历史文件；缺失内容不能被误当成未殖民省份。
         for id in map.mapped_province_ids() {
             if provinces
@@ -66,9 +69,16 @@ impl OpeningWorld {
             countries.states.into_values(),
             provinces,
             map.mapped_province_ids().iter().copied(),
+            buildings.into_values(),
         )
         .map_err(|error| Error::invalid(content.path(), error.to_string()))?;
         let mut wanted: BTreeSet<String> = state.countries().keys().cloned().collect();
+        wanted.extend(
+            state
+                .building_definitions()
+                .keys()
+                .map(|id| format!("building_{id}")),
+        );
         wanted.extend(
             map.defined_province_ids()
                 .iter()
@@ -125,6 +135,13 @@ impl OpeningWorld {
             .get(key)
             .cloned()
             .unwrap_or_else(|| key.to_owned())
+    }
+
+    pub fn building_name(&self, id: &str) -> String {
+        self.names
+            .get(&format!("building_{id}"))
+            .cloned()
+            .unwrap_or_else(|| id.to_owned())
     }
 
     pub fn province_name(&self, id: u32) -> String {
