@@ -20,7 +20,7 @@ pub use military::{
     Army, MilitaryState, REGIMENT_STRENGTH, Recruitment, RecruitmentError, RecruitmentQuote,
     RecruitmentRules, Regiment, UnitKind,
 };
-pub use movement::{ArmyMovement, LandConnection, MovementError};
+pub use movement::{ArmyMovement, LandConnection, MovementError, MovementLeg};
 pub use province::{Development, Province, ProvinceKind};
 pub use rust_decimal::Decimal as Money;
 pub use save::{RestoredGame, SaveError, SavedGame};

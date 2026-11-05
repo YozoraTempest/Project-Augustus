@@ -13,21 +13,60 @@ pub struct LandConnection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ArmyMovement {
+pub struct MovementLeg {
     pub from: u32,
     pub to: u32,
     pub started_on: GameDate,
     pub arrives_on: GameDate,
 }
 
-impl ArmyMovement {
-    pub fn days_remaining(&self, date: GameDate) -> u32 {
-        date.days_until(self.arrives_on).max(0) as u32
-    }
-
+impl MovementLeg {
     pub fn progress(&self, date: GameDate) -> f64 {
         let total = self.started_on.days_until(self.arrives_on);
         f64::from(self.started_on.days_until(date)).clamp(0.0, f64::from(total)) / f64::from(total)
+    }
+}
+
+/// 保留整条路线和当前路段；已走过的路段仍用于显示完整行程。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArmyMovement {
+    pub(crate) legs: Vec<MovementLeg>,
+    pub(crate) leg_index: usize,
+}
+
+impl ArmyMovement {
+    pub fn legs(&self) -> &[MovementLeg] {
+        &self.legs
+    }
+
+    pub fn leg_index(&self) -> usize {
+        self.leg_index
+    }
+
+    pub fn current_leg(&self) -> &MovementLeg {
+        &self.legs[self.leg_index]
+    }
+
+    pub fn destination(&self) -> u32 {
+        self.legs.last().expect("行军路线非空").to
+    }
+
+    pub fn started_on(&self) -> GameDate {
+        self.legs[0].started_on
+    }
+
+    pub fn arrives_on(&self) -> GameDate {
+        self.legs.last().expect("行军路线非空").arrives_on
+    }
+
+    pub fn days_remaining(&self, date: GameDate) -> u32 {
+        date.days_until(self.arrives_on()).max(0) as u32
+    }
+
+    pub fn progress(&self, date: GameDate) -> f64 {
+        let total = self.started_on().days_until(self.arrives_on());
+        f64::from(self.started_on().days_until(date)).clamp(0.0, f64::from(total))
+            / f64::from(total)
     }
 }
 
@@ -39,16 +78,16 @@ pub enum MovementError {
     UnknownArmy,
     #[error("只能指挥本国军队")]
     NotPlayerArmy,
-    #[error("该军队正在行军，请等待抵达")]
-    AlreadyMoving,
+    #[error("该军队未在行军")]
+    NotMoving,
     #[error("军队已在该省份")]
     SameProvince,
     #[error("只能移动到地图上的陆地省份")]
     InvalidDestination,
     #[error("目标省份必须由本国拥有并控制")]
     NotOwnedAndControlled,
-    #[error("目标省份必须与当前省份陆地相邻")]
-    NotAdjacent,
+    #[error("没有通往目标省份的可通行陆路")]
+    NoRoute,
     #[error("抵达日期超出游戏历法范围")]
     DateOutOfRange,
 }

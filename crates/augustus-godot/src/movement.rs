@@ -10,14 +10,33 @@ pub(crate) fn details(
     date: GameDate,
 ) -> VarDictionary {
     let mut info = VarDictionary::new();
-    info.set("from", i64::from(movement.from));
-    info.set("to", i64::from(movement.to));
-    info.set("from_name", world.province_name(movement.from).as_str());
-    info.set("to_name", world.province_name(movement.to).as_str());
-    info.set("started_on", movement.started_on.to_string().as_str());
-    info.set("arrives_on", movement.arrives_on.to_string().as_str());
+    let current = movement.current_leg();
+    info.set("from", i64::from(current.from));
+    info.set("to", i64::from(current.to));
+    info.set("from_name", world.province_name(current.from).as_str());
+    info.set("to_name", world.province_name(current.to).as_str());
+    info.set("destination", i64::from(movement.destination()));
+    info.set(
+        "destination_name",
+        world.province_name(movement.destination()).as_str(),
+    );
+    info.set("started_on", movement.started_on().to_string().as_str());
+    info.set("arrives_on", movement.arrives_on().to_string().as_str());
     info.set("days_remaining", i64::from(movement.days_remaining(date)));
     info.set("progress", movement.progress(date) * 100.0);
+    info.set("leg_index", movement.leg_index() as i64);
+    info.set("leg_progress", current.progress(date) * 100.0);
+    info.set("leg_arrives_on", current.arrives_on.to_string().as_str());
+    let mut route: Array<VarDictionary> = Array::new();
+    for leg in movement.legs() {
+        let mut details = VarDictionary::new();
+        details.set("from_name", world.province_name(leg.from).as_str());
+        details.set("to_name", world.province_name(leg.to).as_str());
+        details.set("from_position", anchor(world, leg.from));
+        details.set("to_position", anchor(world, leg.to));
+        route.push(&details);
+    }
+    info.set("route", &route);
     info
 }
 

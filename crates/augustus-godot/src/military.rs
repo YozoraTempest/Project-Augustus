@@ -6,7 +6,12 @@ use godot::prelude::*;
 
 use crate::info::{money, text};
 
-pub(crate) fn army_info(world: &OpeningWorld, army: &Army, date: GameDate) -> VarDictionary {
+pub(crate) fn army_info(
+    world: &OpeningWorld,
+    army: &Army,
+    date: GameDate,
+    player: Option<&str>,
+) -> VarDictionary {
     let mut info = VarDictionary::new();
     info.set("id", i64::from(army.id()));
     info.set(
@@ -19,6 +24,7 @@ pub(crate) fn army_info(world: &OpeningWorld, army: &Army, date: GameDate) -> Va
         .as_str(),
     );
     info.set("country", army.country.as_str());
+    info.set("can_command", player == Some(army.country.as_str()));
     info.set("country_name", world.display_name(&army.country).as_str());
     info.set("province", i64::from(army.province));
     info.set("province_name", world.province_name(army.province).as_str());
@@ -117,21 +123,25 @@ pub(crate) fn recruitment_info(
     }
     let mut armies: Array<VarDictionary> = Array::new();
     for army in state.armies().values().filter(|army| army.province == id) {
-        armies.push(&army_info(world, army, date));
+        armies.push(&army_info(world, army, date, player));
     }
     info.set("armies", &armies);
     info
 }
 
-pub(crate) fn markers(world: &OpeningWorld, date: GameDate) -> Array<VarDictionary> {
+pub(crate) fn markers(
+    world: &OpeningWorld,
+    date: GameDate,
+    player: Option<&str>,
+) -> Array<VarDictionary> {
     let mut markers = Array::new();
     for army in world.state().armies().values() {
-        let mut marker = army_info(world, army, date);
+        let mut marker = army_info(world, army, date, player);
         marker.set("position", crate::movement::anchor(world, army.province));
         if let Some(movement) = &army.movement {
             marker.set(
                 "destination_position",
-                crate::movement::anchor(world, movement.to),
+                crate::movement::anchor(world, movement.current_leg().to),
             );
         }
         let [r, g, b] = world.country_color(&army.country).expect("军队国家已注册");
