@@ -136,31 +136,44 @@ pub(crate) fn country_finances(world: &OpeningWorld, tag: &str) -> VarDictionary
         return info;
     };
     money(&mut info, "treasury", Some(country.finances.treasury()));
-    money(
-        &mut info,
-        "monthly_tax",
-        world.state().country_monthly_tax(tag),
+    let budget = world
+        .state()
+        .country_monthly_budget(tag)
+        .expect("国家已注册");
+    money(&mut info, "monthly_tax", Some(budget.tax));
+    money(&mut info, "army_maintenance", Some(budget.army_maintenance));
+    signed_money(&mut info, "monthly_balance", budget.balance());
+    info.set("in_deficit", budget.balance() < Money::ZERO);
+    info.set(
+        "treasury_negative",
+        country.finances.treasury() < Money::ZERO,
     );
     let settlement = country.finances.last_settlement();
     text(
         &mut info,
-        "last_tax_month",
+        "last_settlement_month",
         settlement
             .map(|record| format!("{}.{}", record.month.year(), record.month.month()))
             .as_deref(),
     );
     text(
         &mut info,
-        "last_tax_date",
+        "last_settlement_date",
         settlement
             .map(|record| record.settled_on.to_string())
             .as_deref(),
     );
+    money(&mut info, "last_tax", settlement.map(|record| record.tax));
     money(
         &mut info,
-        "last_tax_income",
-        settlement.map(|record| record.received),
+        "last_maintenance",
+        settlement.map(|record| record.army_maintenance),
     );
+    if let Some(record) = settlement {
+        signed_money(&mut info, "last_balance", record.balance());
+    } else {
+        info.set("last_balance", &Variant::nil());
+    }
     info
 }
 
@@ -196,4 +209,8 @@ pub(crate) fn money(info: &mut VarDictionary, key: &str, value: Option<Money>) {
             .map(|amount| format!("{:.3}", amount.round_dp(3)))
             .as_deref(),
     );
+}
+
+fn signed_money(info: &mut VarDictionary, key: &str, value: Money) {
+    info.set(key, format!("{:+.3}", value.round_dp(3)).as_str());
 }

@@ -36,9 +36,9 @@ impl Simulation {
     pub fn advance(&mut self, world: &mut World, elapsed: Duration) -> u32 {
         self.clock.advance_with(elapsed, |date| {
             if date.day() == 1 {
-                world.settle_monthly_taxes(date);
+                world.settle_monthly_finances(date);
             }
-            // 月初先支付此前月份的税收，再完成当天建设，避免新建筑追溯增加上月收入。
+            // 月初先结算上月收支，再完成当天建设和招募，避免新项目影响上月账目。
             world.complete_constructions(date);
             // 先抵达再处理招募；留在出发地的新兵不会加入已经离开的军队。
             world.complete_movements(date);

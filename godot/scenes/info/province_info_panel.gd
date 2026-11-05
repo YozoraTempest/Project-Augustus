@@ -62,11 +62,11 @@ func show_info(province: Dictionary, country: Dictionary, construction: Dictiona
 		country_color.color = country.color
 		var capital := "—" if country.capital == null else "%s (#%d)" % [country.capital_name, country.capital]
 		country_body.text = "国家标签：%s\n\n首都：%s\n主流文化：%s\n国教：%s\n\n领土省份：%d\n总发展度：%s" % [country.tag, capital, _value(country.primary_culture), _value(country.religion), country.province_count, _value(country.development)]
-		country_body.text += "\n\n国库：%s 金币\n月度税收：+%s 金币" % [_value(country.treasury), _value(country.monthly_tax)]
-		if country.last_tax_month == null:
+		country_body.text += "\n\n国库：%s 金币\n月度税收：+%s 金币\n陆军维护：-%s 金币\n月度净收支：%s 金币" % [_value(country.treasury), _value(country.monthly_tax), _value(country.army_maintenance), _value(country.monthly_balance)]
+		if country.last_settlement_month == null:
 			country_body.text += "\n最近结算：尚未结算"
 		else:
-			country_body.text += "\n最近结算月份：%s\n实收税额：+%s 金币\n入库日期：%s" % [country.last_tax_month, country.last_tax_income, country.last_tax_date]
+			country_body.text += "\n\n最近结算月份：%s\n实收税额：+%s 金币\n陆军维护：-%s 金币\n净收支：%s 金币\n结算日期：%s" % [country.last_settlement_month, country.last_tax, country.last_maintenance, country.last_balance, country.last_settlement_date]
 		if country.history_conflicts:
 			country_body.text += "\n\n历史信息存在冲突"
 	country_body.visible = not country.is_empty()

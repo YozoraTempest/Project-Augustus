@@ -27,7 +27,7 @@ impl World {
             provinces,
             self.active_provinces.iter().copied(),
             self.buildings.values().cloned(),
-            self.recruitment_rules.clone(),
+            self.military_rules.clone(),
             self.land_connections(),
         )?;
         for (&id, province) in &restored.provinces {

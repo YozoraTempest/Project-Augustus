@@ -3,15 +3,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    Army, GameDate, MilitaryState, ProvinceKind, REGIMENT_STRENGTH, Recruitment, RecruitmentError,
-    RecruitmentQuote, RecruitmentRules, Regiment, SaveError, UnitKind,
+    Army, GameDate, MilitaryRules, MilitaryState, ProvinceKind, REGIMENT_STRENGTH, Recruitment,
+    RecruitmentError, RecruitmentQuote, Regiment, SaveError, UnitKind,
 };
 
 use super::World;
 
 impl World {
-    pub fn recruitment_rules(&self) -> &RecruitmentRules {
-        &self.recruitment_rules
+    pub fn military_rules(&self) -> &MilitaryRules {
+        &self.military_rules
     }
 
     pub fn military(&self) -> &MilitaryState {
@@ -52,7 +52,7 @@ impl World {
         if self.military.next_army_id == u32::MAX {
             return Err(RecruitmentError::ArmyLimit);
         }
-        let cost = self.recruitment_rules.infantry_cost;
+        let cost = self.military_rules.infantry_cost;
         let available = country.finances.treasury();
         if available < cost {
             return Err(RecruitmentError::InsufficientFunds { cost, available });
@@ -60,7 +60,7 @@ impl World {
         Ok(RecruitmentQuote {
             cost,
             completes_on: date
-                .checked_add_days(self.recruitment_rules.infantry_days)
+                .checked_add_days(self.military_rules.infantry_days)
                 .ok_or(RecruitmentError::DateOutOfRange)?,
         })
     }
