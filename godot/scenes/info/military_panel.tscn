@@ -55,6 +55,12 @@ unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 2
 
+[node name="StopArmy" type="Button" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "停止行军"
+
 [node name="MovementDetails" type="Label" parent="."]
 unique_name_in_owner = true
 layout_mode = 2

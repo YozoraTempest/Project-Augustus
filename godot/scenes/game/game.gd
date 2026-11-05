@@ -31,6 +31,7 @@ func _ready() -> void:
 	info_panel.construction_requested.connect(_start_construction)
 	info_panel.recruitment_requested.connect(_start_recruitment)
 	info_panel.army_selected.connect(map_view.select_army)
+	info_panel.army_stop_requested.connect(_stop_army)
 	GameSession.clock_changed.connect(func(): _refresh_selection(false))
 	GameSession.world_changed.connect(func(): _refresh_selection(false))
 	map_view.projection_changed.connect(func(_projection: MapMode.ViewType): _refresh_projection())
@@ -114,7 +115,7 @@ func _refresh_selection(select_tab: bool = true) -> void:
 	if select_tab:
 		info_panel.tabs.current_tab = 3 if not army.is_empty() else (1 if map_view.mode == MapMode.Type.COUNTRY else 0)
 	if not army.is_empty():
-		var location := "驻扎 " + str(army.province_name) if army.movement == null else "行军至 %s · 剩余 %d 天" % [army.movement.to_name, army.movement.days_remaining]
+		var location := "驻扎 " + str(army.province_name) if army.movement == null else "行军至 %s · 剩余 %d 天" % [army.movement.destination_name, army.movement.days_remaining]
 		selection_label.text = "%s · %d 人 · %s" % [army.name, army.strength, location]
 	elif map_view.mode == MapMode.Type.COUNTRY:
 		selection_label.text = "未选择国家" if country_info.is_empty() else "国家：%s (%s)" % [country_info.name, country_info.tag]
@@ -143,6 +144,13 @@ func _start_recruitment(province_id: int) -> void:
 
 func _move_army(army_id: int, destination: int) -> void:
 	var error := GameSession.move_army(army_id, destination)
+	if not error.is_empty():
+		_refresh_selection(false)
+		info_panel.show_movement_error(error)
+
+
+func _stop_army(army_id: int) -> void:
+	var error := GameSession.stop_army(army_id)
 	if not error.is_empty():
 		_refresh_selection(false)
 		info_panel.show_movement_error(error)

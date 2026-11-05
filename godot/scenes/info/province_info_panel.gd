@@ -5,6 +5,7 @@ extends PanelContainer
 signal construction_requested(province_id: int, building: String)
 signal recruitment_requested(province_id: int)
 signal army_selected(army_id: int)
+signal army_stop_requested(army_id: int)
 
 @onready var tabs: TabContainer = %Tabs
 @onready var province_title: Label = %ProvinceTitle
@@ -24,6 +25,7 @@ func _ready() -> void:
 	construction_panel.construction_requested.connect(func(province_id: int, building: String): construction_requested.emit(province_id, building))
 	military_panel.recruitment_requested.connect(func(province_id: int): recruitment_requested.emit(province_id))
 	military_panel.army_selected.connect(func(id: int): army_selected.emit(id))
+	military_panel.army_stop_requested.connect(func(id: int): army_stop_requested.emit(id))
 	show_info({}, {})
 
 

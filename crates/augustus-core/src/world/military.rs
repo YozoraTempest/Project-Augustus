@@ -159,17 +159,7 @@ impl World {
                 return Err(SaveError::InvalidMilitary);
             }
             if let Some(movement) = &army.movement
-                && (movement.from != army.province
-                    || movement.started_on > date
-                    || movement.arrives_on <= date
-                    || movement.started_on >= movement.arrives_on
-                    || self
-                        .land_neighbors(movement.from)
-                        .is_none_or(|neighbors| !neighbors.contains_key(&movement.to))
-                    || !self.province(movement.to).is_some_and(|province| {
-                        province.owner.as_deref() == Some(&army.country)
-                            && province.controller.as_deref() == Some(&army.country)
-                    }))
+                && !self.valid_movement(movement, army.province, &army.country, date)
             {
                 return Err(SaveError::InvalidMilitary);
             }

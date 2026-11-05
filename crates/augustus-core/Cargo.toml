@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 jomini.workspace = true
+pathfinding.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
 thiserror.workspace = true
