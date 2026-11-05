@@ -14,7 +14,6 @@ const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 @onready var settings_button: Button = %Settings
 
 var backend: AugustusMap
-var selected_province := 0
 
 
 func _ready() -> void:
@@ -23,12 +22,12 @@ func _ready() -> void:
 		get_tree().change_scene_to_file.call_deferred(NEW_GAME)
 		return
 	backend = GameSession.backend
-	map_view.province_clicked.connect(_on_province_clicked)
+	map_view.selection_changed.connect(_refresh_selection)
 	reset_view_button.pressed.connect(map_view.reset_view)
 	menu_button.pressed.connect(_return_to_menu)
 	settings_button.pressed.connect(_open_settings)
 	# 复用开局页已生成的纹理，进入游戏无需再次读取游戏文件。
-	map_view.show_map(backend.get_map_texture(), backend.get_political_texture())
+	map_view.show_map(backend)
 	var map_size := backend.get_map_size()
 	status_label.text = "开局 %s · 政治地图 · %d 个有领土国家 · %d 个省份 · %d × %d 像素" % [backend.get_start_date(), backend.get_country_count(), backend.get_province_count(), map_size.x, map_size.y]
 
@@ -44,19 +43,23 @@ func _open_settings() -> void:
 	dialog.popup_centered()
 
 
-func _on_province_clicked(pixel: Vector2i) -> void:
-	var province_id := backend.province_at(pixel)
-	if province_id < 0:
-		return
-	selected_province = province_id
-	map_view.select_province(province_id)
-	var province_info := backend.get_province_info(province_id)
+func _refresh_selection() -> void:
+	# 地图模块决定选中了什么；游戏场景只查询并显示对应信息。
+	var province_id := map_view.selected_province
+	var province_info: Dictionary = {}
 	var country_info: Dictionary = {}
-	if province_info.get("owner") != null:
-		country_info = backend.get_country_info(province_info.owner)
+	if map_view.mode == MapMode.Type.COUNTRY:
+		country_info = backend.get_country_info(map_view.selected_country)
+	else:
+		province_info = backend.get_province_info(province_id)
+		if province_info.get("owner") != null:
+			country_info = backend.get_country_info(province_info.owner)
 	info_panel.show_info(province_info, country_info)
-	if province_id == 0:
-		selection_label.text = "此位置没有省份"
+	info_panel.tabs.current_tab = 1 if map_view.mode == MapMode.Type.COUNTRY else 0
+	if map_view.mode == MapMode.Type.COUNTRY:
+		selection_label.text = "未选择国家" if country_info.is_empty() else "国家：%s (%s)" % [country_info.name, country_info.tag]
+	elif province_id == 0:
+		selection_label.text = "未选择省份"
 	else:
 		var owner := backend.get_province_owner(province_id)
 		var ownership := "所属国家：" + owner
@@ -68,4 +71,4 @@ func _on_province_clicked(pixel: Vector2i) -> void:
 				_: ownership = "未殖民土地"
 		selection_label.text = "省份 #%d · %s" % [province_id, ownership]
 	# 窄窗口下文字可能被省略，悬停仍可查看完整信息。
-	selection_label.tooltip_text = selection_label.text + " · 像素 (%d, %d)" % [pixel.x, pixel.y]
+	selection_label.tooltip_text = selection_label.text

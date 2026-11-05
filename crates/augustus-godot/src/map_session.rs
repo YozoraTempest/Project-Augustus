@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use augustus_eu4::world::{OpeningWorld, START_DATE};
 use godot::{
@@ -14,6 +14,9 @@ struct AugustusMap {
     world: Option<OpeningWorld>,
     texture: Option<Gd<ImageTexture>>,
     political_texture: Option<Gd<ImageTexture>>,
+    owner_texture: Option<Gd<ImageTexture>>,
+    // 渲染编号只在本次载入内使用；核心国家身份仍然是标签。
+    country_render_ids: BTreeMap<String, u32>,
 }
 
 #[godot_api]
@@ -49,10 +52,22 @@ impl AugustusMap {
             return "无法创建政治地图纹理".into();
         };
 
+        let country_render_ids = country_render_ids(&world);
+        let bytes = PackedByteArray::from(owner_ids(&world, &country_render_ids).as_slice());
+        let Some(image) = Image::create_from_data(width, height, false, Format::RGBA8, &bytes)
+        else {
+            return "无法创建省份归属图像".into();
+        };
+        let Some(owner_texture) = ImageTexture::create_from_image(&image) else {
+            return "无法创建省份归属纹理".into();
+        };
+
         // 完整载入并创建纹理后再替换状态，失败的重新载入不会清除现有地图。
         self.world = Some(world);
         self.texture = Some(texture);
         self.political_texture = Some(political_texture);
+        self.owner_texture = Some(owner_texture);
+        self.country_render_ids = country_render_ids;
         GString::new()
     }
 
@@ -64,6 +79,20 @@ impl AugustusMap {
     #[func]
     fn get_political_texture(&self) -> Option<Gd<ImageTexture>> {
         self.political_texture.clone()
+    }
+
+    #[func]
+    fn get_owner_texture(&self) -> Option<Gd<ImageTexture>> {
+        self.owner_texture.clone()
+    }
+
+    /// 编号 0 表示无国家，与归属纹理的空白、海洋和无主区域一致。
+    #[func]
+    fn get_country_render_id(&self, tag: GString) -> i64 {
+        self.country_render_ids
+            .get(&tag.to_string())
+            .copied()
+            .map_or(0, i64::from)
     }
 
     #[func]
@@ -161,6 +190,39 @@ fn encode_ids(ids: &[u32]) -> Vec<u8> {
     ids.iter().flat_map(|id| id.to_le_bytes()).collect()
 }
 
+fn country_render_ids(world: &OpeningWorld) -> BTreeMap<String, u32> {
+    world
+        .state()
+        .countries()
+        .keys()
+        .enumerate()
+        .map(|(index, tag)| (tag.clone(), index as u32 + 1))
+        .collect()
+}
+
+fn owner_ids(world: &OpeningWorld, countries: &BTreeMap<String, u32>) -> Vec<u8> {
+    // 按省份缓存归属，避免逐像素查国家；使用所有者而非控制者。
+    let owners: HashMap<_, _> = world
+        .map()
+        .defined_province_ids()
+        .iter()
+        .chain(std::iter::once(&0))
+        .map(|&id| {
+            let owner = world
+                .state()
+                .province_owner(id)
+                .map_or(0, |country| countries[country.tag()]);
+            (id, owner)
+        })
+        .collect();
+    world
+        .map()
+        .province_ids()
+        .iter()
+        .flat_map(|id| owners[id].to_le_bytes())
+        .collect()
+}
+
 fn political_colors(world: &OpeningWorld) -> Vec<u8> {
     // 同一省份只解析一次颜色；编号保持稀疏，不按最大编号分配颜色表。
     let colors: HashMap<_, _> = world
@@ -183,13 +245,40 @@ fn political_colors(world: &OpeningWorld) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::encode_ids;
+    use super::{country_render_ids, encode_ids, owner_ids, political_colors};
+    use augustus_eu4::world::OpeningWorld;
 
     #[test]
     fn texture_encoding_preserves_all_four_id_bytes() {
         assert_eq!(
             encode_ids(&[0, 7, 0x0100_0001, u32::MAX]),
             [0, 0, 0, 0, 7, 0, 0, 0, 1, 0, 0, 1, 255, 255, 255, 255]
+        );
+    }
+
+    #[test]
+    fn owner_texture_groups_provinces_by_owner_even_when_country_colors_match() {
+        let world = OpeningWorld::load(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../godot/tests/data/map_modes"),
+        )
+        .unwrap();
+        let countries = country_render_ids(&world);
+        assert_ne!(countries["AAA"], countries["BBB"]);
+        assert_eq!(
+            owner_ids(&world, &countries),
+            encode_ids(&[1, 1, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0])
+        );
+        let colors = political_colors(&world);
+        assert_eq!(colors[0..4], colors[8..12]);
+        assert_eq!(
+            world
+                .state()
+                .province(16777217)
+                .unwrap()
+                .controller
+                .as_deref(),
+            Some("AAA")
         );
     }
 }

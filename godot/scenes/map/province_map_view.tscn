@@ -40,3 +40,15 @@ centered = false
 
 [node name="Camera" type="Camera2D" parent="ViewportContainer/MapViewport"]
 position_smoothing_enabled = false
+
+[node name="ModeToolbar" type="PanelContainer" parent="."]
+layout_mode = 0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 168.0
+offset_bottom = 48.0
+
+[node name="MapMode" type="OptionButton" parent="ModeToolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "国家模式选择整个国家；省份模式选择单个省份"

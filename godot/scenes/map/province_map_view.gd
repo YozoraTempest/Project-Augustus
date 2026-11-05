@@ -2,7 +2,8 @@
 class_name ProvinceMapView
 extends Control
 
-signal province_clicked(pixel: Vector2i)
+signal mode_changed(mode: MapMode.Type)
+signal selection_changed
 
 const ZOOM_STEP := 1.25
 const MAX_ZOOM := 32.0
@@ -10,8 +11,13 @@ const MAX_ZOOM := 32.0
 @onready var map_viewport: SubViewport = $ViewportContainer/MapViewport
 @onready var map_sprite: Sprite2D = $ViewportContainer/MapViewport/Map
 @onready var camera: Camera2D = $ViewportContainer/MapViewport/Camera
+@onready var mode_option: OptionButton = %MapMode
 
 var zoom_level := 1.0
+var mode := MapMode.Type.COUNTRY
+var selected_province := 0
+var selected_country := ""
+var _backend: AugustusMap
 var _dragging := false
 
 
@@ -19,6 +25,9 @@ func _ready() -> void:
 	# 容器调整尺寸后再更新相机，确保使用子视口的新尺寸。
 	resized.connect(func(): _update_camera.call_deferred())
 	get_window().focus_exited.connect(_end_drag)
+	mode_option.add_item("国家模式", MapMode.Type.COUNTRY)
+	mode_option.add_item("省份模式", MapMode.Type.PROVINCE)
+	mode_option.item_selected.connect(func(index: int): set_mode(mode_option.get_item_id(index)))
 
 
 func display_rect() -> Rect2:
@@ -38,17 +47,53 @@ func texture_pixel_at(local_position: Vector2) -> Vector2i:
 	return Vector2i(pixel.floor())
 
 
-func show_map(map_texture: Texture2D, political_texture: Texture2D) -> void:
-	map_sprite.texture = map_texture
-	map_sprite.material.set_shader_parameter("province_ids", map_texture)
-	map_sprite.material.set_shader_parameter("political_colors", political_texture)
-	select_province(0)
+func show_map(backend: AugustusMap) -> void:
+	_backend = backend
+	map_sprite.texture = backend.get_map_texture()
+	map_sprite.material.set_shader_parameter("province_ids", backend.get_map_texture())
+	map_sprite.material.set_shader_parameter("owner_ids", backend.get_owner_texture())
+	map_sprite.material.set_shader_parameter("political_colors", backend.get_political_texture())
+	clear_selection()
 	reset_view()
 
 
-func select_province(province_id: int) -> void:
-	# 只修改着色器参数，点击时无需重新生成或上传整张地图。
-	map_sprite.material.set_shader_parameter("selected_province", province_id)
+func set_mode(next_mode: MapMode.Type) -> void:
+	if mode == next_mode:
+		return
+	mode = next_mode
+	mode_option.select(mode_option.get_item_index(mode))
+	_end_drag()
+	# 不把国家选择隐式转换为任意省份，也不恢复另一个模式的旧选择。
+	clear_selection()
+	mode_changed.emit(mode)
+
+
+func select_at(pixel: Vector2i) -> void:
+	var province_id := _backend.province_at(pixel)
+	if province_id < 0:
+		return
+	if mode == MapMode.Type.COUNTRY:
+		selected_province = 0
+		selected_country = _backend.get_province_owner(province_id)
+	else:
+		selected_province = province_id
+		selected_country = ""
+	_update_selection()
+
+
+func clear_selection() -> void:
+	selected_province = 0
+	selected_country = ""
+	_update_selection()
+
+
+func _update_selection() -> void:
+	# 编号纹理只在载入时创建；切换模式和选择只更新着色器参数。
+	map_sprite.material.set_shader_parameter("country_mode", mode == MapMode.Type.COUNTRY)
+	map_sprite.material.set_shader_parameter("selected_province", selected_province)
+	var country_id := _backend.get_country_render_id(selected_country) if _backend != null else 0
+	map_sprite.material.set_shader_parameter("selected_country", country_id)
+	selection_changed.emit()
 
 
 func reset_view() -> void:
@@ -133,5 +178,5 @@ func _gui_input(event: InputEvent) -> void:
 		elif event.pressed and event.button_index == MOUSE_BUTTON_LEFT and not _dragging:
 			var pixel := texture_pixel_at(event.position)
 			if pixel.x >= 0:
-				province_clicked.emit(pixel)
+				select_at(pixel)
 				accept_event()

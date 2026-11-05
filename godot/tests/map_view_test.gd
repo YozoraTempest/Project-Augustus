@@ -106,9 +106,16 @@ func _run() -> void:
 	var inspector: ProvinceInfoPanel = screen.info_panel
 	check(inspector.province_title.text == "未选择省份" and inspector.country_title.text == "未选择国家", "信息面板初始应为空")
 
+	check(view.mode == MapMode.Type.COUNTRY and inspector.tabs.current_tab == 1, "新游戏应默认国家模式并显示国家页")
+	await click_pixel(view, Vector2i(0, 0))
+	check(view.selected_country == "AAA" and view.selected_province == 0, "国家模式应选择国家，不保留省份选择")
+	check(inspector.country_title.text == "First Kingdom" and screen.selection_label.text.contains("First Kingdom"), "国家模式应显示选中国家的信息")
+	view.set_mode(MapMode.Type.PROVINCE)
+	check(view.selected_country.is_empty() and inspector.tabs.current_tab == 0, "切换省份模式应清除国家选择并显示省份页")
+
 	# 通过窗口输入分发点击，检查坐标转换、绑定查询和界面更新的完整路径。
 	await click_pixel(view, Vector2i(0, 0))
-	check(screen.selected_province == 7, "点击左上像素应选择省份 7")
+	check(view.selected_province == 7, "点击左上像素应选择省份 7")
 	check(screen.selection_label.text.contains("#7"), "底部应显示选中的省份编号")
 	check(screen.selection_label.text.contains("所属国家：AAA"), "选择省份应显示其所有者")
 	check(view.map_sprite.material.get_shader_parameter("selected_province") == 7, "选中状态应传给着色器")
@@ -117,7 +124,7 @@ func _run() -> void:
 	await click_control(inspector.country_button)
 	check(inspector.tabs.current_tab == 1, "查看所属国家按钮应切换到国家页")
 	await click_pixel(view, Vector2i(1, 0))
-	check(screen.selected_province == 16777217, "大编号省份应能准确选中")
+	check(view.selected_province == 16777217, "大编号省份应能准确选中")
 	check(screen.selection_label.text.contains("所属国家：BBB"), "切换选择后应更新国家归属")
 	check(inspector.province_title.text == "Highland" and inspector.country_title.text == "Second Republic", "切换省份应更新两个页签")
 	check(inspector.province_body.text.contains("所属国家：Second Republic (BBB)") and inspector.province_body.text.contains("控制者：First Kingdom (AAA)"), "省份面板应区分所有者与控制者")
@@ -130,12 +137,12 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 	await click_pixel(view, Vector2i(0, 1))
-	check(screen.selected_province == 16777217, "改变窗口比例后坐标映射应保持正确")
+	check(view.selected_province == 16777217, "改变窗口比例后坐标映射应保持正确")
 	check(view.texture_pixel_at(Vector2.ZERO) == Vector2i(-1, -1), "地图外的留白应被排除")
 	await click_at(view.global_position + Vector2(1, 1))
-	check(screen.selected_province == 16777217, "点击留白应保持原选择")
+	check(view.selected_province == 16777217, "点击留白应保持原选择")
 	await click_pixel(view, Vector2i(2, 0))
-	check(screen.selected_province == 0, "点击无省份像素应清除选择")
+	check(view.selected_province == 0, "点击无省份像素应清除选择")
 	check(view.map_sprite.material.get_shader_parameter("selected_province") == 0, "清除选择应同步取消高亮")
 	check(inspector.province_title.text == "未选择省份" and inspector.country_title.text == "未选择国家", "清除选择应清除两个信息页签")
 	check(not inspector.country_button.visible and not inspector.country_color.visible, "无选择时不应保留国家按钮或色标")
@@ -148,7 +155,7 @@ func _run() -> void:
 	check(view.map_sprite.texture == previous_texture, "载入失败应保留旧地图")
 	check(screen.backend.get_political_texture() == political_texture, "载入失败应保留政治颜色")
 	check(screen.backend.get_province_owner(7) == "AAA", "载入失败应保留开局归属")
-	check(screen.selected_province == 7, "载入失败应保留原选择")
+	check(view.selected_province == 7, "载入失败应保留原选择")
 	check(view.map_viewport.canvas_transform.is_equal_approx(previous_transform), "载入失败应保留缩放与位置")
 	# 通过实际页面按钮结束会话，再开始一局，检查场景与选择状态的生命周期。
 	await click_control(screen.menu_button)
@@ -170,9 +177,10 @@ func _run() -> void:
 		return
 	view = screen.map_view
 	check(screen.backend != loaded_backend, "重新开始应创建独立的游戏会话")
-	check(screen.selected_province == 0, "重新载入成功后应清除旧选择")
+	check(view.selected_province == 0, "重新载入成功后应清除旧选择")
 	check(view.map_sprite.material.get_shader_parameter("selected_province") == 0, "重新载入应清除高亮")
 	check(is_equal_approx(view.zoom_level, 1.0), "重新载入成功后应显示全图")
+	check(view.mode == MapMode.Type.COUNTRY and view.selected_country.is_empty(), "重新开局应恢复默认模式并清除国家选择")
 	await click_control(screen.menu_button)
 	menu = await wait_for_scene(MAIN_MENU)
 	if menu == null:
@@ -242,7 +250,7 @@ func menu_settings_checks(menu: Control) -> void:
 func game_settings_checks(screen: Control, view: ProvinceMapView) -> void:
 	var previous_backend = screen.backend
 	var previous_texture := view.map_sprite.texture
-	var previous_selection: int = screen.selected_province
+	var previous_selection: int = view.selected_province
 	var point := view.size * 0.5
 	view.zoom_at(point, 2.0)
 	await mouse_button(view.global_position + point, MOUSE_BUTTON_MIDDLE, true)
@@ -257,19 +265,19 @@ func game_settings_checks(screen: Control, view: ProvinceMapView) -> void:
 	await mouse_button(view.global_position + point, MOUSE_BUTTON_WHEEL_UP, true)
 	await mouse_button(view.global_position + point, MOUSE_BUTTON_WHEEL_UP, false)
 	await mouse_button(view.global_position + point, MOUSE_BUTTON_MIDDLE, false)
-	check(screen.selected_province == previous_selection, "设置窗口打开时不能选择底层地图")
+	check(view.selected_province == previous_selection, "设置窗口打开时不能选择底层地图")
 	check(view.map_viewport.canvas_transform.is_equal_approx(previous_transform), "设置窗口打开时不能缩放或拖动底层地图")
 	dialog.cancel_button.pressed.emit()
 	await process_frame
 	await process_frame
 	check(not paused and not is_instance_valid(dialog), "关闭游戏内设置应恢复游戏页面")
 	check(session.backend == previous_backend and screen.backend == previous_backend, "关闭设置应保留同一个游戏会话")
-	check(view.map_sprite.texture == previous_texture and screen.selected_province == previous_selection, "关闭设置应保留地图纹理和省份选择")
+	check(view.map_sprite.texture == previous_texture and view.selected_province == previous_selection, "关闭设置应保留地图纹理和省份选择")
 	await mouse_motion(view.global_position + point, Vector2(20, 20), 0)
 	check(view.map_viewport.canvas_transform.is_equal_approx(previous_transform), "暂停期间松开中键后不能继续拖动")
 	view.reset_view()
 	await click_pixel(view, Vector2i(1, 0))
-	check(screen.selected_province == 16777217, "关闭设置后地图应继续响应省份选择")
+	check(view.selected_province == 16777217, "关闭设置后地图应继续响应省份选择")
 
 
 func wait_for_scene(path: String) -> Node:
@@ -311,7 +319,7 @@ func navigation_checks(screen: Control, view: ProvinceMapView) -> void:
 	var world_after := view.map_viewport.canvas_transform.affine_inverse() * anchor
 	check(view.zoom_level > 1.0, "滚轮向上应放大地图")
 	check(world_before.is_equal_approx(world_after), "缩放应保持鼠标指向的地图位置：%s -> %s，视口 %s" % [world_before, world_after, view.size])
-	check(screen.selected_province == 16777217, "缩放不应改变选中的省份")
+	check(view.selected_province == 16777217, "缩放不应改变选中的省份")
 	check(view.map_sprite.texture == original_texture, "导航不应重新生成地图纹理")
 	await mouse_button(view.global_position + anchor, MOUSE_BUTTON_WHEEL_DOWN, true)
 	await mouse_button(view.global_position + anchor, MOUSE_BUTTON_WHEEL_DOWN, false)
@@ -327,14 +335,14 @@ func navigation_checks(screen: Control, view: ProvinceMapView) -> void:
 	await mouse_motion(view.global_position + point + drag, drag, MOUSE_BUTTON_MASK_MIDDLE)
 	check(not view.map_viewport.canvas_transform.is_equal_approx(transform_before), "中键拖拽应平移地图")
 	check(view.texture_pixel_at(point + drag) == pixel_before, "拖拽后的同一位置应仍对应原始省份像素")
-	check(screen.selected_province == 16777217, "中键拖拽不应选择省份")
+	check(view.selected_province == 16777217, "中键拖拽不应选择省份")
 	# 在地图外松开中键，随后进入地图的移动不能继续拖拽。
 	await mouse_button(Vector2(5, 5), MOUSE_BUTTON_MIDDLE, false)
 	var after_release := view.map_viewport.canvas_transform
 	await mouse_motion(view.global_position + point, -drag, 0)
 	check(view.map_viewport.canvas_transform.is_equal_approx(after_release), "地图外松开中键后应结束拖拽")
 	await click_at(view.global_position + point + drag)
-	check(screen.selected_province == screen.backend.province_at(pixel_before), "平移后的左键查询应使用实际显示坐标")
+	check(view.selected_province == screen.backend.province_at(pixel_before), "平移后的左键查询应使用实际显示坐标")
 
 	# 连续拖到边界后，反向拖动应立即响应，不能积累地图外的相机位置。
 	await mouse_button(view.global_position + point, MOUSE_BUTTON_MIDDLE, true)
@@ -358,12 +366,12 @@ func navigation_checks(screen: Control, view: ProvinceMapView) -> void:
 	check(is_equal_approx(view.zoom_level, 4.0), "改变窗口大小应保留缩放级别")
 	var center_pixel := view.texture_pixel_at(view.size * 0.5)
 	await click_at(view.global_position + view.size * 0.5)
-	check(screen.selected_province == screen.backend.province_at(center_pixel), "窗口变化后应准确选择中心省份")
-	var selected_before_reset: int = screen.selected_province
+	check(view.selected_province == screen.backend.province_at(center_pixel), "窗口变化后应准确选择中心省份")
+	var selected_before_reset: int = view.selected_province
 	var reset: Button = screen.reset_view_button
 	await click_at(reset.global_position + reset.size * 0.5)
 	check(is_equal_approx(view.zoom_level, 1.0), "显示全图按钮应重置缩放")
-	check(screen.selected_province == selected_before_reset, "显示全图应保留省份选择")
+	check(view.selected_province == selected_before_reset, "显示全图应保留省份选择")
 	check(view.camera.get_screen_center_position().is_equal_approx(Vector2(1.5, 1.0)), "显示全图应居中显示地图")
 
 	view.zoom_at(view.size * 0.5, 10000.0)

@@ -1,0 +1,11 @@
+l_english:
+ AAA:0 "First Kingdom"
+ BBB:0 "Second Republic"
+ PROV7:0 "Riverland"
+ PROV16777217:0 "Highland"
+ river_culture:0 "River Culture"
+ highland_culture:0 "Highland Culture"
+ catholic:0 "Catholic"
+ orthodox:0 "Orthodox"
+ grain:0 "Grain"
+ cloth:0 "Cloth"
