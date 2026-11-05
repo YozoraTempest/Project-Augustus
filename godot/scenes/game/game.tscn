@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scenes/game/game.gd" id="1_script"]
 [ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" path="res://scenes/game/time_controls.tscn" id="5_time"]
 [ext_resource type="PackedScene" path="res://scenes/game/finance_bar.tscn" id="6_finances"]
 [ext_resource type="PackedScene" path="res://scenes/save/save_dialog.tscn" id="7_save"]
+[ext_resource type="Script" path="res://scenes/game/army_disband_dialog.gd" id="8_disband"]
 
 [sub_resource type="StyleBoxFlat" id="Style_map"]
 content_margin_left = 8.0
@@ -79,6 +80,15 @@ text = "返回主菜单"
 
 [node name="SaveError" type="AcceptDialog" parent="."]
 title = "保存失败"
+
+[node name="DisbandArmyDialog" type="ConfirmationDialog" parent="."]
+process_mode = 3
+title = "解散军队"
+exclusive = true
+ok_button_text = "解散军队"
+dialog_hide_on_ok = false
+cancel_button_text = "取消"
+script = ExtResource("8_disband")
 
 [node name="PlayerCountry" type="Label" parent="Margin/Page"]
 unique_name_in_owner = true

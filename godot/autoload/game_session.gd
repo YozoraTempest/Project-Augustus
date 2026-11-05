@@ -139,6 +139,16 @@ func split_army(army_id: int, count: int) -> Dictionary:
 	return result
 
 
+func disband_army(army_id: int) -> String:
+	if not is_started():
+		return "请先开始游戏"
+	_advance_clock()
+	var error := backend.disband_army(army_id)
+	if error.is_empty():
+		world_changed.emit()
+	return error
+
+
 func get_player_country() -> String:
 	# 玩家身份由原生会话持有，页面只查询，不维护第二份可写状态。
 	return "" if backend == null else backend.get_player_country()

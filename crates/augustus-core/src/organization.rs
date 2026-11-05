@@ -1,14 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+use crate::Money;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArmyDisbandQuote {
+    pub regiment_count: usize,
+    pub strength: u64,
+    pub monthly_maintenance: Money,
+    pub manpower_returned: u64,
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ArmyOrganizationError {
     #[error("请选择有效的国家")]
     UnknownCountry,
     #[error("请选择有效的军队")]
     UnknownArmy,
-    #[error("只能编组本国军队")]
+    #[error("只能操作本国军队")]
     NotPlayerArmy,
-    #[error("行军中的军队不能编组")]
+    #[error("请先让军队驻扎")]
     ArmyMoving,
     #[error("只能合并驻扎在同一省份的军队")]
     DifferentProvince,

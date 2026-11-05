@@ -115,6 +115,14 @@ func select_at(pixel: Vector2i) -> void:
 	_update_selection()
 
 
+func select_province(id: int) -> void:
+	set_mode(MapMode.Type.PROVINCE)
+	selected_army = 0
+	selected_country = ""
+	selected_province = id
+	_update_selection()
+
+
 func clear_selection() -> void:
 	selected_province = 0
 	selected_country = ""
