@@ -1,0 +1,67 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scenes/map/globe_map_view.gd" id="1_script"]
+[ext_resource type="Shader" path="res://scenes/map/globe_map.gdshader" id="2_shader"]
+
+[sub_resource type="ShaderMaterial" id="Material_globe"]
+resource_local_to_scene = true
+shader = ExtResource("2_shader")
+shader_parameter/wrap_horizontal = true
+
+[sub_resource type="SphereMesh" id="Mesh_globe"]
+radius = 1.0
+height = 2.0
+radial_segments = 256
+rings = 128
+
+[sub_resource type="Environment" id="Environment_globe"]
+background_mode = 1
+background_color = Color(0.018, 0.027, 0.045, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.78, 0.85, 1, 1)
+ambient_light_energy = 0.65
+reflected_light_source = 1
+
+[node name="GlobeView" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_script")
+
+[node name="ViewportContainer" type="SubViewportContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+stretch = true
+
+[node name="GlobeViewport" type="SubViewport" parent="ViewportContainer"]
+own_world_3d = true
+handle_input_locally = false
+size = Vector2i(1, 1)
+msaa_3d = 2
+
+[node name="Globe" type="MeshInstance3D" parent="ViewportContainer/GlobeViewport"]
+mesh = SubResource("Mesh_globe")
+material_override = SubResource("Material_globe")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="ViewportContainer/GlobeViewport"]
+environment = SubResource("Environment_globe")
+
+[node name="Camera" type="Camera3D" parent="ViewportContainer/GlobeViewport"]
+current = true
+fov = 40.0
+near = 0.02
+far = 50.0
+
+[node name="KeyLight" type="DirectionalLight3D" parent="ViewportContainer/GlobeViewport/Camera"]
+rotation_degrees = Vector3(-25, -25, 0)
+light_color = Color(1, 0.96, 0.88, 1)
+light_energy = 0.9

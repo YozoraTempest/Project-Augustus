@@ -68,3 +68,5 @@ jobs:
         run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/startup_test.gd -- --game-dir "$GITHUB_WORKSPACE/godot/tests/data/game"'
       - name: Test Godot map modes
         run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/map_modes_test.gd'
+      - name: Test Godot globe map
+        run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/globe_map_test.gd'

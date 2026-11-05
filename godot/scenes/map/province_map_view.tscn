@@ -1,7 +1,8 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scenes/map/province_map_view.gd" id="1_script"]
 [ext_resource type="Shader" path="res://scenes/map/province_map.gdshader" id="2_shader"]
+[ext_resource type="PackedScene" path="res://scenes/map/globe_map_view.tscn" id="3_globe"]
 
 [sub_resource type="ShaderMaterial" id="Material_map"]
 resource_local_to_scene = true
@@ -41,14 +42,26 @@ centered = false
 [node name="Camera" type="Camera2D" parent="ViewportContainer/MapViewport"]
 position_smoothing_enabled = false
 
+[node name="GlobeView" parent="." instance=ExtResource("3_globe")]
+visible = false
+layout_mode = 1
+
 [node name="ModeToolbar" type="PanelContainer" parent="."]
 layout_mode = 0
 offset_left = 8.0
 offset_top = 8.0
-offset_right = 168.0
+offset_right = 328.0
 offset_bottom = 48.0
 
-[node name="MapMode" type="OptionButton" parent="ModeToolbar"]
+[node name="Controls" type="HBoxContainer" parent="ModeToolbar"]
+layout_mode = 2
+
+[node name="MapMode" type="OptionButton" parent="ModeToolbar/Controls"]
 unique_name_in_owner = true
 layout_mode = 2
 tooltip_text = "国家模式选择整个国家；省份模式选择单个省份"
+
+[node name="Projection" type="OptionButton" parent="ModeToolbar/Controls"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "在平面地图和 3D 球形地图之间切换"

@@ -12,6 +12,7 @@ const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 @onready var reset_view_button: Button = %ResetView
 @onready var menu_button: Button = %MainMenu
 @onready var settings_button: Button = %Settings
+@onready var navigation_hint: Label = %Hint
 
 var backend: AugustusMap
 
@@ -23,11 +24,13 @@ func _ready() -> void:
 		return
 	backend = GameSession.backend
 	map_view.selection_changed.connect(_refresh_selection)
+	map_view.projection_changed.connect(func(_projection: MapMode.ViewType): _refresh_projection())
 	reset_view_button.pressed.connect(map_view.reset_view)
 	menu_button.pressed.connect(_return_to_menu)
 	settings_button.pressed.connect(_open_settings)
 	# 复用开局页已生成的纹理，进入游戏无需再次读取游戏文件。
 	map_view.show_map(backend)
+	_refresh_projection()
 	var map_size := backend.get_map_size()
 	status_label.text = "开局 %s · 政治地图 · %d 个有领土国家 · %d 个省份 · %d × %d 像素" % [backend.get_start_date(), backend.get_country_count(), backend.get_province_count(), map_size.x, map_size.y]
 
@@ -41,6 +44,12 @@ func _open_settings() -> void:
 	var dialog := SETTINGS_SCENE.instantiate()
 	add_child(dialog)
 	dialog.popup_centered()
+
+
+func _refresh_projection() -> void:
+	var is_globe := map_view.projection == MapMode.ViewType.GLOBE
+	reset_view_button.text = "重置球体" if is_globe else "显示全图"
+	navigation_hint.text = "滚轮缩放 · 中键旋转 · 左键选择" if is_globe else "滚轮缩放 · 中键拖动 · 左键选择"
 
 
 func _refresh_selection() -> void:

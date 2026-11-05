@@ -7,3 +7,9 @@ enum Type {
 	COUNTRY,
 	PROVINCE,
 }
+
+# 显示方式与选择单位独立，球面也可以选择国家或省份。
+enum ViewType {
+	FLAT,
+	GLOBE,
+}

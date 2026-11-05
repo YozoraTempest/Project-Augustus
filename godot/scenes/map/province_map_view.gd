@@ -3,6 +3,7 @@ class_name ProvinceMapView
 extends Control
 
 signal mode_changed(mode: MapMode.Type)
+signal projection_changed(projection: MapMode.ViewType)
 signal selection_changed
 
 const ZOOM_STEP := 1.25
@@ -12,9 +13,13 @@ const MAX_ZOOM := 32.0
 @onready var map_sprite: Sprite2D = $ViewportContainer/MapViewport/Map
 @onready var camera: Camera2D = $ViewportContainer/MapViewport/Camera
 @onready var mode_option: OptionButton = %MapMode
+@onready var projection_option: OptionButton = %Projection
+@onready var flat_view: SubViewportContainer = $ViewportContainer
+@onready var globe_view: GlobeMapView = $GlobeView
 
 var zoom_level := 1.0
 var mode := MapMode.Type.COUNTRY
+var projection := MapMode.ViewType.FLAT
 var selected_province := 0
 var selected_country := ""
 var _backend: AugustusMap
@@ -28,6 +33,9 @@ func _ready() -> void:
 	mode_option.add_item("国家模式", MapMode.Type.COUNTRY)
 	mode_option.add_item("省份模式", MapMode.Type.PROVINCE)
 	mode_option.item_selected.connect(func(index: int): set_mode(mode_option.get_item_id(index)))
+	projection_option.add_item("平面地图", MapMode.ViewType.FLAT)
+	projection_option.add_item("球形地图", MapMode.ViewType.GLOBE)
+	projection_option.item_selected.connect(func(index: int): set_projection(projection_option.get_item_id(index)))
 
 
 func display_rect() -> Rect2:
@@ -38,6 +46,8 @@ func display_rect() -> Rect2:
 
 
 func texture_pixel_at(local_position: Vector2) -> Vector2i:
+	if projection == MapMode.ViewType.GLOBE:
+		return globe_view.texture_pixel_at(local_position)
 	if map_sprite.texture == null or not Rect2(Vector2.ZERO, size).has_point(local_position):
 		return Vector2i(-1, -1)
 	# 反向使用绘制地图的相机变换，缩放、平移后仍查询原始像素。
@@ -53,6 +63,7 @@ func show_map(backend: AugustusMap) -> void:
 	map_sprite.material.set_shader_parameter("province_ids", backend.get_map_texture())
 	map_sprite.material.set_shader_parameter("owner_ids", backend.get_owner_texture())
 	map_sprite.material.set_shader_parameter("political_colors", backend.get_political_texture())
+	globe_view.show_map(backend)
 	clear_selection()
 	reset_view()
 
@@ -66,6 +77,20 @@ func set_mode(next_mode: MapMode.Type) -> void:
 	# 不把国家选择隐式转换为任意省份，也不恢复另一个模式的旧选择。
 	clear_selection()
 	mode_changed.emit(mode)
+
+
+func set_projection(next_projection: MapMode.ViewType) -> void:
+	if projection == next_projection:
+		return
+	projection = next_projection
+	projection_option.select(projection_option.get_item_index(projection))
+	_end_drag()
+	flat_view.visible = projection == MapMode.ViewType.FLAT
+	globe_view.visible = projection == MapMode.ViewType.GLOBE
+	# 显示方式切换保留选择和各自的相机位置；显示后再适配子视口尺寸。
+	_update_camera.call_deferred()
+	globe_view.update_camera.call_deferred()
+	projection_changed.emit(projection)
 
 
 func select_at(pixel: Vector2i) -> void:
@@ -89,15 +114,19 @@ func clear_selection() -> void:
 
 func _update_selection() -> void:
 	# 编号纹理只在载入时创建；切换模式和选择只更新着色器参数。
-	map_sprite.material.set_shader_parameter("country_mode", mode == MapMode.Type.COUNTRY)
-	map_sprite.material.set_shader_parameter("selected_province", selected_province)
 	var country_id := _backend.get_country_render_id(selected_country) if _backend != null else 0
-	map_sprite.material.set_shader_parameter("selected_country", country_id)
+	for material: ShaderMaterial in [map_sprite.material, globe_view.surface_material]:
+		material.set_shader_parameter("country_mode", mode == MapMode.Type.COUNTRY)
+		material.set_shader_parameter("selected_province", selected_province)
+		material.set_shader_parameter("selected_country", country_id)
 	selection_changed.emit()
 
 
 func reset_view() -> void:
 	_end_drag()
+	if projection == MapMode.ViewType.GLOBE:
+		globe_view.reset_view()
+		return
 	zoom_level = 1.0
 	if map_sprite.texture != null:
 		camera.position = map_sprite.texture.get_size() * 0.5
@@ -106,6 +135,9 @@ func reset_view() -> void:
 
 func zoom_at(local_position: Vector2, factor: float) -> void:
 	if map_sprite.texture == null:
+		return
+	if projection == MapMode.ViewType.GLOBE:
+		globe_view.zoom_by(factor)
 		return
 	var next_zoom := clampf(zoom_level * factor, 1.0, MAX_ZOOM)
 	if is_equal_approx(next_zoom, zoom_level):
@@ -163,8 +195,11 @@ func _gui_input(event: InputEvent) -> void:
 	if map_sprite.texture == null:
 		return
 	if event is InputEventMouseMotion and _dragging:
-		camera.position -= event.relative / camera.zoom
-		_update_camera()
+		if projection == MapMode.ViewType.GLOBE:
+			globe_view.rotate_by(event.relative)
+		else:
+			camera.position -= event.relative / camera.zoom
+			_update_camera()
 		accept_event()
 	elif event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_MIDDLE:
