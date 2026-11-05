@@ -1,0 +1,115 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
+use std::{fmt, time::Duration};
+
+use jomini::common::{Date, PdsDate};
+
+/// 游戏使用每年 365 天的历法；日期运算复用 jomini，不依赖显示引擎。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GameDate(Date);
+
+impl GameDate {
+    pub fn new(year: i16, month: u8, day: u8) -> Option<Self> {
+        if year < 1 {
+            return None;
+        }
+        Date::from_ymd_opt(year, month, day).map(Self)
+    }
+}
+
+impl fmt::Display for GameDate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.game_fmt().fmt(formatter)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameSpeed {
+    Normal,
+    Double,
+    Quadruple,
+    Octuple,
+}
+
+impl GameSpeed {
+    pub fn multiplier(self) -> u32 {
+        match self {
+            Self::Normal => 1,
+            Self::Double => 2,
+            Self::Quadruple => 4,
+            Self::Octuple => 8,
+        }
+    }
+
+    pub fn from_multiplier(multiplier: u32) -> Option<Self> {
+        match multiplier {
+            1 => Some(Self::Normal),
+            2 => Some(Self::Double),
+            4 => Some(Self::Quadruple),
+            8 => Some(Self::Octuple),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct GameClock {
+    date: GameDate,
+    paused: bool,
+    speed: GameSpeed,
+    // 保留不足一天的进度，暂停、恢复和切换倍速都不会清零。
+    progress: Duration,
+}
+
+impl GameClock {
+    pub fn new(date: GameDate) -> Self {
+        Self {
+            date,
+            paused: true,
+            speed: GameSpeed::Normal,
+            progress: Duration::ZERO,
+        }
+    }
+
+    pub fn date(&self) -> GameDate {
+        self.date
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused
+    }
+
+    pub fn set_paused(&mut self, paused: bool) {
+        self.paused = paused || self.date.0 == Self::last_date();
+    }
+
+    pub fn speed(&self) -> GameSpeed {
+        self.speed
+    }
+
+    pub fn set_speed(&mut self, speed: GameSpeed) {
+        self.speed = speed;
+    }
+
+    /// 1× 时每个现实秒推进一天；一次调用可跨过多天，不依赖渲染帧数。
+    pub fn advance(&mut self, elapsed: Duration) -> u32 {
+        if self.paused {
+            return 0;
+        }
+        self.progress += elapsed * self.speed.multiplier();
+        let remaining = self.date.0.days_until(&Self::last_date()) as u64;
+        let days = self.progress.as_secs().min(remaining) as u32;
+        self.date.0 = self.date.0.add_days(days as i32);
+        self.progress = Duration::from_nanos(u64::from(self.progress.subsec_nanos()));
+        // 到达日期库支持的末日后停止，不能让日期溢出或倒退。
+        if u64::from(days) == remaining {
+            self.paused = true;
+            self.progress = Duration::ZERO;
+        }
+        days
+    }
+
+    fn last_date() -> Date {
+        Date::from_ymd(i16::MAX, 12, 31)
+    }
+}

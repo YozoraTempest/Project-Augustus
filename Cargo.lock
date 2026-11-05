@@ -64,6 +64,7 @@ dependencies = [
 name = "augustus-core"
 version = "0.1.0"
 dependencies = [
+ "jomini",
  "thiserror",
 ]
 
