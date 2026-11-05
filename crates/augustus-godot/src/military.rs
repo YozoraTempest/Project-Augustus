@@ -1,0 +1,126 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
+use augustus_core::{Army, GameDate, ProvinceKind, REGIMENT_STRENGTH, UnitKind};
+use augustus_eu4::world::OpeningWorld;
+use godot::prelude::*;
+
+use crate::info::{money, text};
+
+pub(crate) fn army_info(world: &OpeningWorld, army: &Army) -> VarDictionary {
+    let mut info = VarDictionary::new();
+    info.set("id", i64::from(army.id()));
+    info.set(
+        "name",
+        format!(
+            "{} 第 {} 军队",
+            world.display_name(&army.country),
+            army.id()
+        )
+        .as_str(),
+    );
+    info.set("country", army.country.as_str());
+    info.set("country_name", world.display_name(&army.country).as_str());
+    info.set("province", i64::from(army.province));
+    info.set("province_name", world.province_name(army.province).as_str());
+    info.set("strength", army.strength() as i64);
+    info.set("regiment_count", army.regiments.len() as i64);
+    let mut regiments: Array<VarDictionary> = Array::new();
+    for regiment in &army.regiments {
+        let mut details = VarDictionary::new();
+        details.set(
+            "kind",
+            match regiment.kind {
+                UnitKind::Infantry => "步兵",
+            },
+        );
+        details.set("strength", i64::from(regiment.strength));
+        regiments.push(&details);
+    }
+    info.set("regiments", &regiments);
+    info
+}
+
+pub(crate) fn recruitment_info(
+    world: &OpeningWorld,
+    id: u32,
+    player: Option<&str>,
+    date: GameDate,
+) -> VarDictionary {
+    let mut info = VarDictionary::new();
+    let state = world.state();
+    if !state
+        .province(id)
+        .is_some_and(|province| province.kind == ProvinceKind::Land)
+        || state.province_monthly_tax(id).is_none()
+    {
+        return info;
+    }
+    let rules = state.recruitment_rules();
+    info.set("province_name", world.province_name(id).as_str());
+    money(&mut info, "cost", Some(rules.infantry_cost));
+    info.set("days", i64::from(rules.infantry_days));
+    info.set("strength", i64::from(REGIMENT_STRENGTH));
+    text(
+        &mut info,
+        "completes_on",
+        date.checked_add_days(rules.infantry_days)
+            .map(|date| date.to_string())
+            .as_deref(),
+    );
+    let reason = player.map_or_else(
+        || "开始游戏后可招募".to_owned(),
+        |country| {
+            state
+                .quote_recruitment(country, id, date)
+                .err()
+                .map_or_else(String::new, |error| error.to_string())
+        },
+    );
+    info.set("can_recruit", reason.is_empty());
+    info.set("reason", reason.as_str());
+    if let Some(project) = state.recruitment(id) {
+        let mut details = VarDictionary::new();
+        details.set("country", project.country.as_str());
+        details.set("started_on", project.started_on.to_string().as_str());
+        details.set("completes_on", project.completes_on.to_string().as_str());
+        let total = project.started_on.days_until(project.completes_on);
+        let remaining = date.days_until(project.completes_on).max(0);
+        details.set("days_remaining", i64::from(remaining));
+        details.set(
+            "progress",
+            f64::from(total - remaining) / f64::from(total) * 100.0,
+        );
+        info.set("project", &details);
+    } else {
+        info.set("project", &Variant::nil());
+    }
+    let mut armies: Array<VarDictionary> = Array::new();
+    for army in state.armies().values().filter(|army| army.province == id) {
+        armies.push(&army_info(world, army));
+    }
+    info.set("armies", &armies);
+    info
+}
+
+pub(crate) fn markers(world: &OpeningWorld) -> Array<VarDictionary> {
+    let mut markers = Array::new();
+    for army in world.state().armies().values() {
+        let [x, y] = world
+            .map()
+            .province_anchor(army.province)
+            .expect("驻军省份存在于地图");
+        let mut marker = army_info(world, army);
+        marker.set("position", Vector2::new(x as f32 + 0.5, y as f32 + 0.5));
+        let [r, g, b] = world.country_color(&army.country).expect("军队国家已注册");
+        marker.set(
+            "color",
+            Color::from_rgb(
+                f32::from(r) / 255.0,
+                f32::from(g) / 255.0,
+                f32::from(b) / 255.0,
+            ),
+        );
+        markers.push(&marker);
+    }
+    markers
+}

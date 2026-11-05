@@ -5,6 +5,7 @@
 mod building;
 mod country;
 mod economy;
+mod military;
 mod province;
 mod save;
 mod simulation;
@@ -14,6 +15,10 @@ mod world;
 pub use building::{BuildingDefinition, Construction, ConstructionError, ConstructionQuote};
 pub use country::Country;
 pub use economy::{CountryFinances, MonthlyTaxSettlement};
+pub use military::{
+    Army, MilitaryState, REGIMENT_STRENGTH, Recruitment, RecruitmentError, RecruitmentQuote,
+    RecruitmentRules, Regiment, UnitKind,
+};
 pub use province::{Development, Province, ProvinceKind};
 pub use rust_decimal::Decimal as Money;
 pub use save::{RestoredGame, SaveError, SavedGame};

@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: GPL-3.0-only
+class_name ProvinceMilitaryPanel
+extends VBoxContainer
+
+signal recruitment_requested(province_id: int)
+signal army_selected(army_id: int)
+
+@onready var province_label: Label = %MilitaryProvince
+@onready var recruitment_label: Label = %RecruitmentDetails
+@onready var recruit_button: Button = %RecruitInfantry
+@onready var reason_label: Label = %RecruitmentReason
+@onready var project_box: VBoxContainer = %RecruitmentProject
+@onready var project_label: Label = %RecruitmentDates
+@onready var progress_bar: ProgressBar = %RecruitmentProgress
+@onready var garrison_label: Label = %GarrisonTitle
+@onready var armies_box: VBoxContainer = %Armies
+@onready var army_details: Label = %ArmyDetails
+
+var _province_id := 0
+
+
+func _ready() -> void:
+	recruit_button.pressed.connect(func(): recruitment_requested.emit(_province_id))
+	hide()
+
+
+func show_province(province_id: int, info: Dictionary, selected_army: int) -> void:
+	_province_id = province_id
+	visible = not info.is_empty()
+	if not visible:
+		return
+	province_label.text = info.province_name + " · 军事"
+	recruitment_label.text = "步兵 · 1 团 · %d 人\n基础费用：%s 金币\n招募时间：%d 天" % [info.strength, info.cost, info.days]
+	recruit_button.disabled = not info.can_recruit
+	recruit_button.tooltip_text = "立即扣款，招募完成后驻扎于本省。" if info.completes_on == null else "立即扣款，预计 %s 完成招募。" % info.completes_on
+	reason_label.text = info.reason
+	reason_label.visible = not info.reason.is_empty()
+	project_box.visible = info.project != null
+	if info.project != null:
+		var project: Dictionary = info.project
+		project_label.text = "正在招募：步兵 (%s)\n开始：%s\n完成：%s · 剩余 %d 天" % [project.country, project.started_on, project.completes_on, project.days_remaining]
+		progress_bar.value = project.progress
+	garrison_label.text = "驻军：无" if info.armies.is_empty() else "驻军（点击查看）"
+	for child in armies_box.get_children():
+		armies_box.remove_child(child)
+		child.queue_free()
+	army_details.hide()
+	for army: Dictionary in info.armies:
+		var id: int = army.id
+		var button := Button.new()
+		button.text = "%s · %d 人" % [army.name, army.strength]
+		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		button.toggle_mode = true
+		button.set_pressed_no_signal(id == selected_army)
+		button.pressed.connect(func(): army_selected.emit(id))
+		armies_box.add_child(button)
+		if id == selected_army:
+			army_details.text = "%s\n编号：#%d\n所属国家：%s (%s)\n驻扎：%s (#%d)\n部队：%d 团 · 总兵力 %d 人" % [army.name, id, army.country_name, army.country, army.province_name, army.province, army.regiment_count, army.strength]
+			for index in army.regiments.size():
+				var regiment: Dictionary = army.regiments[index]
+				army_details.text += "\n第 %d 团：%s · %d 人" % [index + 1, regiment.kind, regiment.strength]
+			army_details.show()
+
+
+func show_error(message: String) -> void:
+	reason_label.text = message
+	reason_label.show()

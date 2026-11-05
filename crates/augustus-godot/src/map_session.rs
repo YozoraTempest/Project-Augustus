@@ -189,6 +189,55 @@ impl AugustusMap {
     }
 
     #[func]
+    fn start_recruitment(&mut self, province: i64) -> GString {
+        let (Some(world), Some(simulation), Some(country)) =
+            (&mut self.world, &self.simulation, &self.player_country)
+        else {
+            return "请先开始游戏".into();
+        };
+        let Ok(province) = u32::try_from(province) else {
+            return "请选择有效的省份".into();
+        };
+        match world
+            .state_mut()
+            .start_recruitment(country, province, simulation.clock().date())
+        {
+            Ok(()) => GString::new(),
+            Err(error) => error.to_string().as_str().into(),
+        }
+    }
+
+    #[func]
+    fn get_recruitment_info(&self, province: i64) -> VarDictionary {
+        let (Some(world), Ok(province)) = (&self.world, u32::try_from(province)) else {
+            return VarDictionary::new();
+        };
+        let date = self.simulation.as_ref().map_or_else(
+            || world.start_date(),
+            |simulation| simulation.clock().date(),
+        );
+        crate::military::recruitment_info(world, province, self.player_country.as_deref(), date)
+    }
+
+    #[func]
+    fn get_army_info(&self, id: i64) -> VarDictionary {
+        self.world
+            .as_ref()
+            .and_then(|world| {
+                let army = world.state().armies().get(&u32::try_from(id).ok()?)?;
+                Some(crate::military::army_info(world, army))
+            })
+            .unwrap_or_default()
+    }
+
+    #[func]
+    fn get_army_markers(&self) -> Array<VarDictionary> {
+        self.world
+            .as_ref()
+            .map_or_else(Array::new, crate::military::markers)
+    }
+
+    #[func]
     fn get_map_texture(&self) -> Option<Gd<ImageTexture>> {
         self.texture.clone()
     }

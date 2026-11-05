@@ -4,7 +4,9 @@ use std::{collections::BTreeMap, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Country, GameClock, GameDate, GameSpeed, Province, Simulation, World, WorldError};
+use crate::{
+    Country, GameClock, GameDate, GameSpeed, MilitaryState, Province, Simulation, World, WorldError,
+};
 
 /// 只保存可变模拟状态；地图、建筑规则和本地化仍从游戏内容载入。
 #[derive(Debug, Serialize, Deserialize)]
@@ -13,6 +15,7 @@ pub struct SavedGame {
     clock: SavedClock,
     countries: Vec<Country>,
     provinces: BTreeMap<u32, Province>,
+    military: MilitaryState,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,6 +42,8 @@ pub enum SaveError {
     InvalidClock,
     #[error("省份 {0} 的建设项目无效")]
     InvalidConstruction(u32),
+    #[error("存档中的军队、招募项目或军队编号无效")]
+    InvalidMilitary,
     #[error("存档中的世界状态无效：{0}")]
     InvalidWorld(#[from] WorldError),
 }
@@ -55,6 +60,7 @@ impl SavedGame {
             },
             countries: world.countries().values().cloned().collect(),
             provinces: world.provinces().clone(),
+            military: world.military().clone(),
         }
     }
 
@@ -63,7 +69,8 @@ impl SavedGame {
         let speed = GameSpeed::from_multiplier(self.clock.speed)
             .filter(|_| self.clock.progress_nanos < 1_000_000_000)
             .ok_or(SaveError::InvalidClock)?;
-        let world = content.restore_state(self.countries, self.provinces, self.clock.date)?;
+        let mut world = content.restore_state(self.countries, self.provinces, self.clock.date)?;
+        world.restore_military(self.military, self.clock.date)?;
         if world.country(&self.player_country).is_none() {
             return Err(SaveError::UnknownPlayer);
         }

@@ -16,17 +16,21 @@ const MAX_ZOOM := 32.0
 @onready var projection_option: OptionButton = %Projection
 @onready var flat_view: SubViewportContainer = $ViewportContainer
 @onready var globe_view: GlobeMapView = $GlobeView
+@onready var army_markers: ArmyMarkers = $ArmyMarkers
 
 var zoom_level := 1.0
 var mode := MapMode.Type.COUNTRY
 var projection := MapMode.ViewType.FLAT
 var selected_province := 0
 var selected_country := ""
+var selected_army := 0
 var _backend: AugustusMap
 var _dragging := false
 
 
 func _ready() -> void:
+	army_markers.project_point = project_marker
+	army_markers.army_selected.connect(select_army)
 	# 容器调整尺寸后再更新相机，确保使用子视口的新尺寸。
 	resized.connect(func(): _update_camera.call_deferred())
 	get_window().focus_exited.connect(_end_drag)
@@ -64,6 +68,7 @@ func show_map(backend: AugustusMap) -> void:
 	map_sprite.material.set_shader_parameter("owner_ids", backend.get_owner_texture())
 	map_sprite.material.set_shader_parameter("political_colors", backend.get_political_texture())
 	globe_view.show_map(backend)
+	refresh_armies()
 	clear_selection()
 	reset_view()
 
@@ -97,6 +102,7 @@ func select_at(pixel: Vector2i) -> void:
 	var province_id := _backend.province_at(pixel)
 	if province_id < 0:
 		return
+	selected_army = 0
 	if mode == MapMode.Type.COUNTRY:
 		selected_province = 0
 		selected_country = _backend.get_province_owner(province_id)
@@ -109,10 +115,12 @@ func select_at(pixel: Vector2i) -> void:
 func clear_selection() -> void:
 	selected_province = 0
 	selected_country = ""
+	selected_army = 0
 	_update_selection()
 
 
 func _update_selection() -> void:
+	army_markers.select_army(selected_army)
 	# 编号纹理只在载入时创建；切换模式和选择只更新着色器参数。
 	var country_id := _backend.get_country_render_id(selected_country) if _backend != null else 0
 	for material: ShaderMaterial in [map_sprite.material, globe_view.surface_material]:
@@ -120,6 +128,26 @@ func _update_selection() -> void:
 		material.set_shader_parameter("selected_province", selected_province)
 		material.set_shader_parameter("selected_country", country_id)
 	selection_changed.emit()
+
+
+func select_army(id: int) -> void:
+	if _backend == null or _backend.get_army_info(id).is_empty():
+		return
+	selected_army = id
+	selected_province = 0
+	selected_country = ""
+	_update_selection()
+
+
+func refresh_armies() -> void:
+	if _backend != null:
+		army_markers.show_armies(_backend.get_army_markers())
+
+
+func project_marker(pixel: Vector2) -> Vector2:
+	if projection == MapMode.ViewType.GLOBE:
+		return globe_view.project_marker(pixel)
+	return map_viewport.canvas_transform * pixel
 
 
 func reset_view() -> void:

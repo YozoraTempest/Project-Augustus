@@ -2,6 +2,7 @@
 
 //! 组合地图配置、省份定义和位图，提供与运行入口无关的地图查询。
 
+mod anchors;
 mod bitmap;
 mod config;
 mod definitions;
@@ -33,6 +34,7 @@ pub struct ProvinceMap {
     names: BTreeMap<u32, String>,
     // 按行保存省份编号，行内从左到右；0 表示该像素没有对应省份。
     pixels: Vec<u32>,
+    anchors: BTreeMap<u32, [u32; 2]>,
 }
 
 impl ProvinceMap {
@@ -59,6 +61,7 @@ impl ProvinceMap {
                 mapped_provinces: raster.mapped_ids.len(),
                 unassigned_pixels: raster.unassigned_pixels,
             },
+            anchors: anchors::calculate(&raster.pixels, config.width),
             pixels: raster.pixels,
             defined_ids: definitions.ids,
             mapped_ids: raster.mapped_ids,
@@ -88,6 +91,10 @@ impl ProvinceMap {
     /// 编号 0 表示没有对应省份；显示层与坐标查询共用这一份数据。
     pub fn province_ids(&self) -> &[u32] {
         &self.pixels
+    }
+
+    pub fn province_anchor(&self, id: u32) -> Option<[u32; 2]> {
+        self.anchors.get(&id).copied()
     }
 
     /// 按像素坐标查询省份：左上角为 (0, 0)，向右、向下递增。

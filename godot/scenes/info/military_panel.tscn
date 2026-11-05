@@ -1,0 +1,56 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/info/military_panel.gd" id="1_script"]
+
+[node name="MilitaryPanel" type="VBoxContainer"]
+theme_override_constants/separation = 14
+script = ExtResource("1_script")
+
+[node name="MilitaryProvince" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+autowrap_mode = 2
+
+[node name="RecruitmentDetails" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2
+
+[node name="RecruitInfantry" type="Button" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+text = "招募步兵"
+
+[node name="RecruitmentReason" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.77, 0.4, 1)
+autowrap_mode = 2
+
+[node name="RecruitmentProject" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="RecruitmentDates" type="Label" parent="RecruitmentProject"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2
+
+[node name="RecruitmentProgress" type="ProgressBar" parent="RecruitmentProject"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+
+[node name="GarrisonTitle" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Armies" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="ArmyDetails" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2

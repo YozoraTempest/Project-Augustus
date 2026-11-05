@@ -7,6 +7,7 @@ mod countries;
 mod geography;
 mod history;
 mod localisation;
+mod military;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -70,6 +71,7 @@ impl OpeningWorld {
             provinces,
             map.mapped_province_ids().iter().copied(),
             buildings.into_values(),
+            military::load(&content)?,
         )
         .map_err(|error| Error::invalid(content.path(), error.to_string()))?;
         let mut wanted: BTreeSet<String> = state.countries().keys().cloned().collect();

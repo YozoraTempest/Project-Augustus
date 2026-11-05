@@ -54,6 +54,20 @@ func rotate_by(relative: Vector2) -> void:
 	update_camera()
 
 
+func project_marker(pixel: Vector2) -> Vector2:
+	if _map_size == Vector2i.ZERO:
+		return Vector2.INF
+	var uv := pixel / Vector2(_map_size)
+	var longitude := (uv.x - 0.5) * TAU
+	var latitude := uv.y * PI
+	var point := Vector3(sin(longitude) * sin(latitude), cos(latitude), cos(longitude) * sin(latitude)) * RADIUS
+	var world_point := globe.to_global(point)
+	# 透视投影前排除球体背面；球后的驻军不能透过地图出现或被选中。
+	if (world_point - globe.global_position).dot(camera.global_position - world_point) <= 0.0 or camera.is_position_behind(world_point):
+		return Vector2.INF
+	return camera.unproject_position(world_point) * size / Vector2(map_viewport.size)
+
+
 func zoom_by(factor: float) -> void:
 	zoom_level = clampf(zoom_level * factor, 1.0, MAX_ZOOM)
 	update_camera()
