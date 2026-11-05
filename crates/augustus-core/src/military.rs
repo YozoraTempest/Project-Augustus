@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ArmyMovement, GameDate, Money};
+use crate::{ArmyMovement, GameDate, ManpowerRules, Money};
 
 /// 一个满编团的兵力；军队可以持有多个团，编组与兵种分别保存。
 pub const REGIMENT_STRENGTH: u32 = 1_000;
@@ -58,6 +58,7 @@ pub struct MilitaryRules {
     pub infantry_cost: Money,
     pub infantry_days: u32,
     pub land_maintenance_factor: Money,
+    pub manpower: ManpowerRules,
 }
 
 impl MilitaryRules {
@@ -73,6 +74,7 @@ impl MilitaryRules {
 #[derive(Debug)]
 pub struct RecruitmentQuote {
     pub cost: Money,
+    pub manpower: u64,
     pub completes_on: GameDate,
 }
 
@@ -105,6 +107,8 @@ pub enum RecruitmentError {
     AlreadyRecruiting,
     #[error("国库不足，需要 {cost} 金币，当前有 {available} 金币")]
     InsufficientFunds { cost: Money, available: Money },
+    #[error("人力不足，需要 {cost} 人，当前可用 {available} 人")]
+    InsufficientManpower { cost: u64, available: u64 },
     #[error("招募完成日期超出游戏历法范围")]
     DateOutOfRange,
     #[error("军队编号已用尽")]

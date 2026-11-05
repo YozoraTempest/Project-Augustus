@@ -127,6 +127,7 @@ pub(crate) fn country_info(world: &OpeningWorld, tag: &str) -> VarDictionary {
     info.set("province_count", summary.provinces as i64);
     number(&mut info, "development", summary.development);
     info.extend_dictionary(&country_finances(world, tag), true);
+    info.set("manpower", &crate::manpower::info(world, tag));
     info
 }
 

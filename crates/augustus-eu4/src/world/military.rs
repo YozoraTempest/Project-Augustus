@@ -61,6 +61,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryContent, Error> {
                 .ok_or_else(|| Error::invalid(&file.path, "missing LAND_MAINTENANCE_FACTOR"))?,
             infantry_days: days
                 .ok_or_else(|| Error::invalid(&file.path, "missing INFANTRY_TIME"))?,
+            manpower: super::manpower::load(content, &text)?,
         },
         infantry_speed,
     })

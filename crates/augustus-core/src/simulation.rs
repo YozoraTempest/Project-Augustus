@@ -37,6 +37,7 @@ impl Simulation {
         self.clock.advance_with(elapsed, |date| {
             if date.day() == 1 {
                 world.settle_monthly_finances(date);
+                world.recover_monthly_manpower();
             }
             // 月初先结算上月收支，再完成当天建设和招募，避免新项目影响上月账目。
             world.complete_constructions(date);

@@ -57,8 +57,21 @@ impl World {
         if available < cost {
             return Err(RecruitmentError::InsufficientFunds { cost, available });
         }
+        let manpower = self.military_rules.manpower.infantry_cost;
+        let available = country
+            .manpower
+            .as_ref()
+            .expect("国家人力已初始化")
+            .available;
+        if available < manpower {
+            return Err(RecruitmentError::InsufficientManpower {
+                cost: manpower,
+                available,
+            });
+        }
         Ok(RecruitmentQuote {
             cost,
+            manpower,
             completes_on: date
                 .checked_add_days(self.military_rules.infantry_days)
                 .ok_or(RecruitmentError::DateOutOfRange)?,
@@ -72,11 +85,14 @@ impl World {
         date: GameDate,
     ) -> Result<(), RecruitmentError> {
         let quote = self.quote_recruitment(country, province, date)?;
-        self.countries
-            .get_mut(country)
-            .expect("招募国家已注册")
-            .finances
-            .spend(quote.cost);
+        let country_state = self.countries.get_mut(country).expect("招募国家已注册");
+        // 金币、人力和军队编号都检查通过后，一次性扣款并创建招募项目。
+        country_state.finances.spend(quote.cost);
+        country_state
+            .manpower
+            .as_mut()
+            .expect("国家人力已初始化")
+            .available -= quote.manpower;
         let army_id = self.military.next_army_id;
         self.military.next_army_id += 1;
         self.military.recruitments.insert(

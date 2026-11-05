@@ -44,7 +44,9 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 	if not visible:
 		return
 	province_label.text = info.province_name + " · 军事"
-	recruitment_label.text = "步兵 · 1 团 · %d 人\n基础费用：%s 金币\n招募时间：%d 天" % [info.strength, info.cost, info.days]
+	recruitment_label.text = "步兵 · 1 团 · %d 人\n基础费用：%s 金币\n人力消耗：%d 人\n招募时间：%d 天" % [info.strength, info.cost, info.manpower_cost, info.days]
+	if info.manpower != null:
+		recruitment_label.text += "\n可用人力：%d / %d\n每月恢复：+%d 人" % [info.manpower.available, info.manpower.capacity, info.manpower.monthly_recovery]
 	recruit_button.disabled = not info.can_recruit
 	recruit_button.tooltip_text = "" if info.completes_on == null else "预计完成：%s" % info.completes_on
 	reason_label.text = info.reason
