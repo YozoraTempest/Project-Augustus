@@ -7,6 +7,7 @@ mod info;
 mod manpower;
 mod map_session;
 mod military;
+mod military_overview;
 mod movement;
 mod organization;
 mod save;

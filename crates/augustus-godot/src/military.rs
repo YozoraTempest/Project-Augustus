@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use augustus_core::{Army, GameDate, ProvinceKind, REGIMENT_STRENGTH, UnitKind};
+use augustus_core::{Army, GameDate, ProvinceKind, REGIMENT_STRENGTH, Recruitment, UnitKind};
 use augustus_eu4::world::OpeningWorld;
 use godot::prelude::*;
 
@@ -28,6 +28,7 @@ pub(crate) fn army_info(
     info.set("country_name", world.display_name(&army.country).as_str());
     info.set("province", i64::from(army.province));
     info.set("province_name", world.province_name(army.province).as_str());
+    info.set("position", crate::movement::anchor(world, army.province));
     info.set("strength", army.strength() as i64);
     info.set("regiment_count", army.regiments.len() as i64);
     let mut regiments: Array<VarDictionary> = Array::new();
@@ -45,6 +46,10 @@ pub(crate) fn army_info(
     info.set("regiments", &regiments);
     if let Some(movement) = &army.movement {
         info.set("movement", &crate::movement::details(world, movement, date));
+        info.set(
+            "destination_position",
+            crate::movement::anchor(world, movement.current_leg().to),
+        );
     } else {
         info.set("movement", &Variant::nil());
     }
@@ -112,30 +117,10 @@ pub(crate) fn recruitment_info(
     info.set("can_recruit", reason.is_empty());
     info.set("reason", reason.as_str());
     if let Some(project) = state.recruitment(id) {
-        let mut details = VarDictionary::new();
-        details.set("country", project.country.as_str());
-        details.set("started_on", project.started_on.to_string().as_str());
-        details.set("completes_on", project.completes_on.to_string().as_str());
-        let refund =
-            player.and_then(|country| state.quote_cancel_recruitment(country, id, date).ok());
-        details.set("can_cancel", refund.is_some());
-        money(
-            &mut details,
-            "refund_cost",
-            refund.as_ref().map(|refund| refund.cost),
+        info.set(
+            "project",
+            &recruitment_details(world, id, project, player, date),
         );
-        details.set(
-            "refund_manpower",
-            refund.as_ref().map_or(0, |refund| refund.manpower) as i64,
-        );
-        let total = project.started_on.days_until(project.completes_on);
-        let remaining = date.days_until(project.completes_on).max(0);
-        details.set("days_remaining", i64::from(remaining));
-        details.set(
-            "progress",
-            f64::from(total - remaining) / f64::from(total) * 100.0,
-        );
-        info.set("project", &details);
     } else {
         info.set("project", &Variant::nil());
     }
@@ -147,6 +132,52 @@ pub(crate) fn recruitment_info(
     info
 }
 
+// 省份面板和全国总览共用同一份进度、日期与退款信息。
+pub(crate) fn recruitment_details(
+    world: &OpeningWorld,
+    province: u32,
+    project: &Recruitment,
+    player: Option<&str>,
+    date: GameDate,
+) -> VarDictionary {
+    let mut details = VarDictionary::new();
+    details.set("province", i64::from(province));
+    details.set("province_name", world.province_name(province).as_str());
+    details.set("country", project.country.as_str());
+    details.set(
+        "kind",
+        match project.kind {
+            UnitKind::Infantry => "步兵",
+        },
+    );
+    details.set("started_on", project.started_on.to_string().as_str());
+    details.set("completes_on", project.completes_on.to_string().as_str());
+    let refund = player.and_then(|country| {
+        world
+            .state()
+            .quote_cancel_recruitment(country, province, date)
+            .ok()
+    });
+    details.set("can_cancel", refund.is_some());
+    money(
+        &mut details,
+        "refund_cost",
+        refund.as_ref().map(|refund| refund.cost),
+    );
+    details.set(
+        "refund_manpower",
+        refund.as_ref().map_or(0, |refund| refund.manpower) as i64,
+    );
+    let total = project.started_on.days_until(project.completes_on);
+    let remaining = date.days_until(project.completes_on).max(0);
+    details.set("days_remaining", i64::from(remaining));
+    details.set(
+        "progress",
+        f64::from(total - remaining) / f64::from(total) * 100.0,
+    );
+    details
+}
+
 pub(crate) fn markers(
     world: &OpeningWorld,
     date: GameDate,
@@ -155,13 +186,6 @@ pub(crate) fn markers(
     let mut markers = Array::new();
     for army in world.state().armies().values() {
         let mut marker = army_info(world, army, date, player);
-        marker.set("position", crate::movement::anchor(world, army.province));
-        if let Some(movement) = &army.movement {
-            marker.set(
-                "destination_position",
-                crate::movement::anchor(world, movement.current_leg().to),
-            );
-        }
         let [r, g, b] = world.country_color(&army.country).expect("军队国家已注册");
         marker.set(
             "color",
