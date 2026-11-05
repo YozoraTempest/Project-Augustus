@@ -3,6 +3,29 @@
 use augustus_eu4::world::OpeningWorld;
 use godot::prelude::*;
 
+pub(crate) fn disband_info(world: &OpeningWorld, id: u32, player: &str) -> VarDictionary {
+    let mut info = VarDictionary::new();
+    match world.state().quote_disband_army(player, id) {
+        Ok(quote) => {
+            let army = &world.state().armies()[&id];
+            info.set("error", "");
+            info.set("id", i64::from(id));
+            info.set("name", crate::military::army_name(world, army).as_str());
+            info.set("province_name", world.province_name(army.province).as_str());
+            info.set("regiment_count", quote.regiment_count as i64);
+            info.set("strength", quote.strength as i64);
+            crate::info::money(
+                &mut info,
+                "monthly_maintenance",
+                Some(quote.monthly_maintenance),
+            );
+            info.set("manpower_returned", quote.manpower_returned as i64);
+        }
+        Err(error) => info.set("error", error.to_string().as_str()),
+    }
+    info
+}
+
 pub(crate) fn info(world: &OpeningWorld, id: u32, player: Option<&str>) -> VarDictionary {
     let mut info = VarDictionary::new();
     let state = world.state();

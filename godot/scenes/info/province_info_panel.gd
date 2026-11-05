@@ -8,6 +8,7 @@ signal army_selected(army_id: int)
 signal army_stop_requested(army_id: int)
 signal armies_merge_requested(target: int, sources: PackedInt64Array)
 signal army_split_requested(army_id: int, count: int)
+signal army_disband_requested(army_id: int)
 
 @onready var tabs: TabContainer = %Tabs
 @onready var province_title: Label = %ProvinceTitle
@@ -30,6 +31,7 @@ func _ready() -> void:
 	military_panel.army_stop_requested.connect(func(id: int): army_stop_requested.emit(id))
 	military_panel.armies_merge_requested.connect(func(target: int, sources: PackedInt64Array): armies_merge_requested.emit(target, sources))
 	military_panel.army_split_requested.connect(func(id: int, count: int): army_split_requested.emit(id, count))
+	military_panel.army_disband_requested.connect(func(id: int): army_disband_requested.emit(id))
 	show_info({}, {})
 
 
@@ -91,6 +93,10 @@ func show_movement_error(error: String) -> void:
 
 func show_organization_error(error: String) -> void:
 	military_panel.show_organization_error(error)
+
+
+func show_disband_error(error: String) -> void:
+	military_panel.show_disband_error(error)
 
 
 func _country_name(province: Dictionary, field: String) -> String:

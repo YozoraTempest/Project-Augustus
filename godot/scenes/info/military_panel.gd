@@ -7,6 +7,7 @@ signal army_selected(army_id: int)
 signal army_stop_requested(army_id: int)
 signal armies_merge_requested(target: int, sources: PackedInt64Array)
 signal army_split_requested(army_id: int, count: int)
+signal army_disband_requested(army_id: int)
 
 @onready var province_label: Label = %MilitaryProvince
 @onready var recruitment_label: Label = %RecruitmentDetails
@@ -23,6 +24,7 @@ signal army_split_requested(army_id: int, count: int)
 @onready var stop_button: Button = %StopArmy
 @onready var movement_feedback: Label = %MovementFeedback
 @onready var organization_panel: ArmyOrganizationPanel = %OrganizationPanel
+@onready var disband_button: Button = %DisbandArmy
 
 var _province_id := 0
 var _selected_army := 0
@@ -31,6 +33,7 @@ var _selected_army := 0
 func _ready() -> void:
 	recruit_button.pressed.connect(func(): recruitment_requested.emit(_province_id))
 	stop_button.pressed.connect(func(): army_stop_requested.emit(_selected_army))
+	disband_button.pressed.connect(func(): army_disband_requested.emit(_selected_army))
 	organization_panel.armies_merge_requested.connect(func(target: int, sources: PackedInt64Array): armies_merge_requested.emit(target, sources))
 	organization_panel.army_split_requested.connect(func(id: int, count: int): army_split_requested.emit(id, count))
 	hide()
@@ -64,6 +67,7 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 	movement_details.hide()
 	movement_progress.hide()
 	stop_button.hide()
+	disband_button.hide()
 	movement_feedback.hide()
 	for army: Dictionary in info.armies:
 		var id: int = army.id
@@ -75,6 +79,9 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 		button.pressed.connect(func(): army_selected.emit(id))
 		armies_box.add_child(button)
 		if id == selected_army:
+			disband_button.visible = army.can_command
+			disband_button.disabled = army.movement != null
+			disband_button.tooltip_text = "请先让军队驻扎" if disband_button.disabled else ""
 			army_details.text = "%s\n编号：#%d\n所属国家：%s (%s)\n驻扎：%s (#%d)\n部队：%d 团 · 总兵力 %d 人" % [army.name, id, army.country_name, army.country, army.province_name, army.province, army.regiment_count, army.strength]
 			if army.movement != null:
 				army_details.text = army_details.text.replace("驻扎：", "当前省份：")
@@ -112,3 +119,8 @@ func show_movement_error(message: String) -> void:
 
 func show_organization_error(message: String) -> void:
 	organization_panel.show_error(message)
+
+
+func show_disband_error(message: String) -> void:
+	movement_feedback.text = "无法解散：" + message
+	movement_feedback.show()

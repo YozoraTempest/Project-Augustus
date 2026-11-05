@@ -293,6 +293,36 @@ impl AugustusMap {
     }
 
     #[func]
+    fn get_army_disband_info(&self, id: i64) -> VarDictionary {
+        let error = |message: &str| {
+            let mut info = VarDictionary::new();
+            info.set("error", message);
+            info
+        };
+        let (Some(world), Some(country)) = (&self.world, &self.player_country) else {
+            return error("请先开始游戏");
+        };
+        let Ok(id) = u32::try_from(id) else {
+            return error("请选择有效的军队");
+        };
+        crate::organization::disband_info(world, id, country)
+    }
+
+    #[func]
+    fn disband_army(&mut self, id: i64) -> GString {
+        let (Some(world), Some(country)) = (&mut self.world, &self.player_country) else {
+            return "请先开始游戏".into();
+        };
+        let Ok(id) = u32::try_from(id) else {
+            return "请选择有效的军队".into();
+        };
+        match world.state_mut().disband_army(country, id) {
+            Ok(_) => GString::new(),
+            Err(error) => error.to_string().as_str().into(),
+        }
+    }
+
+    #[func]
     fn get_army_organization_info(&self, id: i64) -> VarDictionary {
         let (Some(world), Ok(id)) = (&self.world, u32::try_from(id)) else {
             return VarDictionary::new();

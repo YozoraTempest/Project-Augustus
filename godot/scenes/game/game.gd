@@ -16,6 +16,7 @@ const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 @onready var save_status: Label = %SaveStatus
 @onready var save_dialog: GameSaveDialog = $SaveDialog
 @onready var save_error_dialog: AcceptDialog = $SaveError
+@onready var disband_dialog: ConfirmationDialog = $DisbandArmyDialog
 
 var backend: AugustusMap
 
@@ -34,6 +35,8 @@ func _ready() -> void:
 	info_panel.army_stop_requested.connect(_stop_army)
 	info_panel.armies_merge_requested.connect(_merge_armies)
 	info_panel.army_split_requested.connect(_split_army)
+	info_panel.army_disband_requested.connect(_open_disband_dialog)
+	disband_dialog.army_disband_requested.connect(_disband_army)
 	GameSession.clock_changed.connect(func(): _refresh_selection(false))
 	GameSession.world_changed.connect(func(): _refresh_selection(false))
 	map_view.projection_changed.connect(func(_projection: MapMode.ViewType): _refresh_projection())
@@ -172,3 +175,20 @@ func _split_army(army_id: int, count: int) -> void:
 		info_panel.show_organization_error(result.error)
 		return
 	map_view.select_army(result.army_id)
+
+
+func _open_disband_dialog(army_id: int) -> void:
+	var error: String = disband_dialog.open_for_army(backend, army_id)
+	if not error.is_empty():
+		info_panel.show_disband_error(error)
+
+
+func _disband_army(army_id: int) -> void:
+	var army := backend.get_army_info(army_id)
+	var error := GameSession.disband_army(army_id)
+	if not error.is_empty():
+		_refresh_selection(false)
+		info_panel.show_disband_error(error)
+		return
+	map_view.select_province(army.province)
+	info_panel.tabs.current_tab = 3

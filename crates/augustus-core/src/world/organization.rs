@@ -2,11 +2,42 @@
 
 use std::collections::BTreeSet;
 
-use crate::{Army, ArmyOrganizationError};
+use crate::{Army, ArmyDisbandQuote, ArmyOrganizationError, Money};
 
 use super::World;
 
 impl World {
+    pub fn quote_disband_army(
+        &self,
+        country: &str,
+        id: u32,
+    ) -> Result<ArmyDisbandQuote, ArmyOrganizationError> {
+        let army = self.stationary_army(country, id)?;
+        let annual: Money = army
+            .regiments
+            .iter()
+            .map(|regiment| self.military_rules.annual_maintenance(regiment.kind))
+            .sum();
+        Ok(ArmyDisbandQuote {
+            regiment_count: army.regiments.len(),
+            strength: army.strength(),
+            monthly_maintenance: annual / Money::from(12),
+            // 基础规则不返还人力；原版返还能力依赖尚未实现的陆军职业度。
+            manpower_returned: 0,
+        })
+    }
+
+    pub fn disband_army(
+        &mut self,
+        country: &str,
+        id: u32,
+    ) -> Result<ArmyDisbandQuote, ArmyOrganizationError> {
+        let quote = self.quote_disband_army(country, id)?;
+        // 只移除选定军队；已支付的费用和人力、独立的招募项目均保持原状态。
+        self.military.armies.remove(&id).expect("解散军队已检查");
+        Ok(quote)
+    }
+
     /// 目标军队保留编号；所有参与军队通过检查后才开始转移部队。
     pub fn merge_armies(
         &mut self,
