@@ -12,13 +12,12 @@ const GAME_SCENE := "res://scenes/game/game.tscn"
 @onready var status_label: Label = %Status
 @onready var directory_dialog: FileDialog = $DirectoryDialog
 @onready var preview: HBoxContainer = %Preview
-@onready var empty_state: Label = %EmptyState
+@onready var preview_space: Control = %PreviewSpace
 @onready var map_view: ProvinceMapView = %MapView
 @onready var info_panel: ProvinceInfoPanel = %InfoPanel
 @onready var choose_button: Button = %ChooseCountry
 @onready var chosen_label: Label = %ChosenCountry
 @onready var reset_view_button: Button = %ResetView
-@onready var navigation_hint: Label = %Hint
 
 var auto_start := false
 var _loading := false
@@ -55,7 +54,7 @@ func load_game(directory: String) -> bool:
 	if path.is_empty():
 		return false
 	path_input.text = path
-	status_label.text = "正在载入开局与政治地图…"
+	status_label.text = "正在载入…"
 	status_label.modulate = Color.WHITE
 	_set_loading(true)
 	# 先绘制载入状态，再调用原生内容读取与纹理创建。
@@ -69,11 +68,11 @@ func load_game(directory: String) -> bool:
 		return false
 	_preview_backend = GameSession.backend
 	preview.show()
-	empty_state.hide()
+	preview_space.hide()
 	reset_view_button.disabled = false
 	map_view.show_map(_preview_backend)
 	_refresh_projection()
-	status_label.text = "开局 %s · %d 个有领土国家 · %d 个省份。点击地图查看国家，然后选择该国。" % [_preview_backend.get_start_date(), _preview_backend.get_country_count(), _preview_backend.get_province_count()]
+	status_label.text = "开局日期：" + _preview_backend.get_start_date()
 	return true
 
 
@@ -87,7 +86,7 @@ func _on_directory_changed(path: String) -> void:
 	_invalidate_preview()
 	load_button.disabled = _loading or path.strip_edges().is_empty()
 	status_label.modulate = Color.WHITE
-	status_label.text = "开局日期：1444.11.11\n请选择本地 EU4 安装目录，然后载入开局。"
+	status_label.text = "开局日期：1444.11.11"
 
 
 func _set_loading(loading: bool) -> void:
@@ -106,7 +105,7 @@ func _invalidate_preview() -> void:
 	_viewed_country = ""
 	_chosen_country = ""
 	preview.hide()
-	empty_state.show()
+	preview_space.show()
 	enter_button.disabled = true
 	choose_button.disabled = true
 	reset_view_button.disabled = true
@@ -142,7 +141,7 @@ func _choose_country(tag: String) -> bool:
 	chosen_label.text = "玩家国家：%s (%s)" % [country_info.name, country_info.tag]
 	chosen_label.tooltip_text = chosen_label.text
 	enter_button.disabled = false
-	status_label.text = "已选择 %s (%s)，可以开始游戏；也可以继续查看其他国家。" % [country_info.name, country_info.tag]
+	status_label.text = "开局日期：" + _preview_backend.get_start_date()
 	status_label.modulate = Color.WHITE
 	_refresh_selection()
 	return true
@@ -151,7 +150,6 @@ func _choose_country(tag: String) -> bool:
 func _refresh_projection() -> void:
 	var is_globe := map_view.projection == MapMode.ViewType.GLOBE
 	reset_view_button.text = "重置球体" if is_globe else "显示全图"
-	navigation_hint.text = "滚轮缩放 · 中键旋转 · 左键选国" if is_globe else "滚轮缩放 · 中键拖动 · 左键选国"
 
 
 func _enter_game() -> void:

@@ -35,7 +35,7 @@ func show_province(province_id: int, info: Dictionary, selected_army: int) -> vo
 	province_label.text = info.province_name + " · 军事"
 	recruitment_label.text = "步兵 · 1 团 · %d 人\n基础费用：%s 金币\n招募时间：%d 天" % [info.strength, info.cost, info.days]
 	recruit_button.disabled = not info.can_recruit
-	recruit_button.tooltip_text = "立即扣款，招募完成后驻扎于本省。" if info.completes_on == null else "立即扣款，预计 %s 完成招募。" % info.completes_on
+	recruit_button.tooltip_text = "" if info.completes_on == null else "预计完成：%s" % info.completes_on
 	reason_label.text = info.reason
 	reason_label.visible = not info.reason.is_empty()
 	project_box.visible = info.project != null
@@ -43,15 +43,14 @@ func show_province(province_id: int, info: Dictionary, selected_army: int) -> vo
 		var project: Dictionary = info.project
 		project_label.text = "正在招募：步兵 (%s)\n开始：%s\n完成：%s · 剩余 %d 天" % [project.country, project.started_on, project.completes_on, project.days_remaining]
 		progress_bar.value = project.progress
-	garrison_label.text = "军队：无" if info.armies.is_empty() else "军队（点击查看）"
+	garrison_label.text = "军队：无" if info.armies.is_empty() else "军队"
 	for child in armies_box.get_children():
 		armies_box.remove_child(child)
 		child.queue_free()
 	army_details.hide()
 	movement_details.hide()
 	movement_progress.hide()
-	movement_feedback.text = "选中本国军队后，右键点击相邻的本国陆地省份下达行军命令。"
-	movement_feedback.modulate = Color.WHITE
+	movement_feedback.hide()
 	for army: Dictionary in info.armies:
 		var id: int = army.id
 		var button := Button.new()
@@ -87,3 +86,4 @@ func show_error(message: String) -> void:
 func show_movement_error(message: String) -> void:
 	movement_feedback.text = "无法行军：" + message
 	movement_feedback.modulate = Color(1.0, 0.55, 0.48)
+	movement_feedback.show()

@@ -49,7 +49,7 @@ layout_mode = 2
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 26
-text = "新游戏 · 选择国家"
+text = "新游戏"
 
 [node name="Back" type="Button" parent="Margin/Page/Header"]
 unique_name_in_owner = true
@@ -80,17 +80,14 @@ text = "载入开局"
 [node name="Status" type="Label" parent="Margin/Page"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "开局日期：1444.11.11\n请选择本地 EU4 安装目录，然后载入开局。"
+text = "开局日期：1444.11.11"
 autowrap_mode = 2
 
-[node name="EmptyState" type="Label" parent="Margin/Page"]
+[node name="PreviewSpace" type="Control" parent="Margin/Page"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
-text = "载入开局后，在地图上选择你要扮演的国家。"
-autowrap_mode = 2
-horizontal_alignment = 1
-vertical_alignment = 1
+mouse_filter = 2
 
 [node name="Preview" type="HBoxContainer" parent="Margin/Page"]
 unique_name_in_owner = true
@@ -134,14 +131,7 @@ autowrap_mode = 2
 [node name="Actions" type="HBoxContainer" parent="Margin/Page"]
 layout_mode = 2
 theme_override_constants/separation = 12
-
-[node name="Hint" type="Label" parent="Margin/Page/Actions"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_colors/font_color = Color(0.62, 0.69, 0.76, 1)
-text = "点击国家查看详情，再选择该国并开始游戏。"
-autowrap_mode = 2
+alignment = 2
 
 [node name="ResetView" type="Button" parent="Margin/Page/Actions"]
 unique_name_in_owner = true

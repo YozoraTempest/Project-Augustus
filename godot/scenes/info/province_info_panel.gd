@@ -35,7 +35,7 @@ func show_info(province: Dictionary, country: Dictionary, construction: Dictiona
 	# 字典仅用于显示，归属、发展度和首都仍由 Rust 世界管理。
 	if province.is_empty():
 		province_title.text = "未选择省份"
-		province_body.text = "点击地图选择省份，查看开局信息。"
+		province_body.text = ""
 		country_button.hide()
 	else:
 		province_title.text = province.name
@@ -45,13 +45,12 @@ func show_info(province: Dictionary, country: Dictionary, construction: Dictiona
 			var owner := _country_name(province, "owner") if province.owner != null else "无主"
 			province_body.text += "\n\n所属国家：%s\n控制者：%s\n\n文化：%s\n宗教：%s\n商品：%s\n\n总发展度：%s\n税收发展度：%s\n生产发展度：%s\n人力发展度：%s" % [owner, _country_name(province, "controller"), _value(province.culture), _value(province.religion), _value(province.trade_good), _value(province.development), _value(province.base_tax), _value(province.base_production), _value(province.base_manpower)]
 			province_body.text += "\n\n基础月税：%s 金币\n建筑税收加成：+%s\n当前月度税收：%s 金币" % [_value(province.base_monthly_tax), _value(province.building_tax_bonus), _value(province.monthly_tax)]
-		else:
-			province_body.text += "\n\n此区域没有国家归属。"
 		country_button.visible = not country.is_empty()
+	province_body.visible = not province.is_empty()
 	country_color.visible = not country.is_empty()
 	if country.is_empty():
 		country_title.text = "未选择国家" if province.is_empty() else "无所属国家"
-		country_body.text = "选择有归属的省份后查看国家信息。"
+		country_body.text = ""
 	else:
 		country_title.text = country.name
 		country_color.color = country.color
@@ -63,7 +62,8 @@ func show_info(province: Dictionary, country: Dictionary, construction: Dictiona
 		else:
 			country_body.text += "\n最近结算月份：%s\n实收税额：+%s 金币\n入库日期：%s" % [country.last_tax_month, country.last_tax_income, country.last_tax_date]
 		if country.history_conflicts:
-			country_body.text += "\n\n部分历史信息存在冲突，未确定的字段显示为 —。"
+			country_body.text += "\n\n历史信息存在冲突"
+	country_body.visible = not country.is_empty()
 
 
 func _value(value: Variant) -> String:

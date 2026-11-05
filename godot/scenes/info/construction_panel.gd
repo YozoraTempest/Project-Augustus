@@ -46,8 +46,7 @@ func show_province(province_id: int, info: Dictionary) -> void:
 	build_button.disabled = not option.can_build
 	reason_label.text = option.reason
 	reason_label.visible = not option.reason.is_empty()
-	if option.completes_on != null:
-		build_button.tooltip_text = "立即扣款，预计 %s 完工；完工后计入后续月度税收。" % option.completes_on
+	build_button.tooltip_text = "" if option.completes_on == null else "预计完工：%s" % option.completes_on
 
 
 func _build() -> void:

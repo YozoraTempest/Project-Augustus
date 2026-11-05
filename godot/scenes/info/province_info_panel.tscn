@@ -92,7 +92,7 @@ size_flags_horizontal = 3
 [node name="BuildingHint" type="Label" parent="Tabs/建筑/Content"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "切换省份模式，选择陆地省份查看建筑。"
+text = "未选择陆地省份"
 autowrap_mode = 2
 
 [node name="ConstructionPanel" parent="Tabs/建筑/Content" instance=ExtResource("2_construction")]
@@ -110,7 +110,7 @@ size_flags_horizontal = 3
 [node name="MilitaryHint" type="Label" parent="Tabs/军事/Content"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "切换省份模式，选择陆地省份查看驻军与招募；也可直接点击地图上的驻军标记。"
+text = "未选择陆地省份"
 autowrap_mode = 2
 
 [node name="MilitaryPanel" parent="Tabs/军事/Content" instance=ExtResource("3_military")]

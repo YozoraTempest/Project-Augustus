@@ -52,7 +52,8 @@ func _load_saved_game(path: String) -> void:
 	for button in [new_game_button, load_button, settings_button, quit_button]:
 		button.disabled = true
 	status_label.modulate = Color.WHITE
-	status_label.text = "正在读取存档与地图…"
+	status_label.text = "正在读取存档…"
+	status_label.show()
 	# 先显示载入状态，再读取本地内容并创建地图纹理。
 	await get_tree().process_frame
 	await get_tree().process_frame
@@ -69,3 +70,4 @@ func _load_saved_game(path: String) -> void:
 func _show_error(message: String) -> void:
 	status_label.text = message
 	status_label.modulate = Color(1.0, 0.55, 0.48)
+	status_label.show()
