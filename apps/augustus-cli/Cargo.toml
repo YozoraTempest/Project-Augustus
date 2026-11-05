@@ -16,7 +16,3 @@ path = "src/main.rs"
 [dependencies]
 augustus-eu4 = { path = "../../crates/augustus-eu4" }
 clap.workspace = true
-
-[dev-dependencies]
-image.workspace = true
-tempfile.workspace = true

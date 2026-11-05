@@ -1,3 +1,0 @@
-# SPDX-License-Identifier: GPL-3.0-only
-AAA = "countries/First.txt"
-BBB = "countries/Second.txt"

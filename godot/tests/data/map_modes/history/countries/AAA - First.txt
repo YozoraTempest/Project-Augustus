@@ -1,3 +1,0 @@
-capital = 7
-primary_culture = river_culture
-religion = catholic
