@@ -1,0 +1,54 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/info/army_organization_panel.gd" id="1_script"]
+
+[node name="OrganizationPanel" type="VBoxContainer"]
+theme_override_constants/separation = 10
+script = ExtResource("1_script")
+
+[node name="Title" type="Label" parent="."]
+layout_mode = 2
+text = "军队编组"
+
+[node name="MergeCandidates" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="NoMergeCandidates" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+text = "无可合并军队"
+
+[node name="MergeArmies" type="Button" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+disabled = true
+text = "合并所选军队"
+
+[node name="SplitRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="CountLabel" type="Label" parent="SplitRow"]
+layout_mode = 2
+text = "拆出团数"
+
+[node name="SplitCount" type="SpinBox" parent="SplitRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 1.0
+max_value = 1.0
+value = 1.0
+
+[node name="SplitArmy" type="Button" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+text = "拆分军队"
+
+[node name="OrganizationFeedback" type="Label" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.55, 0.48, 1)
+autowrap_mode = 2

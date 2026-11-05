@@ -5,6 +5,8 @@ extends VBoxContainer
 signal recruitment_requested(province_id: int)
 signal army_selected(army_id: int)
 signal army_stop_requested(army_id: int)
+signal armies_merge_requested(target: int, sources: PackedInt64Array)
+signal army_split_requested(army_id: int, count: int)
 
 @onready var province_label: Label = %MilitaryProvince
 @onready var recruitment_label: Label = %RecruitmentDetails
@@ -20,6 +22,7 @@ signal army_stop_requested(army_id: int)
 @onready var movement_progress: ProgressBar = %MovementProgress
 @onready var stop_button: Button = %StopArmy
 @onready var movement_feedback: Label = %MovementFeedback
+@onready var organization_panel: ArmyOrganizationPanel = %OrganizationPanel
 
 var _province_id := 0
 var _selected_army := 0
@@ -28,12 +31,15 @@ var _selected_army := 0
 func _ready() -> void:
 	recruit_button.pressed.connect(func(): recruitment_requested.emit(_province_id))
 	stop_button.pressed.connect(func(): army_stop_requested.emit(_selected_army))
+	organization_panel.armies_merge_requested.connect(func(target: int, sources: PackedInt64Array): armies_merge_requested.emit(target, sources))
+	organization_panel.army_split_requested.connect(func(id: int, count: int): army_split_requested.emit(id, count))
 	hide()
 
 
-func show_province(province_id: int, info: Dictionary, selected_army: int) -> void:
+func show_province(province_id: int, info: Dictionary, selected_army: int, organization: Dictionary = {}) -> void:
 	_province_id = province_id
 	_selected_army = selected_army
+	organization_panel.show_info(organization)
 	visible = not info.is_empty()
 	if not visible:
 		return
@@ -100,3 +106,7 @@ func show_movement_error(message: String) -> void:
 	movement_feedback.text = "无法行军：" + message
 	movement_feedback.modulate = Color(1.0, 0.55, 0.48)
 	movement_feedback.show()
+
+
+func show_organization_error(message: String) -> void:
+	organization_panel.show_error(message)

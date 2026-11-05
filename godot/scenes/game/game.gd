@@ -32,6 +32,8 @@ func _ready() -> void:
 	info_panel.recruitment_requested.connect(_start_recruitment)
 	info_panel.army_selected.connect(map_view.select_army)
 	info_panel.army_stop_requested.connect(_stop_army)
+	info_panel.armies_merge_requested.connect(_merge_armies)
+	info_panel.army_split_requested.connect(_split_army)
 	GameSession.clock_changed.connect(func(): _refresh_selection(false))
 	GameSession.world_changed.connect(func(): _refresh_selection(false))
 	map_view.projection_changed.connect(func(_projection: MapMode.ViewType): _refresh_projection())
@@ -110,7 +112,7 @@ func _refresh_selection(select_tab: bool = true) -> void:
 		province_info = backend.get_province_info(province_id)
 		if province_info.get("owner") != null:
 			country_info = backend.get_country_info(province_info.owner)
-	info_panel.show_info(province_info, country_info, backend.get_construction_info(province_id), backend.get_recruitment_info(province_id), map_view.selected_army)
+	info_panel.show_info(province_info, country_info, backend.get_construction_info(province_id), backend.get_recruitment_info(province_id), map_view.selected_army, backend.get_army_organization_info(map_view.selected_army))
 	# 日期推进会刷新财政；保留玩家手动选中的信息页签。
 	if select_tab:
 		info_panel.tabs.current_tab = 3 if not army.is_empty() else (1 if map_view.mode == MapMode.Type.COUNTRY else 0)
@@ -154,3 +156,19 @@ func _stop_army(army_id: int) -> void:
 	if not error.is_empty():
 		_refresh_selection(false)
 		info_panel.show_movement_error(error)
+
+
+func _merge_armies(target: int, sources: PackedInt64Array) -> void:
+	var error := GameSession.merge_armies(target, sources)
+	if not error.is_empty():
+		_refresh_selection(false)
+		info_panel.show_organization_error(error)
+
+
+func _split_army(army_id: int, count: int) -> void:
+	var result := GameSession.split_army(army_id, count)
+	if not result.error.is_empty():
+		_refresh_selection(false)
+		info_panel.show_organization_error(result.error)
+		return
+	map_view.select_army(result.army_id)

@@ -119,6 +119,26 @@ func stop_army(army_id: int) -> String:
 	return error
 
 
+func merge_armies(target: int, sources: PackedInt64Array) -> String:
+	if not is_started():
+		return "请先开始游戏"
+	_advance_clock()
+	var error := backend.merge_armies(target, sources)
+	if error.is_empty():
+		world_changed.emit()
+	return error
+
+
+func split_army(army_id: int, count: int) -> Dictionary:
+	if not is_started():
+		return {"army_id": 0, "error": "请先开始游戏"}
+	_advance_clock()
+	var result := backend.split_army(army_id, count)
+	if result.error.is_empty():
+		world_changed.emit()
+	return result
+
+
 func get_player_country() -> String:
 	# 玩家身份由原生会话持有，页面只查询，不维护第二份可写状态。
 	return "" if backend == null else backend.get_player_country()
