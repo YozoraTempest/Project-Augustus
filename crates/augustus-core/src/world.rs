@@ -4,13 +4,14 @@
 
 mod construction;
 mod military;
+mod movement;
 mod saved_state;
 
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use crate::{
-    BuildingDefinition, Country, GameDate, MilitaryState, Money, Province, ProvinceKind,
-    RecruitmentRules,
+    BuildingDefinition, Country, GameDate, LandConnection, MilitaryState, Money, Province,
+    ProvinceKind, RecruitmentRules,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -37,6 +38,8 @@ pub enum WorldError {
     UnknownBuilding { province: u32, building: String },
     #[error("invalid infantry recruitment rules")]
     InvalidRecruitmentRules,
+    #[error("invalid land connection: {0} - {1}")]
+    InvalidLandConnection(u32, u32),
 }
 
 #[derive(Debug)]
@@ -48,6 +51,7 @@ pub struct World {
     buildings: BTreeMap<String, BuildingDefinition>,
     recruitment_rules: RecruitmentRules,
     military: MilitaryState,
+    land_routes: BTreeMap<u32, BTreeMap<u32, u32>>,
 }
 
 impl World {
@@ -58,6 +62,7 @@ impl World {
         active_provinces: impl IntoIterator<Item = u32>,
         buildings: impl IntoIterator<Item = BuildingDefinition>,
         recruitment_rules: RecruitmentRules,
+        connections: impl IntoIterator<Item = LandConnection>,
     ) -> Result<Self, WorldError> {
         if recruitment_rules.infantry_cost < Money::ZERO || recruitment_rules.infantry_days == 0 {
             return Err(WorldError::InvalidRecruitmentRules);
@@ -137,6 +142,20 @@ impl World {
                 return Err(WorldError::MissingBaseTax(id));
             }
         }
+        let mut land_routes: BTreeMap<u32, BTreeMap<u32, u32>> = BTreeMap::new();
+        for connection in connections {
+            let LandConnection { from, to, days } = connection;
+            if from == to
+                || days == 0
+                || [from, to].iter().any(|id| {
+                    !active_provinces.contains(id) || provinces[id].kind != ProvinceKind::Land
+                })
+            {
+                return Err(WorldError::InvalidLandConnection(from, to));
+            }
+            land_routes.entry(from).or_default().insert(to, days);
+            land_routes.entry(to).or_default().insert(from, days);
+        }
         Ok(Self {
             countries: registry,
             provinces,
@@ -144,6 +163,7 @@ impl World {
             buildings: definitions,
             recruitment_rules,
             military: MilitaryState::default(),
+            land_routes,
         })
     }
 

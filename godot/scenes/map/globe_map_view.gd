@@ -57,10 +57,24 @@ func rotate_by(relative: Vector2) -> void:
 func project_marker(pixel: Vector2) -> Vector2:
 	if _map_size == Vector2i.ZERO:
 		return Vector2.INF
+	return _project_surface(_surface_point(pixel))
+
+
+func project_path_point(from: Vector2, to: Vector2, fraction: float) -> Vector2:
+	if _map_size == Vector2i.ZERO:
+		return Vector2.INF
+	# 球面路线沿大圆弧插值，不把平面直线直接覆盖到球体上。
+	return _project_surface(_surface_point(from).slerp(_surface_point(to), fraction))
+
+
+func _surface_point(pixel: Vector2) -> Vector3:
 	var uv := pixel / Vector2(_map_size)
 	var longitude := (uv.x - 0.5) * TAU
 	var latitude := uv.y * PI
-	var point := Vector3(sin(longitude) * sin(latitude), cos(latitude), cos(longitude) * sin(latitude)) * RADIUS
+	return Vector3(sin(longitude) * sin(latitude), cos(latitude), cos(longitude) * sin(latitude)) * RADIUS
+
+
+func _project_surface(point: Vector3) -> Vector2:
 	var world_point := globe.to_global(point)
 	# 透视投影前排除球体背面；球后的驻军不能透过地图出现或被选中。
 	if (world_point - globe.global_position).dot(camera.global_position - world_point) <= 0.0 or camera.is_position_behind(world_point):

@@ -42,7 +42,7 @@ pub enum SaveError {
     InvalidClock,
     #[error("省份 {0} 的建设项目无效")]
     InvalidConstruction(u32),
-    #[error("存档中的军队、招募项目或军队编号无效")]
+    #[error("存档中的军队、行军、招募项目或军队编号无效")]
     InvalidMilitary,
     #[error("存档中的世界状态无效：{0}")]
     InvalidWorld(#[from] WorldError),

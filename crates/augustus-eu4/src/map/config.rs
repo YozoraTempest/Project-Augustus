@@ -15,6 +15,7 @@ pub(super) struct MapConfig {
     pub max_provinces: u32,
     pub definitions: PathBuf,
     pub provinces: PathBuf,
+    pub adjacencies: Option<PathBuf>,
 }
 
 impl MapConfig {
@@ -26,7 +27,7 @@ impl MapConfig {
             let key = key.read_str();
             if !matches!(
                 key.as_ref(),
-                "width" | "height" | "max_provinces" | "definitions" | "provinces"
+                "width" | "height" | "max_provinces" | "definitions" | "provinces" | "adjacencies"
             ) {
                 continue;
             }
@@ -79,6 +80,10 @@ impl MapConfig {
             max_provinces,
             definitions: map_path("definitions")?,
             provinces: map_path("provinces")?,
+            adjacencies: fields
+                .get("adjacencies")
+                .map(|_| map_path("adjacencies"))
+                .transpose()?,
         })
     }
 }

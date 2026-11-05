@@ -6,7 +6,7 @@ use godot::prelude::*;
 
 use crate::info::{money, text};
 
-pub(crate) fn army_info(world: &OpeningWorld, army: &Army) -> VarDictionary {
+pub(crate) fn army_info(world: &OpeningWorld, army: &Army, date: GameDate) -> VarDictionary {
     let mut info = VarDictionary::new();
     info.set("id", i64::from(army.id()));
     info.set(
@@ -37,6 +37,27 @@ pub(crate) fn army_info(world: &OpeningWorld, army: &Army) -> VarDictionary {
         regiments.push(&details);
     }
     info.set("regiments", &regiments);
+    if let Some(movement) = &army.movement {
+        info.set("movement", &crate::movement::details(world, movement, date));
+    } else {
+        info.set("movement", &Variant::nil());
+    }
+    let targets: Vec<_> = world
+        .state()
+        .land_neighbors(army.province)
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| {
+            world.state().province(**id).is_some_and(|province| {
+                province.owner.as_deref() == Some(&army.country)
+                    && province.controller.as_deref() == Some(&army.country)
+            })
+        })
+        .map(|(&id, &days)| {
+            GString::from(format!("{}（{} 天）", world.province_name(id), days).as_str())
+        })
+        .collect();
+    info.set("move_targets", &PackedStringArray::from(targets.as_slice()));
     info
 }
 
@@ -96,21 +117,23 @@ pub(crate) fn recruitment_info(
     }
     let mut armies: Array<VarDictionary> = Array::new();
     for army in state.armies().values().filter(|army| army.province == id) {
-        armies.push(&army_info(world, army));
+        armies.push(&army_info(world, army, date));
     }
     info.set("armies", &armies);
     info
 }
 
-pub(crate) fn markers(world: &OpeningWorld) -> Array<VarDictionary> {
+pub(crate) fn markers(world: &OpeningWorld, date: GameDate) -> Array<VarDictionary> {
     let mut markers = Array::new();
     for army in world.state().armies().values() {
-        let [x, y] = world
-            .map()
-            .province_anchor(army.province)
-            .expect("驻军省份存在于地图");
-        let mut marker = army_info(world, army);
-        marker.set("position", Vector2::new(x as f32 + 0.5, y as f32 + 0.5));
+        let mut marker = army_info(world, army, date);
+        marker.set("position", crate::movement::anchor(world, army.province));
+        if let Some(movement) = &army.movement {
+            marker.set(
+                "destination_position",
+                crate::movement::anchor(world, movement.to),
+            );
+        }
         let [r, g, b] = world.country_color(&army.country).expect("军队国家已注册");
         marker.set(
             "color",

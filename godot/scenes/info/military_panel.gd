@@ -15,6 +15,9 @@ signal army_selected(army_id: int)
 @onready var garrison_label: Label = %GarrisonTitle
 @onready var armies_box: VBoxContainer = %Armies
 @onready var army_details: Label = %ArmyDetails
+@onready var movement_details: Label = %MovementDetails
+@onready var movement_progress: ProgressBar = %MovementProgress
+@onready var movement_feedback: Label = %MovementFeedback
 
 var _province_id := 0
 
@@ -40,15 +43,19 @@ func show_province(province_id: int, info: Dictionary, selected_army: int) -> vo
 		var project: Dictionary = info.project
 		project_label.text = "正在招募：步兵 (%s)\n开始：%s\n完成：%s · 剩余 %d 天" % [project.country, project.started_on, project.completes_on, project.days_remaining]
 		progress_bar.value = project.progress
-	garrison_label.text = "驻军：无" if info.armies.is_empty() else "驻军（点击查看）"
+	garrison_label.text = "军队：无" if info.armies.is_empty() else "军队（点击查看）"
 	for child in armies_box.get_children():
 		armies_box.remove_child(child)
 		child.queue_free()
 	army_details.hide()
+	movement_details.hide()
+	movement_progress.hide()
+	movement_feedback.text = "选中本国军队后，右键点击相邻的本国陆地省份下达行军命令。"
+	movement_feedback.modulate = Color.WHITE
 	for army: Dictionary in info.armies:
 		var id: int = army.id
 		var button := Button.new()
-		button.text = "%s · %d 人" % [army.name, army.strength]
+		button.text = "%s · %d 人%s" % [army.name, army.strength, " · 行军中" if army.movement != null else ""]
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		button.toggle_mode = true
 		button.set_pressed_no_signal(id == selected_army)
@@ -56,6 +63,16 @@ func show_province(province_id: int, info: Dictionary, selected_army: int) -> vo
 		armies_box.add_child(button)
 		if id == selected_army:
 			army_details.text = "%s\n编号：#%d\n所属国家：%s (%s)\n驻扎：%s (#%d)\n部队：%d 团 · 总兵力 %d 人" % [army.name, id, army.country_name, army.country, army.province_name, army.province, army.regiment_count, army.strength]
+			if army.movement != null:
+				army_details.text = army_details.text.replace("驻扎：", "出发省份：")
+				var movement: Dictionary = army.movement
+				movement_details.text = "行军：%s → %s\n出发：%s\n预计抵达：%s\n剩余：%d 天" % [movement.from_name, movement.to_name, movement.started_on, movement.arrives_on, movement.days_remaining]
+				movement_progress.value = movement.progress
+				movement_details.show()
+				movement_progress.show()
+			else:
+				movement_details.text = "可达邻省：" + ("无" if army.move_targets.is_empty() else "、".join(army.move_targets))
+				movement_details.show()
 			for index in army.regiments.size():
 				var regiment: Dictionary = army.regiments[index]
 				army_details.text += "\n第 %d 团：%s · %d 人" % [index + 1, regiment.kind, regiment.strength]
@@ -65,3 +82,8 @@ func show_province(province_id: int, info: Dictionary, selected_army: int) -> vo
 func show_error(message: String) -> void:
 	reason_label.text = message
 	reason_label.show()
+
+
+func show_movement_error(message: String) -> void:
+	movement_feedback.text = "无法行军：" + message
+	movement_feedback.modulate = Color(1.0, 0.55, 0.48)

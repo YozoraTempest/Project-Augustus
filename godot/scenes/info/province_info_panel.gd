@@ -78,6 +78,10 @@ func show_recruitment_error(error: String) -> void:
 	military_panel.show_error(error)
 
 
+func show_movement_error(error: String) -> void:
+	military_panel.show_movement_error(error)
+
+
 func _country_name(province: Dictionary, field: String) -> String:
 	if province[field] == null:
 		return "—"

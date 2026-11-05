@@ -40,6 +40,8 @@ impl Simulation {
             }
             // 月初先支付此前月份的税收，再完成当天建设，避免新建筑追溯增加上月收入。
             world.complete_constructions(date);
+            // 先抵达再处理招募；留在出发地的新兵不会加入已经离开的军队。
+            world.complete_movements(date);
             world.complete_recruitments(date);
         })
     }

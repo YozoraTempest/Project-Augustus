@@ -111,12 +111,11 @@ impl World {
                 strength: REGIMENT_STRENGTH,
             };
             // 同国同省份的后续部队加入驻军，保留原军队编号。
-            if let Some(army) = self
-                .military
-                .armies
-                .values_mut()
-                .find(|army| army.country == recruitment.country && army.province == province)
-            {
+            if let Some(army) = self.military.armies.values_mut().find(|army| {
+                army.country == recruitment.country
+                    && army.province == province
+                    && army.movement.is_none()
+            }) {
                 army.regiments.push(regiment);
             } else {
                 self.military.armies.insert(
@@ -126,6 +125,7 @@ impl World {
                         country: recruitment.country,
                         province,
                         regiments: vec![regiment],
+                        movement: None,
                     },
                 );
             }
@@ -155,6 +155,21 @@ impl World {
                     .regiments
                     .iter()
                     .any(|regiment| regiment.strength == 0 || regiment.strength > REGIMENT_STRENGTH)
+            {
+                return Err(SaveError::InvalidMilitary);
+            }
+            if let Some(movement) = &army.movement
+                && (movement.from != army.province
+                    || movement.started_on > date
+                    || movement.arrives_on <= date
+                    || movement.started_on >= movement.arrives_on
+                    || self
+                        .land_neighbors(movement.from)
+                        .is_none_or(|neighbors| !neighbors.contains_key(&movement.to))
+                    || !self.province(movement.to).is_some_and(|province| {
+                        province.owner.as_deref() == Some(&army.country)
+                            && province.controller.as_deref() == Some(&army.country)
+                    }))
             {
                 return Err(SaveError::InvalidMilitary);
             }

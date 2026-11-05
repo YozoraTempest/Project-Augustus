@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{GameDate, Money};
+use crate::{ArmyMovement, GameDate, Money};
 
 /// 一个满编团的兵力；军队可以持有多个团，编组与兵种分别保存。
 pub const REGIMENT_STRENGTH: u32 = 1_000;
@@ -27,6 +27,7 @@ pub struct Army {
     pub country: String,
     pub province: u32,
     pub regiments: Vec<Regiment>,
+    pub movement: Option<ArmyMovement>,
 }
 
 impl Army {

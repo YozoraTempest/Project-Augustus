@@ -28,6 +28,7 @@ impl World {
             self.active_provinces.iter().copied(),
             self.buildings.values().cloned(),
             self.recruitment_rules.clone(),
+            self.land_connections(),
         )?;
         for (&id, province) in &restored.provinces {
             if let Some(project) = &province.construction {
