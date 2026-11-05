@@ -27,6 +27,13 @@ pub struct ManpowerSummary {
 }
 
 impl ManpowerPool {
+    pub(crate) fn refund(&mut self, amount: u64, capacity: u64) {
+        self.available += amount.min(capacity - self.available);
+        if self.available == capacity {
+            self.recovery_remainder = 0;
+        }
+    }
+
     pub(crate) fn full(capacity: u64) -> Self {
         Self {
             available: capacity,

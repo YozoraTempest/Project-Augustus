@@ -95,6 +95,16 @@ func start_recruitment(province_id: int) -> String:
 	return error
 
 
+func cancel_recruitment(province_id: int) -> String:
+	if not is_started():
+		return "请先开始游戏"
+	_advance_clock()
+	var error := backend.cancel_recruitment(province_id)
+	if error.is_empty():
+		world_changed.emit()
+	return error
+
+
 func has_game() -> bool:
 	return backend != null
 

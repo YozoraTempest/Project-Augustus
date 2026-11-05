@@ -31,6 +31,7 @@ func _ready() -> void:
 	map_view.movement_requested.connect(_move_army)
 	info_panel.construction_requested.connect(_start_construction)
 	info_panel.recruitment_requested.connect(_start_recruitment)
+	info_panel.recruitment_cancel_requested.connect(_cancel_recruitment)
 	info_panel.army_selected.connect(map_view.select_army)
 	info_panel.army_stop_requested.connect(_stop_army)
 	info_panel.armies_merge_requested.connect(_merge_armies)
@@ -142,6 +143,13 @@ func _refresh_selection(select_tab: bool = true) -> void:
 
 func _start_recruitment(province_id: int) -> void:
 	var error := GameSession.start_recruitment(province_id)
+	if not error.is_empty():
+		_refresh_selection(false)
+		info_panel.show_recruitment_error(error)
+
+
+func _cancel_recruitment(province_id: int) -> void:
+	var error := GameSession.cancel_recruitment(province_id)
 	if not error.is_empty():
 		_refresh_selection(false)
 		info_panel.show_recruitment_error(error)

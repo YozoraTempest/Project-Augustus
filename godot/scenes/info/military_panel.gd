@@ -3,6 +3,7 @@ class_name ProvinceMilitaryPanel
 extends VBoxContainer
 
 signal recruitment_requested(province_id: int)
+signal recruitment_cancel_requested(province_id: int)
 signal army_selected(army_id: int)
 signal army_stop_requested(army_id: int)
 signal armies_merge_requested(target: int, sources: PackedInt64Array)
@@ -16,6 +17,8 @@ signal army_disband_requested(army_id: int)
 @onready var project_box: VBoxContainer = %RecruitmentProject
 @onready var project_label: Label = %RecruitmentDates
 @onready var progress_bar: ProgressBar = %RecruitmentProgress
+@onready var cancel_button: Button = %CancelRecruitment
+@onready var refund_label: Label = %RecruitmentRefund
 @onready var garrison_label: Label = %GarrisonTitle
 @onready var armies_box: VBoxContainer = %Armies
 @onready var army_details: Label = %ArmyDetails
@@ -32,6 +35,7 @@ var _selected_army := 0
 
 func _ready() -> void:
 	recruit_button.pressed.connect(func(): recruitment_requested.emit(_province_id))
+	cancel_button.pressed.connect(func(): recruitment_cancel_requested.emit(_province_id))
 	stop_button.pressed.connect(func(): army_stop_requested.emit(_selected_army))
 	disband_button.pressed.connect(func(): army_disband_requested.emit(_selected_army))
 	organization_panel.armies_merge_requested.connect(func(target: int, sources: PackedInt64Array): armies_merge_requested.emit(target, sources))
@@ -59,6 +63,10 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 		var project: Dictionary = info.project
 		project_label.text = "正在招募：步兵 (%s)\n开始：%s\n完成：%s · 剩余 %d 天" % [project.country, project.started_on, project.completes_on, project.days_remaining]
 		progress_bar.value = project.progress
+		cancel_button.visible = project.can_cancel
+		refund_label.visible = project.can_cancel
+		if project.can_cancel:
+			refund_label.text = "取消返还：%s 金币 · %d 人力" % [project.refund_cost, project.refund_manpower]
 	garrison_label.text = "军队：无" if info.armies.is_empty() else "军队"
 	for child in armies_box.get_children():
 		armies_box.remove_child(child)

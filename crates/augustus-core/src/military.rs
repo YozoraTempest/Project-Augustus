@@ -51,6 +51,11 @@ pub struct Recruitment {
     pub kind: UnitKind,
     pub started_on: GameDate,
     pub completes_on: GameDate,
+    // 旧存档缺少实付记录，由 World 恢复时按当时已实现的招募规则补齐。
+    #[serde(default)]
+    pub(crate) paid_cost: Option<Money>,
+    #[serde(default)]
+    pub(crate) paid_manpower: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +81,12 @@ pub struct RecruitmentQuote {
     pub cost: Money,
     pub manpower: u64,
     pub completes_on: GameDate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecruitmentRefund {
+    pub cost: Money,
+    pub manpower: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +116,12 @@ pub enum RecruitmentError {
     NotOwnedAndControlled,
     #[error("该省份正在招募部队")]
     AlreadyRecruiting,
+    #[error("该省份没有正在进行的招募")]
+    NotRecruiting,
+    #[error("只能取消本国的招募")]
+    NotPlayerRecruitment,
+    #[error("该招募已完成或尚未开始，无法取消")]
+    RecruitmentNotActive,
     #[error("国库不足，需要 {cost} 金币，当前有 {available} 金币")]
     InsufficientFunds { cost: Money, available: Money },
     #[error("人力不足，需要 {cost} 人，当前可用 {available} 人")]
