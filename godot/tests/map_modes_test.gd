@@ -23,6 +23,7 @@ func _run() -> void:
 	if not error.is_empty():
 		quit(1)
 		return
+	check(session.start_game("AAA").is_empty(), "地图测试应先确认玩家国家")
 	change_scene_to_file("res://scenes/game/game.tscn")
 	await process_frame
 	await process_frame

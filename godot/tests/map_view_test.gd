@@ -57,7 +57,8 @@ func _run() -> void:
 	check(current_scene == setup and setup.enter_button.disabled, "载入失败应留在新游戏页且不能进入游戏")
 	check(setup.status_label.text.contains("载入失败") and not session.has_game(), "首次载入失败应显示原因且没有会话")
 	await load_directory(setup, directory)
-	check(not setup.enter_button.disabled and session.has_game(), "修正目录后应能成功载入开局")
+	check(setup.enter_button.disabled and session.has_game() and not session.is_started(), "载入后应等待选择玩家国家")
+	await choose_country(setup, Vector2i(0, 0))
 	check(current_scene == setup, "手动载入成功后应等待用户点击进入游戏")
 	var loaded_backend = session.backend
 	# 修改来源后必须重新载入，失败不能把旧会话当成新目录的开局。
@@ -67,12 +68,14 @@ func _run() -> void:
 	await load_directory(setup, directory)
 	loaded_backend = session.backend
 	var loaded_texture: Texture2D = loaded_backend.get_map_texture()
+	await choose_country(setup, Vector2i(0, 0))
 	await click_control(setup.enter_button)
 	var screen = await wait_for_scene(GAME_SCENE)
 	if screen == null:
 		return
 	check(not is_instance_valid(setup), "进入游戏后应释放新游戏页面")
 	check(screen.backend == loaded_backend, "场景切换应复用已载入的 Rust 会话")
+	check(session.get_player_country() == "AAA" and screen.player_country_label.text.contains("First Kingdom (AAA)"), "正式开局应固定显示玩家国家")
 	var view: ProvinceMapView = screen.map_view
 	check(view.map_sprite.texture == loaded_texture, "进入游戏不应重新生成纹理")
 	check(screen.backend.get_map_size() == Vector2i(3, 2), "绑定返回的地图尺寸应正确")
@@ -121,6 +124,9 @@ func _run() -> void:
 	check(view.map_sprite.material.get_shader_parameter("selected_province") == 7, "选中状态应传给着色器")
 	check(inspector.province_title.text == "Riverland" and inspector.province_body.text.contains("总发展度：10"), "点击地图应更新省份名称与发展度")
 	check(inspector.country_title.text == "First Kingdom" and inspector.country_body.text.contains("Riverland (#7)"), "国家页应显示所属国家与首都")
+	var province_scroll: ScrollContainer = inspector.tabs.get_child(0)
+	province_scroll.ensure_control_visible(inspector.country_button)
+	await process_frame
 	await click_control(inspector.country_button)
 	check(inspector.tabs.current_tab == 1, "查看所属国家按钮应切换到国家页")
 	await click_pixel(view, Vector2i(1, 0))
@@ -129,6 +135,7 @@ func _run() -> void:
 	check(inspector.province_title.text == "Highland" and inspector.country_title.text == "Second Republic", "切换省份应更新两个页签")
 	check(inspector.province_body.text.contains("所属国家：Second Republic (BBB)") and inspector.province_body.text.contains("控制者：First Kingdom (AAA)"), "省份面板应区分所有者与控制者")
 	check(inspector.country_color.color.is_equal_approx(Color8(210, 50, 20)), "国家色标应与政治地图一致")
+	check(session.get_player_country() == "AAA" and screen.player_country_label.text.contains("First Kingdom (AAA)"), "浏览其他国家不能改变玩家身份")
 	await navigation_checks(screen, view)
 	await game_settings_checks(screen, view)
 
@@ -155,6 +162,7 @@ func _run() -> void:
 	check(view.map_sprite.texture == previous_texture, "载入失败应保留旧地图")
 	check(screen.backend.get_political_texture() == political_texture, "载入失败应保留政治颜色")
 	check(screen.backend.get_province_owner(7) == "AAA", "载入失败应保留开局归属")
+	check(session.get_player_country() == "AAA", "载入失败应保留正式玩家身份")
 	check(view.selected_province == 7, "载入失败应保留原选择")
 	check(view.map_viewport.canvas_transform.is_equal_approx(previous_transform), "载入失败应保留缩放与位置")
 	# 通过实际页面按钮结束会话，再开始一局，检查场景与选择状态的生命周期。
@@ -163,7 +171,7 @@ func _run() -> void:
 	if menu == null:
 		return
 	check(not is_instance_valid(screen), "返回主菜单后应释放游戏场景")
-	check(not session.has_game() and session.backend == null, "返回主菜单应结束游戏会话")
+	check(not session.has_game() and session.backend == null and not session.is_started(), "返回主菜单应结束游戏会话和玩家身份")
 	await click_control(menu.get_node("%NewGame"))
 	setup = await wait_for_scene(NEW_GAME)
 	if setup == null:
@@ -171,12 +179,14 @@ func _run() -> void:
 	check(setup.path_input.text == directory, "新开局应记住上一次成功使用的目录")
 	check(setup.enter_button.disabled, "新的一局应重新载入开局")
 	await load_directory(setup, directory)
+	await choose_country(setup, Vector2i(1, 0))
 	await click_control(setup.enter_button)
 	screen = await wait_for_scene(GAME_SCENE)
 	if screen == null:
 		return
 	view = screen.map_view
 	check(screen.backend != loaded_backend, "重新开始应创建独立的游戏会话")
+	check(session.get_player_country() == "BBB", "重新开局应使用新选择的玩家国家")
 	check(view.selected_province == 0, "重新载入成功后应清除旧选择")
 	check(view.map_sprite.material.get_shader_parameter("selected_province") == 0, "重新载入应清除高亮")
 	check(is_equal_approx(view.zoom_level, 1.0), "重新载入成功后应显示全图")
@@ -303,6 +313,15 @@ func load_directory(setup: Control, directory: String) -> void:
 			return
 		await process_frame
 	check(false, "开局载入未完成")
+
+
+func choose_country(setup: Control, pixel: Vector2i) -> void:
+	await process_frame
+	await process_frame
+	await click_pixel(setup.map_view, pixel)
+	check(not setup.choose_button.disabled, "点击有归属的省份后应能选择玩家国家")
+	await click_control(setup.choose_button)
+	check(not setup.enter_button.disabled and not session.is_started(), "确认候选国家后才允许开始，正式身份仍未写入")
 
 
 func click_control(control: Control) -> void:
