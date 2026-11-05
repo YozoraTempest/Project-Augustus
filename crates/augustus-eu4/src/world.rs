@@ -12,7 +12,8 @@ use std::{
     path::Path,
 };
 
-use augustus_core::{Country, Province, ProvinceKind, World};
+use augustus_core::{Country, GameDate, Province, ProvinceKind, World};
+use jomini::common::{Date, PdsDate};
 
 use crate::{Error, content::ContentRoot, map::ProvinceMap};
 
@@ -104,6 +105,11 @@ impl OpeningWorld {
 
     pub fn state(&self) -> &World {
         &self.state
+    }
+
+    pub fn start_date(&self) -> GameDate {
+        let date = Date::parse(START_DATE).expect("固定开局日期必须有效");
+        GameDate::new(date.year(), date.month(), date.day()).expect("开局日期必须在游戏历法内")
     }
 
     pub fn display_name(&self, key: &str) -> String {

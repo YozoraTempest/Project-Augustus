@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    time::Duration,
+};
 
+use augustus_core::{GameClock, GameSpeed};
 use augustus_eu4::world::{OpeningWorld, START_DATE};
 use godot::{
     classes::{Image, ImageTexture, image::Format},
@@ -19,6 +23,7 @@ struct AugustusMap {
     country_render_ids: BTreeMap<String, u32>,
     // 玩家身份只在正式开局时确定，与地图上的浏览选择分开保存。
     player_country: Option<String>,
+    clock: Option<GameClock>,
 }
 
 #[godot_api]
@@ -71,6 +76,7 @@ impl AugustusMap {
         self.owner_texture = Some(owner_texture);
         self.country_render_ids = country_render_ids;
         self.player_country = None;
+        self.clock = None;
         GString::new()
     }
 
@@ -91,7 +97,52 @@ impl AugustusMap {
             return "只能选择开局时拥有领土的国家".into();
         }
         self.player_country = Some(tag);
+        self.clock = Some(GameClock::new(world.start_date()));
         GString::new()
+    }
+
+    /// 日期、暂停与倍速都来自同一个核心时钟，界面只读取结果。
+    #[func]
+    fn get_clock_state(&self) -> VarDictionary {
+        let Some(clock) = &self.clock else {
+            return VarDictionary::new();
+        };
+        let mut state = VarDictionary::new();
+        state.set("date", clock.date().to_string().as_str());
+        state.set("paused", clock.is_paused());
+        state.set("speed", i64::from(clock.speed().multiplier()));
+        state
+    }
+
+    #[func]
+    fn set_game_paused(&mut self, paused: bool) {
+        if let Some(clock) = &mut self.clock {
+            clock.set_paused(paused);
+        }
+    }
+
+    #[func]
+    fn set_game_speed(&mut self, multiplier: i64) -> GString {
+        let Some(speed) = u32::try_from(multiplier)
+            .ok()
+            .and_then(GameSpeed::from_multiplier)
+        else {
+            return "只支持 1×、2×、4×、8× 倍速".into();
+        };
+        let Some(clock) = &mut self.clock else {
+            return "请先开始游戏".into();
+        };
+        clock.set_speed(speed);
+        GString::new()
+    }
+
+    /// 只传入单调时钟的实际经过时间；返回是否跨日，避免每帧刷新界面。
+    #[func]
+    fn advance_time(&mut self, elapsed_usec: i64) -> bool {
+        let (Some(clock), Ok(elapsed)) = (&mut self.clock, u64::try_from(elapsed_usec)) else {
+            return false;
+        };
+        clock.advance(Duration::from_micros(elapsed)) > 0
     }
 
     #[func]
