@@ -18,7 +18,6 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(140, 0)
 layout_mode = 2
 text = "继续（空格）"
-tooltip_text = "暂停时间后仍可浏览地图"
 
 [node name="SpeedLabel" type="Label" parent="."]
 layout_mode = 2

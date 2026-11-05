@@ -54,12 +54,6 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "垂直同步"
 
-[node name="Hint" type="Label" parent="Margin/Form"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.62, 0.69, 0.76, 1)
-text = "应用后立即生效，并在下次启动时恢复。"
-autowrap_mode = 2
-
 [node name="Error" type="Label" parent="Margin/Form"]
 unique_name_in_owner = true
 layout_mode = 2

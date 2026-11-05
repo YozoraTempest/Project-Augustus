@@ -40,12 +40,6 @@ theme_override_font_sizes/font_size = 38
 text = "Project Augustus"
 horizontal_alignment = 1
 
-[node name="Subtitle" type="Label" parent="Margin/Center/Menu"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.62, 0.69, 0.76, 1)
-text = "选择新的开局，或继续已有进度"
-horizontal_alignment = 1
-
 [node name="Space" type="Control" parent="Margin/Center/Menu"]
 custom_minimum_size = Vector2(0, 14)
 layout_mode = 2
@@ -77,6 +71,7 @@ text = "退出游戏"
 
 [node name="Status" type="Label" parent="Margin/Center/Menu"]
 unique_name_in_owner = true
+visible = false
 custom_minimum_size = Vector2(440, 0)
 layout_mode = 2
 autowrap_mode = 2

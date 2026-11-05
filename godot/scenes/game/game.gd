@@ -5,14 +5,12 @@ const MAIN_MENU := "res://scenes/main_menu/main_menu.tscn"
 const NEW_GAME := "res://scenes/new_game/new_game.tscn"
 const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 
-@onready var status_label: Label = %Status
 @onready var map_view: ProvinceMapView = %MapView
 @onready var info_panel: ProvinceInfoPanel = %InfoPanel
 @onready var selection_label: Label = %Selection
 @onready var reset_view_button: Button = %ResetView
 @onready var menu_button: Button = %MainMenu
 @onready var settings_button: Button = %Settings
-@onready var navigation_hint: Label = %Hint
 @onready var player_country_label: Label = %PlayerCountry
 @onready var save_button: Button = %SaveGame
 @onready var save_status: Label = %SaveStatus
@@ -48,8 +46,6 @@ func _ready() -> void:
 	var player_info := backend.get_country_info(GameSession.get_player_country())
 	player_country_label.text = "玩家国家：%s (%s)" % [player_info.name, player_info.tag]
 	player_country_label.tooltip_text = player_country_label.text
-	var map_size := backend.get_map_size()
-	status_label.text = "开局 %s · 政治地图 · %d 个有领土国家 · %d 个省份 · %d × %d 像素" % [backend.get_start_date(), backend.get_country_count(), backend.get_province_count(), map_size.x, map_size.y]
 
 
 func _return_to_menu() -> void:
@@ -87,7 +83,6 @@ func _show_save_error(message: String) -> void:
 func _refresh_projection() -> void:
 	var is_globe := map_view.projection == MapMode.ViewType.GLOBE
 	reset_view_button.text = "重置球体" if is_globe else "显示全图"
-	navigation_hint.text = "滚轮缩放 · 中键旋转 · 左键选择 · 右键行军" if is_globe else "滚轮缩放 · 中键拖动 · 左键选择 · 右键行军"
 
 
 func _start_construction(province_id: int, building: String) -> void:
