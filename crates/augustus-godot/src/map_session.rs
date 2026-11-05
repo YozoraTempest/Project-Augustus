@@ -2,10 +2,11 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
+    path::Path,
     time::Duration,
 };
 
-use augustus_core::{GameSpeed, Simulation};
+use augustus_core::{GameSpeed, SavedGame, Simulation};
 use augustus_eu4::world::{OpeningWorld, START_DATE};
 use godot::{
     classes::{Image, ImageTexture, image::Format},
@@ -24,6 +25,7 @@ struct AugustusMap {
     // 玩家身份只在正式开局时确定，与地图上的浏览选择分开保存。
     player_country: Option<String>,
     simulation: Option<Simulation>,
+    game_directory: String,
 }
 
 #[godot_api]
@@ -35,49 +37,38 @@ impl AugustusMap {
             Ok(world) => world,
             Err(error) => return error.to_string().as_str().into(),
         };
-        let map = world.map();
-        let summary = map.summary();
-        let (Ok(width), Ok(height)) = (i32::try_from(summary.width), i32::try_from(summary.height))
-        else {
-            return "地图尺寸超出 Godot 图像范围".into();
-        };
-        let bytes = PackedByteArray::from(encode_ids(map.province_ids()).as_slice());
-        let Some(image) = Image::create_from_data(width, height, false, Format::RGBA8, &bytes)
-        else {
-            return "无法创建省份编号图像".into();
-        };
-        let Some(texture) = ImageTexture::create_from_image(&image) else {
-            return "无法创建省份编号纹理".into();
-        };
+        self.install_world(world, game_dir.to_string())
+    }
 
-        let bytes = PackedByteArray::from(political_colors(&world).as_slice());
-        let Some(image) = Image::create_from_data(width, height, false, Format::RGBA8, &bytes)
-        else {
-            return "无法创建政治地图图像".into();
-        };
-        let Some(political_texture) = ImageTexture::create_from_image(&image) else {
-            return "无法创建政治地图纹理".into();
-        };
+    #[func]
+    fn get_game_directory(&self) -> GString {
+        self.game_directory.as_str().into()
+    }
 
-        let country_render_ids = country_render_ids(&world);
-        let bytes = PackedByteArray::from(owner_ids(&world, &country_render_ids).as_slice());
-        let Some(image) = Image::create_from_data(width, height, false, Format::RGBA8, &bytes)
+    #[func]
+    fn save_game(&self, path: GString) -> GString {
+        let (Some(world), Some(simulation), Some(player)) =
+            (&self.world, &self.simulation, &self.player_country)
         else {
-            return "无法创建省份归属图像".into();
+            return "请先开始游戏".into();
         };
-        let Some(owner_texture) = ImageTexture::create_from_image(&image) else {
-            return "无法创建省份归属纹理".into();
-        };
+        let save = crate::save::SaveFile::new(
+            self.game_directory.clone(),
+            world.start_date(),
+            SavedGame::capture(world.state(), simulation, player),
+        );
+        match save.write(Path::new(&path.to_string())) {
+            Ok(()) => GString::new(),
+            Err(error) => error.as_str().into(),
+        }
+    }
 
-        // 完整载入并创建纹理后再替换状态，失败的重新载入不会清除现有地图。
-        self.world = Some(world);
-        self.texture = Some(texture);
-        self.political_texture = Some(political_texture);
-        self.owner_texture = Some(owner_texture);
-        self.country_render_ids = country_render_ids;
-        self.player_country = None;
-        self.simulation = None;
-        GString::new()
+    #[func]
+    fn load_saved_game(&mut self, path: GString) -> GString {
+        match self.restore_saved_game(Path::new(&path.to_string())) {
+            Ok(()) => GString::new(),
+            Err(error) => error.as_str().into(),
+        }
     }
 
     /// 只有地图上拥有领土的国家可以开局；开始后不能通过浏览或重复调用换国。
@@ -308,6 +299,81 @@ impl AugustusMap {
             Ok(None) => 0,
             Err(_) => -1,
         }
+    }
+}
+
+impl AugustusMap {
+    fn restore_saved_game(&mut self, path: &Path) -> Result<(), String> {
+        let save = crate::save::SaveFile::read(path)?;
+        let mut world = OpeningWorld::load(&save.game_directory).map_err(|error| {
+            format!(
+                "无法载入存档使用的游戏目录 {}：{error}",
+                save.game_directory
+            )
+        })?;
+        if save.opening_date != world.start_date() {
+            return Err("存档使用的开局日期与当前内容不一致".to_owned());
+        }
+        let restored = save
+            .game
+            .restore(world.state())
+            .map_err(|error| error.to_string())?;
+        if restored.simulation.clock().date() < world.start_date() {
+            return Err("存档日期早于开局日期".to_owned());
+        }
+        *world.state_mut() = restored.world;
+        // 使用恢复后的省份归属生成政治地图和选中国家纹理。
+        let error = self.install_world(world, save.game_directory);
+        if !error.is_empty() {
+            return Err(error.to_string());
+        }
+        self.simulation = Some(restored.simulation);
+        self.player_country = Some(restored.player_country);
+        Ok(())
+    }
+
+    fn install_world(&mut self, world: OpeningWorld, game_directory: String) -> GString {
+        let map = world.map();
+        let summary = map.summary();
+        let (Ok(width), Ok(height)) = (i32::try_from(summary.width), i32::try_from(summary.height))
+        else {
+            return "地图尺寸超出 Godot 图像范围".into();
+        };
+        let bytes = PackedByteArray::from(encode_ids(map.province_ids()).as_slice());
+        let Some(image) = Image::create_from_data(width, height, false, Format::RGBA8, &bytes)
+        else {
+            return "无法创建省份编号图像".into();
+        };
+        let Some(texture) = ImageTexture::create_from_image(&image) else {
+            return "无法创建省份编号纹理".into();
+        };
+        let bytes = PackedByteArray::from(political_colors(&world).as_slice());
+        let Some(image) = Image::create_from_data(width, height, false, Format::RGBA8, &bytes)
+        else {
+            return "无法创建政治地图图像".into();
+        };
+        let Some(political_texture) = ImageTexture::create_from_image(&image) else {
+            return "无法创建政治地图纹理".into();
+        };
+        let country_render_ids = country_render_ids(&world);
+        let bytes = PackedByteArray::from(owner_ids(&world, &country_render_ids).as_slice());
+        let Some(image) = Image::create_from_data(width, height, false, Format::RGBA8, &bytes)
+        else {
+            return "无法创建省份归属图像".into();
+        };
+        let Some(owner_texture) = ImageTexture::create_from_image(&image) else {
+            return "无法创建省份归属纹理".into();
+        };
+        // 全部完成后再替换，读取失败时保留当前会话。
+        self.world = Some(world);
+        self.texture = Some(texture);
+        self.political_texture = Some(political_texture);
+        self.owner_texture = Some(owner_texture);
+        self.country_render_ids = country_render_ids;
+        self.game_directory = game_directory;
+        self.player_country = None;
+        self.simulation = None;
+        GString::new()
     }
 }
 

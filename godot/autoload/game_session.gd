@@ -120,6 +120,29 @@ func load_game(directory: String) -> String:
 	return error
 
 
+func save_game(path: String) -> String:
+	if not is_started():
+		return "请先开始游戏"
+	_advance_clock()
+	var error := backend.save_game(ProjectSettings.globalize_path(path))
+	# 文件读写耗时不作为下一帧的模拟时间。
+	_last_tick_usec = 0
+	return error
+
+
+func load_saved_game(path: String) -> String:
+	var candidate := AugustusMap.new()
+	var error := candidate.load_saved_game(ProjectSettings.globalize_path(path))
+	if error.is_empty():
+		backend = candidate
+		game_directory = backend.get_game_directory()
+		map_projection = MapMode.ViewType.FLAT
+		_last_tick_usec = 0
+		clock_changed.emit()
+		world_changed.emit()
+	return error
+
+
 func clear_game() -> void:
 	backend = null
 	map_projection = MapMode.ViewType.FLAT

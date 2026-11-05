@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use crate::{GameDate, Money};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct BuildingDefinition {
@@ -13,7 +14,7 @@ pub struct BuildingDefinition {
     pub constructible: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Construction {
     pub building: String,
     pub country: String,

@@ -20,6 +20,10 @@ impl Simulation {
         &self.clock
     }
 
+    pub(crate) fn from_clock(clock: GameClock) -> Self {
+        Self { clock }
+    }
+
     pub fn set_paused(&mut self, paused: bool) {
         self.clock.set_paused(paused);
     }

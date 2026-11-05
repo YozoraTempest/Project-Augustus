@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use rust_decimal::RoundingStrategy;
+use serde::{Deserialize, Serialize};
 
 use crate::{GameDate, Money};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonthlyTaxSettlement {
     /// 税额所属月份，以该月第一天表示；实际入库发生在下月第一天。
     pub month: GameDate,
@@ -12,7 +13,7 @@ pub struct MonthlyTaxSettlement {
     pub received: Money,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CountryFinances {
     treasury: Money,
     last_settlement: Option<MonthlyTaxSettlement>,

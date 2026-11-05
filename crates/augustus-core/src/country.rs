@@ -3,8 +3,9 @@
 //! 国家实体的标识与状态，由 World 统一持有。
 
 use crate::CountryFinances;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Country {
     // 标识不可在创建后修改，保持 World 索引与省份归属引用一致。
     tag: String,

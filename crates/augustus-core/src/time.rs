@@ -3,6 +3,7 @@
 use std::{fmt, time::Duration};
 
 use jomini::common::{Date, PdsDate};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 /// 游戏使用每年 365 天的历法；日期运算复用 jomini，不依赖显示引擎。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -51,6 +52,23 @@ impl GameDate {
 impl fmt::Display for GameDate {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.game_fmt().fmt(formatter)
+    }
+}
+
+// 日期以游戏中使用的年月日文本保存，读取时仍经过历法检查。
+impl Serialize for GameDate {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for GameDate {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        let date = Date::parse(text.as_bytes())
+            .ok()
+            .and_then(|date| Self::new(date.year(), date.month(), date.day()));
+        date.ok_or_else(|| de::Error::custom("无效的游戏日期"))
     }
 }
 
@@ -116,6 +134,20 @@ impl GameClock {
 
     pub fn speed(&self) -> GameSpeed {
         self.speed
+    }
+
+    pub(crate) fn progress(&self) -> Duration {
+        self.progress
+    }
+
+    pub(crate) fn restore(date: GameDate, speed: GameSpeed, progress: Duration) -> Self {
+        Self {
+            date,
+            speed,
+            progress,
+            // 读取后先暂停，现实中关闭游戏的时间不计入模拟。
+            paused: true,
+        }
     }
 
     pub fn set_speed(&mut self, speed: GameSpeed) {
