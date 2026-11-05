@@ -1,0 +1,3 @@
+capital = 16777217
+primary_culture = highland_culture
+religion = orthodox

@@ -12,6 +12,7 @@ use crate::{Error, content::ContentFile};
 pub(super) struct Definitions {
     source: PathBuf,
     pub(super) ids: BTreeSet<u32>,
+    pub(super) names: std::collections::BTreeMap<u32, String>,
     // Some(id) 表示唯一编号，None 表示多个定义共享颜色；缺失的键表示未定义。
     by_color: HashMap<[u8; 3], Option<u32>>,
 }
@@ -25,7 +26,8 @@ impl Definitions {
             .from_reader(file.bytes.as_slice());
         let mut ids = BTreeSet::new();
         let mut by_color = HashMap::new();
-        // 名称等附加列可能包含 Windows-1252 字符，按字节读取，只解码数值列。
+        let mut names = std::collections::BTreeMap::new();
+        // 按字节读取数值列，名称列单独使用原版的 Windows-1252 编码解码。
         for row in reader.byte_records() {
             let row = row.map_err(|error| Error::invalid(&file.path, error.to_string()))?;
             let line = row.position().map_or(0, |position| position.line());
@@ -44,6 +46,9 @@ impl Definitions {
             if !ids.insert(id) {
                 return Err(fail(format!("duplicate province ID: {id}")));
             }
+            if let Some(name) = row.get(4).filter(|bytes| !bytes.is_empty()) {
+                names.insert(id, jomini::Windows1252Encoding::decode(name).into_owned());
+            }
             let mut color = [0; 3];
             for (index, channel) in color.iter_mut().enumerate() {
                 *channel = u8::try_from(integer(index + 1, "RGB component")?)
@@ -61,6 +66,7 @@ impl Definitions {
         Ok(Self {
             source: file.path.clone(),
             ids,
+            names,
             by_color,
         })
     }

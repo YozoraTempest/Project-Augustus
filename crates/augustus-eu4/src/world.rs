@@ -5,6 +5,7 @@
 mod countries;
 mod geography;
 mod history;
+mod localisation;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -23,28 +24,30 @@ pub struct OpeningWorld {
     state: World,
     // 内容中的国家颜色单独保存，核心状态不依赖任何绘图接口。
     country_colors: BTreeMap<String, [u8; 3]>,
+    names: BTreeMap<String, String>,
+    country_history_conflicts: BTreeSet<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct CountrySummary {
+    pub provinces: usize,
+    /// 有领土省份缺少发展度时，合计也保持未知。
+    pub development: Option<u64>,
 }
 
 impl OpeningWorld {
     pub fn load(game_dir: impl AsRef<Path>) -> Result<Self, Error> {
         let content = ContentRoot::new(game_dir.as_ref());
         let map = ProvinceMap::load(game_dir)?;
-        let country_colors = countries::load(&content)?;
+        let mut countries = countries::load(&content)?;
         let mut provinces: BTreeMap<_, _> = map
             .defined_province_ids()
             .iter()
-            .map(|&id| {
-                (
-                    id,
-                    Province {
-                        kind: ProvinceKind::Land,
-                        owner: None,
-                    },
-                )
-            })
+            .map(|&id| (id, Province::new(ProvinceKind::Land)))
             .collect();
         geography::apply(&content, &mut provinces)?;
-        let histories = history::apply(&content, &country_colors, &mut provinces)?;
+        let country_history_conflicts = history::apply_countries(&content, &mut countries.states)?;
+        let histories = history::apply_provinces(&content, &countries.colors, &mut provinces)?;
         // 已绘制的陆地必须有历史文件；缺失内容不能被误当成未殖民省份。
         for id in map.mapped_province_ids() {
             if provinces
@@ -58,13 +61,40 @@ impl OpeningWorld {
                 ));
             }
         }
-        let countries = country_colors.keys().cloned().map(Country::new);
-        let state = World::new(countries, provinces)
+        let state = World::new(countries.states.into_values(), provinces)
             .map_err(|error| Error::invalid(content.path(), error.to_string()))?;
+        let mut wanted: BTreeSet<String> = state.countries().keys().cloned().collect();
+        wanted.extend(
+            map.defined_province_ids()
+                .iter()
+                .map(|id| format!("PROV{id}")),
+        );
+        for country in state.countries().values() {
+            wanted.extend(
+                country
+                    .primary_culture
+                    .iter()
+                    .chain(country.religion.iter())
+                    .cloned(),
+            );
+        }
+        for province in state.provinces().values() {
+            wanted.extend(
+                province
+                    .culture
+                    .iter()
+                    .chain(province.religion.iter())
+                    .chain(province.trade_good.iter())
+                    .cloned(),
+            );
+        }
+        let names = localisation::load(&content, &wanted)?;
         Ok(Self {
             map,
             state,
-            country_colors,
+            country_colors: countries.colors,
+            names,
+            country_history_conflicts,
         })
     }
 
@@ -74,6 +104,48 @@ impl OpeningWorld {
 
     pub fn state(&self) -> &World {
         &self.state
+    }
+
+    pub fn display_name(&self, key: &str) -> String {
+        self.names
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| key.to_owned())
+    }
+
+    pub fn province_name(&self, id: u32) -> String {
+        self.names
+            .get(&format!("PROV{id}"))
+            .cloned()
+            .or_else(|| self.map.definition_name(id).map(str::to_owned))
+            .unwrap_or_else(|| format!("#{id}"))
+    }
+
+    pub fn country_color(&self, tag: &str) -> Option<[u8; 3]> {
+        self.country_colors.get(tag).copied()
+    }
+
+    pub fn country_history_has_conflicts(&self, tag: &str) -> bool {
+        self.country_history_conflicts.contains(tag)
+    }
+
+    /// 只汇总地图上实际存在的本国省份，排除废弃定义和仅有控制权的省份。
+    pub fn country_summary(&self, tag: &str) -> Option<CountrySummary> {
+        self.state.country(tag)?;
+        let mut summary = CountrySummary {
+            provinces: 0,
+            development: Some(0),
+        };
+        for id in self.map.mapped_province_ids() {
+            let province = &self.state.provinces()[id];
+            if province.owner.as_deref() == Some(tag) {
+                summary.provinces += 1;
+                summary.development = summary
+                    .development
+                    .and_then(|total| province.development.total().map(|value| total + value));
+            }
+        }
+        Some(summary)
     }
 
     /// 只统计开局持有省份的国家；注册但尚未出现的国家不计入此数。

@@ -7,5 +7,5 @@ mod province;
 mod world;
 
 pub use country::Country;
-pub use province::{Province, ProvinceKind};
+pub use province::{Development, Province, ProvinceKind};
 pub use world::{World, WorldError};

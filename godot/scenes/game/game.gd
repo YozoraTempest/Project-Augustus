@@ -7,6 +7,7 @@ const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 
 @onready var status_label: Label = %Status
 @onready var map_view: ProvinceMapView = %MapView
+@onready var info_panel: ProvinceInfoPanel = %InfoPanel
 @onready var selection_label: Label = %Selection
 @onready var reset_view_button: Button = %ResetView
 @onready var menu_button: Button = %MainMenu
@@ -49,6 +50,11 @@ func _on_province_clicked(pixel: Vector2i) -> void:
 		return
 	selected_province = province_id
 	map_view.select_province(province_id)
+	var province_info := backend.get_province_info(province_id)
+	var country_info: Dictionary = {}
+	if province_info.get("owner") != null:
+		country_info = backend.get_country_info(province_info.owner)
+	info_panel.show_info(province_info, country_info)
 	if province_id == 0:
 		selection_label.text = "此位置没有省份"
 	else:

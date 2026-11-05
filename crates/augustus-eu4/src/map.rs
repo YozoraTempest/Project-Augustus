@@ -6,7 +6,10 @@ mod bitmap;
 mod config;
 mod definitions;
 
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use crate::{Error, content::ContentRoot};
 
@@ -27,6 +30,7 @@ pub struct ProvinceMap {
     summary: MapSummary,
     defined_ids: BTreeSet<u32>,
     mapped_ids: BTreeSet<u32>,
+    names: BTreeMap<u32, String>,
     // 按行保存省份编号，行内从左到右；0 表示该像素没有对应省份。
     pixels: Vec<u32>,
 }
@@ -58,6 +62,7 @@ impl ProvinceMap {
             pixels: raster.pixels,
             defined_ids: definitions.ids,
             mapped_ids: raster.mapped_ids,
+            names: definitions.names,
         })
     }
 
@@ -72,6 +77,11 @@ impl ProvinceMap {
 
     pub fn mapped_province_ids(&self) -> &BTreeSet<u32> {
         &self.mapped_ids
+    }
+
+    /// 定义表名称只作为本地化缺失时的回退，不参与省份身份识别。
+    pub fn definition_name(&self, id: u32) -> Option<&str> {
+        self.names.get(&id).map(String::as_str)
     }
 
     /// 按从上到下、从左到右的顺序借用像素编号，供显示层生成纹理。

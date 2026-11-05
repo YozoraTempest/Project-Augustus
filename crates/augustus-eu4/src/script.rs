@@ -4,7 +4,8 @@
 
 use jomini::{
     TextTape, Windows1252Encoding,
-    text::{Operator, ValueReader},
+    common::Date,
+    text::{ObjectReader, Operator, ValueReader},
 };
 
 use crate::{Error, content::ContentFile};
@@ -61,4 +62,35 @@ pub(crate) fn province_list(
                 .ok_or_else(|| Error::invalid(&file.path, "expected a positive province ID"))
         })
         .collect()
+}
+
+/// 国家和省份共用日期规则：先初始值，再按日期稳定排序，包含目标当天。
+pub(crate) fn history_blocks<'data, 'tokens>(
+    file: &ContentFile,
+    tape: &'tokens TextTape<'data>,
+    at: Date,
+) -> Result<Vec<ObjectReader<'data, 'tokens, Windows1252Encoding>>, Error> {
+    let root = tape.windows1252_reader();
+    let mut dated = Vec::new();
+    for (key, operator, value) in root.fields() {
+        let name = key.read_str();
+        if !name.as_bytes().first().is_some_and(u8::is_ascii_digit) || !name.contains('.') {
+            continue;
+        }
+        equal(file, operator, &name)?;
+        let date = Date::parse(name.as_bytes())
+            .map_err(|_| Error::invalid(&file.path, format!("invalid history date: {name}")))?;
+        if date <= at {
+            dated.push((
+                date,
+                value
+                    .read_object()
+                    .map_err(|error| Error::invalid(&file.path, error.to_string()))?,
+            ));
+        }
+    }
+    dated.sort_by_key(|(date, _)| *date);
+    let mut blocks = vec![root];
+    blocks.extend(dated.into_iter().map(|(_, block)| block));
+    Ok(blocks)
 }

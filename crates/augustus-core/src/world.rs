@@ -12,6 +12,10 @@ pub enum WorldError {
     DuplicateCountry(String),
     #[error("province {province} references unknown country {owner}")]
     UnknownOwner { province: u32, owner: String },
+    #[error("province {province} references unknown controller {controller}")]
+    UnknownController { province: u32, controller: String },
+    #[error("country {country} references unknown capital province {province}")]
+    UnknownCapital { country: String, province: u32 },
     #[error("non-land province {0} cannot have an owner")]
     NonLandOwner(u32),
     #[error("province ID 0 is reserved")]
@@ -56,6 +60,24 @@ impl World {
                     return Err(WorldError::NonLandOwner(id));
                 }
             }
+            if let Some(controller) = &province.controller
+                && !registry.contains_key(controller)
+            {
+                return Err(WorldError::UnknownController {
+                    province: id,
+                    controller: controller.clone(),
+                });
+            }
+        }
+        for country in registry.values() {
+            if let Some(capital) = country.capital
+                && !provinces.contains_key(&capital)
+            {
+                return Err(WorldError::UnknownCapital {
+                    country: country.tag().into(),
+                    province: capital,
+                });
+            }
         }
         Ok(Self {
             countries: registry,
@@ -97,29 +119,29 @@ mod tests {
             (
                 1,
                 Province {
-                    kind: ProvinceKind::Land,
                     owner: Some("AAA".into()),
+                    ..Province::new(ProvinceKind::Land)
                 },
             ),
             (
                 2,
                 Province {
-                    kind: ProvinceKind::Land,
                     owner: None,
+                    ..Province::new(ProvinceKind::Land)
                 },
             ),
             (
                 3,
                 Province {
-                    kind: ProvinceKind::Sea,
                     owner: None,
+                    ..Province::new(ProvinceKind::Sea)
                 },
             ),
             (
                 4,
                 Province {
-                    kind: ProvinceKind::Land,
                     owner: Some("AAA".into()),
+                    ..Province::new(ProvinceKind::Land)
                 },
             ),
         ]);
@@ -154,8 +176,8 @@ mod tests {
                 BTreeMap::from([(
                     1,
                     Province {
-                        kind,
                         owner: Some(owner.into()),
+                        ..Province::new(kind)
                     },
                 )]),
             )

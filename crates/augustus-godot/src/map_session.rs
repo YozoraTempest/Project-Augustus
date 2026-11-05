@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 
-use augustus_core::ProvinceKind;
 use augustus_eu4::world::{OpeningWorld, START_DATE};
 use godot::{
     classes::{Image, ImageTexture, image::Format},
@@ -79,6 +78,24 @@ impl AugustusMap {
             .map_or(0, |world| world.landed_country_count() as i64)
     }
 
+    /// 信息字典是当前世界的只读结果；未知编号或未载入时返回空字典。
+    #[func]
+    fn get_province_info(&self, id: i64) -> VarDictionary {
+        let (Some(world), Ok(id)) = (self.world.as_ref(), u32::try_from(id)) else {
+            return VarDictionary::new();
+        };
+        crate::info::province_info(world, id)
+    }
+
+    #[func]
+    fn get_country_info(&self, tag: GString) -> VarDictionary {
+        self.world
+            .as_ref()
+            .map_or_else(VarDictionary::new, |world| {
+                crate::info::country_info(world, &tag.to_string())
+            })
+    }
+
     /// 空字符串表示无所有者；海洋、湖泊和荒地由类型查询区分。
     #[func]
     fn get_province_owner(&self, id: i64) -> GString {
@@ -101,14 +118,9 @@ impl AugustusMap {
                 .ok()
                 .and_then(|id| world.state().province(id))
         });
-        match province.map(|province| province.kind) {
-            Some(ProvinceKind::Land) => "land",
-            Some(ProvinceKind::Sea) => "sea",
-            Some(ProvinceKind::Lake) => "lake",
-            Some(ProvinceKind::Wasteland) => "wasteland",
-            None => "",
-        }
-        .into()
+        province
+            .map_or("", |province| crate::info::kind_name(province.kind))
+            .into()
     }
 
     #[func]
