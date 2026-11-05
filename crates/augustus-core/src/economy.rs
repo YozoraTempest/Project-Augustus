@@ -29,6 +29,11 @@ impl CountryFinances {
         self.last_settlement.as_ref()
     }
 
+    // World 在接受建设项目之前统一检查余额，扣款与项目创建在同一次操作中完成。
+    pub(crate) fn spend(&mut self, amount: Money) {
+        self.treasury -= amount;
+    }
+
     pub(crate) fn settle_tax(&mut self, annual_tax: Money, settled_on: GameDate) {
         let months = Money::from(12);
         let accrued = annual_tax + self.tax_remainder;

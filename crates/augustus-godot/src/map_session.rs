@@ -160,6 +160,39 @@ impl AugustusMap {
     }
 
     #[func]
+    fn get_construction_info(&self, id: i64) -> VarDictionary {
+        let (Some(world), Ok(id)) = (&self.world, u32::try_from(id)) else {
+            return VarDictionary::new();
+        };
+        let date = self.simulation.as_ref().map_or_else(
+            || world.start_date(),
+            |simulation| simulation.clock().date(),
+        );
+        crate::construction::construction_info(world, id, self.player_country.as_deref(), date)
+    }
+
+    #[func]
+    fn start_construction(&mut self, id: i64, building: GString) -> GString {
+        let (Some(world), Some(simulation), Some(country)) =
+            (&mut self.world, &self.simulation, &self.player_country)
+        else {
+            return "请先开始游戏".into();
+        };
+        let Ok(id) = u32::try_from(id) else {
+            return "请选择有效的省份".into();
+        };
+        match world.state_mut().start_construction(
+            country,
+            id,
+            &building.to_string(),
+            simulation.clock().date(),
+        ) {
+            Ok(()) => GString::new(),
+            Err(error) => error.to_string().as_str().into(),
+        }
+    }
+
+    #[func]
     fn get_player_country(&self) -> GString {
         self.player_country.as_deref().unwrap_or("").into()
     }

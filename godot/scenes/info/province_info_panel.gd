@@ -2,6 +2,8 @@
 class_name ProvinceInfoPanel
 extends PanelContainer
 
+signal construction_requested(province_id: int, building: String)
+
 @onready var tabs: TabContainer = %Tabs
 @onready var province_title: Label = %ProvinceTitle
 @onready var province_body: Label = %ProvinceBody
@@ -9,14 +11,19 @@ extends PanelContainer
 @onready var country_title: Label = %CountryTitle
 @onready var country_body: Label = %CountryBody
 @onready var country_color: ColorRect = %CountryColor
+@onready var construction_panel: ProvinceConstructionPanel = %ConstructionPanel
+@onready var building_hint: Label = %BuildingHint
 
 
 func _ready() -> void:
 	country_button.pressed.connect(func(): tabs.current_tab = 1)
+	construction_panel.construction_requested.connect(func(province_id: int, building: String): construction_requested.emit(province_id, building))
 	show_info({}, {})
 
 
-func show_info(province: Dictionary, country: Dictionary) -> void:
+func show_info(province: Dictionary, country: Dictionary, construction: Dictionary = {}) -> void:
+	construction_panel.show_province(0 if province.is_empty() else province.id, construction)
+	building_hint.visible = not construction_panel.visible
 	# 字典仅用于显示，归属、发展度和首都仍由 Rust 世界管理。
 	if province.is_empty():
 		province_title.text = "未选择省份"
@@ -29,7 +36,7 @@ func show_info(province: Dictionary, country: Dictionary) -> void:
 		if province.kind == "land":
 			var owner := _country_name(province, "owner") if province.owner != null else "无主"
 			province_body.text += "\n\n所属国家：%s\n控制者：%s\n\n文化：%s\n宗教：%s\n商品：%s\n\n总发展度：%s\n税收发展度：%s\n生产发展度：%s\n人力发展度：%s" % [owner, _country_name(province, "controller"), _value(province.culture), _value(province.religion), _value(province.trade_good), _value(province.development), _value(province.base_tax), _value(province.base_production), _value(province.base_manpower)]
-			province_body.text += "\n\n基础月度税收：%s 金币" % _value(province.monthly_tax)
+			province_body.text += "\n\n基础月税：%s 金币\n建筑税收加成：+%s\n当前月度税收：%s 金币" % [_value(province.base_monthly_tax), _value(province.building_tax_bonus), _value(province.monthly_tax)]
 		else:
 			province_body.text += "\n\n此区域没有国家归属。"
 		country_button.visible = not country.is_empty()
@@ -53,6 +60,10 @@ func show_info(province: Dictionary, country: Dictionary) -> void:
 
 func _value(value: Variant) -> String:
 	return "—" if value == null else str(value)
+
+
+func show_construction_error(error: String) -> void:
+	construction_panel.show_error(error)
 
 
 func _country_name(province: Dictionary, field: String) -> String:

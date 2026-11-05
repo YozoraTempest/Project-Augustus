@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use crate::Money;
+use std::collections::BTreeSet;
+
+use crate::{Construction, Money};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProvinceKind {
@@ -20,6 +22,8 @@ pub struct Province {
     pub religion: Option<String>,
     pub trade_good: Option<String>,
     pub development: Development,
+    pub buildings: BTreeSet<String>,
+    pub construction: Option<Construction>,
 }
 
 impl Province {
@@ -32,6 +36,8 @@ impl Province {
             religion: None,
             trade_good: None,
             development: Development::default(),
+            buildings: BTreeSet::new(),
+            construction: None,
         }
     }
 

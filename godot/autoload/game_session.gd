@@ -2,6 +2,7 @@
 extends Node
 
 signal clock_changed
+signal world_changed
 
 # 会话由 Autoload 持有，页面切换不会重建 Rust 世界和地图纹理。
 var backend: AugustusMap
@@ -64,6 +65,17 @@ func set_game_speed(multiplier: int) -> void:
 		push_error(error)
 		return
 	clock_changed.emit()
+
+
+func start_construction(province_id: int, building: String) -> String:
+	if not is_started():
+		return "请先开始游戏"
+	_advance_clock()
+	var error := backend.start_construction(province_id, building)
+	if error.is_empty():
+		# 建造即时改变国库与省份状态；日期没有变化时也需要刷新界面。
+		world_changed.emit()
+	return error
 
 
 func consume_startup_request() -> bool:

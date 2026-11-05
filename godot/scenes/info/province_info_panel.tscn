@@ -1,6 +1,7 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scenes/info/province_info_panel.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://scenes/info/construction_panel.tscn" id="2_construction"]
 
 [sub_resource type="StyleBoxFlat" id="Style_info"]
 content_margin_left = 14.0
@@ -78,3 +79,21 @@ autowrap_mode = 2
 unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 2
+
+[node name="建筑" type="ScrollContainer" parent="Tabs"]
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="Content" type="VBoxContainer" parent="Tabs/建筑"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BuildingHint" type="Label" parent="Tabs/建筑/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "切换省份模式，选择陆地省份查看建筑。"
+autowrap_mode = 2
+
+[node name="ConstructionPanel" parent="Tabs/建筑/Content" instance=ExtResource("2_construction")]
+unique_name_in_owner = true
+layout_mode = 2

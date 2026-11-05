@@ -28,6 +28,21 @@ impl GameDate {
         self.0.day()
     }
 
+    pub fn days_until(self, other: Self) -> i32 {
+        self.0.days_until(&other.0)
+    }
+
+    /// 工期按日历月计算；目标月份没有同一天时，使用该月最后一天。
+    pub fn checked_add_months(self, months: u32) -> Option<Self> {
+        let index = u32::try_from(self.year()).ok()? * 12 + u32::from(self.month() - 1);
+        let index = index.checked_add(months)?;
+        let year = i16::try_from(index / 12).ok()?;
+        let month = (index % 12 + 1) as u8;
+        (1..=self.day())
+            .rev()
+            .find_map(|day| Self::new(year, month, day))
+    }
+
     pub(crate) fn add_days(self, days: i32) -> Self {
         Self(self.0.add_days(days))
     }
