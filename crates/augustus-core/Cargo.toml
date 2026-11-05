@@ -10,4 +10,5 @@ publish.workspace = true
 
 [dependencies]
 jomini.workspace = true
+rust_decimal.workspace = true
 thiserror.workspace = true

@@ -1,10 +1,11 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scenes/game/game.gd" id="1_script"]
 [ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
 [ext_resource type="PackedScene" path="res://scenes/map/province_map_view.tscn" id="3_map"]
 [ext_resource type="PackedScene" path="res://scenes/info/province_info_panel.tscn" id="4_info"]
 [ext_resource type="PackedScene" path="res://scenes/game/time_controls.tscn" id="5_time"]
+[ext_resource type="PackedScene" path="res://scenes/game/finance_bar.tscn" id="6_finances"]
 
 [sub_resource type="StyleBoxFlat" id="Style_map"]
 content_margin_left = 8.0
@@ -72,6 +73,9 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.84, 0.43, 1)
 autowrap_mode = 2
+
+[node name="FinanceBar" parent="Margin/Page" instance=ExtResource("6_finances")]
+layout_mode = 2
 
 [node name="TimeControls" parent="Margin/Page" instance=ExtResource("5_time")]
 layout_mode = 2

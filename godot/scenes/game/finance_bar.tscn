@@ -1,0 +1,31 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/finance_bar.gd" id="1_script"]
+
+[node name="FinanceBar" type="VBoxContainer"]
+theme_override_constants/separation = 4
+script = ExtResource("1_script")
+tooltip_text = "基础税收：所属省份的税收发展度合计 ÷ 12。每月 1 日结算，开局国库为 0，首月按整月结算。"
+
+[node name="Budget" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 24
+
+[node name="Treasury" type="Label" parent="Budget"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.84, 0.43, 1)
+text = "国库：0.000 金币"
+
+[node name="MonthlyTax" type="Label" parent="Budget"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.88, 0.66, 1)
+text = "月度税收：+0.000 金币"
+
+[node name="LastSettlement" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.69, 0.76, 1)
+text = "最近结算：尚未结算"
+autowrap_mode = 2
