@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+use crate::Money;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProvinceKind {
     Land,
@@ -31,6 +33,18 @@ impl Province {
             trade_good: None,
             development: Development::default(),
         }
+    }
+
+    /// 基础年税额等于税收发展度；水域、荒地与无主土地不产生国家税收。
+    pub fn annual_tax(&self) -> Option<Money> {
+        if self.kind != ProvinceKind::Land || self.owner.is_none() {
+            return Some(Money::ZERO);
+        }
+        self.development.tax.map(Money::from)
+    }
+
+    pub fn monthly_tax(&self) -> Option<Money> {
+        self.annual_tax().map(|annual| annual / Money::from(12))
     }
 }
 

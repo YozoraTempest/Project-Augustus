@@ -2,6 +2,8 @@
 
 //! 国家实体的标识与状态，由 World 统一持有。
 
+use crate::CountryFinances;
+
 #[derive(Debug)]
 pub struct Country {
     // 标识不可在创建后修改，保持 World 索引与省份归属引用一致。
@@ -9,6 +11,7 @@ pub struct Country {
     pub capital: Option<u32>,
     pub primary_culture: Option<String>,
     pub religion: Option<String>,
+    pub finances: CountryFinances,
 }
 
 impl Country {
@@ -18,6 +21,7 @@ impl Country {
             capital: None,
             primary_culture: None,
             religion: None,
+            finances: CountryFinances::default(),
         }
     }
 

@@ -15,6 +15,22 @@ impl GameDate {
         }
         Date::from_ymd_opt(year, month, day).map(Self)
     }
+
+    pub fn year(self) -> i16 {
+        self.0.year()
+    }
+
+    pub fn month(self) -> u8 {
+        self.0.month()
+    }
+
+    pub fn day(self) -> u8 {
+        self.0.day()
+    }
+
+    pub(crate) fn add_days(self, days: i32) -> Self {
+        Self(self.0.add_days(days))
+    }
 }
 
 impl fmt::Display for GameDate {
@@ -93,13 +109,25 @@ impl GameClock {
 
     /// 1× 时每个现实秒推进一天；一次调用可跨过多天，不依赖渲染帧数。
     pub fn advance(&mut self, elapsed: Duration) -> u32 {
+        self.advance_with(elapsed, |_| {})
+    }
+
+    pub(crate) fn advance_with(
+        &mut self,
+        elapsed: Duration,
+        mut on_day: impl FnMut(GameDate),
+    ) -> u32 {
         if self.paused {
             return 0;
         }
         self.progress += elapsed * self.speed.multiplier();
         let remaining = self.date.0.days_until(&Self::last_date()) as u64;
         let days = self.progress.as_secs().min(remaining) as u32;
-        self.date.0 = self.date.0.add_days(days as i32);
+        // 逐日交给模拟层处理，单帧跨月或跨年时也不会遗漏任何月初。
+        for _ in 0..days {
+            self.date = self.date.add_days(1);
+            on_day(self.date);
+        }
         self.progress = Duration::from_nanos(u64::from(self.progress.subsec_nanos()));
         // 到达日期库支持的末日后停止，不能让日期溢出或倒退。
         if u64::from(days) == remaining {

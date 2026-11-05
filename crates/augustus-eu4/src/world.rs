@@ -62,8 +62,12 @@ impl OpeningWorld {
                 ));
             }
         }
-        let state = World::new(countries.states.into_values(), provinces)
-            .map_err(|error| Error::invalid(content.path(), error.to_string()))?;
+        let state = World::new(
+            countries.states.into_values(),
+            provinces,
+            map.mapped_province_ids().iter().copied(),
+        )
+        .map_err(|error| Error::invalid(content.path(), error.to_string()))?;
         let mut wanted: BTreeSet<String> = state.countries().keys().cloned().collect();
         wanted.extend(
             map.defined_province_ids()
@@ -105,6 +109,10 @@ impl OpeningWorld {
 
     pub fn state(&self) -> &World {
         &self.state
+    }
+
+    pub fn state_mut(&mut self) -> &mut World {
+        &mut self.state
     }
 
     pub fn start_date(&self) -> GameDate {

@@ -2,7 +2,7 @@
 
 //! 将核心状态投影为界面数据，不在 Godot 中维护另一份国家或省份状态。
 
-use augustus_core::ProvinceKind;
+use augustus_core::{Money, ProvinceKind};
 use augustus_eu4::world::OpeningWorld;
 use godot::prelude::*;
 
@@ -64,6 +64,11 @@ pub(crate) fn province_info(world: &OpeningWorld, id: u32) -> VarDictionary {
         province.development.manpower.map(u64::from),
     );
     number(&mut info, "development", province.development.total());
+    money(
+        &mut info,
+        "monthly_tax",
+        world.state().province_monthly_tax(id),
+    );
     info
 }
 
@@ -111,6 +116,41 @@ pub(crate) fn country_info(world: &OpeningWorld, tag: &str) -> VarDictionary {
         .expect("注册国家可以查询领土概况");
     info.set("province_count", summary.provinces as i64);
     number(&mut info, "development", summary.development);
+    info.extend_dictionary(&country_finances(world, tag), true);
+    info
+}
+
+pub(crate) fn country_finances(world: &OpeningWorld, tag: &str) -> VarDictionary {
+    let mut info = VarDictionary::new();
+    let Some(country) = world.state().country(tag) else {
+        return info;
+    };
+    money(&mut info, "treasury", Some(country.finances.treasury()));
+    money(
+        &mut info,
+        "monthly_tax",
+        world.state().country_monthly_tax(tag),
+    );
+    let settlement = country.finances.last_settlement();
+    text(
+        &mut info,
+        "last_tax_month",
+        settlement
+            .map(|record| format!("{}.{}", record.month.year(), record.month.month()))
+            .as_deref(),
+    );
+    text(
+        &mut info,
+        "last_tax_date",
+        settlement
+            .map(|record| record.settled_on.to_string())
+            .as_deref(),
+    );
+    money(
+        &mut info,
+        "last_tax_income",
+        settlement.map(|record| record.received),
+    );
     info
 }
 
@@ -135,4 +175,15 @@ fn number(info: &mut VarDictionary, key: &str, value: Option<u64>) {
         Some(value) => info.set(key, value as i64),
         None => info.set(key, &Variant::nil()),
     }
+}
+
+fn money(info: &mut VarDictionary, key: &str, value: Option<Money>) {
+    // 金额由 Rust 格式化后传给界面，Godot 不进行浮点转换或财政计算。
+    text(
+        info,
+        key,
+        value
+            .map(|amount| format!("{:.3}", amount.round_dp(3)))
+            .as_deref(),
+    );
 }
