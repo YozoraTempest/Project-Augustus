@@ -82,7 +82,7 @@ pub(crate) fn recruitment_info(
     {
         return info;
     }
-    let rules = state.recruitment_rules();
+    let rules = state.military_rules();
     info.set("province_name", world.province_name(id).as_str());
     money(&mut info, "cost", Some(rules.infantry_cost));
     info.set("days", i64::from(rules.infantry_days));

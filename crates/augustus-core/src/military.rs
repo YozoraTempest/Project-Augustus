@@ -54,9 +54,20 @@ pub struct Recruitment {
 }
 
 #[derive(Debug, Clone)]
-pub struct RecruitmentRules {
+pub struct MilitaryRules {
     pub infantry_cost: Money,
     pub infantry_days: u32,
+    pub land_maintenance_factor: Money,
+}
+
+impl MilitaryRules {
+    /// 基础维护系数作用于招募费用，得到每团年费；月费在国家汇总后折算。
+    pub fn annual_maintenance(&self, kind: UnitKind) -> Money {
+        let cost = match kind {
+            UnitKind::Infantry => self.infantry_cost,
+        };
+        cost * self.land_maintenance_factor
+    }
 }
 
 #[derive(Debug)]

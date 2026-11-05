@@ -3,6 +3,7 @@
 //! 管理国家和省份实体，并解析它们之间的归属关系。
 
 mod construction;
+mod economy;
 mod military;
 mod movement;
 mod organization;
@@ -11,8 +12,8 @@ mod saved_state;
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use crate::{
-    BuildingDefinition, Country, GameDate, LandConnection, MilitaryState, Money, Province,
-    ProvinceKind, RecruitmentRules,
+    BuildingDefinition, Country, LandConnection, MilitaryRules, MilitaryState, Money, Province,
+    ProvinceKind,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -37,8 +38,8 @@ pub enum WorldError {
     InvalidBuilding(String),
     #[error("province {province} references unknown building {building}")]
     UnknownBuilding { province: u32, building: String },
-    #[error("invalid infantry recruitment rules")]
-    InvalidRecruitmentRules,
+    #[error("invalid military rules")]
+    InvalidMilitaryRules,
     #[error("invalid land connection: {0} - {1}")]
     InvalidLandConnection(u32, u32),
 }
@@ -50,7 +51,7 @@ pub struct World {
     // 内容可以保留废弃省份定义，只有实际存在于地图上的省份参与模拟。
     active_provinces: BTreeSet<u32>,
     buildings: BTreeMap<String, BuildingDefinition>,
-    recruitment_rules: RecruitmentRules,
+    military_rules: MilitaryRules,
     military: MilitaryState,
     land_routes: BTreeMap<u32, BTreeMap<u32, u32>>,
 }
@@ -62,11 +63,14 @@ impl World {
         mut provinces: BTreeMap<u32, Province>,
         active_provinces: impl IntoIterator<Item = u32>,
         buildings: impl IntoIterator<Item = BuildingDefinition>,
-        recruitment_rules: RecruitmentRules,
+        military_rules: MilitaryRules,
         connections: impl IntoIterator<Item = LandConnection>,
     ) -> Result<Self, WorldError> {
-        if recruitment_rules.infantry_cost < Money::ZERO || recruitment_rules.infantry_days == 0 {
-            return Err(WorldError::InvalidRecruitmentRules);
+        if military_rules.infantry_cost < Money::ZERO
+            || military_rules.infantry_days == 0
+            || military_rules.land_maintenance_factor < Money::ZERO
+        {
+            return Err(WorldError::InvalidMilitaryRules);
         }
         let mut definitions = BTreeMap::new();
         for building in buildings {
@@ -162,7 +166,7 @@ impl World {
             provinces,
             active_provinces,
             buildings: definitions,
-            recruitment_rules,
+            military_rules,
             military: MilitaryState::default(),
             land_routes,
         })
@@ -182,44 +186,6 @@ impl World {
 
     pub fn province(&self, id: u32) -> Option<&Province> {
         self.provinces.get(&id)
-    }
-
-    pub fn province_monthly_tax(&self, id: u32) -> Option<Money> {
-        if !self.active_provinces.contains(&id) {
-            return None;
-        }
-        Some(self.province_annual_tax(id)? / Money::from(12))
-    }
-
-    pub fn country_monthly_tax(&self, tag: &str) -> Option<Money> {
-        self.country(tag)?;
-        let mut annual = Money::ZERO;
-        for id in &self.active_provinces {
-            let province = &self.provinces[id];
-            if province.owner.as_deref() == Some(tag) {
-                annual += self.province_annual_tax(*id)?;
-            }
-        }
-        Some(annual / Money::from(12))
-    }
-
-    pub(crate) fn settle_monthly_taxes(&mut self, date: GameDate) {
-        // 一次遍历汇总各国年税额，最后统一除以 12，避免逐省舍入改变国家总收入。
-        let mut annual: BTreeMap<_, _> = self
-            .countries
-            .keys()
-            .map(|tag| (tag.clone(), Money::ZERO))
-            .collect();
-        for id in &self.active_provinces {
-            let province = &self.provinces[id];
-            if let Some(tag) = &province.owner {
-                *annual.get_mut(tag).expect("省份所有者已注册") +=
-                    self.province_annual_tax(*id).expect("有效领土具备基础税收");
-            }
-        }
-        for (tag, country) in &mut self.countries {
-            country.finances.settle_tax(annual[tag], date);
-        }
     }
 
     /// 借用注册表中的同一国家，不在每个省份内复制国家状态。

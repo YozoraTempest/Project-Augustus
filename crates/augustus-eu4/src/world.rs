@@ -75,7 +75,7 @@ impl OpeningWorld {
             provinces,
             map.mapped_province_ids().iter().copied(),
             buildings.into_values(),
-            military.recruitment,
+            military.rules,
             connections,
         )
         .map_err(|error| Error::invalid(content.path(), error.to_string()))?;

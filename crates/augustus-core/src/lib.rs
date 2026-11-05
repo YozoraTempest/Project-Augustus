@@ -16,10 +16,10 @@ mod world;
 
 pub use building::{BuildingDefinition, Construction, ConstructionError, ConstructionQuote};
 pub use country::Country;
-pub use economy::{CountryFinances, MonthlyTaxSettlement};
+pub use economy::{CountryFinances, MonthlyBudget, MonthlySettlement};
 pub use military::{
-    Army, MilitaryState, REGIMENT_STRENGTH, Recruitment, RecruitmentError, RecruitmentQuote,
-    RecruitmentRules, Regiment, UnitKind,
+    Army, MilitaryRules, MilitaryState, REGIMENT_STRENGTH, Recruitment, RecruitmentError,
+    RecruitmentQuote, Regiment, UnitKind,
 };
 pub use movement::{ArmyMovement, LandConnection, MovementError, MovementLeg};
 pub use organization::ArmyOrganizationError;

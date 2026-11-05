@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use augustus_core::{Money, RecruitmentRules};
+use augustus_core::{MilitaryRules, Money};
 
 use crate::{Error, content::ContentRoot};
 
 pub(super) struct MilitaryContent {
-    pub recruitment: RecruitmentRules,
+    pub rules: MilitaryRules,
     pub infantry_speed: Money,
 }
 
@@ -13,9 +13,10 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryContent, Error> {
     let file = content.read("common/defines.lua")?;
     let text = String::from_utf8_lossy(&file.bytes);
     let mut cost = None;
+    let mut maintenance = None;
     let mut days = None;
     let mut speed: Option<Money> = None;
-    // 基础 defines 使用数值字面量，只读取当前步兵招募和行军需要的字段。
+    // 基础 defines 使用数值字面量，只读取当前步兵招募、维护费和行军需要的字段。
     for line in text.lines() {
         let line = line.split("--").next().unwrap_or("");
         let Some((key, value)) = line.split_once('=') else {
@@ -33,6 +34,14 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryContent, Error> {
                     Error::invalid(&file.path, format!("invalid INFANTRY_TIME: {error}"))
                 })?)
             }
+            "LAND_MAINTENANCE_FACTOR" => {
+                maintenance = Some(value.parse().map_err(|error| {
+                    Error::invalid(
+                        &file.path,
+                        format!("invalid LAND_MAINTENANCE_FACTOR: {error}"),
+                    )
+                })?)
+            }
             "INFANTRY_SPEED" => {
                 speed = Some(value.parse().map_err(|error| {
                     Error::invalid(&file.path, format!("invalid INFANTRY_SPEED: {error}"))
@@ -45,9 +54,11 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryContent, Error> {
         .filter(|speed| *speed > Money::ZERO)
         .ok_or_else(|| Error::invalid(&file.path, "INFANTRY_SPEED must be positive"))?;
     Ok(MilitaryContent {
-        recruitment: RecruitmentRules {
+        rules: MilitaryRules {
             infantry_cost: cost
                 .ok_or_else(|| Error::invalid(&file.path, "missing INFANTRY_COST"))?,
+            land_maintenance_factor: maintenance
+                .ok_or_else(|| Error::invalid(&file.path, "missing LAND_MAINTENANCE_FACTOR"))?,
             infantry_days: days
                 .ok_or_else(|| Error::invalid(&file.path, "missing INFANTRY_TIME"))?,
         },

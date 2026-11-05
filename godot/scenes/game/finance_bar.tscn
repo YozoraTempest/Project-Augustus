@@ -5,11 +5,12 @@
 [node name="FinanceBar" type="VBoxContainer"]
 theme_override_constants/separation = 4
 script = ExtResource("1_script")
-tooltip_text = "每月 1 日结算税收"
+tooltip_text = "每月 1 日结算上月税收与陆军维护费"
 
-[node name="Budget" type="HBoxContainer" parent="."]
+[node name="Budget" type="HFlowContainer" parent="."]
 layout_mode = 2
-theme_override_constants/separation = 24
+theme_override_constants/h_separation = 24
+theme_override_constants/v_separation = 4
 
 [node name="Treasury" type="Label" parent="Budget"]
 unique_name_in_owner = true
@@ -22,6 +23,17 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.55, 0.88, 0.66, 1)
 text = "月度税收：+0.000 金币"
+
+[node name="ArmyMaintenance" type="Label" parent="Budget"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.77, 0.4, 1)
+text = "陆军维护：-0.000 金币"
+
+[node name="MonthlyBalance" type="Label" parent="Budget"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "月度净收支：+0.000 金币"
 
 [node name="LastSettlement" type="Label" parent="."]
 unique_name_in_owner = true

@@ -5,7 +5,7 @@ use std::{fs, path::Path};
 use augustus_core::{GameDate, MilitaryState, SavedGame};
 use serde::{Deserialize, Serialize};
 
-const SAVE_VERSION: u32 = 4;
+const SAVE_VERSION: u32 = 5;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SaveFile {
@@ -58,7 +58,7 @@ impl SaveFile {
                 let army = army.as_object_mut().ok_or("存档中的军队格式无效")?;
                 if header.version <= 2 {
                     army.insert("movement".to_owned(), serde_json::Value::Null);
-                } else {
+                } else if header.version == 3 {
                     let movement = army.get_mut("movement").ok_or("存档缺少行军状态")?;
                     if !movement.is_null() {
                         // 第 3 版的单段行军直接成为完整路线的第一段，保留原抵达日期。
