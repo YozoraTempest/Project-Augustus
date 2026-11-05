@@ -65,8 +65,14 @@ jobs:
       - name: Test Godot game flow and map
         run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/map_view_test.gd'
       - name: Test Godot command-line startup
+        run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/startup_test.gd -- --game-dir "$GITHUB_WORKSPACE/godot/tests/data/game" --country AAA'
+      - name: Test Godot startup without player country
         run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/startup_test.gd -- --game-dir "$GITHUB_WORKSPACE/godot/tests/data/game"'
+      - name: Test Godot startup with invalid player country
+        run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/startup_test.gd -- --game-dir "$GITHUB_WORKSPACE/godot/tests/data/game" --country ZZZ'
       - name: Test Godot map modes
         run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/map_modes_test.gd'
       - name: Test Godot globe map
         run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/globe_map_test.gd'
+      - name: Test Godot player country selection
+        run: '"$GODOT_COMMAND" --headless --path godot --script res://tests/country_selection_test.gd'

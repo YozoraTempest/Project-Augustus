@@ -1,7 +1,20 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scenes/new_game/new_game.gd" id="1_script"]
 [ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
+[ext_resource type="PackedScene" path="res://scenes/map/province_map_view.tscn" id="3_map"]
+[ext_resource type="PackedScene" path="res://scenes/info/province_info_panel.tscn" id="4_info"]
+
+[sub_resource type="StyleBoxFlat" id="Style_map"]
+content_margin_left = 8.0
+content_margin_top = 8.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
+bg_color = Color(0.025, 0.034, 0.047, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_left = 8
+corner_radius_bottom_right = 8
 
 [node name="NewGame" type="Control"]
 layout_mode = 3
@@ -21,78 +34,127 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 theme_override_constants/margin_left = 24
-theme_override_constants/margin_top = 24
+theme_override_constants/margin_top = 20
 theme_override_constants/margin_right = 24
-theme_override_constants/margin_bottom = 24
+theme_override_constants/margin_bottom = 20
 
-[node name="Center" type="CenterContainer" parent="Margin"]
+[node name="Page" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Header" type="HBoxContainer" parent="Margin/Page"]
 layout_mode = 2
 
-[node name="Form" type="VBoxContainer" parent="Margin/Center"]
-custom_minimum_size = Vector2(580, 0)
+[node name="Title" type="Label" parent="Margin/Page/Header"]
 layout_mode = 2
-theme_override_constants/separation = 18
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 26
+text = "新游戏 · 选择国家"
 
-[node name="Title" type="Label" parent="Margin/Center/Form"]
+[node name="Back" type="Button" parent="Margin/Page/Header"]
+unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 30
-text = "新游戏"
+text = "返回主菜单"
 
-[node name="DirectoryLabel" type="Label" parent="Margin/Center/Form"]
-layout_mode = 2
-text = "EU4 游戏安装目录"
-
-[node name="DirectoryRow" type="HBoxContainer" parent="Margin/Center/Form"]
+[node name="DirectoryRow" type="HBoxContainer" parent="Margin/Page"]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="GameDirectory" type="LineEdit" parent="Margin/Center/Form/DirectoryRow"]
+[node name="GameDirectory" type="LineEdit" parent="Margin/Page/DirectoryRow"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 placeholder_text = "选择本地 EU4 安装目录"
 
-[node name="Browse" type="Button" parent="Margin/Center/Form/DirectoryRow"]
+[node name="Browse" type="Button" parent="Margin/Page/DirectoryRow"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "选择目录…"
 
-[node name="Status" type="Label" parent="Margin/Center/Form"]
+[node name="Load" type="Button" parent="Margin/Page/DirectoryRow"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 140)
-layout_mode = 2
-text = "开局日期：1444.11.11\n请选择本地 EU4 安装目录，然后载入开局。"
-autowrap_mode = 2
-vertical_alignment = 1
-
-[node name="Actions" type="HBoxContainer" parent="Margin/Center/Form"]
-layout_mode = 2
-theme_override_constants/separation = 12
-
-[node name="Back" type="Button" parent="Margin/Center/Form/Actions"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 44)
-layout_mode = 2
-text = "返回主菜单"
-
-[node name="Spacer" type="Control" parent="Margin/Center/Form/Actions"]
-layout_mode = 2
-size_flags_horizontal = 3
-mouse_filter = 2
-
-[node name="Load" type="Button" parent="Margin/Center/Form/Actions"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 disabled = true
 text = "载入开局"
 
-[node name="EnterGame" type="Button" parent="Margin/Center/Form/Actions"]
+[node name="Status" type="Label" parent="Margin/Page"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "开局日期：1444.11.11\n请选择本地 EU4 安装目录，然后载入开局。"
+autowrap_mode = 2
+
+[node name="EmptyState" type="Label" parent="Margin/Page"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+text = "载入开局后，在地图上选择你要扮演的国家。"
+autowrap_mode = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Preview" type="HBoxContainer" parent="Margin/Page"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 12
+
+[node name="MapPanel" type="PanelContainer" parent="Margin/Page/Preview"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/panel = SubResource("Style_map")
+
+[node name="MapView" parent="Margin/Page/Preview/MapPanel" instance=ExtResource("3_map")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Sidebar" type="VBoxContainer" parent="Margin/Page/Preview"]
+custom_minimum_size = Vector2(300, 0)
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="InfoPanel" parent="Margin/Page/Preview/Sidebar" instance=ExtResource("4_info")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ChooseCountry" type="Button" parent="Margin/Page/Preview/Sidebar"]
+unique_name_in_owner = true
+layout_mode = 2
+disabled = true
+text = "选择该国"
+
+[node name="ChosenCountry" type="Label" parent="Margin/Page/Preview/Sidebar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "玩家国家：未选择"
+theme_override_colors/font_color = Color(1, 0.84, 0.43, 1)
+autowrap_mode = 2
+
+[node name="Actions" type="HBoxContainer" parent="Margin/Page"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Hint" type="Label" parent="Margin/Page/Actions"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.62, 0.69, 0.76, 1)
+text = "点击国家查看详情，再选择该国并开始游戏。"
+autowrap_mode = 2
+
+[node name="ResetView" type="Button" parent="Margin/Page/Actions"]
+unique_name_in_owner = true
+layout_mode = 2
+disabled = true
+text = "显示全图"
+
+[node name="EnterGame" type="Button" parent="Margin/Page/Actions"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 disabled = true
-text = "进入游戏"
+text = "开始游戏"
 
 [node name="DirectoryDialog" type="FileDialog" parent="."]
 title = "选择 EU4 安装目录"

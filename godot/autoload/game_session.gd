@@ -4,6 +4,8 @@ extends Node
 # 会话由 Autoload 持有，页面切换不会重建 Rust 世界和地图纹理。
 var backend: AugustusMap
 var game_directory := ""
+var startup_country := ""
+var map_projection := MapMode.ViewType.FLAT
 var _startup_requested := false
 
 
@@ -13,6 +15,9 @@ func _ready() -> void:
 	if index >= 0 and index + 1 < arguments.size():
 		game_directory = arguments[index + 1]
 		_startup_requested = true
+	index = arguments.find("--country")
+	if index >= 0 and index + 1 < arguments.size():
+		startup_country = arguments[index + 1]
 
 
 func consume_startup_request() -> bool:
@@ -26,6 +31,19 @@ func has_game() -> bool:
 	return backend != null
 
 
+func get_player_country() -> String:
+	# 玩家身份由原生会话持有，页面只查询，不维护第二份可写状态。
+	return "" if backend == null else backend.get_player_country()
+
+
+func is_started() -> bool:
+	return not get_player_country().is_empty()
+
+
+func start_game(country: String) -> String:
+	return "请先载入开局" if backend == null else backend.start_game(country)
+
+
 func load_game(directory: String) -> String:
 	var candidate := AugustusMap.new()
 	var error := candidate.load_map(directory)
@@ -33,9 +51,11 @@ func load_game(directory: String) -> String:
 		# 只在载入成功后替换会话，失败时保留之前可用的数据。
 		backend = candidate
 		game_directory = directory
+		map_projection = MapMode.ViewType.FLAT
 	return error
 
 
 func clear_game() -> void:
 	backend = null
+	map_projection = MapMode.ViewType.FLAT
 	# 目录保留供下次开局使用，世界状态和纹理随当前会话释放。

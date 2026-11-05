@@ -17,6 +17,8 @@ struct AugustusMap {
     owner_texture: Option<Gd<ImageTexture>>,
     // 渲染编号只在本次载入内使用；核心国家身份仍然是标签。
     country_render_ids: BTreeMap<String, u32>,
+    // 玩家身份只在正式开局时确定，与地图上的浏览选择分开保存。
+    player_country: Option<String>,
 }
 
 #[godot_api]
@@ -68,7 +70,33 @@ impl AugustusMap {
         self.political_texture = Some(political_texture);
         self.owner_texture = Some(owner_texture);
         self.country_render_ids = country_render_ids;
+        self.player_country = None;
         GString::new()
+    }
+
+    /// 只有地图上拥有领土的国家可以开局；开始后不能通过浏览或重复调用换国。
+    #[func]
+    fn start_game(&mut self, tag: GString) -> GString {
+        if self.player_country.is_some() {
+            return "游戏已经开始，玩家国家不能更改".into();
+        }
+        let Some(world) = &self.world else {
+            return "请先载入开局".into();
+        };
+        let tag = tag.to_string();
+        let Some(summary) = world.country_summary(&tag) else {
+            return "请选择有效的国家".into();
+        };
+        if summary.provinces == 0 {
+            return "只能选择开局时拥有领土的国家".into();
+        }
+        self.player_country = Some(tag);
+        GString::new()
+    }
+
+    #[func]
+    fn get_player_country(&self) -> GString {
+        self.player_country.as_deref().unwrap_or("").into()
     }
 
     #[func]
