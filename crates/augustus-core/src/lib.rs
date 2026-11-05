@@ -7,6 +7,7 @@ mod country;
 mod economy;
 mod military;
 mod movement;
+mod organization;
 mod province;
 mod save;
 mod simulation;
@@ -21,6 +22,7 @@ pub use military::{
     RecruitmentRules, Regiment, UnitKind,
 };
 pub use movement::{ArmyMovement, LandConnection, MovementError, MovementLeg};
+pub use organization::ArmyOrganizationError;
 pub use province::{Development, Province, ProvinceKind};
 pub use rust_decimal::Decimal as Money;
 pub use save::{RestoredGame, SaveError, SavedGame};

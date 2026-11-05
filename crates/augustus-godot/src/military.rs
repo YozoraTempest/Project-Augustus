@@ -6,6 +6,14 @@ use godot::prelude::*;
 
 use crate::info::{money, text};
 
+pub(crate) fn army_name(world: &OpeningWorld, army: &Army) -> String {
+    format!(
+        "{} 第 {} 军队",
+        world.display_name(&army.country),
+        army.id()
+    )
+}
+
 pub(crate) fn army_info(
     world: &OpeningWorld,
     army: &Army,
@@ -14,15 +22,7 @@ pub(crate) fn army_info(
 ) -> VarDictionary {
     let mut info = VarDictionary::new();
     info.set("id", i64::from(army.id()));
-    info.set(
-        "name",
-        format!(
-            "{} 第 {} 军队",
-            world.display_name(&army.country),
-            army.id()
-        )
-        .as_str(),
-    );
+    info.set("name", army_name(world, army).as_str());
     info.set("country", army.country.as_str());
     info.set("can_command", player == Some(army.country.as_str()));
     info.set("country_name", world.display_name(&army.country).as_str());

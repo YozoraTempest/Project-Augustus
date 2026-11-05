@@ -6,6 +6,8 @@ signal construction_requested(province_id: int, building: String)
 signal recruitment_requested(province_id: int)
 signal army_selected(army_id: int)
 signal army_stop_requested(army_id: int)
+signal armies_merge_requested(target: int, sources: PackedInt64Array)
+signal army_split_requested(army_id: int, count: int)
 
 @onready var tabs: TabContainer = %Tabs
 @onready var province_title: Label = %ProvinceTitle
@@ -26,13 +28,15 @@ func _ready() -> void:
 	military_panel.recruitment_requested.connect(func(province_id: int): recruitment_requested.emit(province_id))
 	military_panel.army_selected.connect(func(id: int): army_selected.emit(id))
 	military_panel.army_stop_requested.connect(func(id: int): army_stop_requested.emit(id))
+	military_panel.armies_merge_requested.connect(func(target: int, sources: PackedInt64Array): armies_merge_requested.emit(target, sources))
+	military_panel.army_split_requested.connect(func(id: int, count: int): army_split_requested.emit(id, count))
 	show_info({}, {})
 
 
-func show_info(province: Dictionary, country: Dictionary, construction: Dictionary = {}, military: Dictionary = {}, selected_army: int = 0) -> void:
+func show_info(province: Dictionary, country: Dictionary, construction: Dictionary = {}, military: Dictionary = {}, selected_army: int = 0, organization: Dictionary = {}) -> void:
 	construction_panel.show_province(0 if province.is_empty() else province.id, construction)
 	building_hint.visible = not construction_panel.visible
-	military_panel.show_province(0 if province.is_empty() else province.id, military, selected_army)
+	military_panel.show_province(0 if province.is_empty() else province.id, military, selected_army, organization)
 	military_hint.visible = not military_panel.visible
 	# 字典仅用于显示，归属、发展度和首都仍由 Rust 世界管理。
 	if province.is_empty():
@@ -82,6 +86,10 @@ func show_recruitment_error(error: String) -> void:
 
 func show_movement_error(error: String) -> void:
 	military_panel.show_movement_error(error)
+
+
+func show_organization_error(error: String) -> void:
+	military_panel.show_organization_error(error)
 
 
 func _country_name(province: Dictionary, field: String) -> String:

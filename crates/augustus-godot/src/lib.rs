@@ -7,6 +7,7 @@ mod info;
 mod map_session;
 mod military;
 mod movement;
+mod organization;
 mod save;
 
 use godot::prelude::*;

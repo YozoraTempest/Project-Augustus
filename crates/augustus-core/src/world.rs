@@ -5,6 +5,7 @@
 mod construction;
 mod military;
 mod movement;
+mod organization;
 mod saved_state;
 
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};

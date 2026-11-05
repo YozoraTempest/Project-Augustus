@@ -284,6 +284,50 @@ impl AugustusMap {
     }
 
     #[func]
+    fn get_army_organization_info(&self, id: i64) -> VarDictionary {
+        let (Some(world), Ok(id)) = (&self.world, u32::try_from(id)) else {
+            return VarDictionary::new();
+        };
+        crate::organization::info(world, id, self.player_country.as_deref())
+    }
+
+    #[func]
+    fn merge_armies(&mut self, target: i64, sources: PackedInt64Array) -> GString {
+        let (Some(world), Some(country)) = (&mut self.world, &self.player_country) else {
+            return "请先开始游戏".into();
+        };
+        let sources: Result<Vec<_>, _> = sources
+            .as_slice()
+            .iter()
+            .copied()
+            .map(u32::try_from)
+            .collect();
+        let (Ok(target), Ok(sources)) = (u32::try_from(target), sources) else {
+            return "请选择有效的军队".into();
+        };
+        match world.state_mut().merge_armies(country, target, &sources) {
+            Ok(()) => GString::new(),
+            Err(error) => error.to_string().as_str().into(),
+        }
+    }
+
+    #[func]
+    fn split_army(&mut self, id: i64, count: i64) -> VarDictionary {
+        let result = (|| {
+            let (Some(world), Some(country)) = (&mut self.world, &self.player_country) else {
+                return Err("请先开始游戏".to_owned());
+            };
+            let id = u32::try_from(id).map_err(|_| "请选择有效的军队".to_owned())?;
+            let count = usize::try_from(count).map_err(|_| "请选择有效的团数".to_owned())?;
+            world
+                .state_mut()
+                .split_army(country, id, count)
+                .map_err(|error| error.to_string())
+        })();
+        crate::organization::split_result(result)
+    }
+
+    #[func]
     fn get_land_neighbors(&self, province: i64) -> Array<VarDictionary> {
         let (Some(world), Ok(province)) = (&self.world, u32::try_from(province)) else {
             return Array::new();
