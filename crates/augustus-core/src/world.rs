@@ -8,6 +8,7 @@ mod manpower;
 mod military;
 mod movement;
 mod organization;
+mod recruitment_cancellation;
 mod saved_state;
 
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};

@@ -116,6 +116,18 @@ pub(crate) fn recruitment_info(
         details.set("country", project.country.as_str());
         details.set("started_on", project.started_on.to_string().as_str());
         details.set("completes_on", project.completes_on.to_string().as_str());
+        let refund =
+            player.and_then(|country| state.quote_cancel_recruitment(country, id, date).ok());
+        details.set("can_cancel", refund.is_some());
+        money(
+            &mut details,
+            "refund_cost",
+            refund.as_ref().map(|refund| refund.cost),
+        );
+        details.set(
+            "refund_manpower",
+            refund.as_ref().map_or(0, |refund| refund.manpower) as i64,
+        );
         let total = project.started_on.days_until(project.completes_on);
         let remaining = date.days_until(project.completes_on).max(0);
         details.set("days_remaining", i64::from(remaining));

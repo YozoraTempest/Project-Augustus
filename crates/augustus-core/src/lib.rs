@@ -21,7 +21,7 @@ pub use economy::{CountryFinances, MonthlyBudget, MonthlySettlement};
 pub use manpower::{ManpowerPool, ManpowerRules, ManpowerSummary};
 pub use military::{
     Army, MilitaryRules, MilitaryState, REGIMENT_STRENGTH, Recruitment, RecruitmentError,
-    RecruitmentQuote, Regiment, UnitKind,
+    RecruitmentQuote, RecruitmentRefund, Regiment, UnitKind,
 };
 pub use movement::{ArmyMovement, LandConnection, MovementError, MovementLeg};
 pub use organization::{ArmyDisbandQuote, ArmyOrganizationError};

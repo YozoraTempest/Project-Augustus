@@ -103,6 +103,8 @@ impl World {
                 kind: UnitKind::Infantry,
                 started_on: date,
                 completes_on: quote.completes_on,
+                paid_cost: Some(quote.cost),
+                paid_manpower: Some(quote.manpower),
             },
         );
         Ok(())
@@ -150,7 +152,7 @@ impl World {
 
     pub(crate) fn restore_military(
         &mut self,
-        military: MilitaryState,
+        mut military: MilitaryState,
         date: GameDate,
     ) -> Result<(), SaveError> {
         let valid_province = |id| {
@@ -180,13 +182,21 @@ impl World {
                 return Err(SaveError::InvalidMilitary);
             }
         }
-        for (&province, project) in &military.recruitments {
+        for (&province, project) in &mut military.recruitments {
+            // 第 1 至 6 版未保存实付金额；金币按原有基础费用补齐。
+            let cost = project
+                .paid_cost
+                .get_or_insert(self.military_rules.infantry_cost);
+            project
+                .paid_manpower
+                .get_or_insert(self.military_rules.manpower.infantry_cost);
             if project.army_id == 0
                 || !ids.insert(project.army_id)
                 || !valid_province(province)
                 || self.country(&project.country).is_none()
                 || project.started_on > date
                 || project.completes_on <= date
+                || *cost < crate::Money::ZERO
             {
                 return Err(SaveError::InvalidMilitary);
             }

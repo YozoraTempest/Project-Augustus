@@ -249,6 +249,25 @@ impl AugustusMap {
     }
 
     #[func]
+    fn cancel_recruitment(&mut self, province: i64) -> GString {
+        let (Some(world), Some(simulation), Some(country)) =
+            (&mut self.world, &self.simulation, &self.player_country)
+        else {
+            return "请先开始游戏".into();
+        };
+        let Ok(province) = u32::try_from(province) else {
+            return "请选择有效的省份".into();
+        };
+        match world
+            .state_mut()
+            .cancel_recruitment(country, province, simulation.clock().date())
+        {
+            Ok(_) => GString::new(),
+            Err(error) => error.to_string().as_str().into(),
+        }
+    }
+
+    #[func]
     fn get_army_markers(&self) -> Array<VarDictionary> {
         self.world.as_ref().map_or_else(Array::new, |world| {
             let date = self.simulation.as_ref().map_or_else(

@@ -60,6 +60,10 @@ impl CountryFinances {
         self.treasury -= amount;
     }
 
+    pub(crate) fn refund(&mut self, amount: Money) {
+        self.treasury += amount;
+    }
+
     pub(crate) fn settle(
         &mut self,
         annual_tax: Money,

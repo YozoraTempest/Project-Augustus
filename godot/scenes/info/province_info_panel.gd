@@ -4,6 +4,7 @@ extends PanelContainer
 
 signal construction_requested(province_id: int, building: String)
 signal recruitment_requested(province_id: int)
+signal recruitment_cancel_requested(province_id: int)
 signal army_selected(army_id: int)
 signal army_stop_requested(army_id: int)
 signal armies_merge_requested(target: int, sources: PackedInt64Array)
@@ -27,6 +28,7 @@ func _ready() -> void:
 	country_button.pressed.connect(func(): tabs.current_tab = 1)
 	construction_panel.construction_requested.connect(func(province_id: int, building: String): construction_requested.emit(province_id, building))
 	military_panel.recruitment_requested.connect(func(province_id: int): recruitment_requested.emit(province_id))
+	military_panel.recruitment_cancel_requested.connect(func(province_id: int): recruitment_cancel_requested.emit(province_id))
 	military_panel.army_selected.connect(func(id: int): army_selected.emit(id))
 	military_panel.army_stop_requested.connect(func(id: int): army_stop_requested.emit(id))
 	military_panel.armies_merge_requested.connect(func(target: int, sources: PackedInt64Array): armies_merge_requested.emit(target, sources))

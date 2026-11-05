@@ -5,7 +5,7 @@ use std::{fs, path::Path};
 use augustus_core::{GameDate, MilitaryState, SavedGame};
 use serde::{Deserialize, Serialize};
 
-const SAVE_VERSION: u32 = 6;
+const SAVE_VERSION: u32 = 7;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SaveFile {
@@ -65,6 +65,20 @@ impl SaveFile {
                         *movement =
                             serde_json::json!({ "legs": [movement.clone()], "leg_index": 0 });
                     }
+                }
+            }
+            if header.version <= 5 {
+                let recruitments = game
+                    .get_mut("military")
+                    .and_then(|value| value.get_mut("recruitments"))
+                    .and_then(serde_json::Value::as_object_mut)
+                    .ok_or("存档缺少招募状态")?;
+                for project in recruitments.values_mut() {
+                    // 人力系统从第 6 版启用，更早的项目从未扣过人力，取消时不能返还。
+                    project
+                        .as_object_mut()
+                        .ok_or("存档中的招募格式无效")?
+                        .insert("paid_manpower".to_owned(), 0.into());
                 }
             }
             data["version"] = SAVE_VERSION.into();
