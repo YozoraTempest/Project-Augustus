@@ -5,6 +5,7 @@
 mod building;
 mod country;
 mod economy;
+mod manpower;
 mod military;
 mod movement;
 mod organization;
@@ -17,6 +18,7 @@ mod world;
 pub use building::{BuildingDefinition, Construction, ConstructionError, ConstructionQuote};
 pub use country::Country;
 pub use economy::{CountryFinances, MonthlyBudget, MonthlySettlement};
+pub use manpower::{ManpowerPool, ManpowerRules, ManpowerSummary};
 pub use military::{
     Army, MilitaryRules, MilitaryState, REGIMENT_STRENGTH, Recruitment, RecruitmentError,
     RecruitmentQuote, Regiment, UnitKind,

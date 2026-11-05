@@ -2,7 +2,7 @@
 
 //! 国家实体的标识与状态，由 World 统一持有。
 
-use crate::CountryFinances;
+use crate::{CountryFinances, ManpowerPool};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,6 +13,9 @@ pub struct Country {
     pub primary_culture: Option<String>,
     pub religion: Option<String>,
     pub finances: CountryFinances,
+    // 缺失表示尚未组成世界或来自旧版存档，由 World 根据领土初始化。
+    #[serde(default)]
+    pub(crate) manpower: Option<ManpowerPool>,
 }
 
 impl Country {
@@ -23,6 +26,7 @@ impl Country {
             primary_culture: None,
             religion: None,
             finances: CountryFinances::default(),
+            manpower: None,
         }
     }
 

@@ -142,6 +142,15 @@ impl AugustusMap {
     }
 
     #[func]
+    fn get_country_manpower(&self, tag: GString) -> VarDictionary {
+        self.world
+            .as_ref()
+            .map_or_else(VarDictionary::new, |world| {
+                crate::manpower::info(world, &tag.to_string())
+            })
+    }
+
+    #[func]
     fn get_country_finances(&self, tag: GString) -> VarDictionary {
         self.world
             .as_ref()

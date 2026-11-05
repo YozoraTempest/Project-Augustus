@@ -85,6 +85,12 @@ pub(crate) fn recruitment_info(
     let rules = state.military_rules();
     info.set("province_name", world.province_name(id).as_str());
     money(&mut info, "cost", Some(rules.infantry_cost));
+    info.set("manpower_cost", rules.manpower.infantry_cost as i64);
+    if let Some(player) = player {
+        info.set("manpower", &crate::manpower::info(world, player));
+    } else {
+        info.set("manpower", &Variant::nil());
+    }
     info.set("days", i64::from(rules.infantry_days));
     info.set("strength", i64::from(REGIMENT_STRENGTH));
     text(

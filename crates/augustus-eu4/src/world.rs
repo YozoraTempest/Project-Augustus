@@ -7,6 +7,7 @@ mod countries;
 mod geography;
 mod history;
 mod localisation;
+mod manpower;
 mod military;
 mod navigation;
 

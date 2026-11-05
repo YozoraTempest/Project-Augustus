@@ -4,6 +4,7 @@
 
 mod construction;
 mod economy;
+mod manpower;
 mod military;
 mod movement;
 mod organization;
@@ -34,6 +35,10 @@ pub enum WorldError {
     UnknownActiveProvince(u32),
     #[error("owned active province {0} has no base tax")]
     MissingBaseTax(u32),
+    #[error("owned active province {0} has no base manpower")]
+    MissingBaseManpower(u32),
+    #[error("invalid manpower reserve: {0}")]
+    InvalidManpower(String),
     #[error("invalid or duplicate building definition: {0}")]
     InvalidBuilding(String),
     #[error("province {province} references unknown building {building}")]
@@ -69,6 +74,8 @@ impl World {
         if military_rules.infantry_cost < Money::ZERO
             || military_rules.infantry_days == 0
             || military_rules.land_maintenance_factor < Money::ZERO
+            || military_rules.manpower.recovery_months == 0
+            || military_rules.manpower.infantry_cost == 0
         {
             return Err(WorldError::InvalidMilitaryRules);
         }
@@ -146,6 +153,12 @@ impl World {
             if province.annual_tax().is_none() {
                 return Err(WorldError::MissingBaseTax(id));
             }
+            if province.kind == ProvinceKind::Land
+                && province.owner.is_some()
+                && province.development.manpower.is_none()
+            {
+                return Err(WorldError::MissingBaseManpower(id));
+            }
         }
         let mut land_routes: BTreeMap<u32, BTreeMap<u32, u32>> = BTreeMap::new();
         for connection in connections {
@@ -161,7 +174,7 @@ impl World {
             land_routes.entry(from).or_default().insert(to, days);
             land_routes.entry(to).or_default().insert(from, days);
         }
-        Ok(Self {
+        let mut world = Self {
             countries: registry,
             provinces,
             active_provinces,
@@ -169,7 +182,9 @@ impl World {
             military_rules,
             military: MilitaryState::default(),
             land_routes,
-        })
+        };
+        world.initialize_manpower()?;
+        Ok(world)
     }
 
     pub fn countries(&self) -> &BTreeMap<String, Country> {
