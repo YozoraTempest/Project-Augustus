@@ -2,6 +2,7 @@
 
 //! 将已加载的地图转换为 Godot 资源，游戏内容解析仍由 augustus-eu4 完成。
 
+mod info;
 mod map_session;
 
 use godot::prelude::*;

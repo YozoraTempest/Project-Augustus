@@ -1,3 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 owner = BBB
 controller = AAA
+culture = highland_culture
+religion = orthodox
+trade_goods = cloth
+base_tax = 4
+base_production = 5
+base_manpower = 6

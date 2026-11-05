@@ -92,6 +92,19 @@ func _run() -> void:
 	check(political_bytes.slice(0, 12) == PackedByteArray([20, 50, 210, 255, 210, 50, 20, 255, 15, 20, 26, 255]), "政治地图应使用国家颜色并区分空白像素")
 	check(view.map_sprite.material.get_shader_parameter("political_colors") == political_texture, "政治颜色纹理应传入着色器")
 	check(screen.status_label.text.contains("1444.11.11") and screen.status_label.text.contains("2 个有领土国家"), "状态栏应显示日期与开局国家数")
+	check(screen.backend.get_province_info(-1).is_empty() and screen.backend.get_province_info(999).is_empty(), "未知省份不应返回信息")
+	check(screen.backend.get_country_info("ZZZ").is_empty(), "未知国家不应返回信息")
+	var details: Dictionary = screen.backend.get_province_info(7)
+	check(details.name == "Riverland" and details.owner_name == "First Kingdom", "省份与国家名称应读取本地化")
+	check(details.controller == "AAA", "没有显式控制者时应使用最终所有者")
+	check(details.culture == "River Culture" and details.religion == "Catholic" and details.trade_good == "Grain", "省份文化、宗教和商品应本地化")
+	check(details.base_tax == 3 and details.base_production == 3 and details.base_manpower == 4 and details.development == 10, "绑定应返回开局当天的三项发展度及总和")
+	var country_details: Dictionary = screen.backend.get_country_info("BBB")
+	check(country_details.capital == 16777217 and country_details.capital_name == "Highland", "国家首都应保留完整编号并读取名称")
+	check(country_details.province_count == 1 and country_details.development == 15, "国家应只统计本国领土与发展度")
+	check(country_details.primary_culture == "Highland Culture" and country_details.religion == "Orthodox", "国家文化与国教应读取历史并本地化")
+	var inspector: ProvinceInfoPanel = screen.info_panel
+	check(inspector.province_title.text == "未选择省份" and inspector.country_title.text == "未选择国家", "信息面板初始应为空")
 
 	# 通过窗口输入分发点击，检查坐标转换、绑定查询和界面更新的完整路径。
 	await click_pixel(view, Vector2i(0, 0))
@@ -99,9 +112,16 @@ func _run() -> void:
 	check(screen.selection_label.text.contains("#7"), "底部应显示选中的省份编号")
 	check(screen.selection_label.text.contains("所属国家：AAA"), "选择省份应显示其所有者")
 	check(view.map_sprite.material.get_shader_parameter("selected_province") == 7, "选中状态应传给着色器")
+	check(inspector.province_title.text == "Riverland" and inspector.province_body.text.contains("总发展度：10"), "点击地图应更新省份名称与发展度")
+	check(inspector.country_title.text == "First Kingdom" and inspector.country_body.text.contains("Riverland (#7)"), "国家页应显示所属国家与首都")
+	await click_control(inspector.country_button)
+	check(inspector.tabs.current_tab == 1, "查看所属国家按钮应切换到国家页")
 	await click_pixel(view, Vector2i(1, 0))
 	check(screen.selected_province == 16777217, "大编号省份应能准确选中")
 	check(screen.selection_label.text.contains("所属国家：BBB"), "切换选择后应更新国家归属")
+	check(inspector.province_title.text == "Highland" and inspector.country_title.text == "Second Republic", "切换省份应更新两个页签")
+	check(inspector.province_body.text.contains("所属国家：Second Republic (BBB)") and inspector.province_body.text.contains("控制者：First Kingdom (AAA)"), "省份面板应区分所有者与控制者")
+	check(inspector.country_color.color.is_equal_approx(Color8(210, 50, 20)), "国家色标应与政治地图一致")
 	await navigation_checks(screen, view)
 	await game_settings_checks(screen, view)
 
@@ -117,6 +137,8 @@ func _run() -> void:
 	await click_pixel(view, Vector2i(2, 0))
 	check(screen.selected_province == 0, "点击无省份像素应清除选择")
 	check(view.map_sprite.material.get_shader_parameter("selected_province") == 0, "清除选择应同步取消高亮")
+	check(inspector.province_title.text == "未选择省份" and inspector.country_title.text == "未选择国家", "清除选择应清除两个信息页签")
+	check(not inspector.country_button.visible and not inspector.country_color.visible, "无选择时不应保留国家按钮或色标")
 
 	await click_pixel(view, Vector2i(0, 0))
 	var previous_texture: Texture2D = view.map_sprite.texture

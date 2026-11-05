@@ -2,14 +2,24 @@
 
 use std::{collections::BTreeMap, path::Path};
 
+use augustus_core::Country;
+
 use crate::{
     Error,
     content::{ContentFile, ContentRoot},
     script,
 };
 
-pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, [u8; 3]>, Error> {
-    let mut countries = BTreeMap::new();
+pub(super) struct CountryDefinitions {
+    pub states: BTreeMap<String, Country>,
+    pub colors: BTreeMap<String, [u8; 3]>,
+}
+
+pub(super) fn load(content: &ContentRoot) -> Result<CountryDefinitions, Error> {
+    let mut countries = CountryDefinitions {
+        states: BTreeMap::new(),
+        colors: BTreeMap::new(),
+    };
     for path in content.text_files("common/country_tags")? {
         let file = content.read(path)?;
         let tape = script::parse(&file)?;
@@ -35,15 +45,16 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, [u8; 3]>, E
             }
             let definition = content.read(Path::new("common").join(relative))?;
             let color = read_color(&definition)?;
-            if countries.insert(tag.clone(), color).is_some() {
+            if countries.colors.insert(tag.clone(), color).is_some() {
                 return Err(Error::invalid(
                     &file.path,
                     format!("duplicate country tag: {tag}"),
                 ));
             }
+            countries.states.insert(tag.clone(), Country::new(tag));
         }
     }
-    if countries.is_empty() {
+    if countries.states.is_empty() {
         return Err(Error::invalid(
             content.path().join("common/country_tags"),
             "no country definitions",

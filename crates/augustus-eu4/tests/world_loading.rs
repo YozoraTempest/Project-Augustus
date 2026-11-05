@@ -21,6 +21,8 @@ impl TestWorld {
             "common/country_tags",
             "common/countries",
             "history/provinces",
+            "history/countries",
+            "localisation/replace",
         ] {
             fs::create_dir_all(root.join(path)).unwrap();
         }
@@ -254,5 +256,188 @@ fn water_classification_takes_precedence_over_impassable_and_cannot_be_owned() {
             .unwrap_err()
             .to_string()
             .contains("non-land province 3")
+    );
+}
+
+#[test]
+fn loads_country_and_province_details_at_the_opening_date() {
+    let input = TestWorld::new();
+    input.write(
+        "history/countries/AAA - First.txt",
+        r#"
+capital = 7 primary_culture = old_culture religion = catholic
+1444.11.11 = { capital = 1 primary_culture = river_culture }
+1300.1.1 = { capital = 2 }
+1444.11.12 = { capital = 999 religion = future_religion }
+"#,
+    );
+    input.write(
+        "history/provinces/1-First.txt",
+        r#"
+owner = BBB culture = old_culture religion = catholic trade_goods = grain
+base_tax = 2 base_production = 3 base_manpower = 4
+1444.11.11 = { owner = AAA culture = river_culture add_base_tax = 2 }
+1400.1.1 = { add_base_manpower = -1 }
+1444.11.11 = { add_base_tax = -1 }
+1444.11.12 = { controller = ZZZ base_tax = 100 }
+"#,
+    );
+    input.write(
+        "history/provinces/2 - Second.txt",
+        "owner = BBB controller = AAA base_tax = 4 base_production = 5 base_manpower = 6",
+    );
+    let world = input.load().unwrap();
+    let country = world.state().country("AAA").unwrap();
+    assert_eq!(country.capital, Some(1));
+    assert_eq!(country.primary_culture.as_deref(), Some("river_culture"));
+    assert_eq!(country.religion.as_deref(), Some("catholic"));
+    assert_eq!(world.state().country("BBB").unwrap().capital, None);
+    let province = world.state().province(1).unwrap();
+    assert_eq!(province.controller.as_deref(), Some("AAA"));
+    assert_eq!(province.culture.as_deref(), Some("river_culture"));
+    assert_eq!(province.religion.as_deref(), Some("catholic"));
+    assert_eq!(province.trade_good.as_deref(), Some("grain"));
+    assert_eq!(province.development.tax, Some(3));
+    assert_eq!(province.development.production, Some(3));
+    assert_eq!(province.development.manpower, Some(3));
+    assert_eq!(province.development.total(), Some(9));
+    let second = world.state().province(2).unwrap();
+    assert_eq!(second.owner.as_deref(), Some("BBB"));
+    assert_eq!(second.controller.as_deref(), Some("AAA"));
+    // 控制权不计入领土；已定义但未绘制的省份也不计入领土。
+    for (tag, count, development) in [("AAA", 1, 9), ("BBB", 1, 15), ("CCC", 0, 0)] {
+        let summary = world.country_summary(tag).unwrap();
+        assert_eq!(summary.provinces, count);
+        assert_eq!(summary.development, Some(development));
+    }
+    assert!(world.country_summary("ZZZ").is_none());
+    assert_eq!(world.country_color("AAA"), Some([10, 30, 200]));
+}
+
+#[test]
+fn keeps_missing_values_and_explicitly_cleared_controller_unknown() {
+    let input = TestWorld::new();
+    input.write(
+        "history/provinces/1-First.txt",
+        "owner = AAA controller = BBB base_tax = 0\n1444.11.11 = { controller = --- }",
+    );
+    let world = input.load().unwrap();
+    let province = world.state().province(1).unwrap();
+    assert_eq!(province.controller, None);
+    assert_eq!(province.development.tax, Some(0));
+    assert_eq!(province.development.production, None);
+    assert_eq!(province.development.total(), None);
+    assert_eq!(world.country_summary("AAA").unwrap().development, None);
+}
+
+#[test]
+fn loads_localised_names_with_replacements_and_definition_fallbacks() {
+    let input = TestWorld::new();
+    // definitions 使用原版的 Windows-1252；本地化文件使用 UTF-8。
+    let path = input.root.join("map/definition.csv");
+    let definitions = fs::read_to_string(&path)
+        .unwrap()
+        .replace("1;1;0;0", "1;1;0;0;Old Name")
+        .replace("2;2;0;0", "2;2;0;0;Caf~");
+    fs::write(
+        path,
+        definitions
+            .into_bytes()
+            .into_iter()
+            .map(|byte| if byte == b'~' { 0xe9 } else { byte })
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    input.write(
+        "history/provinces/1-First.txt",
+        "owner = AAA culture = river_culture religion = catholic trade_goods = grain",
+    );
+    input.write(
+        "localisation/z_names_l_english.yml",
+        "\u{feff}l_english:\n AAA:0 \"First Kingdom\"\n PROV1:0 \"Rivière \\\"Royal\\\"\" # comment\n river_culture:0 \"River Culture\"\n catholic:0 \"Catholic\"\n grain:0 \"Grain\"\n ignored:0 unrelated data\n",
+    );
+    input.write(
+        "localisation/replace/a_override_l_english.yml",
+        "l_english:\n AAA:0 \"Replaced Kingdom\"\n",
+    );
+    input.write(
+        "localisation/a_names_l_french.yml",
+        "l_french:\n AAA:0 \"Wrong Language\"\n",
+    );
+    let world = input.load().unwrap();
+    assert_eq!(world.display_name("AAA"), "Replaced Kingdom");
+    assert_eq!(world.province_name(1), "Rivière \"Royal\"");
+    assert_eq!(world.province_name(2), "Café");
+    assert_eq!(world.province_name(6), "#6");
+    assert_eq!(world.display_name("river_culture"), "River Culture");
+    assert_eq!(world.display_name("catholic"), "Catholic");
+    assert_eq!(world.display_name("grain"), "Grain");
+    assert_eq!(world.display_name("BBB"), "BBB");
+    input.write(
+        "localisation/replace/a_override_l_english.yml",
+        "l_english:\n AAA:0 unquoted\n",
+    );
+    let error = input.load().unwrap_err().to_string();
+    assert!(
+        error.contains("a_override_l_english.yml") && error.contains("line 2"),
+        "{error}"
+    );
+}
+
+#[test]
+fn keeps_consistent_fields_when_country_history_files_disagree() {
+    let input = TestWorld::new();
+    for (name, capital, culture) in [
+        ("First", 1, "first"),
+        ("Other", 2, "other"),
+        ("Third", 1, "first"),
+    ] {
+        input.write(
+            &format!("history/countries/AAA - {name}.txt"),
+            &format!("capital = {capital} primary_culture = {culture} religion = catholic"),
+        );
+    }
+    let world = input.load().unwrap();
+    let country = world.state().country("AAA").unwrap();
+    assert_eq!(country.capital, None);
+    assert_eq!(country.primary_culture, None);
+    assert_eq!(country.religion.as_deref(), Some("catholic"));
+    assert!(world.country_history_has_conflicts("AAA"));
+    assert!(!world.country_history_has_conflicts("BBB"));
+}
+
+#[test]
+fn rejects_invalid_detail_values_and_references() {
+    let input = TestWorld::new();
+    for (value, expected) in [
+        (
+            "owner = AAA controller = ZZZ",
+            "unknown province controller: ZZZ",
+        ),
+        ("owner = AAA base_tax = -1", "nonnegative integer"),
+        ("owner = AAA add_base_tax = 1", "requires an initial value"),
+    ] {
+        input.write("history/provinces/1-First.txt", value);
+        let error = input.load().unwrap_err().to_string();
+        assert!(
+            error.contains("1-First.txt") && error.contains(expected),
+            "{error}"
+        );
+    }
+    input.write("history/provinces/1-First.txt", "owner = AAA");
+    input.write("history/countries/ZZZ - Unknown.txt", "capital = 1");
+    let error = input.load().unwrap_err().to_string();
+    assert!(
+        error.contains("ZZZ - Unknown.txt") && error.contains("unknown country ZZZ"),
+        "{error}"
+    );
+    fs::remove_file(input.root.join("history/countries/ZZZ - Unknown.txt")).unwrap();
+    input.write("history/countries/AAA - First.txt", "capital = 99");
+    assert!(
+        input
+            .load()
+            .unwrap_err()
+            .to_string()
+            .contains("capital province 99")
     );
 }

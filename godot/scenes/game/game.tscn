@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scenes/game/game.gd" id="1_script"]
 [ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
 [ext_resource type="PackedScene" path="res://scenes/map/province_map_view.tscn" id="3_map"]
+[ext_resource type="PackedScene" path="res://scenes/info/province_info_panel.tscn" id="4_info"]
 
 [sub_resource type="StyleBoxFlat" id="Style_map"]
 content_margin_left = 8.0
@@ -65,12 +66,21 @@ unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 2
 
-[node name="MapPanel" type="PanelContainer" parent="Margin/Page"]
+[node name="Content" type="HBoxContainer" parent="Margin/Page"]
 layout_mode = 2
 size_flags_vertical = 3
+theme_override_constants/separation = 12
+
+[node name="MapPanel" type="PanelContainer" parent="Margin/Page/Content"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_styles/panel = SubResource("Style_map")
 
-[node name="MapView" parent="Margin/Page/MapPanel" instance=ExtResource("3_map")]
+[node name="MapView" parent="Margin/Page/Content/MapPanel" instance=ExtResource("3_map")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="InfoPanel" parent="Margin/Page/Content" instance=ExtResource("4_info")]
 unique_name_in_owner = true
 layout_mode = 2
 

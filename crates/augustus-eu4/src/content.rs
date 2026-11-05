@@ -46,6 +46,10 @@ impl ContentRoot {
 
     /// EU4 的国家标签和省份历史按目录中的文件加载；排序使覆盖顺序固定。
     pub fn text_files(&self, relative: &str) -> Result<Vec<PathBuf>, Error> {
+        self.files(relative, "txt")
+    }
+
+    pub fn files(&self, relative: &str, extension: &str) -> Result<Vec<PathBuf>, Error> {
         let path = self.root.join(relative);
         let entries = std::fs::read_dir(&path).map_err(|source| Error::Read {
             path: path.clone(),
@@ -60,7 +64,7 @@ impl ContentRoot {
             if entry
                 .path()
                 .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("txt"))
+                .is_some_and(|candidate| candidate.eq_ignore_ascii_case(extension))
                 && entry
                     .file_type()
                     .map_err(|source| Error::Read {

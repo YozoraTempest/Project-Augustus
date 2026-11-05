@@ -1,4 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
 owner = BBB
-1444.11.11 = { owner = AAA }
+culture = river_culture
+religion = catholic
+trade_goods = grain
+base_tax = 2
+base_production = 3
+base_manpower = 4
+1444.11.11 = { owner = AAA add_base_tax = 1 }
 1500.1.1 = { owner = BBB }
