@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scenes/map/province_map_view.gd" id="1_script"]
 [ext_resource type="Shader" path="res://scenes/map/province_map.gdshader" id="2_shader"]
 [ext_resource type="PackedScene" path="res://scenes/map/globe_map_view.tscn" id="3_globe"]
+[ext_resource type="Script" path="res://scenes/map/army_markers.gd" id="4_armies"]
 
 [sub_resource type="ShaderMaterial" id="Material_map"]
 resource_local_to_scene = true
@@ -45,6 +46,16 @@ position_smoothing_enabled = false
 [node name="GlobeView" parent="." instance=ExtResource("3_globe")]
 visible = false
 layout_mode = 1
+
+[node name="ArmyMarkers" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("4_armies")
 
 [node name="ModeToolbar" type="PanelContainer" parent="."]
 layout_mode = 0

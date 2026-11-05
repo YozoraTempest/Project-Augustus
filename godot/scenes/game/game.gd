@@ -30,6 +30,8 @@ func _ready() -> void:
 	backend = GameSession.backend
 	map_view.selection_changed.connect(_refresh_selection)
 	info_panel.construction_requested.connect(_start_construction)
+	info_panel.recruitment_requested.connect(_start_recruitment)
+	info_panel.army_selected.connect(map_view.select_army)
 	GameSession.clock_changed.connect(func(): _refresh_selection(false))
 	GameSession.world_changed.connect(func(): _refresh_selection(false))
 	map_view.projection_changed.connect(func(_projection: MapMode.ViewType): _refresh_projection())
@@ -95,21 +97,29 @@ func _start_construction(province_id: int, building: String) -> void:
 
 
 func _refresh_selection(select_tab: bool = true) -> void:
+	map_view.refresh_armies()
 	# 地图模块决定选中了什么；游戏场景只查询并显示对应信息。
 	var province_id := map_view.selected_province
 	var province_info: Dictionary = {}
 	var country_info: Dictionary = {}
-	if map_view.mode == MapMode.Type.COUNTRY:
+	var army := backend.get_army_info(map_view.selected_army)
+	if not army.is_empty():
+		province_id = army.province
+		province_info = backend.get_province_info(province_id)
+		country_info = backend.get_country_info(army.country)
+	elif map_view.mode == MapMode.Type.COUNTRY:
 		country_info = backend.get_country_info(map_view.selected_country)
 	else:
 		province_info = backend.get_province_info(province_id)
 		if province_info.get("owner") != null:
 			country_info = backend.get_country_info(province_info.owner)
-	info_panel.show_info(province_info, country_info, backend.get_construction_info(province_id))
+	info_panel.show_info(province_info, country_info, backend.get_construction_info(province_id), backend.get_recruitment_info(province_id), map_view.selected_army)
 	# 日期推进会刷新财政；保留玩家手动选中的信息页签。
 	if select_tab:
-		info_panel.tabs.current_tab = 1 if map_view.mode == MapMode.Type.COUNTRY else 0
-	if map_view.mode == MapMode.Type.COUNTRY:
+		info_panel.tabs.current_tab = 3 if not army.is_empty() else (1 if map_view.mode == MapMode.Type.COUNTRY else 0)
+	if not army.is_empty():
+		selection_label.text = "%s · %d 人 · 驻扎 %s" % [army.name, army.strength, army.province_name]
+	elif map_view.mode == MapMode.Type.COUNTRY:
 		selection_label.text = "未选择国家" if country_info.is_empty() else "国家：%s (%s)" % [country_info.name, country_info.tag]
 	elif province_id == 0:
 		selection_label.text = "未选择省份"
@@ -125,3 +135,10 @@ func _refresh_selection(select_tab: bool = true) -> void:
 		selection_label.text = "省份 #%d · %s" % [province_id, ownership]
 	# 窄窗口下文字可能被省略，悬停仍可查看完整信息。
 	selection_label.tooltip_text = selection_label.text
+
+
+func _start_recruitment(province_id: int) -> void:
+	var error := GameSession.start_recruitment(province_id)
+	if not error.is_empty():
+		_refresh_selection(false)
+		info_panel.show_recruitment_error(error)

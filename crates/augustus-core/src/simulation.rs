@@ -40,6 +40,7 @@ impl Simulation {
             }
             // 月初先支付此前月份的税收，再完成当天建设，避免新建筑追溯增加上月收入。
             world.complete_constructions(date);
+            world.complete_recruitments(date);
         })
     }
 }

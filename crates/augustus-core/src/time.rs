@@ -33,6 +33,11 @@ impl GameDate {
         self.0.days_until(&other.0)
     }
 
+    pub fn checked_add_days(self, days: u32) -> Option<Self> {
+        let remaining = self.0.days_until(&Date::from_ymd(i16::MAX, 12, 31));
+        (i64::from(days) <= i64::from(remaining)).then(|| self.add_days(days as i32))
+    }
+
     /// 工期按日历月计算；目标月份没有同一天时，使用该月最后一天。
     pub fn checked_add_months(self, months: u32) -> Option<Self> {
         let index = u32::try_from(self.year()).ok()? * 12 + u32::from(self.month() - 1);

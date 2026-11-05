@@ -3,11 +3,15 @@
 //! 管理国家和省份实体，并解析它们之间的归属关系。
 
 mod construction;
+mod military;
 mod saved_state;
 
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
-use crate::{BuildingDefinition, Country, GameDate, Money, Province, ProvinceKind};
+use crate::{
+    BuildingDefinition, Country, GameDate, MilitaryState, Money, Province, ProvinceKind,
+    RecruitmentRules,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorldError {
@@ -31,6 +35,8 @@ pub enum WorldError {
     InvalidBuilding(String),
     #[error("province {province} references unknown building {building}")]
     UnknownBuilding { province: u32, building: String },
+    #[error("invalid infantry recruitment rules")]
+    InvalidRecruitmentRules,
 }
 
 #[derive(Debug)]
@@ -40,6 +46,8 @@ pub struct World {
     // 内容可以保留废弃省份定义，只有实际存在于地图上的省份参与模拟。
     active_provinces: BTreeSet<u32>,
     buildings: BTreeMap<String, BuildingDefinition>,
+    recruitment_rules: RecruitmentRules,
+    military: MilitaryState,
 }
 
 impl World {
@@ -49,7 +57,11 @@ impl World {
         mut provinces: BTreeMap<u32, Province>,
         active_provinces: impl IntoIterator<Item = u32>,
         buildings: impl IntoIterator<Item = BuildingDefinition>,
+        recruitment_rules: RecruitmentRules,
     ) -> Result<Self, WorldError> {
+        if recruitment_rules.infantry_cost < Money::ZERO || recruitment_rules.infantry_days == 0 {
+            return Err(WorldError::InvalidRecruitmentRules);
+        }
         let mut definitions = BTreeMap::new();
         for building in buildings {
             let id = building.id.clone();
@@ -130,6 +142,8 @@ impl World {
             provinces,
             active_provinces,
             buildings: definitions,
+            recruitment_rules,
+            military: MilitaryState::default(),
         })
     }
 

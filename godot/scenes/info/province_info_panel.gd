@@ -3,6 +3,8 @@ class_name ProvinceInfoPanel
 extends PanelContainer
 
 signal construction_requested(province_id: int, building: String)
+signal recruitment_requested(province_id: int)
+signal army_selected(army_id: int)
 
 @onready var tabs: TabContainer = %Tabs
 @onready var province_title: Label = %ProvinceTitle
@@ -13,17 +15,23 @@ signal construction_requested(province_id: int, building: String)
 @onready var country_color: ColorRect = %CountryColor
 @onready var construction_panel: ProvinceConstructionPanel = %ConstructionPanel
 @onready var building_hint: Label = %BuildingHint
+@onready var military_panel: ProvinceMilitaryPanel = %MilitaryPanel
+@onready var military_hint: Label = %MilitaryHint
 
 
 func _ready() -> void:
 	country_button.pressed.connect(func(): tabs.current_tab = 1)
 	construction_panel.construction_requested.connect(func(province_id: int, building: String): construction_requested.emit(province_id, building))
+	military_panel.recruitment_requested.connect(func(province_id: int): recruitment_requested.emit(province_id))
+	military_panel.army_selected.connect(func(id: int): army_selected.emit(id))
 	show_info({}, {})
 
 
-func show_info(province: Dictionary, country: Dictionary, construction: Dictionary = {}) -> void:
+func show_info(province: Dictionary, country: Dictionary, construction: Dictionary = {}, military: Dictionary = {}, selected_army: int = 0) -> void:
 	construction_panel.show_province(0 if province.is_empty() else province.id, construction)
 	building_hint.visible = not construction_panel.visible
+	military_panel.show_province(0 if province.is_empty() else province.id, military, selected_army)
+	military_hint.visible = not military_panel.visible
 	# 字典仅用于显示，归属、发展度和首都仍由 Rust 世界管理。
 	if province.is_empty():
 		province_title.text = "未选择省份"
@@ -64,6 +72,10 @@ func _value(value: Variant) -> String:
 
 func show_construction_error(error: String) -> void:
 	construction_panel.show_error(error)
+
+
+func show_recruitment_error(error: String) -> void:
+	military_panel.show_error(error)
 
 
 func _country_name(province: Dictionary, field: String) -> String:

@@ -2,10 +2,10 @@
 
 use std::{fs, path::Path};
 
-use augustus_core::{GameDate, SavedGame};
+use augustus_core::{GameDate, MilitaryState, SavedGame};
 use serde::{Deserialize, Serialize};
 
-const SAVE_VERSION: u32 = 1;
+const SAVE_VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SaveFile {
@@ -34,6 +34,22 @@ impl SaveFile {
         }
         let header: Header =
             serde_json::from_slice(&bytes).map_err(|error| format!("无法解析存档：{error}"))?;
+        if header.version == 1 {
+            // 旧版尚无军队；保留原有进度，为它补充空的军事状态。
+            let mut data: serde_json::Value =
+                serde_json::from_slice(&bytes).map_err(|error| format!("无法解析存档：{error}"))?;
+            let game = data
+                .get_mut("game")
+                .and_then(serde_json::Value::as_object_mut)
+                .ok_or("存档缺少游戏状态")?;
+            game.insert(
+                "military".to_owned(),
+                serde_json::to_value(MilitaryState::default())
+                    .map_err(|error| error.to_string())?,
+            );
+            data["version"] = SAVE_VERSION.into();
+            return serde_json::from_value(data).map_err(|error| format!("无法解析存档：{error}"));
+        }
         if header.version != SAVE_VERSION {
             return Err(format!(
                 "不支持存档版本 {}，当前支持版本 {SAVE_VERSION}",
