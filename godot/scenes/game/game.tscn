@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scenes/game/game.gd" id="1_script"]
 [ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
@@ -6,6 +6,7 @@
 [ext_resource type="PackedScene" path="res://scenes/info/province_info_panel.tscn" id="4_info"]
 [ext_resource type="PackedScene" path="res://scenes/game/time_controls.tscn" id="5_time"]
 [ext_resource type="PackedScene" path="res://scenes/game/finance_bar.tscn" id="6_finances"]
+[ext_resource type="PackedScene" path="res://scenes/save/save_dialog.tscn" id="7_save"]
 
 [sub_resource type="StyleBoxFlat" id="Style_map"]
 content_margin_left = 8.0
@@ -53,6 +54,17 @@ size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 26
 text = "Project Augustus"
 
+[node name="SaveStatus" type="Label" parent="Margin/Page/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.81, 0.66, 1)
+theme_override_font_sizes/font_size = 14
+
+[node name="SaveGame" type="Button" parent="Margin/Page/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "保存游戏"
+
 [node name="Settings" type="Button" parent="Margin/Page/Header"]
 unique_name_in_owner = true
 layout_mode = 2
@@ -67,6 +79,11 @@ text = "返回主菜单"
 unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 2
+
+[node name="SaveDialog" parent="." instance=ExtResource("7_save")]
+
+[node name="SaveError" type="AcceptDialog" parent="."]
+title = "保存失败"
 
 [node name="PlayerCountry" type="Label" parent="Margin/Page"]
 unique_name_in_owner = true

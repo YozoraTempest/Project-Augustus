@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 use crate::{Construction, Money};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ProvinceKind {
     Land,
     Sea,
@@ -12,7 +14,7 @@ pub enum ProvinceKind {
     Wasteland,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Province {
     pub kind: ProvinceKind,
     /// 保存国家标签，通过 World::province_owner 查询对应实体；无主省份为 None。
@@ -55,7 +57,7 @@ impl Province {
 }
 
 /// 三项基础发展度均为整数；未提供的字段保留 None，不把缺失内容当成零。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Development {
     pub tax: Option<u32>,
     pub production: Option<u32>,

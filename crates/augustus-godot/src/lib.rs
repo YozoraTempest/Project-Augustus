@@ -5,6 +5,7 @@
 mod construction;
 mod info;
 mod map_session;
+mod save;
 
 use godot::prelude::*;
 

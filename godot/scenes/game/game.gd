@@ -14,6 +14,10 @@ const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 @onready var settings_button: Button = %Settings
 @onready var navigation_hint: Label = %Hint
 @onready var player_country_label: Label = %PlayerCountry
+@onready var save_button: Button = %SaveGame
+@onready var save_status: Label = %SaveStatus
+@onready var save_dialog: GameSaveDialog = $SaveDialog
+@onready var save_error_dialog: AcceptDialog = $SaveError
 
 var backend: AugustusMap
 
@@ -32,6 +36,8 @@ func _ready() -> void:
 	reset_view_button.pressed.connect(map_view.reset_view)
 	menu_button.pressed.connect(_return_to_menu)
 	settings_button.pressed.connect(_open_settings)
+	save_button.pressed.connect(_open_save_dialog)
+	save_dialog.file_selected.connect(_save_game)
 	# 复用开局页已生成的纹理，进入游戏无需再次读取游戏文件。
 	map_view.show_map(backend)
 	map_view.set_projection(GameSession.map_projection)
@@ -52,6 +58,27 @@ func _open_settings() -> void:
 	var dialog := SETTINGS_SCENE.instantiate()
 	add_child(dialog)
 	dialog.popup_centered()
+
+
+func _open_save_dialog() -> void:
+	var filename := "%s_%s.augustus" % [GameSession.get_player_country(), GameSession.get_clock_state().date]
+	var error := save_dialog.open_for_saving(filename)
+	if not error.is_empty():
+		_show_save_error(error)
+
+
+func _save_game(path: String) -> void:
+	var error := GameSession.save_game(path)
+	if not error.is_empty():
+		_show_save_error(error)
+		return
+	save_status.text = "已保存 · " + str(GameSession.get_clock_state().date)
+	save_status.tooltip_text = ProjectSettings.globalize_path(path)
+
+
+func _show_save_error(message: String) -> void:
+	save_error_dialog.dialog_text = message
+	save_error_dialog.popup_centered()
 
 
 func _refresh_projection() -> void:

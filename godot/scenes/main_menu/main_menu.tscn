@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scenes/main_menu/main_menu.gd" id="1_script"]
 [ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
+[ext_resource type="PackedScene" path="res://scenes/save/save_dialog.tscn" id="3_save"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -42,7 +43,7 @@ horizontal_alignment = 1
 [node name="Subtitle" type="Label" parent="Margin/Center/Menu"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.62, 0.69, 0.76, 1)
-text = "从一个新的开局开始"
+text = "选择新的开局，或继续已有进度"
 horizontal_alignment = 1
 
 [node name="Space" type="Control" parent="Margin/Center/Menu"]
@@ -56,6 +57,12 @@ custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "新游戏"
 
+[node name="LoadGame" type="Button" parent="Margin/Center/Menu"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "读取存档"
+
 [node name="Settings" type="Button" parent="Margin/Center/Menu"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
@@ -67,3 +74,11 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "退出游戏"
+
+[node name="Status" type="Label" parent="Margin/Center/Menu"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(440, 0)
+layout_mode = 2
+autowrap_mode = 2
+
+[node name="SaveDialog" parent="." instance=ExtResource("3_save")]
