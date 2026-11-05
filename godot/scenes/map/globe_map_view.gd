@@ -67,6 +67,22 @@ func project_path_point(from: Vector2, to: Vector2, fraction: float) -> Vector2:
 	return _project_surface(_surface_point(from).slerp(_surface_point(to), fraction))
 
 
+func focus_pixel(pixel: Vector2) -> void:
+	_focus_surface(_surface_point(pixel))
+
+
+func focus_path(from: Vector2, to: Vector2, fraction: float) -> void:
+	_focus_surface(_surface_point(from).slerp(_surface_point(to), fraction))
+
+
+func _focus_surface(point: Vector3) -> void:
+	var direction := point.normalized()
+	yaw = atan2(direction.x, direction.z)
+	pitch = clampf(asin(direction.y), -MAX_PITCH, MAX_PITCH)
+	zoom_level = maxf(zoom_level, 3.0)
+	update_camera()
+
+
 func _surface_point(pixel: Vector2) -> Vector3:
 	var uv := pixel / Vector2(_map_size)
 	var longitude := (uv.x - 0.5) * TAU

@@ -123,6 +123,41 @@ func select_province(id: int) -> void:
 	_update_selection()
 
 
+func focus_province(id: int) -> void:
+	var point := _backend.get_province_position(id)
+	if point.x < 0.0:
+		return
+	select_province(id)
+	_focus_position(point)
+
+
+func focus_army(id: int) -> void:
+	var army := _backend.get_army_info(id)
+	if army.is_empty():
+		return
+	_end_drag()
+	select_army(id)
+	# 行军中的军队定位到当前路段进度，与地图标记使用同一投影方式。
+	if army.movement != null:
+		var fraction: float = army.movement.leg_progress / 100.0
+		if projection == MapMode.ViewType.GLOBE:
+			globe_view.focus_path(army.position, army.destination_position, fraction)
+		else:
+			_focus_position(_path_point(army.position, army.destination_position, fraction))
+	else:
+		_focus_position(army.position)
+
+
+func _focus_position(point: Vector2) -> void:
+	_end_drag()
+	if projection == MapMode.ViewType.GLOBE:
+		globe_view.focus_pixel(point)
+	else:
+		zoom_level = maxf(zoom_level, 8.0)
+		camera.position = point
+		_update_camera()
+
+
 func clear_selection() -> void:
 	selected_province = 0
 	selected_country = ""
@@ -164,6 +199,10 @@ func project_marker(pixel: Vector2) -> Vector2:
 func project_path_point(from: Vector2, to: Vector2, fraction: float) -> Vector2:
 	if projection == MapMode.ViewType.GLOBE:
 		return globe_view.project_path_point(from, to, fraction)
+	return project_marker(_path_point(from, to, fraction))
+
+
+func _path_point(from: Vector2, to: Vector2, fraction: float) -> Vector2:
 	var width := map_sprite.texture.get_width()
 	var difference := to - from
 	# 经地图左右接缝行军时使用较短方向，不横穿整个世界。
@@ -171,7 +210,7 @@ func project_path_point(from: Vector2, to: Vector2, fraction: float) -> Vector2:
 		difference.x -= signf(difference.x) * width
 	var point := from + difference * fraction
 	point.x = fposmod(point.x, width)
-	return project_marker(point)
+	return point
 
 
 func move_selected_to(destination: int) -> void:

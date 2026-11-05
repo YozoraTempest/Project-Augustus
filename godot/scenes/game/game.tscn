@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scenes/game/game.gd" id="1_script"]
 [ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" path="res://scenes/game/finance_bar.tscn" id="6_finances"]
 [ext_resource type="PackedScene" path="res://scenes/save/save_dialog.tscn" id="7_save"]
 [ext_resource type="Script" path="res://scenes/game/army_disband_dialog.gd" id="8_disband"]
+[ext_resource type="PackedScene" path="res://scenes/military/military_overview.tscn" id="9_military_overview"]
 
 [sub_resource type="StyleBoxFlat" id="Style_map"]
 content_margin_left = 8.0
@@ -60,6 +61,12 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.62, 0.81, 0.66, 1)
 theme_override_font_sizes/font_size = 14
+
+[node name="MilitaryOverviewButton" type="Button" parent="Margin/Page/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+toggle_mode = true
+text = "军事总览"
 
 [node name="SaveGame" type="Button" parent="Margin/Page/Header"]
 unique_name_in_owner = true
@@ -117,6 +124,10 @@ unique_name_in_owner = true
 layout_mode = 2
 
 [node name="InfoPanel" parent="Margin/Page/Content" instance=ExtResource("4_info")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="MilitaryOverview" parent="Margin/Page/Content" instance=ExtResource("9_military_overview")]
 unique_name_in_owner = true
 layout_mode = 2
 

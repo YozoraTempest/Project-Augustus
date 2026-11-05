@@ -229,6 +229,16 @@ impl AugustusMap {
     }
 
     #[func]
+    fn get_player_military_info(&self) -> VarDictionary {
+        let (Some(world), Some(simulation), Some(country)) =
+            (&self.world, &self.simulation, &self.player_country)
+        else {
+            return VarDictionary::new();
+        };
+        crate::military_overview::info(world, country, simulation.clock().date())
+    }
+
+    #[func]
     fn get_army_info(&self, id: i64) -> VarDictionary {
         self.world
             .as_ref()
@@ -444,6 +454,17 @@ impl AugustusMap {
             .as_ref()
             .map_or_else(VarDictionary::new, |world| {
                 crate::info::country_info(world, &tag.to_string())
+            })
+    }
+
+    // 返回省份内部的地图像素，列表定位与地图上的部队锚点保持一致。
+    #[func]
+    fn get_province_position(&self, id: i64) -> Vector2 {
+        self.world
+            .as_ref()
+            .and_then(|world| world.map().province_anchor(u32::try_from(id).ok()?))
+            .map_or(Vector2::new(-1.0, -1.0), |[x, y]| {
+                Vector2::new(x as f32 + 0.5, y as f32 + 0.5)
             })
     }
 

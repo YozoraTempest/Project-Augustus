@@ -7,6 +7,8 @@ const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 
 @onready var map_view: ProvinceMapView = %MapView
 @onready var info_panel: ProvinceInfoPanel = %InfoPanel
+@onready var military_overview: CountryMilitaryOverview = %MilitaryOverview
+@onready var military_overview_button: Button = %MilitaryOverviewButton
 @onready var selection_label: Label = %Selection
 @onready var reset_view_button: Button = %ResetView
 @onready var menu_button: Button = %MainMenu
@@ -29,6 +31,9 @@ func _ready() -> void:
 	backend = GameSession.backend
 	map_view.selection_changed.connect(_refresh_selection)
 	map_view.movement_requested.connect(_move_army)
+	military_overview_button.toggled.connect(_show_military_overview)
+	military_overview.army_selected.connect(map_view.focus_army)
+	military_overview.recruitment_selected.connect(_locate_recruitment)
 	info_panel.construction_requested.connect(_start_construction)
 	info_panel.recruitment_requested.connect(_start_recruitment)
 	info_panel.recruitment_cancel_requested.connect(_cancel_recruitment)
@@ -100,6 +105,8 @@ func _start_construction(province_id: int, building: String) -> void:
 
 
 func _refresh_selection(select_tab: bool = true) -> void:
+	if select_tab:
+		_show_military_overview(false)
 	map_view.refresh_armies()
 	# 地图模块决定选中了什么；游戏场景只查询并显示对应信息。
 	var province_id := map_view.selected_province
@@ -199,4 +206,15 @@ func _disband_army(army_id: int) -> void:
 		info_panel.show_disband_error(error)
 		return
 	map_view.select_province(army.province)
+	info_panel.tabs.current_tab = 3
+
+
+func _show_military_overview(show_overview: bool) -> void:
+	military_overview_button.set_pressed_no_signal(show_overview)
+	info_panel.visible = not show_overview
+	military_overview.visible = show_overview
+
+
+func _locate_recruitment(province_id: int) -> void:
+	map_view.focus_province(province_id)
 	info_panel.tabs.current_tab = 3

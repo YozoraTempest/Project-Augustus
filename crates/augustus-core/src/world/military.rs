@@ -22,6 +22,10 @@ impl World {
         &self.military.armies
     }
 
+    pub fn recruitments(&self) -> &BTreeMap<u32, Recruitment> {
+        &self.military.recruitments
+    }
+
     pub fn recruitment(&self, province: u32) -> Option<&Recruitment> {
         self.military.recruitments.get(&province)
     }
