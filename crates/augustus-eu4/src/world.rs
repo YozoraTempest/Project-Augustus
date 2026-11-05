@@ -8,6 +8,7 @@ mod geography;
 mod history;
 mod localisation;
 mod military;
+mod navigation;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -66,12 +67,16 @@ impl OpeningWorld {
                 ));
             }
         }
+        let military = military::load(&content)?;
+        let connections =
+            navigation::connections(&map, &provinces, military.infantry_speed, content.path())?;
         let state = World::new(
             countries.states.into_values(),
             provinces,
             map.mapped_province_ids().iter().copied(),
             buildings.into_values(),
-            military::load(&content)?,
+            military.recruitment,
+            connections,
         )
         .map_err(|error| Error::invalid(content.path(), error.to_string()))?;
         let mut wanted: BTreeSet<String> = state.countries().keys().cloned().collect();

@@ -225,16 +225,51 @@ impl AugustusMap {
             .as_ref()
             .and_then(|world| {
                 let army = world.state().armies().get(&u32::try_from(id).ok()?)?;
-                Some(crate::military::army_info(world, army))
+                let date = self.simulation.as_ref().map_or_else(
+                    || world.start_date(),
+                    |simulation| simulation.clock().date(),
+                );
+                Some(crate::military::army_info(world, army, date))
             })
             .unwrap_or_default()
     }
 
     #[func]
     fn get_army_markers(&self) -> Array<VarDictionary> {
-        self.world
-            .as_ref()
-            .map_or_else(Array::new, crate::military::markers)
+        self.world.as_ref().map_or_else(Array::new, |world| {
+            let date = self.simulation.as_ref().map_or_else(
+                || world.start_date(),
+                |simulation| simulation.clock().date(),
+            );
+            crate::military::markers(world, date)
+        })
+    }
+
+    #[func]
+    fn move_army(&mut self, id: i64, destination: i64) -> GString {
+        let (Some(world), Some(simulation), Some(country)) =
+            (&mut self.world, &self.simulation, &self.player_country)
+        else {
+            return "请先开始游戏".into();
+        };
+        let (Ok(id), Ok(destination)) = (u32::try_from(id), u32::try_from(destination)) else {
+            return "请选择有效的军队和目标省份".into();
+        };
+        match world
+            .state_mut()
+            .move_army(country, id, destination, simulation.clock().date())
+        {
+            Ok(()) => GString::new(),
+            Err(error) => error.to_string().as_str().into(),
+        }
+    }
+
+    #[func]
+    fn get_land_neighbors(&self, province: i64) -> Array<VarDictionary> {
+        let (Some(world), Ok(province)) = (&self.world, u32::try_from(province)) else {
+            return Array::new();
+        };
+        crate::movement::neighbors(world, province)
     }
 
     #[func]

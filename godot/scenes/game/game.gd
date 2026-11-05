@@ -29,6 +29,7 @@ func _ready() -> void:
 		return
 	backend = GameSession.backend
 	map_view.selection_changed.connect(_refresh_selection)
+	map_view.movement_requested.connect(_move_army)
 	info_panel.construction_requested.connect(_start_construction)
 	info_panel.recruitment_requested.connect(_start_recruitment)
 	info_panel.army_selected.connect(map_view.select_army)
@@ -86,7 +87,7 @@ func _show_save_error(message: String) -> void:
 func _refresh_projection() -> void:
 	var is_globe := map_view.projection == MapMode.ViewType.GLOBE
 	reset_view_button.text = "重置球体" if is_globe else "显示全图"
-	navigation_hint.text = "滚轮缩放 · 中键旋转 · 左键选择" if is_globe else "滚轮缩放 · 中键拖动 · 左键选择"
+	navigation_hint.text = "滚轮缩放 · 中键旋转 · 左键选择 · 右键行军" if is_globe else "滚轮缩放 · 中键拖动 · 左键选择 · 右键行军"
 
 
 func _start_construction(province_id: int, building: String) -> void:
@@ -118,7 +119,8 @@ func _refresh_selection(select_tab: bool = true) -> void:
 	if select_tab:
 		info_panel.tabs.current_tab = 3 if not army.is_empty() else (1 if map_view.mode == MapMode.Type.COUNTRY else 0)
 	if not army.is_empty():
-		selection_label.text = "%s · %d 人 · 驻扎 %s" % [army.name, army.strength, army.province_name]
+		var location := "驻扎 " + str(army.province_name) if army.movement == null else "行军至 %s · 剩余 %d 天" % [army.movement.to_name, army.movement.days_remaining]
+		selection_label.text = "%s · %d 人 · %s" % [army.name, army.strength, location]
 	elif map_view.mode == MapMode.Type.COUNTRY:
 		selection_label.text = "未选择国家" if country_info.is_empty() else "国家：%s (%s)" % [country_info.name, country_info.tag]
 	elif province_id == 0:
@@ -142,3 +144,10 @@ func _start_recruitment(province_id: int) -> void:
 	if not error.is_empty():
 		_refresh_selection(false)
 		info_panel.show_recruitment_error(error)
+
+
+func _move_army(army_id: int, destination: int) -> void:
+	var error := GameSession.move_army(army_id, destination)
+	if not error.is_empty():
+		_refresh_selection(false)
+		info_panel.show_movement_error(error)

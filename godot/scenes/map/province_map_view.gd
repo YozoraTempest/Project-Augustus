@@ -5,6 +5,7 @@ extends Control
 signal mode_changed(mode: MapMode.Type)
 signal projection_changed(projection: MapMode.ViewType)
 signal selection_changed
+signal movement_requested(army_id: int, destination: int)
 
 const ZOOM_STEP := 1.25
 const MAX_ZOOM := 32.0
@@ -30,7 +31,9 @@ var _dragging := false
 
 func _ready() -> void:
 	army_markers.project_point = project_marker
+	army_markers.project_path = project_path_point
 	army_markers.army_selected.connect(select_army)
+	army_markers.province_targeted.connect(move_selected_to)
 	# 容器调整尺寸后再更新相机，确保使用子视口的新尺寸。
 	resized.connect(func(): _update_camera.call_deferred())
 	get_window().focus_exited.connect(_end_drag)
@@ -150,6 +153,32 @@ func project_marker(pixel: Vector2) -> Vector2:
 	return map_viewport.canvas_transform * pixel
 
 
+func project_path_point(from: Vector2, to: Vector2, fraction: float) -> Vector2:
+	if projection == MapMode.ViewType.GLOBE:
+		return globe_view.project_path_point(from, to, fraction)
+	var width := map_sprite.texture.get_width()
+	var difference := to - from
+	# 经地图左右接缝行军时使用较短方向，不横穿整个世界。
+	if absf(difference.x) > width * 0.5:
+		difference.x -= signf(difference.x) * width
+	var point := from + difference * fraction
+	point.x = fposmod(point.x, width)
+	return project_marker(point)
+
+
+func move_selected_to(destination: int) -> void:
+	if selected_army != 0:
+		movement_requested.emit(selected_army, destination)
+
+
+func request_move_at(pixel: Vector2i) -> void:
+	if _backend == null:
+		return
+	var destination := _backend.province_at(pixel)
+	if destination >= 0:
+		move_selected_to(destination)
+
+
 func reset_view() -> void:
 	_end_drag()
 	if projection == MapMode.ViewType.GLOBE:
@@ -242,4 +271,9 @@ func _gui_input(event: InputEvent) -> void:
 			var pixel := texture_pixel_at(event.position)
 			if pixel.x >= 0:
 				select_at(pixel)
+				accept_event()
+		elif event.pressed and event.button_index == MOUSE_BUTTON_RIGHT and not _dragging:
+			var pixel := texture_pixel_at(event.position)
+			if pixel.x >= 0:
+				request_move_at(pixel)
 				accept_event()

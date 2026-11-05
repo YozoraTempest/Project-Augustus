@@ -5,7 +5,7 @@ use std::{fs, path::Path};
 use augustus_core::{GameDate, MilitaryState, SavedGame};
 use serde::{Deserialize, Serialize};
 
-const SAVE_VERSION: u32 = 2;
+const SAVE_VERSION: u32 = 3;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SaveFile {
@@ -34,19 +34,32 @@ impl SaveFile {
         }
         let header: Header =
             serde_json::from_slice(&bytes).map_err(|error| format!("无法解析存档：{error}"))?;
-        if header.version == 1 {
-            // 旧版尚无军队；保留原有进度，为它补充空的军事状态。
+        if header.version == 1 || header.version == 2 {
+            // 逐版补充新增状态，保留旧存档的财政、部队与招募进度。
             let mut data: serde_json::Value =
                 serde_json::from_slice(&bytes).map_err(|error| format!("无法解析存档：{error}"))?;
             let game = data
                 .get_mut("game")
                 .and_then(serde_json::Value::as_object_mut)
                 .ok_or("存档缺少游戏状态")?;
-            game.insert(
-                "military".to_owned(),
-                serde_json::to_value(MilitaryState::default())
-                    .map_err(|error| error.to_string())?,
-            );
+            if header.version == 1 {
+                game.insert(
+                    "military".to_owned(),
+                    serde_json::to_value(MilitaryState::default())
+                        .map_err(|error| error.to_string())?,
+                );
+            } else {
+                let armies = game
+                    .get_mut("military")
+                    .and_then(|value| value.get_mut("armies"))
+                    .and_then(serde_json::Value::as_object_mut)
+                    .ok_or("存档缺少军队状态")?;
+                for army in armies.values_mut() {
+                    army.as_object_mut()
+                        .ok_or("存档中的军队格式无效")?
+                        .insert("movement".to_owned(), serde_json::Value::Null);
+                }
+            }
             data["version"] = SAVE_VERSION.into();
             return serde_json::from_value(data).map_err(|error| format!("无法解析存档：{error}"));
         }
