@@ -9,6 +9,8 @@ pub struct BuildingDefinition {
     pub cost: Money,
     pub months: u32,
     pub tax_modifier: Money,
+    /// 建成后提供的陆军上限，来自建筑 `modifier.land_forcelimit`。
+    pub land_forcelimit: Money,
     pub replaces: Option<String>,
     /// 当前内容规则允许新建的建筑；其他定义仍用于读取开局已有建筑。
     pub constructible: bool,
