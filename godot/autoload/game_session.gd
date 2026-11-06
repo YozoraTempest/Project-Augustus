@@ -85,11 +85,11 @@ func consume_startup_request() -> bool:
 	return requested
 
 
-func start_recruitment(province_id: int) -> String:
+func start_recruitment(province_id: int, kind: String) -> String:
 	if not is_started():
 		return "请先开始游戏"
 	_advance_clock()
-	var error := backend.start_recruitment(province_id)
+	var error := backend.start_recruitment(province_id, kind)
 	if error.is_empty():
 		world_changed.emit()
 	return error

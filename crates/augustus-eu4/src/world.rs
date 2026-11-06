@@ -68,15 +68,14 @@ impl OpeningWorld {
                 ));
             }
         }
-        let military = military::load(&content)?;
-        let connections =
-            navigation::connections(&map, &provinces, military.infantry_speed, content.path())?;
+        let military_rules = military::load(&content)?;
+        let connections = navigation::connections(&map, &provinces);
         let state = World::new(
             countries.states.into_values(),
             provinces,
             map.mapped_province_ids().iter().copied(),
             buildings.into_values(),
-            military.rules,
+            military_rules,
             connections,
         )
         .map_err(|error| Error::invalid(content.path(), error.to_string()))?;

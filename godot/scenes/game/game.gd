@@ -148,8 +148,8 @@ func _refresh_selection(select_tab: bool = true) -> void:
 	selection_label.tooltip_text = selection_label.text
 
 
-func _start_recruitment(province_id: int) -> void:
-	var error := GameSession.start_recruitment(province_id)
+func _start_recruitment(province_id: int, kind: String) -> void:
+	var error := GameSession.start_recruitment(province_id, kind)
 	if not error.is_empty():
 		_refresh_selection(false)
 		info_panel.show_recruitment_error(error)

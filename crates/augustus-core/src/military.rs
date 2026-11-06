@@ -13,6 +13,19 @@ pub const REGIMENT_STRENGTH: u32 = 1_000;
 #[serde(rename_all = "snake_case")]
 pub enum UnitKind {
     Infantry,
+    Cavalry,
+}
+
+impl UnitKind {
+    pub const ALL: [Self; 2] = [Self::Infantry, Self::Cavalry];
+
+    /// 与存档和界面命令使用的标识一致。
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Infantry => "infantry",
+            Self::Cavalry => "cavalry",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +53,25 @@ impl Army {
             .iter()
             .map(|regiment| u64::from(regiment.strength))
             .sum()
+    }
+
+    /// 返回该兵种的团数和兵力合计。
+    pub fn composition(&self, kind: UnitKind) -> (usize, u64) {
+        self.regiments
+            .iter()
+            .filter(|regiment| regiment.kind == kind)
+            .fold((0, 0), |(count, strength), regiment| {
+                (count + 1, strength + u64::from(regiment.strength))
+            })
+    }
+
+    /// 混编军队的行军速度由最慢的兵种决定。
+    pub fn march_speed(&self, rules: &MilitaryRules) -> Money {
+        self.regiments
+            .iter()
+            .map(|regiment| rules.speed(regiment.kind))
+            .min()
+            .expect("军队至少有一个团")
     }
 }
 
@@ -81,7 +113,11 @@ impl Recruitment {
 #[derive(Debug, Clone)]
 pub struct MilitaryRules {
     pub infantry_cost: Money,
+    pub cavalry_cost: Money,
     pub infantry_days: u32,
+    pub cavalry_days: u32,
+    pub infantry_speed: Money,
+    pub cavalry_speed: Money,
     /// 取消招募时仍可全退金币的进度上界，恰好等于上界也全退。
     pub recruitment_full_refund_progress: Money,
     pub land_maintenance_factor: Money,
@@ -89,12 +125,42 @@ pub struct MilitaryRules {
 }
 
 impl MilitaryRules {
+    pub fn cost(&self, kind: UnitKind) -> Money {
+        match kind {
+            UnitKind::Infantry => self.infantry_cost,
+            UnitKind::Cavalry => self.cavalry_cost,
+        }
+    }
+
+    pub fn recruitment_days(&self, kind: UnitKind) -> u32 {
+        match kind {
+            UnitKind::Infantry => self.infantry_days,
+            UnitKind::Cavalry => self.cavalry_days,
+        }
+    }
+
+    pub fn speed(&self, kind: UnitKind) -> Money {
+        match kind {
+            UnitKind::Infantry => self.infantry_speed,
+            UnitKind::Cavalry => self.cavalry_speed,
+        }
+    }
+
+    pub fn manpower_cost(&self, kind: UnitKind) -> u64 {
+        match kind {
+            UnitKind::Infantry => self.manpower.infantry_cost,
+            UnitKind::Cavalry => self.manpower.cavalry_cost,
+        }
+    }
+
+    /// 地图距离除以兵种速度，向上取整为完整游戏日。
+    pub fn travel_days(distance: u32, speed: Money) -> u32 {
+        u32::try_from((Money::from(distance) / speed).ceil()).expect("行军天数在支持范围内")
+    }
+
     /// 基础维护系数作用于招募费用，得到每团年费；月费在国家汇总后折算。
     pub fn annual_maintenance(&self, kind: UnitKind) -> Money {
-        let cost = match kind {
-            UnitKind::Infantry => self.infantry_cost,
-        };
-        cost * self.land_maintenance_factor
+        self.cost(kind) * self.land_maintenance_factor
     }
 }
 

@@ -57,6 +57,7 @@ pub(super) fn load(content: &ContentRoot, defines: &str) -> Result<ManpowerRules
             .map_err(|error| Error::invalid(&path, error.to_string()))?,
         minimum_monthly: scaled(required("MIN_MONTHLY_MANPOWER")?, 1_000, &path)?,
         infantry_cost: scaled(required("INF_REGIMENT_MANPOWER_COST")?, 1_000, &path)?,
+        cavalry_cost: scaled(required("CAV_REGIMENT_MANPOWER_COST")?, 1_000, &path)?,
     })
 }
 

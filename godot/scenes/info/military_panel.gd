@@ -2,7 +2,7 @@
 class_name ProvinceMilitaryPanel
 extends VBoxContainer
 
-signal recruitment_requested(province_id: int)
+signal recruitment_requested(province_id: int, kind: String)
 signal recruitment_cancel_requested(province_id: int, order_id: int)
 signal army_selected(army_id: int)
 signal army_stop_requested(army_id: int)
@@ -11,8 +11,13 @@ signal army_split_requested(army_id: int, count: int)
 signal army_disband_requested(army_id: int)
 
 @onready var province_label: Label = %MilitaryProvince
-@onready var recruitment_label: Label = %RecruitmentDetails
-@onready var recruit_button: Button = %RecruitInfantry
+@onready var manpower_label: Label = %RecruitmentManpower
+@onready var infantry_label: Label = %InfantryDetails
+@onready var recruit_infantry: Button = %RecruitInfantry
+@onready var infantry_reason: Label = %InfantryReason
+@onready var cavalry_label: Label = %CavalryDetails
+@onready var recruit_cavalry: Button = %RecruitCavalry
+@onready var cavalry_reason: Label = %CavalryReason
 @onready var reason_label: Label = %RecruitmentReason
 @onready var project_box: VBoxContainer = %RecruitmentProject
 @onready var garrison_label: Label = %GarrisonTitle
@@ -30,7 +35,8 @@ var _selected_army := 0
 
 
 func _ready() -> void:
-	recruit_button.pressed.connect(func(): recruitment_requested.emit(_province_id))
+	recruit_infantry.pressed.connect(func(): recruitment_requested.emit(_province_id, "infantry"))
+	recruit_cavalry.pressed.connect(func(): recruitment_requested.emit(_province_id, "cavalry"))
 	stop_button.pressed.connect(func(): army_stop_requested.emit(_selected_army))
 	disband_button.pressed.connect(func(): army_disband_requested.emit(_selected_army))
 	organization_panel.armies_merge_requested.connect(func(target: int, sources: PackedInt64Array): armies_merge_requested.emit(target, sources))
@@ -46,13 +52,14 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 	if not visible:
 		return
 	province_label.text = info.province_name + " · 军事"
-	recruitment_label.text = "步兵 · 1 团 · %d 人\n基础费用：%s 金币\n人力消耗：%d 人\n招募时间：%d 天" % [info.strength, info.cost, info.manpower_cost, info.days]
 	if info.manpower != null:
-		recruitment_label.text += "\n可用人力：%d / %d\n每月恢复：+%d 人" % [info.manpower.available, info.manpower.capacity, info.manpower.monthly_recovery]
-	recruit_button.disabled = not info.can_recruit
-	recruit_button.tooltip_text = "" if info.completes_on == null else "预计完成：%s" % info.completes_on
-	reason_label.text = info.reason
-	reason_label.visible = not info.reason.is_empty()
+		manpower_label.text = "可用人力：%d / %d\n每月恢复：+%d 人" % [info.manpower.available, info.manpower.capacity, info.manpower.monthly_recovery]
+		manpower_label.show()
+	else:
+		manpower_label.hide()
+	_show_offer(_offer(info, "infantry"), infantry_label, recruit_infantry, infantry_reason)
+	_show_offer(_offer(info, "cavalry"), cavalry_label, recruit_cavalry, cavalry_reason)
+	reason_label.hide()
 	for child in project_box.get_children():
 		project_box.remove_child(child)
 		child.queue_free()
@@ -64,7 +71,7 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 		var title := Label.new()
 		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var phase := "排队" if order.queued else "正在招募"
-		title.text = "%s：步兵 #%d (%s)\n开始：%s\n完成：%s · 剩余 %d 天" % [phase, order_id, order.country, order.started_on, order.completes_on, order.days_remaining]
+		title.text = "%s：%s #%d (%s)\n开始：%s\n完成：%s · 剩余 %d 天" % [phase, order.kind, order_id, order.country, order.started_on, order.completes_on, order.days_remaining]
 		row.add_child(title)
 		var progress := ProgressBar.new()
 		progress.custom_minimum_size = Vector2(0, 28)
@@ -106,7 +113,7 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 			disband_button.visible = army.can_command
 			disband_button.disabled = army.movement != null
 			disband_button.tooltip_text = "请先让军队驻扎" if disband_button.disabled else ""
-			army_details.text = "%s\n编号：#%d\n所属国家：%s (%s)\n驻扎：%s (#%d)\n部队：%d 团 · 总兵力 %d 人" % [army.name, id, army.country_name, army.country, army.province_name, army.province, army.regiment_count, army.strength]
+			army_details.text = "%s\n编号：#%d\n所属国家：%s (%s)\n驻扎：%s (#%d)\n部队：%d 团 · 总兵力 %d 人\n%s" % [army.name, id, army.country_name, army.country, army.province_name, army.province, army.regiment_count, army.strength, _composition_text(army)]
 			if army.movement != null:
 				army_details.text = army_details.text.replace("驻扎：", "当前省份：")
 				var movement: Dictionary = army.movement
@@ -133,6 +140,28 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 func show_error(message: String) -> void:
 	reason_label.text = message
 	reason_label.show()
+
+
+func _offer(info: Dictionary, kind_id: String) -> Dictionary:
+	for offer: Dictionary in info.offers:
+		if offer.kind_id == kind_id:
+			return offer
+	return {}
+
+
+func _show_offer(offer: Dictionary, label: Label, button: Button, reason: Label) -> void:
+	label.text = "%s · 1 团 · %d 人\n基础费用：%s 金币\n人力消耗：%d 人\n招募时间：%d 天" % [offer.kind, offer.strength, offer.cost, offer.manpower_cost, offer.days]
+	button.disabled = not offer.can_recruit
+	button.tooltip_text = "" if offer.completes_on == null else "预计完成：%s" % offer.completes_on
+	reason.text = offer.reason
+	reason.visible = not str(offer.reason).is_empty()
+
+
+func _composition_text(army: Dictionary) -> String:
+	var lines := PackedStringArray()
+	for unit: Dictionary in army.composition:
+		lines.append("%s：%d 团 · %d 人" % [unit.kind, unit.regiment_count, unit.strength])
+	return "\n".join(lines)
 
 
 func show_movement_error(message: String) -> void:

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use augustus_core::{ArmyMovement, GameDate};
+use augustus_core::{ArmyMovement, GameDate, MilitaryRules, UnitKind};
 use augustus_eu4::world::OpeningWorld;
 use godot::prelude::*;
 
@@ -51,11 +51,16 @@ pub(crate) fn anchor(world: &OpeningWorld, province: u32) -> Vector2 {
 pub(crate) fn neighbors(world: &OpeningWorld, province: u32) -> Array<VarDictionary> {
     let mut neighbors = Array::new();
     if let Some(connections) = world.state().land_neighbors(province) {
-        for (&id, &days) in connections {
+        // 邻省列表没有选定军队，天数按步兵速度估算。具体命令使用该军队的最慢兵种。
+        let speed = world.state().military_rules().speed(UnitKind::Infantry);
+        for (&id, &distance) in connections {
             let mut info = VarDictionary::new();
             info.set("province", i64::from(id));
             info.set("name", world.province_name(id).as_str());
-            info.set("days", i64::from(days));
+            info.set(
+                "days",
+                i64::from(MilitaryRules::travel_days(distance, speed)),
+            );
             info.set("position", anchor(world, id));
             neighbors.push(&info);
         }

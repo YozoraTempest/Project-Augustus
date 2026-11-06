@@ -13,7 +13,12 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 22
 autowrap_mode = 2
 
-[node name="RecruitmentDetails" type="Label" parent="."]
+[node name="RecruitmentManpower" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2
+
+[node name="InfantryDetails" type="Label" parent="."]
 unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 2
@@ -22,6 +27,28 @@ autowrap_mode = 2
 unique_name_in_owner = true
 layout_mode = 2
 text = "招募步兵"
+
+[node name="InfantryReason" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.77, 0.4, 1)
+autowrap_mode = 2
+
+[node name="CavalryDetails" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2
+
+[node name="RecruitCavalry" type="Button" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+text = "招募骑兵"
+
+[node name="CavalryReason" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.77, 0.4, 1)
+autowrap_mode = 2
 
 [node name="RecruitmentReason" type="Label" parent="."]
 unique_name_in_owner = true

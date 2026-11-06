@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use crate::{GameDate, Money, Recruitment, RecruitmentError, RecruitmentRefund, UnitKind};
+use crate::{GameDate, Money, Recruitment, RecruitmentError, RecruitmentRefund};
 
 use super::World;
 
@@ -42,10 +42,8 @@ impl World {
             // 人力系统启用前的旧项目没有扣过人力，仍不补发退款。
             0
         } else {
-            // 当前只支持普通满编步兵团，返还量按当前适用需求计算，独立于金币比例。
-            match project.kind {
-                UnitKind::Infantry => self.military_rules.manpower.infantry_cost,
-            }
+            // 人力按兵种全额返还，独立于金币比例。
+            self.military_rules.manpower_cost(project.kind)
         };
         Ok(RecruitmentRefund { cost, manpower })
     }

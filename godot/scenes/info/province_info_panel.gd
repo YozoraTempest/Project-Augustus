@@ -3,7 +3,7 @@ class_name ProvinceInfoPanel
 extends PanelContainer
 
 signal construction_requested(province_id: int, building: String)
-signal recruitment_requested(province_id: int)
+signal recruitment_requested(province_id: int, kind: String)
 signal recruitment_cancel_requested(province_id: int, order_id: int)
 signal army_selected(army_id: int)
 signal army_stop_requested(army_id: int)
@@ -27,7 +27,7 @@ signal army_disband_requested(army_id: int)
 func _ready() -> void:
 	country_button.pressed.connect(func(): tabs.current_tab = 1)
 	construction_panel.construction_requested.connect(func(province_id: int, building: String): construction_requested.emit(province_id, building))
-	military_panel.recruitment_requested.connect(func(province_id: int): recruitment_requested.emit(province_id))
+	military_panel.recruitment_requested.connect(func(province_id: int, kind: String): recruitment_requested.emit(province_id, kind))
 	military_panel.recruitment_cancel_requested.connect(func(province_id: int, order_id: int): recruitment_cancel_requested.emit(province_id, order_id))
 	military_panel.army_selected.connect(func(id: int): army_selected.emit(id))
 	military_panel.army_stop_requested.connect(func(id: int): army_stop_requested.emit(id))
