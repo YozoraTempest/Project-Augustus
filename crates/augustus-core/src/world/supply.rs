@@ -158,7 +158,7 @@ fn regiment_loss(strength: u32, occupation: u32, limit: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{collections::BTreeMap, time::Duration};
 
     use crate::{
         Army, ArmyMovement, Country, Development, GameDate, ManpowerRules, MilitaryRules, Money,
@@ -183,6 +183,10 @@ mod tests {
             recruitment_full_refund_progress: Money::new(1, 1),
             land_maintenance_factor: Money::ZERO,
             supply_base,
+            base_land_forcelimit: Money::ZERO,
+            development_land_forcelimit: Money::ZERO,
+            land_forcelimit_extra_cost_factor: Money::ZERO,
+            goods_land_forcelimit: BTreeMap::new(),
             manpower: ManpowerRules {
                 base_capacity: 20_000,
                 per_development: 0,
@@ -365,7 +369,7 @@ mod tests {
 
     #[test]
     fn recruitment_finishing_on_the_first_is_not_included() {
-        let mut world = sample(1, vec![(1, land(0, 0, None, 0))]);
+        let mut world = sample(1, vec![(1, land(0, 0, Some(0), 0))]);
         station(&mut world, 1, 1, &[1_000]);
         world
             .countries

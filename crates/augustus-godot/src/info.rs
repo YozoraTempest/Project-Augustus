@@ -143,6 +143,16 @@ pub(crate) fn country_finances(world: &OpeningWorld, tag: &str) -> VarDictionary
         .expect("国家已注册");
     money(&mut info, "monthly_tax", Some(budget.tax));
     money(&mut info, "army_maintenance", Some(budget.army_maintenance));
+    money(
+        &mut info,
+        "base_army_maintenance",
+        Some(budget.base_army_maintenance),
+    );
+    money(
+        &mut info,
+        "excess_army_maintenance",
+        Some(budget.excess_army_maintenance),
+    );
     signed_money(&mut info, "monthly_balance", budget.balance());
     info.set("in_deficit", budget.balance() < Money::ZERO);
     info.set(
@@ -169,6 +179,16 @@ pub(crate) fn country_finances(world: &OpeningWorld, tag: &str) -> VarDictionary
         &mut info,
         "last_maintenance",
         settlement.map(|record| record.army_maintenance),
+    );
+    money(
+        &mut info,
+        "last_base_maintenance",
+        settlement.map(|record| record.base_maintenance()),
+    );
+    money(
+        &mut info,
+        "last_excess_maintenance",
+        settlement.map(|record| record.excess_maintenance),
     );
     if let Some(record) = settlement {
         signed_money(&mut info, "last_balance", record.balance());

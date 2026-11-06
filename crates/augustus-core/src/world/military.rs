@@ -288,6 +288,10 @@ mod tests {
             recruitment_full_refund_progress: Money::new(1, 1),
             land_maintenance_factor: Money::from(1),
             supply_base: 6,
+            base_land_forcelimit: Money::ZERO,
+            development_land_forcelimit: Money::ZERO,
+            land_forcelimit_extra_cost_factor: Money::from(2),
+            goods_land_forcelimit: BTreeMap::new(),
             manpower: ManpowerRules {
                 base_capacity: 0,
                 per_development: 1_000,
@@ -310,6 +314,10 @@ mod tests {
             recruitment_full_refund_progress: Money::new(1, 1),
             land_maintenance_factor: Money::ZERO,
             supply_base: 6,
+            base_land_forcelimit: Money::ZERO,
+            development_land_forcelimit: Money::ZERO,
+            land_forcelimit_extra_cost_factor: Money::from(2),
+            goods_land_forcelimit: BTreeMap::new(),
             manpower: ManpowerRules {
                 base_capacity: 20_000,
                 per_development: 0,

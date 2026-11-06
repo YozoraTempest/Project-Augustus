@@ -41,6 +41,8 @@ pub enum WorldError {
     MissingBaseTax(u32),
     #[error("owned active province {0} has no base manpower")]
     MissingBaseManpower(u32),
+    #[error("owned active province {0} has no base production")]
+    MissingBaseProduction(u32),
     #[error("invalid manpower reserve: {0}")]
     InvalidManpower(String),
     #[error("invalid or duplicate building definition: {0}")]
@@ -165,11 +167,13 @@ impl World {
             if province.annual_tax().is_none() {
                 return Err(WorldError::MissingBaseTax(id));
             }
-            if province.kind == ProvinceKind::Land
-                && province.owner.is_some()
-                && province.development.manpower.is_none()
-            {
-                return Err(WorldError::MissingBaseManpower(id));
+            if province.kind == ProvinceKind::Land && province.owner.is_some() {
+                if province.development.manpower.is_none() {
+                    return Err(WorldError::MissingBaseManpower(id));
+                }
+                if province.development.production.is_none() {
+                    return Err(WorldError::MissingBaseProduction(id));
+                }
             }
         }
         let mut land_routes: BTreeMap<u32, BTreeMap<u32, u32>> = BTreeMap::new();

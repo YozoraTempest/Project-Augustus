@@ -15,11 +15,18 @@ pub struct MonthlySettlement {
     // 旧存档只结算过税收，其历史军费为零，不追溯扣款。
     #[serde(default)]
     pub army_maintenance: Money,
+    /// 本次结算计入总额的超额维护。旧档没有此项，视为没有超编费用。
+    #[serde(default)]
+    pub excess_maintenance: Money,
 }
 
 impl MonthlySettlement {
     pub fn balance(&self) -> Money {
         self.tax - self.army_maintenance
+    }
+
+    pub fn base_maintenance(&self) -> Money {
+        self.army_maintenance - self.excess_maintenance
     }
 }
 
@@ -27,7 +34,10 @@ impl MonthlySettlement {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MonthlyBudget {
     pub tax: Money,
+    /// 基础军费与超额维护的月度合计，与结算使用的年费一致。
     pub army_maintenance: Money,
+    pub base_army_maintenance: Money,
+    pub excess_army_maintenance: Money,
 }
 
 impl MonthlyBudget {
@@ -44,6 +54,9 @@ pub struct CountryFinances {
     tax_remainder: Money,
     #[serde(default)]
     maintenance_remainder: Money,
+    /// 超额维护单独保留余量，十二个月合计等于当年超额年费。
+    #[serde(default)]
+    excess_remainder: Money,
 }
 
 impl CountryFinances {
@@ -67,11 +80,16 @@ impl CountryFinances {
     pub(crate) fn settle(
         &mut self,
         annual_tax: Money,
-        annual_maintenance: Money,
+        annual_base_maintenance: Money,
+        annual_excess_maintenance: Money,
         settled_on: GameDate,
     ) {
         let tax = monthly_amount(annual_tax, &mut self.tax_remainder);
-        let army_maintenance = monthly_amount(annual_maintenance, &mut self.maintenance_remainder);
+        let base_maintenance =
+            monthly_amount(annual_base_maintenance, &mut self.maintenance_remainder);
+        let excess_maintenance =
+            monthly_amount(annual_excess_maintenance, &mut self.excess_remainder);
+        let army_maintenance = base_maintenance + excess_maintenance;
         // 固定支出完整记账，余额不足时允许国库为负，不能让缺钱的军队免交维护费。
         self.treasury += tax - army_maintenance;
         let previous_day = settled_on.add_days(-1);
@@ -81,6 +99,7 @@ impl CountryFinances {
             settled_on,
             tax,
             army_maintenance,
+            excess_maintenance,
         });
     }
 }

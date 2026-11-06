@@ -123,6 +123,14 @@ pub struct MilitaryRules {
     pub land_maintenance_factor: Money,
     /// 省份补给上限的基础值，对应 defines 的 SUPPLYLIMIT_BASE_MULTIPLIER。
     pub supply_base: u32,
+    /// 有陆地领土的国家获得一次，来自 static modifier `base_values`。
+    pub base_land_forcelimit: Money,
+    /// 本国每点发展度提供的陆军上限，来自 static modifier `development`，不按自治度折减。
+    pub development_land_forcelimit: Money,
+    /// 超编时作用于全部基础军费的系数，来自 `LAND_FORCELIMIT_EXTRA_COST_FACTOR`。
+    pub land_forcelimit_extra_cost_factor: Money,
+    /// 贸易商品对本省提供的陆军上限，读取商品定义中的 `province.land_forcelimit`。
+    pub goods_land_forcelimit: BTreeMap<String, Money>,
     pub manpower: ManpowerRules,
 }
 
@@ -163,6 +171,20 @@ impl MilitaryRules {
     /// 基础维护系数作用于招募费用，得到每团年费；月费在国家汇总后折算。
     pub fn annual_maintenance(&self, kind: UnitKind) -> Money {
         self.cost(kind) * self.land_maintenance_factor
+    }
+
+    /// 超编超额年费加在全部基础军费上。取整上限为 0 时原公式不能相除，超额为零。
+    pub fn excess_annual_maintenance(
+        &self,
+        base_annual: Money,
+        regiments: u64,
+        limit: u64,
+    ) -> Money {
+        if limit == 0 || regiments <= limit {
+            return Money::ZERO;
+        }
+        let over = Money::from(regiments - limit);
+        base_annual * over * self.land_forcelimit_extra_cost_factor / Money::from(limit)
     }
 }
 
