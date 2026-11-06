@@ -27,9 +27,9 @@ func _refresh() -> void:
 	var finances := GameSession.backend.get_country_finances(country)
 	treasury_label.text = "国库：%s 金币" % finances.treasury
 	tax_label.text = "月度税收：+%s 金币" % finances.monthly_tax
-	maintenance_label.text = "陆军维护：-%s 金币" % finances.army_maintenance
+	maintenance_label.text = "陆军维护：-%s 金币（基础 %s，超额 %s）" % [finances.army_maintenance, finances.base_army_maintenance, finances.excess_army_maintenance]
 	balance_label.text = "月度净收支：%s 金币" % finances.monthly_balance
 	balance_label.modulate = Color(1.0, 0.55, 0.48) if finances.in_deficit else Color(0.55, 0.88, 0.66)
 	treasury_label.modulate = Color(1.0, 0.55, 0.48) if finances.treasury_negative else Color.WHITE
-	settlement_label.text = "最近结算：尚未结算" if finances.last_settlement_month == null else "最近结算：%s · 税收 +%s · 军费 -%s · 净收支 %s 金币" % [finances.last_settlement_month, finances.last_tax, finances.last_maintenance, finances.last_balance]
+	settlement_label.text = "最近结算：尚未结算" if finances.last_settlement_month == null else "最近结算：%s · 税收 +%s · 基础军费 -%s · 超额军费 -%s · 净收支 %s 金币" % [finances.last_settlement_month, finances.last_tax, finances.last_base_maintenance, finances.last_excess_maintenance, finances.last_balance]
 	settlement_label.tooltip_text = "" if finances.last_settlement_date == null else "结算日期：" + str(finances.last_settlement_date)

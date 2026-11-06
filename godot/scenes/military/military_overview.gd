@@ -28,7 +28,7 @@ func refresh() -> void:
 		return
 	var info := GameSession.backend.get_player_military_info()
 	country_label.text = "%s · 军事总览" % info.country_name
-	summary_label.text = "军队：%d 支 · %d 团 · %d 人\n可用人力：%d / %d\n每月恢复：+%d 人\n月度维护：%s 金币" % [info.army_count, info.regiment_count, info.strength, info.manpower.available, info.manpower.capacity, info.manpower.monthly_recovery, info.monthly_maintenance]
+	summary_label.text = "军队：%d 支 · %d / %d 团 · %d 人\n可用人力：%d / %d\n每月恢复：+%d 人\n月度维护：%s 金币（基础 %s，超额 %s）" % [info.army_count, info.regiment_count, info.land_force_limit, info.strength, info.manpower.available, info.manpower.capacity, info.manpower.monthly_recovery, info.monthly_maintenance, info.base_maintenance, info.excess_maintenance]
 	tabs.set_tab_title(0, "军队 (%d)" % info.army_count)
 	tabs.set_tab_title(1, "招募 (%d)" % info.recruitment_count)
 	no_armies.visible = info.armies.is_empty()

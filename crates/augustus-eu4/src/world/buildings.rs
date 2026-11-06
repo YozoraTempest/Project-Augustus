@@ -15,6 +15,7 @@ struct PendingBuilding {
     cost: Option<Money>,
     months: Option<u32>,
     tax_modifier: Money,
+    land_forcelimit: Money,
     replaces: Option<String>,
     manufactory: bool,
     path: PathBuf,
@@ -41,6 +42,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
             let mut cost = None;
             let mut months = None;
             let mut tax_modifier = Money::ZERO;
+            let mut land_forcelimit = Money::ZERO;
             let mut replaces = None;
             let mut manufactory = false;
             for (key, operator, value) in object.fields() {
@@ -86,9 +88,16 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
                             .map_err(|error| Error::invalid(&file.path, error.to_string()))?
                             .fields()
                         {
-                            if key.read_str() == "local_tax_modifier" {
-                                script::equal(&file, operator, "local_tax_modifier")?;
-                                tax_modifier = decimal(&value, &file)?;
+                            match key.read_str().as_ref() {
+                                "local_tax_modifier" => {
+                                    script::equal(&file, operator, "local_tax_modifier")?;
+                                    tax_modifier = decimal(&value, &file)?;
+                                }
+                                "land_forcelimit" => {
+                                    script::equal(&file, operator, "land_forcelimit")?;
+                                    land_forcelimit = decimal(&value, &file)?;
+                                }
+                                _ => (),
                             }
                         }
                     }
@@ -99,6 +108,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
                 cost,
                 months,
                 tax_modifier,
+                land_forcelimit,
                 replaces,
                 manufactory,
                 path: file.path.clone(),
@@ -145,11 +155,62 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
                     cost,
                     months,
                     tax_modifier: pending.tax_modifier,
+                    land_forcelimit: pending.land_forcelimit,
                     replaces: pending.replaces,
                 },
             ))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use augustus_core::Money;
+
+    use crate::content::ContentRoot;
+
+    use super::load;
+
+    #[test]
+    fn reads_land_forcelimit_from_building_modifier() {
+        let root = std::env::temp_dir().join("augustus-eu4-building-limit");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("common/buildings")).unwrap();
+        fs::write(root.join("common/buildings/00_buildings.txt"), BUILDINGS).unwrap();
+        let buildings = load(&ContentRoot::new(&root)).unwrap();
+        assert_eq!(buildings["regimental_camp"].land_forcelimit, Money::from(1));
+        assert_eq!(
+            buildings["conscription_center"].land_forcelimit,
+            Money::from(2)
+        );
+        assert_eq!(
+            buildings["conscription_center"].replaces.as_deref(),
+            Some("regimental_camp")
+        );
+        assert_eq!(buildings["temple"].land_forcelimit, Money::ZERO);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    const BUILDINGS: &str = r#"
+        temple = {
+            cost = 100
+            time = 12
+            modifier = { local_tax_modifier = 0.4 }
+        }
+        regimental_camp = {
+            cost = 200
+            time = 12
+            modifier = { land_forcelimit = 1 }
+        }
+        conscription_center = {
+            cost = 400
+            time = 12
+            make_obsolete = regimental_camp
+            modifier = { land_forcelimit = 2 }
+        }
+    "#;
 }
 
 fn decimal(
