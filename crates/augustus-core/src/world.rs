@@ -74,6 +74,8 @@ impl World {
     ) -> Result<Self, WorldError> {
         if military_rules.infantry_cost < Money::ZERO
             || military_rules.infantry_days == 0
+            || !(Money::ZERO..=Money::ONE)
+                .contains(&military_rules.recruitment_full_refund_progress)
             || military_rules.land_maintenance_factor < Money::ZERO
             || military_rules.manpower.recovery_months == 0
             || military_rules.manpower.infantry_cost == 0

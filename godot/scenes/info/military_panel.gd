@@ -67,6 +67,8 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 		refund_label.visible = project.can_cancel
 		if project.can_cancel:
 			refund_label.text = "取消返还：%s 金币 · %d 人力" % [project.refund_cost, project.refund_manpower]
+			refund_label.tooltip_text = project.refund_rules
+			cancel_button.tooltip_text = project.refund_rules
 	garrison_label.text = "军队：无" if info.armies.is_empty() else "军队"
 	for child in armies_box.get_children():
 		armies_box.remove_child(child)

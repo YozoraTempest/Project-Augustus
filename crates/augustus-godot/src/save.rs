@@ -5,7 +5,7 @@ use std::{fs, path::Path};
 use augustus_core::{GameDate, MilitaryState, SavedGame};
 use serde::{Deserialize, Serialize};
 
-const SAVE_VERSION: u32 = 7;
+const SAVE_VERSION: u32 = 8;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SaveFile {

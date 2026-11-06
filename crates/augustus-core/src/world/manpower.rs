@@ -30,9 +30,7 @@ impl World {
         for (tag, country) in &mut self.countries {
             let capacity = capacities[tag];
             if let Some(pool) = &country.manpower {
-                if pool.available > capacity
-                    || pool.recovery_remainder >= self.military_rules.manpower.recovery_months
-                {
+                if pool.recovery_remainder >= self.military_rules.manpower.recovery_months {
                     return Err(WorldError::InvalidManpower(tag.clone()));
                 }
             } else {

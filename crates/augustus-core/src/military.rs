@@ -62,6 +62,8 @@ pub struct Recruitment {
 pub struct MilitaryRules {
     pub infantry_cost: Money,
     pub infantry_days: u32,
+    /// 取消招募时仍可全退金币的进度上界，恰好等于上界也全退。
+    pub recruitment_full_refund_progress: Money,
     pub land_maintenance_factor: Money,
     pub manpower: ManpowerRules,
 }
