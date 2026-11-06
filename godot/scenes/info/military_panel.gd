@@ -134,6 +134,7 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 			for index in army.regiments.size():
 				var regiment: Dictionary = army.regiments[index]
 				army_details.text += "\n第 %d 团：%s · %d 人" % [index + 1, regiment.kind, regiment.strength]
+			army_details.text += _supply_text(army)
 			army_details.show()
 
 
@@ -155,6 +156,16 @@ func _show_offer(offer: Dictionary, label: Label, button: Button, reason: Label)
 	button.tooltip_text = "" if offer.completes_on == null else "预计完成：%s" % offer.completes_on
 	reason.text = offer.reason
 	reason.visible = not str(offer.reason).is_empty()
+
+
+func _supply_text(army: Dictionary) -> String:
+	var supply = army.get("supply")
+	if supply == null:
+		return ""
+	var reason := "未超出补给，预计不减员"
+	if int(supply.regiment_count) > int(supply.supply_limit):
+		reason = "超出补给 %d 团，预计减少 %d 人" % [int(supply.regiment_count) - int(supply.supply_limit), int(supply.loss)]
+	return "\n下次补给：%s · %s\n补给上限 %d · 同省 %d 团\n%s" % [str(supply.date), str(supply.province_name), int(supply.supply_limit), int(supply.regiment_count), reason]
 
 
 func _composition_text(army: Dictionary) -> String:

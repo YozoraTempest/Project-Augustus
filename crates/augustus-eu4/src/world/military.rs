@@ -17,7 +17,8 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
     let mut refund_progress = None;
     let mut infantry_speed = None;
     let mut cavalry_speed = None;
-    // 基础 defines 使用数值字面量，只读取当前招募、取消、维护费和行军需要的字段。
+    let mut supply_base = None;
+    // 基础 defines 使用数值字面量，只读取当前招募、取消、维护费、行军和补给需要的字段。
     for line in text.lines() {
         let line = line.split("--").next().unwrap_or("");
         let Some((key, value)) = line.split_once('=') else {
@@ -34,6 +35,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
             "LAND_MAINTENANCE_FACTOR" => maintenance = Some(parse(value, &file.path, key)?),
             "INFANTRY_SPEED" => infantry_speed = Some(parse(value, &file.path, key)?),
             "CAVALRY_SPEED" => cavalry_speed = Some(parse(value, &file.path, key)?),
+            "SUPPLYLIMIT_BASE_MULTIPLIER" => supply_base = Some(parse(value, &file.path, key)?),
             _ => (),
         }
     }
@@ -55,8 +57,25 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
             &file.path,
             "REGAIN_COST_BEFORE_PROGRESS",
         )?,
+        supply_base: positive_whole(
+            required(supply_base, &file.path, "SUPPLYLIMIT_BASE_MULTIPLIER")?,
+            &file.path,
+        )?,
         manpower: super::manpower::load(content, &text)?,
     })
+}
+
+/// 原版写成 6.0；只接受能放进 u32 的正整数，小数部分必须为 0。
+fn positive_whole(value: Money, path: &Path) -> Result<u32, Error> {
+    u32::try_from(value)
+        .ok()
+        .filter(|_| value.is_integer() && value > Money::ZERO)
+        .ok_or_else(|| {
+            Error::invalid(
+                path,
+                "SUPPLYLIMIT_BASE_MULTIPLIER must be a positive whole number",
+            )
+        })
 }
 
 fn parse<T>(value: &str, path: &Path, key: &str) -> Result<T, Error>

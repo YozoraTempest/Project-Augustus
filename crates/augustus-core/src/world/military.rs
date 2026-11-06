@@ -287,6 +287,7 @@ mod tests {
             cavalry_speed: Money::from(2),
             recruitment_full_refund_progress: Money::new(1, 1),
             land_maintenance_factor: Money::from(1),
+            supply_base: 6,
             manpower: ManpowerRules {
                 base_capacity: 0,
                 per_development: 1_000,
@@ -308,6 +309,7 @@ mod tests {
             cavalry_speed: Money::from(1),
             recruitment_full_refund_progress: Money::new(1, 1),
             land_maintenance_factor: Money::ZERO,
+            supply_base: 6,
             manpower: ManpowerRules {
                 base_capacity: 20_000,
                 per_development: 0,

@@ -121,6 +121,8 @@ pub struct MilitaryRules {
     /// 取消招募时仍可全退金币的进度上界，恰好等于上界也全退。
     pub recruitment_full_refund_progress: Money,
     pub land_maintenance_factor: Money,
+    /// 省份补给上限的基础值，对应 defines 的 SUPPLYLIMIT_BASE_MULTIPLIER。
+    pub supply_base: u32,
     pub manpower: ManpowerRules,
 }
 

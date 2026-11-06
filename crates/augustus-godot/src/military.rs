@@ -61,6 +61,21 @@ pub(crate) fn army_info(
     info.set("position", crate::movement::anchor(world, army.province));
     info.set("strength", army.strength() as i64);
     info.set("regiment_count", army.regiments.len() as i64);
+    if let Some(forecast) = world.state().supply_forecast(army.id(), date) {
+        let mut supply = VarDictionary::new();
+        supply.set("date", forecast.on.to_string().as_str());
+        supply.set("province", i64::from(forecast.province));
+        supply.set(
+            "province_name",
+            world.province_name(forecast.province).as_str(),
+        );
+        supply.set("supply_limit", i64::from(forecast.supply_limit));
+        supply.set("regiment_count", i64::from(forecast.regiment_count));
+        supply.set("loss", i64::from(forecast.loss));
+        info.set("supply", &supply);
+    } else {
+        info.set("supply", &Variant::nil());
+    }
     info.set("composition", &composition(army));
     let mut regiments: Array<VarDictionary> = Array::new();
     for regiment in &army.regiments {
