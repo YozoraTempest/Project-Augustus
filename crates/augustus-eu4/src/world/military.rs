@@ -21,7 +21,9 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
     let mut cavalry_speed = None;
     let mut supply_base = None;
     let mut extra_cost = None;
-    // 基础 defines 使用数值字面量，只读取当前招募、取消、维护费、上限、行军和补给需要的字段。
+    let mut monthly_reinforce = None;
+    let mut reinforce_cost = None;
+    // 基础 defines 使用数值字面量，只读取当前招募、取消、维护费、补员、上限、行军和补给需要的字段。
     for line in text.lines() {
         let line = line.split("--").next().unwrap_or("");
         let Some((key, value)) = line.split_once('=') else {
@@ -39,6 +41,8 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
             "LAND_FORCELIMIT_EXTRA_COST_FACTOR" => {
                 extra_cost = Some(parse(value, &file.path, key)?)
             }
+            "MONTHLY_REINFORCE" => monthly_reinforce = Some(parse(value, &file.path, key)?),
+            "EXTRA_LAND_REINFORCE_COST" => reinforce_cost = Some(parse(value, &file.path, key)?),
             "INFANTRY_SPEED" => infantry_speed = Some(parse(value, &file.path, key)?),
             "CAVALRY_SPEED" => cavalry_speed = Some(parse(value, &file.path, key)?),
             "SUPPLYLIMIT_BASE_MULTIPLIER" => supply_base = Some(parse(value, &file.path, key)?),
@@ -55,6 +59,12 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
         infantry_cost: required(infantry_cost, &file.path, "INFANTRY_COST")?,
         cavalry_cost: required(cavalry_cost, &file.path, "CAVALRY_COST")?,
         land_maintenance_factor: required(maintenance, &file.path, "LAND_MAINTENANCE_FACTOR")?,
+        monthly_reinforce: required(monthly_reinforce, &file.path, "MONTHLY_REINFORCE")?,
+        extra_land_reinforce_cost: required(
+            reinforce_cost,
+            &file.path,
+            "EXTRA_LAND_REINFORCE_COST",
+        )?,
         infantry_days: required(infantry_days, &file.path, "INFANTRY_TIME")?,
         cavalry_days: required(cavalry_days, &file.path, "CAVALRY_TIME")?,
         infantry_speed: speed(infantry_speed, "INFANTRY_SPEED")?,
@@ -136,6 +146,8 @@ mod tests {
         assert_eq!(rules.base_land_forcelimit, Money::from(6));
         assert_eq!(rules.development_land_forcelimit, Money::new(1, 1));
         assert_eq!(rules.land_forcelimit_extra_cost_factor, Money::from(2));
+        assert_eq!(rules.monthly_reinforce, Money::new(1, 1));
+        assert_eq!(rules.extra_land_reinforce_cost, Money::from(2));
         assert_eq!(
             rules.goods_land_forcelimit.get("grain").copied(),
             Some(Money::new(5, 1))
@@ -154,6 +166,8 @@ mod tests {
         INFANTRY_TIME = 60,
         CAVALRY_TIME = 90,
         LAND_MAINTENANCE_FACTOR = 0.25,
+        MONTHLY_REINFORCE = 0.1,
+        EXTRA_LAND_REINFORCE_COST = 2,
         LAND_FORCELIMIT_EXTRA_COST_FACTOR = 2,
         SUPPLYLIMIT_BASE_MULTIPLIER = 6,
         INFANTRY_SPEED = 1,

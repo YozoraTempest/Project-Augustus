@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use rust_decimal::RoundingStrategy;
 use serde::{Deserialize, Serialize};
 
 use crate::{ArmyMovement, GameDate, ManpowerRules, Money};
@@ -121,6 +122,10 @@ pub struct MilitaryRules {
     /// 取消招募时仍可全退金币的进度上界，恰好等于上界也全退。
     pub recruitment_full_refund_progress: Money,
     pub land_maintenance_factor: Money,
+    /// 每团每月基础补员比例，来自 `MONTHLY_REINFORCE`。维护费滑条尚未接入，系数按满额计算。
+    pub monthly_reinforce: Money,
+    /// 补员费相对基础维护的倍数，来自 `EXTRA_LAND_REINFORCE_COST`。不乘超额维护。
+    pub extra_land_reinforce_cost: Money,
     /// 省份补给上限的基础值，对应 defines 的 SUPPLYLIMIT_BASE_MULTIPLIER。
     pub supply_base: u32,
     /// 有陆地领土的国家获得一次，来自 static modifier `base_values`。
@@ -171,6 +176,18 @@ impl MilitaryRules {
     /// 基础维护系数作用于招募费用，得到每团年费；月费在国家汇总后折算。
     pub fn annual_maintenance(&self, kind: UnitKind) -> Money {
         self.cost(kind) * self.land_maintenance_factor
+    }
+
+    /// 实际补上的人数一次性扣款。精确到千分之一金币，尾数舍去，不并入月度维护。
+    pub fn reinforcement_cost(&self, kind: UnitKind, men: u64) -> Money {
+        if men == 0 {
+            return Money::ZERO;
+        }
+        let amount =
+            self.extra_land_reinforce_cost * self.land_maintenance_factor * Money::from(men)
+                / Money::from(REGIMENT_STRENGTH)
+                * self.cost(kind);
+        amount.round_dp_with_strategy(3, RoundingStrategy::ToZero)
     }
 
     /// 超编超额年费加在全部基础军费上。取整上限为 0 时原公式不能相除，超额为零。

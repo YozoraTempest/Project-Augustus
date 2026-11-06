@@ -102,6 +102,23 @@ impl CountryFinances {
             excess_maintenance,
         });
     }
+
+    /// 下一次月初结算后的国库。日期只写入结算记录，不改变金额。
+    pub(crate) fn treasury_after_next_settlement(
+        &self,
+        annual_tax: Money,
+        annual_base_maintenance: Money,
+        annual_excess_maintenance: Money,
+    ) -> Money {
+        let mut finances = self.clone();
+        finances.settle(
+            annual_tax,
+            annual_base_maintenance,
+            annual_excess_maintenance,
+            GameDate::new(1444, 1, 1).expect("日期有效"),
+        );
+        finances.treasury()
+    }
 }
 
 fn monthly_amount(annual: Money, remainder: &mut Money) -> Money {

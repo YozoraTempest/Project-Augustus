@@ -135,6 +135,8 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 				var regiment: Dictionary = army.regiments[index]
 				army_details.text += "\n第 %d 团：%s · %d 人" % [index + 1, regiment.kind, regiment.strength]
 			army_details.text += _supply_text(army)
+			if army.has("reinforcement"):
+				army_details.text += "\n" + str(army.reinforcement)
 			army_details.show()
 
 

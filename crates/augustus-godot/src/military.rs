@@ -85,6 +85,9 @@ pub(crate) fn army_info(
         regiments.push(&details);
     }
     info.set("regiments", &regiments);
+    if let Some(reinforcement) = world.state().army_reinforcement_text(army.id(), date) {
+        info.set("reinforcement", reinforcement.as_str());
+    }
     if let Some(movement) = &army.movement {
         info.set("movement", &crate::movement::details(world, movement, date));
         info.set(
