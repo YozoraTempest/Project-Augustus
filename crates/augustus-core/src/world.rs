@@ -9,6 +9,7 @@ mod military;
 mod movement;
 mod organization;
 mod recruitment_cancellation;
+mod reinforcement;
 mod saved_state;
 mod supply;
 
@@ -86,6 +87,8 @@ impl World {
             || !(Money::ZERO..=Money::ONE)
                 .contains(&military_rules.recruitment_full_refund_progress)
             || military_rules.land_maintenance_factor < Money::ZERO
+            || military_rules.monthly_reinforce < Money::ZERO
+            || military_rules.extra_land_reinforce_cost < Money::ZERO
             || military_rules.manpower.recovery_months == 0
             || military_rules.manpower.infantry_cost == 0
             || military_rules.manpower.cavalry_cost == 0

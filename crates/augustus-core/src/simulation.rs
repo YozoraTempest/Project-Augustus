@@ -44,7 +44,9 @@ impl Simulation {
             // 先抵达再结算补给，当天完成的招募不计入这次损耗。
             world.complete_movements(date);
             if date.day() == 1 {
+                // 损耗先按抵达后的省份扣减兵力，再用本月恢复的人力补员。
                 world.settle_attrition(date);
+                world.reinforce_armies();
             }
             world.complete_recruitments(date);
         })

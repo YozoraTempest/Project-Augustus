@@ -79,6 +79,40 @@ impl World {
         }
     }
 
+    /// 下一次月初、抵达之后的逐团兵力。0 表示该团会因损耗解散。
+    pub(super) fn strengths_after_next_attrition(
+        &self,
+        date: GameDate,
+    ) -> Option<BTreeMap<u32, (u32, Vec<u32>)>> {
+        let on = next_supply_date(date)?;
+        let mut located = Vec::new();
+        for (&id, army) in &self.military.armies {
+            located.push((id, province_at(army, on), regiment_count_of(army)));
+        }
+        let mut occupation: BTreeMap<u32, u32> = BTreeMap::new();
+        for (_, province, count) in &located {
+            let entry = occupation.entry(*province).or_default();
+            *entry = entry.saturating_add(*count);
+        }
+        let mut result = BTreeMap::new();
+        for (id, province, _) in located {
+            let army = &self.military.armies[&id];
+            let limit = self.land_supply_limit(province);
+            let total = occupation[&province];
+            let strengths = army
+                .regiments
+                .iter()
+                .map(|regiment| {
+                    let loss =
+                        limit.map_or(0, |limit| regiment_loss(regiment.strength, total, limit));
+                    regiment.strength.saturating_sub(loss)
+                })
+                .collect();
+            result.insert(id, (province, strengths));
+        }
+        Some(result)
+    }
+
     fn land_supply_limit(&self, province: u32) -> Option<u32> {
         let province = self.province(province)?;
         (province.kind == ProvinceKind::Land).then(|| {
@@ -182,6 +216,8 @@ mod tests {
             cavalry_speed: Money::from(1),
             recruitment_full_refund_progress: Money::new(1, 1),
             land_maintenance_factor: Money::ZERO,
+            monthly_reinforce: Money::ZERO,
+            extra_land_reinforce_cost: Money::ZERO,
             supply_base,
             base_land_forcelimit: Money::ZERO,
             development_land_forcelimit: Money::ZERO,
