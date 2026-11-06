@@ -21,7 +21,7 @@ func open_for_army(backend: AugustusMap, army_id: int) -> String:
 		return info.error
 	# 固定本次确认的军队编号，防止界面刷新后误操作另一支军队。
 	_army_id = army_id
-	dialog_text = "%s\n驻扎：%s\n解散：%d 团 · %d 人\n月度维护费减少：%s 金币\n返还人力：%d 人\n招募费用不返还" % [info.name, info.province_name, info.regiment_count, info.strength, info.monthly_maintenance, info.manpower_returned]
+	dialog_text = "%s\n驻扎：%s\n解散：%d 团 · %d 人\n全国月度维护费减少：%s 金币\n返还人力：%d 人\n招募费用不返还" % [info.name, info.province_name, info.regiment_count, info.strength, info.monthly_maintenance, info.manpower_returned]
 	_was_paused = get_tree().paused
 	_opened = true
 	get_tree().paused = true

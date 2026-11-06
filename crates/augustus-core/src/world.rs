@@ -9,7 +9,9 @@ mod military;
 mod movement;
 mod organization;
 mod recruitment_cancellation;
+mod reinforcement;
 mod saved_state;
+mod supply;
 
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
@@ -17,6 +19,8 @@ use crate::{
     BuildingDefinition, Country, LandConnection, MilitaryRules, MilitaryState, Money, Province,
     ProvinceKind,
 };
+
+pub use supply::SupplyForecast;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorldError {
@@ -38,6 +42,8 @@ pub enum WorldError {
     MissingBaseTax(u32),
     #[error("owned active province {0} has no base manpower")]
     MissingBaseManpower(u32),
+    #[error("owned active province {0} has no base production")]
+    MissingBaseProduction(u32),
     #[error("invalid manpower reserve: {0}")]
     InvalidManpower(String),
     #[error("invalid or duplicate building definition: {0}")]
@@ -81,9 +87,12 @@ impl World {
             || !(Money::ZERO..=Money::ONE)
                 .contains(&military_rules.recruitment_full_refund_progress)
             || military_rules.land_maintenance_factor < Money::ZERO
+            || military_rules.monthly_reinforce < Money::ZERO
+            || military_rules.extra_land_reinforce_cost < Money::ZERO
             || military_rules.manpower.recovery_months == 0
             || military_rules.manpower.infantry_cost == 0
             || military_rules.manpower.cavalry_cost == 0
+            || military_rules.supply_base == 0
         {
             return Err(WorldError::InvalidMilitaryRules);
         }
@@ -161,11 +170,13 @@ impl World {
             if province.annual_tax().is_none() {
                 return Err(WorldError::MissingBaseTax(id));
             }
-            if province.kind == ProvinceKind::Land
-                && province.owner.is_some()
-                && province.development.manpower.is_none()
-            {
-                return Err(WorldError::MissingBaseManpower(id));
+            if province.kind == ProvinceKind::Land && province.owner.is_some() {
+                if province.development.manpower.is_none() {
+                    return Err(WorldError::MissingBaseManpower(id));
+                }
+                if province.development.production.is_none() {
+                    return Err(WorldError::MissingBaseProduction(id));
+                }
             }
         }
         let mut land_routes: BTreeMap<u32, BTreeMap<u32, u32>> = BTreeMap::new();

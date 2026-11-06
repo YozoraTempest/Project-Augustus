@@ -7,6 +7,7 @@ mod anchors;
 mod bitmap;
 mod config;
 mod definitions;
+pub(crate) mod indexed;
 
 use std::{
     collections::{BTreeMap, BTreeSet},

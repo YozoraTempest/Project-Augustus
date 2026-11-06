@@ -26,6 +26,9 @@ pub struct Province {
     pub development: Development,
     pub buildings: BTreeSet<String>,
     pub construction: Option<Construction>,
+    /// 地形提供的补给加成来自地图内容，不随存档变化；读档时由当前内容重新填入。
+    #[serde(skip)]
+    pub terrain_supply: u32,
 }
 
 impl Province {
@@ -40,6 +43,7 @@ impl Province {
             development: Development::default(),
             buildings: BTreeSet::new(),
             construction: None,
+            terrain_supply: 0,
         }
     }
 

@@ -22,6 +22,11 @@ impl World {
         {
             return Err(SaveError::IncompatibleContent);
         }
+        let mut provinces = provinces;
+        for (id, province) in &mut provinces {
+            // 地形是地图内容。旧档没有该字段，也不能让存档里的副本覆盖当前内容。
+            province.terrain_supply = self.provinces[id].terrain_supply;
+        }
         let restored = Self::new(
             countries,
             provinces,

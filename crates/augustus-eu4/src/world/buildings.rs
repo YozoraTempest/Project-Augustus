@@ -15,6 +15,9 @@ struct PendingBuilding {
     cost: Option<Money>,
     months: Option<u32>,
     tax_modifier: Money,
+    land_forcelimit: Money,
+    local_regiment_cost: Money,
+    regiment_recruit_speed: Money,
     replaces: Option<String>,
     manufactory: bool,
     path: PathBuf,
@@ -41,6 +44,9 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
             let mut cost = None;
             let mut months = None;
             let mut tax_modifier = Money::ZERO;
+            let mut land_forcelimit = Money::ZERO;
+            let mut local_regiment_cost = Money::ZERO;
+            let mut regiment_recruit_speed = Money::ZERO;
             let mut replaces = None;
             let mut manufactory = false;
             for (key, operator, value) in object.fields() {
@@ -86,9 +92,24 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
                             .map_err(|error| Error::invalid(&file.path, error.to_string()))?
                             .fields()
                         {
-                            if key.read_str() == "local_tax_modifier" {
-                                script::equal(&file, operator, "local_tax_modifier")?;
-                                tax_modifier = decimal(&value, &file)?;
+                            match key.read_str().as_ref() {
+                                "local_tax_modifier" => {
+                                    script::equal(&file, operator, "local_tax_modifier")?;
+                                    tax_modifier = decimal(&value, &file)?;
+                                }
+                                "land_forcelimit" => {
+                                    script::equal(&file, operator, "land_forcelimit")?;
+                                    land_forcelimit = decimal(&value, &file)?;
+                                }
+                                "local_regiment_cost" => {
+                                    script::equal(&file, operator, "local_regiment_cost")?;
+                                    local_regiment_cost = decimal(&value, &file)?;
+                                }
+                                "regiment_recruit_speed" => {
+                                    script::equal(&file, operator, "regiment_recruit_speed")?;
+                                    regiment_recruit_speed = decimal(&value, &file)?;
+                                }
+                                _ => (),
                             }
                         }
                     }
@@ -99,6 +120,9 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
                 cost,
                 months,
                 tax_modifier,
+                land_forcelimit,
+                local_regiment_cost,
+                regiment_recruit_speed,
                 replaces,
                 manufactory,
                 path: file.path.clone(),
@@ -145,11 +169,97 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
                     cost,
                     months,
                     tax_modifier: pending.tax_modifier,
+                    land_forcelimit: pending.land_forcelimit,
+                    local_regiment_cost: pending.local_regiment_cost,
+                    regiment_recruit_speed: pending.regiment_recruit_speed,
                     replaces: pending.replaces,
                 },
             ))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use augustus_core::Money;
+
+    use crate::content::ContentRoot;
+
+    use super::load;
+
+    #[test]
+    fn reads_land_forcelimit_from_building_modifier() {
+        let root = std::env::temp_dir().join("augustus-eu4-building-limit");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("common/buildings")).unwrap();
+        fs::write(root.join("common/buildings/00_buildings.txt"), BUILDINGS).unwrap();
+        let buildings = load(&ContentRoot::new(&root)).unwrap();
+        assert_eq!(buildings["regimental_camp"].land_forcelimit, Money::from(1));
+        assert_eq!(
+            buildings["conscription_center"].land_forcelimit,
+            Money::from(2)
+        );
+        assert_eq!(
+            buildings["conscription_center"].replaces.as_deref(),
+            Some("regimental_camp")
+        );
+        assert_eq!(buildings["temple"].land_forcelimit, Money::ZERO);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    const BUILDINGS: &str = r#"
+        temple = {
+            cost = 100
+            time = 12
+            modifier = { local_tax_modifier = 0.4 }
+        }
+        regimental_camp = {
+            cost = 200
+            time = 12
+            modifier = { land_forcelimit = 1 }
+        }
+        conscription_center = {
+            cost = 400
+            time = 12
+            make_obsolete = regimental_camp
+            modifier = { land_forcelimit = 2 }
+        }
+    "#;
+
+    #[test]
+    fn reads_regiment_modifiers_from_building_blocks() {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "augustus-buildings-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(root.join("common/buildings")).unwrap();
+        fs::write(
+            root.join("common/buildings/00_buildings.txt"),
+            "\
+temple = {
+    cost = 100
+    time = 12
+    modifier = {
+        local_tax_modifier = 0.40
+        local_regiment_cost = -0.10
+        regiment_recruit_speed = -0.20
+    }
+}
+",
+        )
+        .unwrap();
+        let loaded = super::load(&ContentRoot::new(&root));
+        let _ = fs::remove_dir_all(&root);
+        let temple = &loaded.unwrap()["temple"];
+        assert_eq!(temple.local_regiment_cost, Money::new(-1, 1));
+        assert_eq!(temple.regiment_recruit_speed, Money::new(-2, 1));
+        assert_eq!(temple.tax_modifier, Money::new(4, 1));
+    }
 }
 
 fn decimal(

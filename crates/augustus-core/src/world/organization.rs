@@ -13,15 +13,13 @@ impl World {
         id: u32,
     ) -> Result<ArmyDisbandQuote, ArmyOrganizationError> {
         let army = self.stationary_army(country, id)?;
-        let annual: Money = army
-            .regiments
-            .iter()
-            .map(|regiment| self.military_rules.annual_maintenance(regiment.kind))
-            .sum();
+        let before = self.country_army_cost(country, None);
+        let after = self.country_army_cost(country, Some(id));
         Ok(ArmyDisbandQuote {
             regiment_count: army.regiments.len(),
             strength: army.strength(),
-            monthly_maintenance: annual / Money::from(12),
+            // 超编时减少一团还会降低其余部队的系数，所以按全国年费差额折成月费。
+            monthly_maintenance: (before.total_annual() - after.total_annual()) / Money::from(12),
             // 基础规则不返还人力；原版返还能力依赖尚未实现的陆军职业度。
             manpower_returned: 0,
         })

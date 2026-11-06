@@ -61,6 +61,21 @@ pub(crate) fn army_info(
     info.set("position", crate::movement::anchor(world, army.province));
     info.set("strength", army.strength() as i64);
     info.set("regiment_count", army.regiments.len() as i64);
+    if let Some(forecast) = world.state().supply_forecast(army.id(), date) {
+        let mut supply = VarDictionary::new();
+        supply.set("date", forecast.on.to_string().as_str());
+        supply.set("province", i64::from(forecast.province));
+        supply.set(
+            "province_name",
+            world.province_name(forecast.province).as_str(),
+        );
+        supply.set("supply_limit", i64::from(forecast.supply_limit));
+        supply.set("regiment_count", i64::from(forecast.regiment_count));
+        supply.set("loss", i64::from(forecast.loss));
+        info.set("supply", &supply);
+    } else {
+        info.set("supply", &Variant::nil());
+    }
     info.set("composition", &composition(army));
     let mut regiments: Array<VarDictionary> = Array::new();
     for regiment in &army.regiments {
@@ -70,6 +85,9 @@ pub(crate) fn army_info(
         regiments.push(&details);
     }
     info.set("regiments", &regiments);
+    if let Some(reinforcement) = world.state().army_reinforcement_text(army.id(), date) {
+        info.set("reinforcement", reinforcement.as_str());
+    }
     if let Some(movement) = &army.movement {
         info.set("movement", &crate::movement::details(world, movement, date));
         info.set(
@@ -110,21 +128,20 @@ fn unit_offer(
     kind: UnitKind,
 ) -> VarDictionary {
     let state = world.state();
-    let rules = state.military_rules();
+    let manpower_cost = state.military_rules().manpower_cost(kind);
+    let (cost, days) = state.recruitment_terms(id, kind);
     let mut offer = VarDictionary::new();
     offer.set("kind_id", kind.id());
     offer.set("kind", unit_label(kind));
-    money(&mut offer, "cost", Some(rules.cost(kind)));
-    offer.set("manpower_cost", rules.manpower_cost(kind) as i64);
-    offer.set("days", i64::from(rules.recruitment_days(kind)));
+    money(&mut offer, "cost", Some(cost));
+    offer.set("manpower_cost", manpower_cost as i64);
+    offer.set("days", i64::from(days));
     offer.set("strength", i64::from(REGIMENT_STRENGTH));
     let quoted = player.map(|country| state.quote_recruitment(country, id, kind, date));
-    // 报价成功时，完成日包含本省已有队列的等待；尚未开局时仍显示该兵种的基础工期。
+    // 报价成功时，完成日包含本省已有队列的等待。尚未开局时从当天起算本单工期。
     let completes_on = match &quoted {
         Some(Ok(quote)) => Some(quote.completes_on.to_string()),
-        None => date
-            .checked_add_days(rules.recruitment_days(kind))
-            .map(|date| date.to_string()),
+        None => date.checked_add_days(days).map(|date| date.to_string()),
         Some(Err(_)) => None,
     };
     text(&mut offer, "completes_on", completes_on.as_deref());
