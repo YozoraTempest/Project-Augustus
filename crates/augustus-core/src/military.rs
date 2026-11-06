@@ -147,7 +147,7 @@ pub enum RecruitmentError {
     UnknownOrder,
     #[error("只能取消本国的招募")]
     NotPlayerRecruitment,
-    #[error("该招募已完成或尚未开始，无法取消")]
+    #[error("该招募已完成，无法取消")]
     RecruitmentNotActive,
     #[error("国库不足，需要 {cost} 金币，当前有 {available} 金币")]
     InsufficientFunds { cost: Money, available: Money },
