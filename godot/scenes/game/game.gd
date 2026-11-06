@@ -19,6 +19,7 @@ const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 @onready var save_dialog: GameSaveDialog = $SaveDialog
 @onready var save_error_dialog: AcceptDialog = $SaveError
 @onready var disband_dialog: ConfirmationDialog = $DisbandArmyDialog
+@onready var war_dialog: ConfirmationDialog = $DeclareWarDialog
 
 var backend: AugustusMap
 
@@ -42,7 +43,9 @@ func _ready() -> void:
 	info_panel.armies_merge_requested.connect(_merge_armies)
 	info_panel.army_split_requested.connect(_split_army)
 	info_panel.army_disband_requested.connect(_open_disband_dialog)
+	info_panel.war_declare_requested.connect(_open_war_dialog)
 	disband_dialog.army_disband_requested.connect(_disband_army)
+	war_dialog.confirmed_war.connect(_declare_war)
 	GameSession.clock_changed.connect(func(): _refresh_selection(false))
 	GameSession.world_changed.connect(func(): _refresh_selection(false))
 	map_view.projection_changed.connect(func(_projection: MapMode.ViewType): _refresh_projection())
@@ -129,7 +132,13 @@ func _refresh_selection(select_tab: bool = true) -> void:
 		info_panel.tabs.current_tab = 3 if not army.is_empty() else (1 if map_view.mode == MapMode.Type.COUNTRY else 0)
 	if not army.is_empty():
 		var location := "驻扎 " + str(army.province_name) if army.movement == null else "行军至 %s · 剩余 %d 天" % [army.movement.destination_name, army.movement.days_remaining]
-		selection_label.text = "%s · %d 人 · %s" % [army.name, army.strength, location]
+		var relation := ""
+		match str(army.get("stance", "neutral")):
+			"own":
+				relation = "我方 · "
+			"enemy":
+				relation = "敌方 · "
+		selection_label.text = "%s%s · %d 人 · %s" % [relation, army.name, army.strength, location]
 	elif map_view.mode == MapMode.Type.COUNTRY:
 		selection_label.text = "未选择国家" if country_info.is_empty() else "国家：%s (%s)" % [country_info.name, country_info.tag]
 	elif province_id == 0:
@@ -190,6 +199,20 @@ func _split_army(army_id: int, count: int) -> void:
 		info_panel.show_organization_error(result.error)
 		return
 	map_view.select_army(result.army_id)
+
+
+func _open_war_dialog(tag: String) -> void:
+	var error: String = war_dialog.open_for_country(backend, tag)
+	if not error.is_empty():
+		info_panel.show_war_error(error)
+
+
+func _declare_war(tag: String) -> void:
+	var error := GameSession.declare_war(tag)
+	_refresh_selection(false)
+	info_panel.tabs.current_tab = 1
+	if not error.is_empty():
+		info_panel.show_war_error(error)
 
 
 func _open_disband_dialog(army_id: int) -> void:

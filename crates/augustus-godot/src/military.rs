@@ -8,6 +8,14 @@ use godot::prelude::*;
 
 use crate::info::{money, text};
 
+fn stance(world: &OpeningWorld, player: Option<&str>, country: &str) -> &'static str {
+    match player {
+        Some(player) if player == country => "own",
+        Some(player) if world.state().at_war(player, country) => "enemy",
+        _ => "neutral",
+    }
+}
+
 pub(crate) fn unit_label(kind: UnitKind) -> &'static str {
     match kind {
         UnitKind::Infantry => "步兵",
@@ -55,6 +63,7 @@ pub(crate) fn army_info(
     info.set("name", army_name(world, army).as_str());
     info.set("country", army.country.as_str());
     info.set("can_command", player == Some(army.country.as_str()));
+    info.set("stance", stance(world, player, &army.country));
     info.set("country_name", world.display_name(&army.country).as_str());
     info.set("province", i64::from(army.province));
     info.set("province_name", world.province_name(army.province).as_str());
@@ -102,12 +111,7 @@ pub(crate) fn army_info(
         .land_neighbors(army.province)
         .into_iter()
         .flatten()
-        .filter(|(id, _)| {
-            world.state().province(**id).is_some_and(|province| {
-                province.owner.as_deref() == Some(&army.country)
-                    && province.controller.as_deref() == Some(&army.country)
-            })
-        })
+        .filter(|(id, _)| world.state().can_enter(&army.country, **id))
         .map(|(&id, &distance)| {
             let days = MilitaryRules::travel_days(
                 distance,
@@ -208,6 +212,7 @@ pub(crate) fn recruitment_details(
     details.set("province_name", world.province_name(province).as_str());
     details.set("queued", date < project.started_on);
     details.set("country", project.country.as_str());
+    details.set("stance", stance(world, player, &project.country));
     details.set("kind", unit_label(project.kind));
     details.set("kind_id", project.kind.id());
     details.set("started_on", project.started_on.to_string().as_str());

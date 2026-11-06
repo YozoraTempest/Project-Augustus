@@ -5,7 +5,8 @@ use std::{collections::BTreeMap, time::Duration};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Country, GameClock, GameDate, GameSpeed, MilitaryState, Province, Simulation, World, WorldError,
+    Country, GameClock, GameDate, GameSpeed, MilitaryState, Province, Simulation, WarState, World,
+    WorldError,
 };
 
 /// 只保存可变模拟状态；地图、建筑规则和本地化仍从游戏内容载入。
@@ -16,6 +17,9 @@ pub struct SavedGame {
     countries: Vec<Country>,
     provinces: BTreeMap<u32, Province>,
     military: MilitaryState,
+    // 旧档没有战争字段，读入后视为尚未宣战。
+    #[serde(default)]
+    wars: WarState,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,6 +48,8 @@ pub enum SaveError {
     InvalidConstruction(u32),
     #[error("存档中的军队、行军、招募项目或军队编号无效")]
     InvalidMilitary,
+    #[error("存档中的战争状态无效")]
+    InvalidWar,
     #[error("存档中的世界状态无效：{0}")]
     InvalidWorld(#[from] WorldError),
 }
@@ -61,6 +67,7 @@ impl SavedGame {
             countries: world.countries().values().cloned().collect(),
             provinces: world.provinces().clone(),
             military: world.military().clone(),
+            wars: world.clone_wars(),
         }
     }
 
@@ -70,6 +77,8 @@ impl SavedGame {
             .filter(|_| self.clock.progress_nanos < 1_000_000_000)
             .ok_or(SaveError::InvalidClock)?;
         let mut world = content.restore_state(self.countries, self.provinces, self.clock.date)?;
+        // 行军是否合法依赖战争关系，必须先恢复战争。
+        world.restore_wars(self.wars, self.clock.date)?;
         world.restore_military(self.military, self.clock.date)?;
         if world.country(&self.player_country).is_none() {
             return Err(SaveError::UnknownPlayer);

@@ -36,15 +36,13 @@ impl World {
         if army.movement.is_none() && army.province == destination {
             return Err(MovementError::SameProvince);
         }
-        let target = self
-            .province(destination)
-            .filter(|province| {
-                self.active_provinces.contains(&destination) && province.kind == ProvinceKind::Land
-            })
-            .ok_or(MovementError::InvalidDestination)?;
-        if target.owner.as_deref() != Some(country) || target.controller.as_deref() != Some(country)
-        {
-            return Err(MovementError::NotOwnedAndControlled);
+        if !self.province(destination).is_some_and(|province| {
+            self.active_provinces.contains(&destination) && province.kind == ProvinceKind::Land
+        }) {
+            return Err(MovementError::InvalidDestination);
+        }
+        if !self.can_enter(country, destination) {
+            return Err(MovementError::NoAccess);
         }
         // 改道从当前路段的终点开始，原路段的出发与抵达日期保持不变。
         let (from, mut started_on) =
@@ -127,31 +125,53 @@ impl World {
     }
 
     pub(crate) fn complete_movements(&mut self, date: GameDate) {
-        for army in self.military.armies.values_mut() {
-            while army
-                .movement
-                .as_ref()
-                .is_some_and(|movement| movement.current_leg().arrives_on <= date)
-            {
-                let movement = army.movement.as_mut().expect("行军已到期");
-                army.province = movement.current_leg().to;
-                if movement.leg_index + 1 == movement.legs.len() {
+        let ids: Vec<u32> = self.military.armies.keys().copied().collect();
+        for id in ids {
+            while let Some(army) = self.military.armies.get(&id) {
+                let Some(movement) = army.movement.as_ref() else {
+                    break;
+                };
+                if movement.current_leg().arrives_on > date {
+                    break;
+                }
+                let to = movement.current_leg().to;
+                let finished = movement.leg_index + 1 == movement.legs.len();
+                let country = army.country.clone();
+                // 抵达边界时再判断一次。不能进入就停在当前省份，不把后续路段继续走完。
+                if !self.can_enter(&country, to) {
+                    self.military
+                        .armies
+                        .get_mut(&id)
+                        .expect("行军军队存在")
+                        .movement = None;
+                    break;
+                }
+                let army = self.military.armies.get_mut(&id).expect("行军军队存在");
+                army.province = to;
+                if finished {
                     // 最终抵达才结束命令；途经省份不驻留，也不合并其他军队。
                     army.movement = None;
                 } else {
-                    movement.leg_index += 1;
+                    army.movement.as_mut().expect("行军尚未结束").leg_index += 1;
                 }
             }
         }
     }
 
-    fn can_enter(&self, country: &str, province: u32) -> bool {
-        self.active_provinces.contains(&province)
-            && self.province(province).is_some_and(|province| {
-                province.kind == ProvinceKind::Land
-                    && province.owner.as_deref() == Some(country)
-                    && province.controller.as_deref() == Some(country)
-            })
+    /// 本国当前控制的陆地，以及交战国拥有的陆地。中立国和无主土地不可进入。
+    pub fn can_enter(&self, country: &str, province: u32) -> bool {
+        let Some(province_state) = self.province(province).filter(|province_state| {
+            self.active_provinces.contains(&province) && province_state.kind == ProvinceKind::Land
+        }) else {
+            return false;
+        };
+        let Some(owner) = province_state.owner.as_deref() else {
+            return false;
+        };
+        if owner == country {
+            return province_state.controller.as_deref() == Some(country);
+        }
+        self.at_war(country, owner)
     }
 
     fn commanded_army(&self, country: &str, id: u32) -> Result<&Army, MovementError> {

@@ -32,8 +32,17 @@ func show_armies(armies: Array[Dictionary]) -> void:
 			_buttons[id] = button
 		var button: Button = _buttons[id]
 		button.set_meta("province", army.province)
-		button.text = "%s %s · %d" % ["→" if army.movement != null else "军", army.country, army.strength]
-		button.tooltip_text = "%s\n%s · %d 团 · %d 人" % [army.name, army.province_name, army.regiment_count, army.strength]
+		var relation := "中立"
+		var mark := ""
+		match str(army.get("stance", "neutral")):
+			"own":
+				relation = "我方"
+				mark = "我 "
+			"enemy":
+				relation = "敌方 · 只可查看"
+				mark = "敌 "
+		button.text = "%s%s %s · %d" % [mark, "→" if army.movement != null else "军", army.country, army.strength]
+		button.tooltip_text = "%s\n%s\n%s · %d 团 · %d 人" % [relation, army.name, army.province_name, army.regiment_count, army.strength]
 		button.add_theme_color_override("font_color", Color.WHITE.lerp(army.color, 0.35))
 		button.set_pressed_no_signal(id == _selected)
 		button.reset_size()
