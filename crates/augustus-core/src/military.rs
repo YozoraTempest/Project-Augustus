@@ -121,6 +121,8 @@ pub struct MilitaryRules {
     /// 取消招募时仍可全退金币的进度上界，恰好等于上界也全退。
     pub recruitment_full_refund_progress: Money,
     pub land_maintenance_factor: Money,
+    /// 省份补给上限的基础值，对应 defines 的 SUPPLYLIMIT_BASE_MULTIPLIER。
+    pub supply_base: u32,
     /// 有陆地领土的国家获得一次，来自 static modifier `base_values`。
     pub base_land_forcelimit: Money,
     /// 本国每点发展度提供的陆军上限，来自 static modifier `development`，不按自治度折减。

@@ -10,6 +10,7 @@ mod movement;
 mod organization;
 mod recruitment_cancellation;
 mod saved_state;
+mod supply;
 
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
@@ -17,6 +18,8 @@ use crate::{
     BuildingDefinition, Country, LandConnection, MilitaryRules, MilitaryState, Money, Province,
     ProvinceKind,
 };
+
+pub use supply::SupplyForecast;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorldError {
@@ -86,6 +89,7 @@ impl World {
             || military_rules.manpower.recovery_months == 0
             || military_rules.manpower.infantry_cost == 0
             || military_rules.manpower.cavalry_cost == 0
+            || military_rules.supply_base == 0
         {
             return Err(WorldError::InvalidMilitaryRules);
         }

@@ -172,6 +172,7 @@ mod tests {
             cavalry_speed: Money::from(1),
             recruitment_full_refund_progress: Money::new(1, 1),
             land_maintenance_factor: Money::from(1),
+            supply_base: 6,
             base_land_forcelimit: Money::from(base),
             development_land_forcelimit: per_development,
             land_forcelimit_extra_cost_factor: Money::from(2),

@@ -186,8 +186,13 @@ func select_army(id: int) -> void:
 
 
 func refresh_armies() -> void:
-	if _backend != null:
-		army_markers.show_armies(_backend.get_army_markers())
+	if _backend == null:
+		return
+	army_markers.show_armies(_backend.get_army_markers())
+	# 月初损耗可能删掉整支军队。只清除选择，不发出 selection_changed，避免和信息面板循环刷新。
+	if selected_army != 0 and _backend.get_army_info(selected_army).is_empty():
+		selected_army = 0
+		army_markers.select_army(0)
 
 
 func project_marker(pixel: Vector2) -> Vector2:

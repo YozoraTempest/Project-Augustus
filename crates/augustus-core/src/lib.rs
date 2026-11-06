@@ -30,4 +30,4 @@ pub use rust_decimal::Decimal as Money;
 pub use save::{RestoredGame, SaveError, SavedGame};
 pub use simulation::Simulation;
 pub use time::{GameClock, GameDate, GameSpeed};
-pub use world::{World, WorldError};
+pub use world::{SupplyForecast, World, WorldError};

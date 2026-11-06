@@ -11,6 +11,7 @@ mod localisation;
 mod manpower;
 mod military;
 mod navigation;
+mod terrain;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -53,6 +54,7 @@ impl OpeningWorld {
             .map(|&id| (id, Province::new(ProvinceKind::Land)))
             .collect();
         geography::apply(&content, &mut provinces)?;
+        terrain::apply(&content, &map, &mut provinces)?;
         let country_history_conflicts = history::apply_countries(&content, &mut countries.states)?;
         let histories =
             history::apply_provinces(&content, &countries.colors, &mut provinces, &buildings)?;

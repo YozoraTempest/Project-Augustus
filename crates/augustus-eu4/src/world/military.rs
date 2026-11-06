@@ -19,8 +19,9 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
     let mut refund_progress = None;
     let mut infantry_speed = None;
     let mut cavalry_speed = None;
+    let mut supply_base = None;
     let mut extra_cost = None;
-    // 基础 defines 使用数值字面量，只读取当前招募、取消、维护费、上限和行军需要的字段。
+    // 基础 defines 使用数值字面量，只读取当前招募、取消、维护费、上限、行军和补给需要的字段。
     for line in text.lines() {
         let line = line.split("--").next().unwrap_or("");
         let Some((key, value)) = line.split_once('=') else {
@@ -40,6 +41,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
             }
             "INFANTRY_SPEED" => infantry_speed = Some(parse(value, &file.path, key)?),
             "CAVALRY_SPEED" => cavalry_speed = Some(parse(value, &file.path, key)?),
+            "SUPPLYLIMIT_BASE_MULTIPLIER" => supply_base = Some(parse(value, &file.path, key)?),
             _ => (),
         }
     }
@@ -62,6 +64,10 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
             &file.path,
             "REGAIN_COST_BEFORE_PROGRESS",
         )?,
+        supply_base: positive_whole(
+            required(supply_base, &file.path, "SUPPLYLIMIT_BASE_MULTIPLIER")?,
+            &file.path,
+        )?,
         base_land_forcelimit: limits.base,
         development_land_forcelimit: limits.per_development,
         land_forcelimit_extra_cost_factor: required(
@@ -72,6 +78,19 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
         goods_land_forcelimit: limits.goods,
         manpower: super::manpower::load(content, &text)?,
     })
+}
+
+/// 原版写成 6.0；只接受能放进 u32 的正整数，小数部分必须为 0。
+fn positive_whole(value: Money, path: &Path) -> Result<u32, Error> {
+    u32::try_from(value)
+        .ok()
+        .filter(|_| value.is_integer() && value > Money::ZERO)
+        .ok_or_else(|| {
+            Error::invalid(
+                path,
+                "SUPPLYLIMIT_BASE_MULTIPLIER must be a positive whole number",
+            )
+        })
 }
 
 fn parse<T>(value: &str, path: &Path, key: &str) -> Result<T, Error>
@@ -113,6 +132,7 @@ mod tests {
         fs::write(root.join("common/tradegoods/00_tradegoods.txt"), GOODS).unwrap();
 
         let rules = load(&ContentRoot::new(&root)).unwrap();
+        assert_eq!(rules.supply_base, 6);
         assert_eq!(rules.base_land_forcelimit, Money::from(6));
         assert_eq!(rules.development_land_forcelimit, Money::new(1, 1));
         assert_eq!(rules.land_forcelimit_extra_cost_factor, Money::from(2));
@@ -135,6 +155,7 @@ mod tests {
         CAVALRY_TIME = 90,
         LAND_MAINTENANCE_FACTOR = 0.25,
         LAND_FORCELIMIT_EXTRA_COST_FACTOR = 2,
+        SUPPLYLIMIT_BASE_MULTIPLIER = 6,
         INFANTRY_SPEED = 1,
         CAVALRY_SPEED = 2,
         BASE_MP_TO_MANPOWER = 0.25,
