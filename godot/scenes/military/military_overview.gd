@@ -48,15 +48,17 @@ func refresh() -> void:
 		button.tooltip_text = button.text
 		armies_box.move_child(button, army_ids.size() - 1)
 	_remove_missing(armies_box, _army_rows, army_ids)
-	var provinces: Array[int] = []
+	var order_ids: Array[int] = []
 	for project: Dictionary in info.recruitments:
+		var order_id: int = project.id
 		var province: int = project.province
-		provinces.append(province)
-		var button := _row(recruitments_box, _recruitment_rows, province, func(): recruitment_selected.emit(province))
-		button.text = "%s · %s\n进度：%d%% · 剩余 %d 天\n完成：%s" % [project.province_name, project.kind, roundi(project.progress), project.days_remaining, project.completes_on]
+		order_ids.append(order_id)
+		var button := _row(recruitments_box, _recruitment_rows, order_id, func(): recruitment_selected.emit(province))
+		var phase := "排队" if project.queued else "正在招募"
+		button.text = "%s · %s #%d · %s\n进度：%d%% · 剩余 %d 天\n完成：%s" % [project.province_name, project.kind, order_id, phase, roundi(project.progress), project.days_remaining, project.completes_on]
 		button.tooltip_text = button.text
-		recruitments_box.move_child(button, provinces.size() - 1)
-	_remove_missing(recruitments_box, _recruitment_rows, provinces)
+		recruitments_box.move_child(button, order_ids.size() - 1)
+	_remove_missing(recruitments_box, _recruitment_rows, order_ids)
 
 
 func _row(container: VBoxContainer, rows: Dictionary[int, Button], id: int, activate: Callable) -> Button:

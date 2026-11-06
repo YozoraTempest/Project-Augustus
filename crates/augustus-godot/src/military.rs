@@ -118,22 +118,21 @@ fn unit_offer(
     offer.set("manpower_cost", rules.manpower_cost(kind) as i64);
     offer.set("days", i64::from(rules.recruitment_days(kind)));
     offer.set("strength", i64::from(REGIMENT_STRENGTH));
-    text(
-        &mut offer,
-        "completes_on",
-        date.checked_add_days(rules.recruitment_days(kind))
-            .map(|date| date.to_string())
-            .as_deref(),
-    );
-    let reason = player.map_or_else(
-        || "开始游戏后可招募".to_owned(),
-        |country| {
-            state
-                .quote_recruitment(country, id, kind, date)
-                .err()
-                .map_or_else(String::new, |error| error.to_string())
-        },
-    );
+    let quoted = player.map(|country| state.quote_recruitment(country, id, kind, date));
+    // 报价成功时，完成日包含本省已有队列的等待；尚未开局时仍显示该兵种的基础工期。
+    let completes_on = match &quoted {
+        Some(Ok(quote)) => Some(quote.completes_on.to_string()),
+        None => date
+            .checked_add_days(rules.recruitment_days(kind))
+            .map(|date| date.to_string()),
+        Some(Err(_)) => None,
+    };
+    text(&mut offer, "completes_on", completes_on.as_deref());
+    let reason = match quoted {
+        None => "开始游戏后可招募".to_owned(),
+        Some(Ok(_)) => String::new(),
+        Some(Err(error)) => error.to_string(),
+    };
     offer.set("can_recruit", reason.is_empty());
     offer.set("reason", reason.as_str());
     offer
@@ -165,14 +164,11 @@ pub(crate) fn recruitment_info(
         offers.push(&unit_offer(world, id, player, date, kind));
     }
     info.set("offers", &offers);
-    if let Some(project) = state.recruitment(id) {
-        info.set(
-            "project",
-            &recruitment_details(world, id, project, player, date),
-        );
-    } else {
-        info.set("project", &Variant::nil());
+    let mut orders: Array<VarDictionary> = Array::new();
+    for project in state.recruitment_queue(id) {
+        orders.push(&recruitment_details(world, id, project, player, date));
     }
+    info.set("orders", &orders);
     let mut armies: Array<VarDictionary> = Array::new();
     for army in state.armies().values().filter(|army| army.province == id) {
         armies.push(&army_info(world, army, date, player));
@@ -190,8 +186,10 @@ pub(crate) fn recruitment_details(
     date: GameDate,
 ) -> VarDictionary {
     let mut details = VarDictionary::new();
+    details.set("id", i64::from(project.id()));
     details.set("province", i64::from(province));
     details.set("province_name", world.province_name(province).as_str());
+    details.set("queued", date < project.started_on);
     details.set("country", project.country.as_str());
     details.set("kind", unit_label(project.kind));
     details.set("kind_id", project.kind.id());
@@ -200,7 +198,7 @@ pub(crate) fn recruitment_details(
     let refund = player.and_then(|country| {
         world
             .state()
-            .quote_cancel_recruitment(country, province, date)
+            .quote_cancel_recruitment(country, province, project.id(), date)
             .ok()
     });
     details.set("can_cancel", refund.is_some());
@@ -226,13 +224,11 @@ pub(crate) fn recruitment_details(
         "refund_manpower",
         refund.as_ref().map_or(0, |refund| refund.manpower) as i64,
     );
-    let total = project.started_on.days_until(project.completes_on);
-    let remaining = date.days_until(project.completes_on).max(0);
-    details.set("days_remaining", i64::from(remaining));
     details.set(
-        "progress",
-        f64::from(total - remaining) / f64::from(total) * 100.0,
+        "days_remaining",
+        i64::from(date.days_until(project.completes_on).max(0)),
     );
+    details.set("progress", project.progress(date));
     details
 }
 

@@ -155,8 +155,8 @@ func _start_recruitment(province_id: int, kind: String) -> void:
 		info_panel.show_recruitment_error(error)
 
 
-func _cancel_recruitment(province_id: int) -> void:
-	var error := GameSession.cancel_recruitment(province_id)
+func _cancel_recruitment(province_id: int, order_id: int) -> void:
+	var error := GameSession.cancel_recruitment(province_id, order_id)
 	if not error.is_empty():
 		_refresh_selection(false)
 		info_panel.show_recruitment_error(error)
