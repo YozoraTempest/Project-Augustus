@@ -179,6 +179,7 @@ mod tests {
             development_land_forcelimit: per_development,
             land_forcelimit_extra_cost_factor: Money::from(2),
             goods_land_forcelimit: BTreeMap::from([("grain".to_owned(), Money::new(5, 1))]),
+            tax_recruitment_time: Money::ZERO,
             manpower: ManpowerRules {
                 base_capacity: 0,
                 per_development: 1_000,
@@ -197,6 +198,8 @@ mod tests {
             months: 12,
             tax_modifier: Money::ZERO,
             land_forcelimit: Money::from(limit),
+            local_regiment_cost: Money::ZERO,
+            regiment_recruit_speed: Money::ZERO,
             replaces: replaces.map(str::to_owned),
             constructible: false,
         }
