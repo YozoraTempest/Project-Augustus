@@ -56,9 +56,8 @@ fn static_limits(content: &ContentRoot) -> Result<(Money, Money), Error> {
         base.ok_or_else(|| {
             Error::invalid(directory.clone(), "missing base_values.land_forcelimit")
         })?,
-        per_development.ok_or_else(|| {
-            Error::invalid(directory, "missing development.land_forcelimit")
-        })?,
+        per_development
+            .ok_or_else(|| Error::invalid(directory, "missing development.land_forcelimit"))?,
     ))
 }
 

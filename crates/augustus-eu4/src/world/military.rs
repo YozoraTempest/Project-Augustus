@@ -35,7 +35,9 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
             "INFANTRY_TIME" => infantry_days = Some(parse(value, &file.path, key)?),
             "CAVALRY_TIME" => cavalry_days = Some(parse(value, &file.path, key)?),
             "LAND_MAINTENANCE_FACTOR" => maintenance = Some(parse(value, &file.path, key)?),
-            "LAND_FORCELIMIT_EXTRA_COST_FACTOR" => extra_cost = Some(parse(value, &file.path, key)?),
+            "LAND_FORCELIMIT_EXTRA_COST_FACTOR" => {
+                extra_cost = Some(parse(value, &file.path, key)?)
+            }
             "INFANTRY_SPEED" => infantry_speed = Some(parse(value, &file.path, key)?),
             "CAVALRY_SPEED" => cavalry_speed = Some(parse(value, &file.path, key)?),
             _ => (),

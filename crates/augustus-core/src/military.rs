@@ -172,7 +172,12 @@ impl MilitaryRules {
     }
 
     /// 超编超额年费加在全部基础军费上。取整上限为 0 时原公式不能相除，超额为零。
-    pub fn excess_annual_maintenance(&self, base_annual: Money, regiments: u64, limit: u64) -> Money {
+    pub fn excess_annual_maintenance(
+        &self,
+        base_annual: Money,
+        regiments: u64,
+        limit: u64,
+    ) -> Money {
         if limit == 0 || regiments <= limit {
             return Money::ZERO;
         }

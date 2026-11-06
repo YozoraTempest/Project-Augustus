@@ -77,7 +77,11 @@ impl World {
     }
 
     /// `exclude_army` 用于预览解散后的全国维护，上限仍按当前领土计算。
-    pub(super) fn country_army_cost(&self, tag: &str, exclude_army: Option<u32>) -> CountryArmyCost {
+    pub(super) fn country_army_cost(
+        &self,
+        tag: &str,
+        exclude_army: Option<u32>,
+    ) -> CountryArmyCost {
         let mut base_annual = Money::ZERO;
         let mut regiments = 0_u64;
         for army in self
@@ -94,9 +98,11 @@ impl World {
         }
         let limit = whole_limit(self.raw_land_force_limit(tag));
         CountryArmyCost {
-            excess_annual: self
-                .military_rules
-                .excess_annual_maintenance(base_annual, regiments, limit),
+            excess_annual: self.military_rules.excess_annual_maintenance(
+                base_annual,
+                regiments,
+                limit,
+            ),
             base_annual,
         }
     }
@@ -287,7 +293,10 @@ mod tests {
         let mut world = opened(rules(0, Money::ZERO), province(0, 1, 1), vec![]);
         add_regiments(&mut world, 2, 1);
         let budget = world.country_monthly_budget("AAA").unwrap();
-        assert_eq!(budget.base_army_maintenance, Money::from(20) / Money::from(12));
+        assert_eq!(
+            budget.base_army_maintenance,
+            Money::from(20) / Money::from(12)
+        );
         assert_eq!(budget.excess_army_maintenance, Money::ZERO);
         assert_eq!(budget.army_maintenance, budget.base_army_maintenance);
     }
@@ -298,12 +307,21 @@ mod tests {
         add_regiments(&mut world, 1, 1);
         let under = world.country_monthly_budget("AAA").unwrap();
         assert_eq!(under.excess_army_maintenance, Money::ZERO);
-        assert_eq!(under.base_army_maintenance, Money::from(10) / Money::from(12));
+        assert_eq!(
+            under.base_army_maintenance,
+            Money::from(10) / Money::from(12)
+        );
 
         add_regiments(&mut world, 1, 1_000);
         let over = world.country_monthly_budget("AAA").unwrap();
-        assert_eq!(over.base_army_maintenance, Money::from(20) / Money::from(12));
-        assert_eq!(over.excess_army_maintenance, Money::from(40) / Money::from(12));
+        assert_eq!(
+            over.base_army_maintenance,
+            Money::from(20) / Money::from(12)
+        );
+        assert_eq!(
+            over.excess_army_maintenance,
+            Money::from(40) / Money::from(12)
+        );
         assert_eq!(over.army_maintenance, Money::from(60) / Money::from(12));
     }
 
@@ -322,7 +340,10 @@ mod tests {
             .unwrap();
         assert_eq!(world.country_land_force_limit("AAA"), Some(1));
         assert_eq!(
-            world.country_monthly_budget("AAA").unwrap().army_maintenance,
+            world
+                .country_monthly_budget("AAA")
+                .unwrap()
+                .army_maintenance,
             Money::ZERO
         );
 
@@ -348,25 +369,31 @@ mod tests {
 
         let split_id = world.split_army("AAA", army_id, 1).unwrap();
         assert_eq!(
-            world.country_monthly_budget("AAA").unwrap().army_maintenance,
+            world
+                .country_monthly_budget("AAA")
+                .unwrap()
+                .army_maintenance,
             over.army_maintenance
         );
         world.merge_armies("AAA", army_id, &[split_id]).unwrap();
         assert_eq!(
-            world.country_monthly_budget("AAA").unwrap().army_maintenance,
+            world
+                .country_monthly_budget("AAA")
+                .unwrap()
+                .army_maintenance,
             over.army_maintenance
         );
 
         let split_id = world.split_army("AAA", army_id, 1).unwrap();
         let quote = world.quote_disband_army("AAA", split_id).unwrap();
         assert_eq!(quote.regiment_count, 1);
-        assert_eq!(
-            quote.monthly_maintenance,
-            Money::from(50) / Money::from(12)
-        );
+        assert_eq!(quote.monthly_maintenance, Money::from(50) / Money::from(12));
         world.disband_army("AAA", split_id).unwrap();
         let after = world.country_monthly_budget("AAA").unwrap();
-        assert_eq!(after.base_army_maintenance, Money::from(10) / Money::from(12));
+        assert_eq!(
+            after.base_army_maintenance,
+            Money::from(10) / Money::from(12)
+        );
         assert_eq!(after.excess_army_maintenance, Money::ZERO);
     }
 

@@ -180,10 +180,7 @@ mod tests {
         fs::create_dir_all(root.join("common/buildings")).unwrap();
         fs::write(root.join("common/buildings/00_buildings.txt"), BUILDINGS).unwrap();
         let buildings = load(&ContentRoot::new(&root)).unwrap();
-        assert_eq!(
-            buildings["regimental_camp"].land_forcelimit,
-            Money::from(1)
-        );
+        assert_eq!(buildings["regimental_camp"].land_forcelimit, Money::from(1));
         assert_eq!(
             buildings["conscription_center"].land_forcelimit,
             Money::from(2)

@@ -47,16 +47,16 @@ pub(crate) fn info(world: &OpeningWorld, country: &str, date: GameDate) -> VarDi
     info.set("strength", strength as i64);
     info.set("recruitment_count", recruitments.len() as i64);
     info.set("manpower", &crate::manpower::info(world, country));
-    let budget = state
-        .country_monthly_budget(country)
-        .expect("国家已注册");
+    let budget = state.country_monthly_budget(country).expect("国家已注册");
     info.set(
         "land_force_limit",
-        state
-            .country_land_force_limit(country)
-            .expect("国家已注册") as i64,
+        state.country_land_force_limit(country).expect("国家已注册") as i64,
     );
-    money(&mut info, "monthly_maintenance", Some(budget.army_maintenance));
+    money(
+        &mut info,
+        "monthly_maintenance",
+        Some(budget.army_maintenance),
+    );
     money(
         &mut info,
         "base_maintenance",
