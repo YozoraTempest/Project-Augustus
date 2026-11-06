@@ -88,11 +88,11 @@ fn decode(bytes: &[u8]) -> Result<Decoded, String> {
     }
     let width = u32::try_from(width).expect("宽度已确认为正数");
     let top_down = height_raw < 0;
-    let height = u32::try_from(height_raw.unsigned_abs()).expect("高度不为零");
+    let height = height_raw.unsigned_abs();
     let count = (width as usize)
         .checked_mul(height as usize)
         .ok_or_else(|| "bitmap is too large".to_owned())?;
-    let stride = ((u64::from(width) * u64::from(bits) + 31) / 32) * 4;
+    let stride = (u64::from(width) * u64::from(bits)).div_ceil(32) * 4;
     let data_end = u64::from(offset)
         .checked_add(
             stride
@@ -167,7 +167,7 @@ mod tests {
 
     fn encode(width: u32, height: i32, bits: u16, rows: &[u8], palette: &[[u8; 4]]) -> Vec<u8> {
         let abs_height = height.unsigned_abs();
-        let stride = ((u64::from(width) * u64::from(bits) + 31) / 32 * 4) as usize;
+        let stride = ((u64::from(width) * u64::from(bits)).div_ceil(32) * 4) as usize;
         let pixel_bytes = usize::from(bits / 8);
         let top_down = height < 0;
         let mut pixels = vec![0; stride * abs_height as usize];

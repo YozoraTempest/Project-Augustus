@@ -62,16 +62,29 @@ pub(super) fn apply(
     let summary = map.summary();
     assign(
         &tables,
-        &terrain,
-        &rivers,
-        &trees,
-        map.province_ids(),
-        summary.width,
-        summary.height,
-        map.mapped_province_ids(),
+        &TerrainMaps {
+            terrain: &terrain,
+            rivers: &rivers,
+            trees: &trees,
+            province_pixels: map.province_ids(),
+            width: summary.width,
+            height: summary.height,
+            mapped: map.mapped_province_ids(),
+            source: &definition.path,
+        },
         provinces,
-        &definition.path,
     )
+}
+
+struct TerrainMaps<'a> {
+    terrain: &'a IndexedBitmap,
+    rivers: &'a RgbBitmap,
+    trees: &'a IndexedBitmap,
+    province_pixels: &'a [u32],
+    width: u32,
+    height: u32,
+    mapped: &'a BTreeSet<u32>,
+    source: &'a Path,
 }
 
 fn map_paths(file: &ContentFile) -> Result<MapPaths, Error> {
@@ -284,16 +297,21 @@ fn typed_colors(
 
 fn assign(
     tables: &Tables,
-    terrain: &IndexedBitmap,
-    rivers: &RgbBitmap,
-    trees: &IndexedBitmap,
-    province_pixels: &[u32],
-    width: u32,
-    height: u32,
-    mapped: &BTreeSet<u32>,
+    maps: &TerrainMaps<'_>,
     provinces: &mut BTreeMap<u32, Province>,
-    source: &Path,
 ) -> Result<(), Error> {
+    let TerrainMaps {
+        terrain,
+        rivers,
+        trees,
+        province_pixels,
+        width,
+        height,
+        mapped,
+        source,
+    } = maps;
+    let width = *width;
+    let height = *height;
     if terrain.width != width
         || terrain.height != height
         || terrain.indices.len() != province_pixels.len()
@@ -522,7 +540,7 @@ mod tests {
 
     use augustus_core::{Province, ProvinceKind};
 
-    use super::{assign, map_paths, parse_tables};
+    use super::{TerrainMaps, assign, map_paths, parse_tables};
     use crate::{
         content::ContentFile,
         map::indexed::{IndexedBitmap, RgbBitmap},
@@ -597,15 +615,17 @@ tree = {
             .collect();
         assign(
             &tables,
-            &indexed(width, 1, colors),
-            &rgb(width, 1, rivers),
-            trees,
-            provinces_pixels,
-            width,
-            1,
-            &mapped,
+            &TerrainMaps {
+                terrain: &indexed(width, 1, colors),
+                rivers: &rgb(width, 1, rivers),
+                trees,
+                province_pixels: provinces_pixels,
+                width,
+                height: 1,
+                mapped: &mapped,
+                source: definition.path.as_path(),
+            },
             &mut states,
-            definition.path.as_path(),
         )?;
         Ok(states)
     }
@@ -698,15 +718,17 @@ tree = {
         ]);
         assign(
             &tables,
-            &indexed(1, 1, &[4]),
-            &rgb(1, 1, &[[0, 0, 0]]),
-            &trees,
-            &[4],
-            1,
-            1,
-            &BTreeSet::from([4]),
+            &TerrainMaps {
+                terrain: &indexed(1, 1, &[4]),
+                rivers: &rgb(1, 1, &[[0, 0, 0]]),
+                trees: &trees,
+                province_pixels: &[4],
+                width: 1,
+                height: 1,
+                mapped: &BTreeSet::from([4]),
+                source: definition.path.as_path(),
+            },
             &mut states,
-            definition.path.as_path(),
         )
         .expect("未绘制陆地和海洋不必有地形");
         assert_eq!(states[&3].terrain_supply, 0);
@@ -775,15 +797,17 @@ tree = {}
         ]);
         assign(
             &tables,
-            &indexed(8, 6, &terrain_indices),
-            &rgb(8, 6, &[[0, 0, 0]; 48]),
-            &indexed(1, 1, &[7]),
-            &provinces,
-            8,
-            6,
-            &BTreeSet::from([1, 2]),
+            &TerrainMaps {
+                terrain: &indexed(8, 6, &terrain_indices),
+                rivers: &rgb(8, 6, &[[0, 0, 0]; 48]),
+                trees: &indexed(1, 1, &[7]),
+                province_pixels: &provinces,
+                width: 8,
+                height: 6,
+                mapped: &BTreeSet::from([1, 2]),
+                source: definition.path.as_path(),
+            },
             &mut states,
-            definition.path.as_path(),
         )
         .expect("缩放涂色有效");
         assert_eq!(states[&1].terrain_supply, 9);
@@ -792,15 +816,17 @@ tree = {}
         let mut same = BTreeMap::from([(1, province(ProvinceKind::Land))]);
         assign(
             &tables,
-            &indexed(2, 2, &[2, 2, 2, 2]),
-            &rgb(2, 2, &[[0, 0, 0]; 4]),
-            &indexed(2, 2, &[0, 7, 0, 0]),
-            &[0, 1, 0, 0],
-            2,
-            2,
-            &BTreeSet::from([1]),
+            &TerrainMaps {
+                terrain: &indexed(2, 2, &[2, 2, 2, 2]),
+                rivers: &rgb(2, 2, &[[0, 0, 0]; 4]),
+                trees: &indexed(2, 2, &[0, 7, 0, 0]),
+                province_pixels: &[0, 1, 0, 0],
+                width: 2,
+                height: 2,
+                mapped: &BTreeSet::from([1]),
+                source: definition.path.as_path(),
+            },
             &mut same,
-            definition.path.as_path(),
         )
         .expect("同尺寸树木不位移");
         assert_eq!(same[&1].terrain_supply, 9);
