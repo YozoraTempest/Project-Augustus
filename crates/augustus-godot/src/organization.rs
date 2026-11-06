@@ -53,6 +53,7 @@ pub(crate) fn info(world: &OpeningWorld, id: u32, player: Option<&str>) -> VarDi
         );
         details.set("regiment_count", candidate.regiments.len() as i64);
         details.set("strength", candidate.strength() as i64);
+        details.set("composition", &crate::military::composition(candidate));
         candidates.push(&details);
     }
     info.set("candidates", &candidates);

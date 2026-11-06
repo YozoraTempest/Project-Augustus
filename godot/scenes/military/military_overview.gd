@@ -41,7 +41,10 @@ func refresh() -> void:
 		var location := "驻扎：" + str(army.province_name)
 		if army.movement != null:
 			location = "%s → %s\n剩余 %d 天 · %s 抵达" % [army.province_name, army.movement.destination_name, army.movement.days_remaining, army.movement.arrives_on]
-		button.text = "%s\n%d 团 · %d 人\n%s" % [army.name, army.regiment_count, army.strength, location]
+		var units := PackedStringArray()
+		for unit: Dictionary in army.composition:
+			units.append("%s %d 团 · %d 人" % [unit.kind, unit.regiment_count, unit.strength])
+		button.text = "%s\n%s\n%s" % [army.name, " · ".join(units), location]
 		button.tooltip_text = button.text
 		armies_box.move_child(button, army_ids.size() - 1)
 	_remove_missing(armies_box, _army_rows, army_ids)
