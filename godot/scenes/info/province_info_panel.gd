@@ -76,6 +76,7 @@ func show_info(province: Dictionary, country: Dictionary, construction: Dictiona
 		country_body.text = "国家标签：%s\n\n首都：%s\n主流文化：%s\n国教：%s\n\n领土省份：%d\n总发展度：%s" % [country.tag, capital, _value(country.primary_culture), _value(country.religion), country.province_count, _value(country.development)]
 		country_body.text += "\n\n国库：%s 金币\n月度税收：+%s 金币\n陆军维护：-%s 金币（基础 %s，超额 %s）\n月度净收支：%s 金币" % [_value(country.treasury), _value(country.monthly_tax), _value(country.army_maintenance), _value(country.base_army_maintenance), _value(country.excess_army_maintenance), _value(country.monthly_balance)]
 		country_body.text += "\n\n可用人力：%d / %d\n每月恢复：+%d 人" % [country.manpower.available, country.manpower.capacity, country.manpower.monthly_recovery]
+		country_body.text += _army_text(country)
 		if country.last_settlement_month == null:
 			country_body.text += "\n最近结算：尚未结算"
 		else:
@@ -84,6 +85,22 @@ func show_info(province: Dictionary, country: Dictionary, construction: Dictiona
 			country_body.text += "\n\n历史信息存在冲突"
 	country_body.visible = not country.is_empty()
 	_show_wars(country)
+
+
+func _army_text(country: Dictionary) -> String:
+	var lines := PackedStringArray()
+	for army: Dictionary in country.armies:
+		var units := PackedStringArray()
+		for unit: Dictionary in army.composition:
+			units.append("%s %d 团" % [unit.kind, unit.regiment_count])
+		lines.append("%s · %s (#%d) · %s · %d 人" % [army.name, army.province_name, army.province, "、".join(units), army.strength])
+	var player := GameSession.get_player_country()
+	var access := ""
+	if not player.is_empty() and player != str(country.tag):
+		access = " · 只可查看"
+	if lines.is_empty():
+		return "\n\n陆军：无" + access
+	return "\n\n陆军%s：\n%s" % [access, "\n".join(lines)]
 
 
 func _value(value: Variant) -> String:

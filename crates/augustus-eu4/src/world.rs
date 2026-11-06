@@ -73,7 +73,7 @@ impl OpeningWorld {
         }
         let military_rules = military::load(&content)?;
         let connections = navigation::connections(&map, &provinces);
-        let state = World::new(
+        let mut state = World::new(
             countries.states.into_values(),
             provinces,
             map.mapped_province_ids().iter().copied(),
@@ -82,6 +82,9 @@ impl OpeningWorld {
             connections,
         )
         .map_err(|error| Error::invalid(content.path(), error.to_string()))?;
+        // 1444 的国家历史没有 army 编制。规模只读取 defines 的 STARTING_ARMY_SIZE；
+        // 叛军威胁没有对应状态，因此不使用 STARTING_ARMY_SIZE_REBEL_THREAT。
+        state.spawn_starting_armies();
         let mut wanted: BTreeSet<String> = state.countries().keys().cloned().collect();
         wanted.extend(
             state
@@ -216,5 +219,70 @@ impl OpeningWorld {
                     self.country_colors[country.tag()]
                 }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use augustus_core::{Money, ProvinceKind, REGIMENT_STRENGTH, UnitKind};
+
+    use super::OpeningWorld;
+
+    #[test]
+    #[ignore = "需要本机 EU4 目录，设置 AUGUSTUS_EU4_DIR"]
+    fn vanilla_opening_places_armies_on_owned_land() {
+        let dir = std::env::var("AUGUSTUS_EU4_DIR").expect("设置 AUGUSTUS_EU4_DIR");
+        let world = OpeningWorld::load(dir).expect("EU4 开局");
+        let state = world.state();
+        let fraction = state.military_rules().starting_army_size;
+        let owners: BTreeSet<_> = state
+            .armies()
+            .values()
+            .map(|army| army.country.clone())
+            .collect();
+        assert_eq!(owners.len(), state.armies().len());
+        for army in state.armies().values() {
+            let province = state.province(army.province).expect("驻地存在");
+            assert_eq!(province.kind, ProvinceKind::Land);
+            assert_eq!(province.owner.as_deref(), Some(army.country.as_str()));
+            assert!(army.regiments.iter().all(|regiment| {
+                regiment.kind == UnitKind::Infantry && regiment.strength == REGIMENT_STRENGTH
+            }));
+            let limit = state.country_land_force_limit(&army.country).unwrap();
+            let expected = (Money::from(limit) * fraction).floor();
+            assert_eq!(Money::from(army.regiments.len() as u64), expected);
+        }
+        for tag in state.countries().keys() {
+            let limit = state.country_land_force_limit(tag).unwrap();
+            let expected = (Money::from(limit) * fraction).floor();
+            let has = state.armies().values().any(|army| &army.country == tag);
+            assert_eq!(has, expected > Money::ZERO, "{tag}");
+        }
+        let mut adjacent = false;
+        for army in state.armies().values() {
+            let Some(neighbors) = state.land_neighbors(army.province) else {
+                continue;
+            };
+            for province in neighbors.keys() {
+                let Some(owner) = state
+                    .province(*province)
+                    .and_then(|province| province.owner.as_deref())
+                else {
+                    continue;
+                };
+                if owner != army.country && owners.contains(owner) {
+                    adjacent = true;
+                }
+            }
+        }
+        assert!(adjacent);
+        assert_eq!(
+            state.country("FRA").unwrap().finances.treasury(),
+            Money::ZERO
+        );
+        let manpower = state.country_manpower("FRA").unwrap();
+        assert_eq!(manpower.available, manpower.capacity);
     }
 }

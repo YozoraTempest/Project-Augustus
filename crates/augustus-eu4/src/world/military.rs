@@ -23,6 +23,8 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
     let mut extra_cost = None;
     let mut monthly_reinforce = None;
     let mut reinforce_cost = None;
+    let mut starting_army = None;
+    let mut starting_army_at_war = None;
     // 基础 defines 使用数值字面量，只读取当前招募、取消、维护费、补员、上限、行军和补给需要的字段。
     for line in text.lines() {
         let line = line.split("--").next().unwrap_or("");
@@ -46,6 +48,10 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
             "INFANTRY_SPEED" => infantry_speed = Some(parse(value, &file.path, key)?),
             "CAVALRY_SPEED" => cavalry_speed = Some(parse(value, &file.path, key)?),
             "SUPPLYLIMIT_BASE_MULTIPLIER" => supply_base = Some(parse(value, &file.path, key)?),
+            "STARTING_ARMY_SIZE" => starting_army = Some(parse(value, &file.path, key)?),
+            "STARTING_ARMY_SIZE_AT_WAR" => {
+                starting_army_at_war = Some(parse(value, &file.path, key)?)
+            }
             _ => (),
         }
     }
@@ -87,8 +93,30 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
         )?,
         goods_land_forcelimit: limits.goods,
         tax_recruitment_time: tax_recruitment_time(content)?,
+        starting_army_size: nonnegative(
+            required(starting_army, &file.path, "STARTING_ARMY_SIZE")?,
+            &file.path,
+            "STARTING_ARMY_SIZE",
+        )?,
+        starting_army_size_at_war: nonnegative(
+            required(
+                starting_army_at_war,
+                &file.path,
+                "STARTING_ARMY_SIZE_AT_WAR",
+            )?,
+            &file.path,
+            "STARTING_ARMY_SIZE_AT_WAR",
+        )?,
         manpower: super::manpower::load(content, &text)?,
     })
+}
+
+/// defines 里的开局比例按字面量使用，0.75 就是上限的 75%，不是 75 倍。
+fn nonnegative(value: Money, path: &Path, key: &str) -> Result<Money, Error> {
+    if value < Money::ZERO {
+        return Err(Error::invalid(path, format!("{key} must be nonnegative")));
+    }
+    Ok(value)
 }
 
 /// 原版写成 6.0；只接受能放进 u32 的正整数，小数部分必须为 0。
@@ -215,6 +243,8 @@ mod tests {
             rules.goods_land_forcelimit.get("fish").copied(),
             Some(Money::ZERO)
         );
+        assert_eq!(rules.starting_army_size, Money::new(75, 2));
+        assert_eq!(rules.starting_army_size_at_war, Money::from(1));
         fs::remove_dir_all(&root).unwrap();
     }
 
@@ -229,6 +259,8 @@ mod tests {
         EXTRA_LAND_REINFORCE_COST = 2,
         LAND_FORCELIMIT_EXTRA_COST_FACTOR = 2,
         SUPPLYLIMIT_BASE_MULTIPLIER = 6,
+        STARTING_ARMY_SIZE = 0.75,
+        STARTING_ARMY_SIZE_AT_WAR = 1,
         INFANTRY_SPEED = 1,
         CAVALRY_SPEED = 2,
         BASE_MP_TO_MANPOWER = 0.25,
@@ -241,6 +273,9 @@ mod tests {
     const STATICS: &str = r#"
         base_values = {
             global_manpower = 1
+        }
+        all_nations = {
+            global_tax_income = 12
             land_forcelimit = 6
         }
         development = {
