@@ -54,4 +54,9 @@ jobs:
               environment.write(f"GODOT_COMMAND={executable.as_posix()}\n")
           PY
       - name: Import Godot project
-        run: '"$GODOT_COMMAND" --headless --path godot --editor --import'
+        run: |
+          # Godot 4.7 在冷启动 headless 导入里第一次发现 GDExtension 时，
+          # 会在退出阶段崩溃（godotengine/godot#111645）。预先登记扩展，让它在启动时加载。
+          mkdir -p godot/.godot
+          printf '%s\n' 'res://augustus.gdextension' > godot/.godot/extension_list.cfg
+          "$GODOT_COMMAND" --headless --path godot --editor --import
