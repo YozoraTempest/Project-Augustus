@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use augustus_core::{Army, GameDate, ProvinceKind, REGIMENT_STRENGTH, Recruitment, UnitKind};
+use augustus_core::{
+    Army, GameDate, Money, ProvinceKind, REGIMENT_STRENGTH, Recruitment, UnitKind,
+};
 use augustus_eu4::world::OpeningWorld;
 use godot::prelude::*;
 
@@ -159,6 +161,19 @@ pub(crate) fn recruitment_details(
             .ok()
     });
     details.set("can_cancel", refund.is_some());
+    details.set(
+        "refund_rules",
+        format!(
+            "金币：进度不超过 {}% 时全退，超过后退还 50%。\n人力独立返还，允许超过储备上限。",
+            (world
+                .state()
+                .military_rules()
+                .recruitment_full_refund_progress
+                * Money::from(100))
+            .normalize()
+        )
+        .as_str(),
+    );
     money(
         &mut details,
         "refund_cost",
