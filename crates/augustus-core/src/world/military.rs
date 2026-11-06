@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    Army, GameDate, MilitaryRules, MilitaryState, ProvinceKind, REGIMENT_STRENGTH, Recruitment,
-    RecruitmentError, RecruitmentQuote, Regiment, SaveError, UnitKind,
+    Army, GameDate, MilitaryRules, MilitaryState, Money, ProvinceKind, REGIMENT_STRENGTH,
+    Recruitment, RecruitmentError, RecruitmentQuote, Regiment, SaveError, UnitKind,
 };
 
 use super::World;
@@ -39,6 +39,32 @@ impl World {
         self.recruitment_queue(province).first()
     }
 
+    /// 当前省份的招募费用和本单工期。国家修正尚无来源，只计已建成建筑和税收发展度。
+    pub fn recruitment_terms(&self, province: u32, kind: UnitKind) -> (Money, u32) {
+        let (cost_modifier, time_modifier) = self.recruitment_modifiers(province);
+        (
+            self.military_rules.modified_cost(kind, cost_modifier),
+            self.military_rules.modified_days(kind, time_modifier),
+        )
+    }
+
+    fn recruitment_modifiers(&self, province: u32) -> (Money, Money) {
+        let Some(province) = self.province(province) else {
+            return (Money::ZERO, Money::ZERO);
+        };
+        let mut cost = Money::ZERO;
+        let mut time = Money::ZERO;
+        for building in &province.buildings {
+            let definition = &self.buildings[building];
+            cost += definition.local_regiment_cost;
+            time += definition.regiment_recruit_speed;
+        }
+        if let Some(tax) = province.development.tax {
+            time += self.military_rules.tax_recruitment_time * Money::from(tax);
+        }
+        (cost, time)
+    }
+
     pub fn quote_recruitment(
         &self,
         country: &str,
@@ -46,6 +72,7 @@ impl World {
         kind: UnitKind,
         date: GameDate,
     ) -> Result<RecruitmentQuote, RecruitmentError> {
+        let (cost, days) = self.recruitment_terms(province, kind);
         let country = self
             .country(country)
             .ok_or(RecruitmentError::UnknownCountry)?;
@@ -70,7 +97,6 @@ impl World {
         if self.military.next_army_id == u32::MAX {
             return Err(RecruitmentError::ArmyLimit);
         }
-        let cost = self.military_rules.cost(kind);
         let available = country.finances.treasury();
         if available < cost {
             return Err(RecruitmentError::InsufficientFunds { cost, available });
@@ -98,7 +124,7 @@ impl World {
             manpower,
             started_on,
             completes_on: started_on
-                .checked_add_days(self.military_rules.recruitment_days(kind))
+                .checked_add_days(days)
                 .ok_or(RecruitmentError::DateOutOfRange)?,
         })
     }
@@ -229,7 +255,7 @@ impl World {
             }
             let mut previous_completion = None;
             for (index, project) in queue.iter_mut().enumerate() {
-                // 第 1 至 6 版未保存实付金额；按该兵种的当前规则补齐。纯步兵存档仍是步兵费用。
+                // 旧档没有实付金额时按兵种基础费用补齐，不套用读取时的省份修正。
                 let cost = project
                     .paid_cost
                     .get_or_insert(self.military_rules.cost(project.kind));
@@ -292,6 +318,7 @@ mod tests {
             development_land_forcelimit: Money::ZERO,
             land_forcelimit_extra_cost_factor: Money::from(2),
             goods_land_forcelimit: BTreeMap::new(),
+            tax_recruitment_time: Money::ZERO,
             manpower: ManpowerRules {
                 base_capacity: 0,
                 per_development: 1_000,
@@ -318,6 +345,7 @@ mod tests {
             development_land_forcelimit: Money::ZERO,
             land_forcelimit_extra_cost_factor: Money::from(2),
             goods_land_forcelimit: BTreeMap::new(),
+            tax_recruitment_time: Money::ZERO,
             manpower: ManpowerRules {
                 base_capacity: 20_000,
                 per_development: 0,
@@ -535,6 +563,151 @@ mod tests {
         );
         assert_eq!(queue[1].paid_cost, Some(Money::from(25)));
         assert_eq!(queue[1].paid_manpower, Some(1_500));
+    }
+
+    #[test]
+    fn province_modifiers_change_the_quote_and_leave_existing_orders() {
+        let mut rules = unit_rules();
+        rules.tax_recruitment_time = Money::new(-2, 2);
+        let mut province = Province::new(ProvinceKind::Land);
+        province.owner = Some("AAA".to_owned());
+        province.controller = Some("AAA".to_owned());
+        province.development = Development {
+            tax: Some(3),
+            production: Some(1),
+            manpower: Some(10),
+        };
+        province.buildings.insert("camp".to_owned());
+        province.buildings.insert("yard".to_owned());
+        let mut world = World::new(
+            [Country::new("AAA")],
+            BTreeMap::from([(1, province)]),
+            [1],
+            [
+                building("camp", Money::new(-1, 1), Money::new(-1, 1)),
+                building("yard", Money::new(-5, 2), Money::ZERO),
+            ],
+            rules,
+            Vec::<LandConnection>::new(),
+        )
+        .unwrap();
+        let date = date();
+        let (cost, days) = world.recruitment_terms(1, UnitKind::Infantry);
+        assert_eq!(cost, Money::new(85, 1));
+        assert_eq!(days, 51);
+        assert_eq!(
+            world.recruitment_terms(1, UnitKind::Cavalry),
+            (Money::new(2125, 2), 76)
+        );
+        match world.quote_recruitment("AAA", 1, UnitKind::Infantry, date) {
+            Err(RecruitmentError::InsufficientFunds { cost, available }) => {
+                assert_eq!(cost, Money::new(85, 1));
+                assert_eq!(available, Money::ZERO);
+            }
+            other => panic!("报价应为余额不足，实际是 {other:?}"),
+        }
+        let legacy_completion = date.checked_add_days(60).unwrap();
+        let legacy: MilitaryState = serde_json::from_str(&format!(
+            r#"{{
+                "armies": {{}},
+                "recruitments": {{
+                    "1": {{
+                        "army_id": 1,
+                        "country": "AAA",
+                        "kind": "infantry",
+                        "started_on": "{date}",
+                        "completes_on": "{legacy_completion}"
+                    }}
+                }},
+                "next_army_id": 2
+            }}"#
+        ))
+        .unwrap();
+        world.restore_military(legacy, date).unwrap();
+        let legacy_order = world.recruitment(1).unwrap();
+        let legacy_id = legacy_order.id();
+        assert_eq!(legacy_order.paid_cost, Some(Money::from(10)));
+        assert_eq!(legacy_order.completes_on, legacy_completion);
+        world.cancel_recruitment("AAA", 1, legacy_id, date).unwrap();
+
+        fund(&mut world, 100);
+        world
+            .start_recruitment("AAA", 1, UnitKind::Infantry, date)
+            .unwrap();
+        let order = world.recruitment(1).unwrap();
+        let order_id = order.id();
+        assert_eq!(order.paid_cost, Some(Money::new(85, 1)));
+        assert_eq!(order.completes_on, date.checked_add_days(51).unwrap());
+        assert_eq!(
+            world
+                .quote_cancel_recruitment("AAA", 1, order_id, date)
+                .unwrap()
+                .cost,
+            Money::new(85, 1)
+        );
+
+        let province = world.provinces.get_mut(&1).unwrap();
+        province.buildings.clear();
+        province.development.tax = Some(10);
+        assert_eq!(
+            world.recruitment_terms(1, UnitKind::Infantry),
+            (Money::from(10), 48)
+        );
+        let kept_completion = world.recruitment(1).unwrap().completes_on;
+        assert_eq!(
+            world.recruitment(1).unwrap().paid_cost,
+            Some(Money::new(85, 1))
+        );
+        assert_eq!(kept_completion, date.checked_add_days(51).unwrap());
+
+        world.complete_recruitments(kept_completion);
+        assert_eq!(
+            world.country_monthly_budget("AAA").unwrap().army_maintenance,
+            Money::from(10) / Money::from(12)
+        );
+
+        let mut floor = unit_rules();
+        floor.tax_recruitment_time = Money::from(-1);
+        let mut bare = Province::new(ProvinceKind::Land);
+        bare.owner = Some("AAA".to_owned());
+        bare.controller = Some("AAA".to_owned());
+        bare.development.tax = Some(2);
+        bare.development.production = Some(1);
+        bare.development.manpower = Some(1);
+        bare.buildings.insert("cheap".to_owned());
+        let floor_world = World::new(
+            [Country::new("AAA")],
+            BTreeMap::from([(1, bare)]),
+            [1],
+            [building("cheap", Money::new(-9, 1), Money::ZERO)],
+            floor,
+            Vec::<LandConnection>::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            floor_world.recruitment_terms(1, UnitKind::Infantry),
+            (Money::new(2, 0), 1)
+        );
+        assert_eq!(
+            floor_world
+                .military_rules()
+                .modified_cost(UnitKind::Infantry, Money::ONE / Money::from(3) - Money::ONE),
+            Money::new(3333, 3)
+        );
+    }
+
+    fn building(id: &str, cost_modifier: Money, time_modifier: Money) -> crate::BuildingDefinition {
+        crate::BuildingDefinition {
+            id: id.to_owned(),
+            cost: Money::from(100),
+            months: 12,
+            tax_modifier: Money::ZERO,
+            land_forcelimit: Money::ZERO,
+            local_regiment_cost: cost_modifier,
+            regiment_recruit_speed: time_modifier,
+            replaces: None,
+            constructible: false,
+        }
     }
 
     #[test]

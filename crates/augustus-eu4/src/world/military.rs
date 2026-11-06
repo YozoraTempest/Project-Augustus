@@ -76,6 +76,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
             "LAND_FORCELIMIT_EXTRA_COST_FACTOR",
         )?,
         goods_land_forcelimit: limits.goods,
+        tax_recruitment_time: tax_recruitment_time(content)?,
         manpower: super::manpower::load(content, &text)?,
     })
 }
@@ -91,6 +92,40 @@ fn positive_whole(value: Money, path: &Path) -> Result<u32, Error> {
                 "SUPPLYLIMIT_BASE_MULTIPLIER must be a positive whole number",
             )
         })
+}
+
+/// 税收发展度的招募时间系数。内容未写该键时为零。
+fn tax_recruitment_time(content: &ContentRoot) -> Result<Money, Error> {
+    let mut found = None;
+    for path in content.text_files("common/static_modifiers")? {
+        let file = content.read(path)?;
+        let tape = crate::script::parse(&file)?;
+        for (key, operator, value) in tape.windows1252_reader().fields() {
+            if key.read_str() != "provincial_tax_income" {
+                continue;
+            }
+            crate::script::equal(&file, operator, "provincial_tax_income")?;
+            let object = value
+                .read_object()
+                .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
+            for (key, operator, value) in object.fields() {
+                if key.read_str() != "regiment_recruit_speed" {
+                    continue;
+                }
+                crate::script::equal(&file, operator, "regiment_recruit_speed")?;
+                let text = value
+                    .read_string()
+                    .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
+                found = Some(text.parse().map_err(|error| {
+                    Error::invalid(
+                        &file.path,
+                        format!("invalid regiment_recruit_speed: {error}"),
+                    )
+                })?);
+            }
+        }
+    }
+    Ok(found.unwrap_or(Money::ZERO))
 }
 
 fn parse<T>(value: &str, path: &Path, key: &str) -> Result<T, Error>
@@ -110,12 +145,36 @@ fn required<T>(value: Option<T>, path: &Path, key: &str) -> Result<T, Error> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     use augustus_core::Money;
 
     use crate::content::ContentRoot;
 
     use super::load;
+
+    #[test]
+    fn tax_recruitment_time_comes_from_provincial_tax_income() {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "augustus-tax-time-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(root.join("common/static_modifiers")).unwrap();
+        let file = root.join("common/static_modifiers/00_static_modifiers.txt");
+        fs::write(&file, "base_values = { global_manpower = 10 }\n").unwrap();
+        let missing = super::tax_recruitment_time(&ContentRoot::new(&root)).unwrap();
+        fs::write(
+            &file,
+            "provincial_tax_income = { regiment_recruit_speed = -0.02 }\n",
+        )
+        .unwrap();
+        let found = super::tax_recruitment_time(&ContentRoot::new(&root)).unwrap();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(missing, Money::ZERO);
+        assert_eq!(found, Money::new(-2, 2));
+    }
 
     #[test]
     fn reads_force_limit_sources_from_content() {

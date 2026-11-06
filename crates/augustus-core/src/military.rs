@@ -131,6 +131,8 @@ pub struct MilitaryRules {
     pub land_forcelimit_extra_cost_factor: Money,
     /// 贸易商品对本省提供的陆军上限，读取商品定义中的 `province.land_forcelimit`。
     pub goods_land_forcelimit: BTreeMap<String, Money>,
+    /// 每点税收发展度加入的省份招募时间修正。
+    pub tax_recruitment_time: Money,
     pub manpower: ManpowerRules,
 }
 
@@ -147,6 +149,23 @@ impl MilitaryRules {
             UnitKind::Infantry => self.infantry_days,
             UnitKind::Cavalry => self.cavalry_days,
         }
+    }
+
+    /// 费用修正先相加，系数不低于 20%，再乘基础费用，按千分之一金币向零截断。
+    pub fn modified_cost(&self, kind: UnitKind, modifier: Money) -> Money {
+        let factor = (Money::ONE + modifier).max(Money::new(2, 1));
+        (self.cost(kind) * factor).trunc_with_scale(3)
+    }
+
+    /// 时间修正先相加后乘基础天数，向上取整，至少 1 天。
+    pub fn modified_days(&self, kind: UnitKind, modifier: Money) -> u32 {
+        let duration = Money::from(self.recruitment_days(kind)) * (Money::ONE + modifier);
+        if duration <= Money::ZERO {
+            return 1;
+        }
+        u32::try_from(duration.ceil())
+            .expect("招募天数在支持范围内")
+            .max(1)
     }
 
     pub fn speed(&self, kind: UnitKind) -> Money {
@@ -168,7 +187,7 @@ impl MilitaryRules {
         u32::try_from((Money::from(distance) / speed).ceil()).expect("行军天数在支持范围内")
     }
 
-    /// 基础维护系数作用于招募费用，得到每团年费；月费在国家汇总后折算。
+    /// 年维护费使用兵种基础费用，不乘招募报价的修正。
     pub fn annual_maintenance(&self, kind: UnitKind) -> Money {
         self.cost(kind) * self.land_maintenance_factor
     }

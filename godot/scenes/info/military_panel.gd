@@ -151,7 +151,7 @@ func _offer(info: Dictionary, kind_id: String) -> Dictionary:
 
 
 func _show_offer(offer: Dictionary, label: Label, button: Button, reason: Label) -> void:
-	label.text = "%s · 1 团 · %d 人\n基础费用：%s 金币\n人力消耗：%d 人\n招募时间：%d 天" % [offer.kind, offer.strength, offer.cost, offer.manpower_cost, offer.days]
+	label.text = "%s · 1 团 · %d 人\n费用：%s 金币\n人力消耗：%d 人\n招募时间：%d 天" % [offer.kind, offer.strength, offer.cost, offer.manpower_cost, offer.days]
 	button.disabled = not offer.can_recruit
 	button.tooltip_text = "" if offer.completes_on == null else "预计完成：%s" % offer.completes_on
 	reason.text = offer.reason

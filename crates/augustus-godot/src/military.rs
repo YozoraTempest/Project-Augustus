@@ -125,21 +125,20 @@ fn unit_offer(
     kind: UnitKind,
 ) -> VarDictionary {
     let state = world.state();
-    let rules = state.military_rules();
+    let manpower_cost = state.military_rules().manpower_cost(kind);
+    let (cost, days) = state.recruitment_terms(id, kind);
     let mut offer = VarDictionary::new();
     offer.set("kind_id", kind.id());
     offer.set("kind", unit_label(kind));
-    money(&mut offer, "cost", Some(rules.cost(kind)));
-    offer.set("manpower_cost", rules.manpower_cost(kind) as i64);
-    offer.set("days", i64::from(rules.recruitment_days(kind)));
+    money(&mut offer, "cost", Some(cost));
+    offer.set("manpower_cost", manpower_cost as i64);
+    offer.set("days", i64::from(days));
     offer.set("strength", i64::from(REGIMENT_STRENGTH));
     let quoted = player.map(|country| state.quote_recruitment(country, id, kind, date));
-    // 报价成功时，完成日包含本省已有队列的等待；尚未开局时仍显示该兵种的基础工期。
+    // 报价成功时，完成日包含本省已有队列的等待。尚未开局时从当天起算本单工期。
     let completes_on = match &quoted {
         Some(Ok(quote)) => Some(quote.completes_on.to_string()),
-        None => date
-            .checked_add_days(rules.recruitment_days(kind))
-            .map(|date| date.to_string()),
+        None => date.checked_add_days(days).map(|date| date.to_string()),
         Some(Err(_)) => None,
     };
     text(&mut offer, "completes_on", completes_on.as_deref());
