@@ -662,7 +662,10 @@ mod tests {
 
         world.complete_recruitments(kept_completion);
         assert_eq!(
-            world.country_monthly_budget("AAA").unwrap().army_maintenance,
+            world
+                .country_monthly_budget("AAA")
+                .unwrap()
+                .army_maintenance,
             Money::from(10) / Money::from(12)
         );
 
