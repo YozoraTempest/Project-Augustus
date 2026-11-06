@@ -71,7 +71,7 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 		var title := Label.new()
 		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var phase := "排队" if order.queued else "正在招募"
-		title.text = "%s：%s #%d (%s)\n开始：%s\n完成：%s · 剩余 %d 天" % [phase, order.kind, order_id, order.country, order.started_on, order.completes_on, order.days_remaining]
+		title.text = "%s：%s #%d (%s · %s)\n开始：%s\n完成：%s · 剩余 %d 天" % [phase, order.kind, order_id, order.country, _stance_name(str(order.get("stance", "neutral"))), order.started_on, order.completes_on, order.days_remaining]
 		row.add_child(title)
 		var progress := ProgressBar.new()
 		progress.custom_minimum_size = Vector2(0, 28)
@@ -103,7 +103,8 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 	for army: Dictionary in info.armies:
 		var id: int = army.id
 		var button := Button.new()
-		button.text = "%s · %d 人%s" % [army.name, army.strength, " · 行军中" if army.movement != null else ""]
+		var relation := _stance_name(str(army.get("stance", "neutral")))
+		button.text = "%s · %s · %d 人%s" % [relation, army.name, army.strength, " · 行军中" if army.movement != null else ""]
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		button.toggle_mode = true
 		button.set_pressed_no_signal(id == selected_army)
@@ -113,7 +114,7 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 			disband_button.visible = army.can_command
 			disband_button.disabled = army.movement != null
 			disband_button.tooltip_text = "请先让军队驻扎" if disband_button.disabled else ""
-			army_details.text = "%s\n编号：#%d\n所属国家：%s (%s)\n驻扎：%s (#%d)\n部队：%d 团 · 总兵力 %d 人\n%s" % [army.name, id, army.country_name, army.country, army.province_name, army.province, army.regiment_count, army.strength, _composition_text(army)]
+			army_details.text = "%s\n编号：#%d\n所属国家：%s (%s) · %s\n驻扎：%s (#%d)\n部队：%d 团 · 总兵力 %d 人\n%s" % [army.name, id, army.country_name, army.country, relation, army.province_name, army.province, army.regiment_count, army.strength, _composition_text(army)]
 			if army.movement != null:
 				army_details.text = army_details.text.replace("驻扎：", "当前省份：")
 				var movement: Dictionary = army.movement
@@ -168,6 +169,16 @@ func _supply_text(army: Dictionary) -> String:
 	if int(supply.regiment_count) > int(supply.supply_limit):
 		reason = "超出补给 %d 团，预计减少 %d 人" % [int(supply.regiment_count) - int(supply.supply_limit), int(supply.loss)]
 	return "\n下次补给：%s · %s\n补给上限 %d · 同省 %d 团\n%s" % [str(supply.date), str(supply.province_name), int(supply.supply_limit), int(supply.regiment_count), reason]
+
+
+func _stance_name(stance: String) -> String:
+	match stance:
+		"own":
+			return "我方"
+		"enemy":
+			return "敌方"
+		_:
+			return "中立"
 
 
 func _composition_text(army: Dictionary) -> String:

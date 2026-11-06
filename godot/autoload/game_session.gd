@@ -149,6 +149,16 @@ func split_army(army_id: int, count: int) -> Dictionary:
 	return result
 
 
+func declare_war(tag: String) -> String:
+	if not is_started():
+		return "请先开始游戏"
+	_advance_clock()
+	var error := backend.declare_war(tag)
+	if error.is_empty():
+		world_changed.emit()
+	return error
+
+
 func disband_army(army_id: int) -> String:
 	if not is_started():
 		return "请先开始游戏"

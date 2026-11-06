@@ -339,6 +339,7 @@ mod tests {
             development_land_forcelimit: Money::ZERO,
             land_forcelimit_extra_cost_factor: Money::from(2),
             goods_land_forcelimit: BTreeMap::new(),
+            tax_recruitment_time: Money::ZERO,
             manpower: ManpowerRules {
                 base_capacity: 0,
                 per_development: 1_000,
@@ -701,10 +702,12 @@ mod tests {
             leg_index: 0,
         });
         // 补给和补员都在抵达之后，外国省份每月最多 50 人。
+        // 行军推进会拒绝进入非交战领土，因此这场抵达发生在宣战之后。
         assert_eq!(
             reinforcement_text(&world, army),
             "下月补员：+50 人，0.250 金币"
         );
+        world.declare_war("AAA", "BBB", depart).unwrap();
         let mut simulation = Simulation::new(depart);
         simulation.set_paused(false);
         simulation.advance(&mut world, Duration::from_secs(1));

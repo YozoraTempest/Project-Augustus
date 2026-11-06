@@ -441,6 +441,23 @@ impl AugustusMap {
     }
 
     #[func]
+    fn declare_war(&mut self, defender: GString) -> GString {
+        let defender = defender.to_string();
+        let (Some(world), Some(simulation), Some(attacker)) =
+            (&mut self.world, &self.simulation, &self.player_country)
+        else {
+            return "请先开始游戏".into();
+        };
+        match world
+            .state_mut()
+            .declare_war(attacker, &defender, simulation.clock().date())
+        {
+            Ok(_) => GString::new(),
+            Err(error) => error.to_string().as_str().into(),
+        }
+    }
+
+    #[func]
     fn get_country_count(&self) -> i64 {
         self.world
             .as_ref()
@@ -461,7 +478,7 @@ impl AugustusMap {
         self.world
             .as_ref()
             .map_or_else(VarDictionary::new, |world| {
-                crate::info::country_info(world, &tag.to_string())
+                crate::info::country_info(world, &tag.to_string(), self.player_country.as_deref())
             })
     }
 
