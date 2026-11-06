@@ -198,7 +198,7 @@ impl AugustusMap {
     }
 
     #[func]
-    fn start_recruitment(&mut self, province: i64) -> GString {
+    fn start_recruitment(&mut self, province: i64, kind: GString) -> GString {
         let (Some(world), Some(simulation), Some(country)) =
             (&mut self.world, &self.simulation, &self.player_country)
         else {
@@ -207,10 +207,15 @@ impl AugustusMap {
         let Ok(province) = u32::try_from(province) else {
             return "请选择有效的省份".into();
         };
-        match world
-            .state_mut()
-            .start_recruitment(country, province, simulation.clock().date())
-        {
+        let Some(kind) = crate::military::parse_unit_kind(kind.to_string().as_str()) else {
+            return "请选择有效的兵种".into();
+        };
+        match world.state_mut().start_recruitment(
+            country,
+            province,
+            kind,
+            simulation.clock().date(),
+        ) {
             Ok(()) => GString::new(),
             Err(error) => error.to_string().as_str().into(),
         }
@@ -259,19 +264,22 @@ impl AugustusMap {
     }
 
     #[func]
-    fn cancel_recruitment(&mut self, province: i64) -> GString {
+    fn cancel_recruitment(&mut self, province: i64, order_id: i64) -> GString {
         let (Some(world), Some(simulation), Some(country)) =
             (&mut self.world, &self.simulation, &self.player_country)
         else {
             return "请先开始游戏".into();
         };
-        let Ok(province) = u32::try_from(province) else {
-            return "请选择有效的省份".into();
+        let (Ok(province), Ok(order_id)) = (u32::try_from(province), u32::try_from(order_id))
+        else {
+            return "请选择有效的招募订单".into();
         };
-        match world
-            .state_mut()
-            .cancel_recruitment(country, province, simulation.clock().date())
-        {
+        match world.state_mut().cancel_recruitment(
+            country,
+            province,
+            order_id,
+            simulation.clock().date(),
+        ) {
             Ok(_) => GString::new(),
             Err(error) => error.to_string().as_str().into(),
         }

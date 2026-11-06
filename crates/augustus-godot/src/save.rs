@@ -5,7 +5,8 @@ use std::{fs, path::Path};
 use augustus_core::{GameDate, MilitaryState, SavedGame};
 use serde::{Deserialize, Serialize};
 
-const SAVE_VERSION: u32 = 8;
+// 第 9 版起，每个省份的招募按订单数组保存。更早版本每个省份只有一个对象，核心反序列化仍接受该形状。
+const SAVE_VERSION: u32 = 9;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SaveFile {

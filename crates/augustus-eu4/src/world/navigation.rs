@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::{collections::BTreeMap, path::Path};
+use std::collections::BTreeMap;
 
-use augustus_core::{LandConnection, Money, Province, ProvinceKind};
+use augustus_core::{LandConnection, Province, ProvinceKind};
 
-use crate::{Error, map::ProvinceMap};
+use crate::map::ProvinceMap;
 
 pub(super) fn connections(
     map: &ProvinceMap,
     provinces: &BTreeMap<u32, Province>,
-    speed: Money,
-    source: &Path,
-) -> Result<Vec<LandConnection>, Error> {
+) -> Vec<LandConnection> {
     let width = map.summary().width;
     map.adjacent_pairs()
         .iter()
@@ -23,13 +21,13 @@ pub(super) fn connections(
             let [bx, by] = map.province_anchor(to).expect("相邻省份存在于位图");
             let dx = ax.abs_diff(bx).min(width - ax.abs_diff(bx));
             let dy = ay.abs_diff(by);
-            // 首版基础行军时间使用地图距离 / 步兵速度，向上取整到完整游戏日。
+            // 距离至少为 1。天数在下达行军时按军队最慢兵种速度向上取整。
             let distance = (f64::from(dx).hypot(f64::from(dy))).ceil() as u32;
-            let days =
-                u32::try_from((Money::from(distance.max(1)) / speed).ceil()).map_err(|_| {
-                    Error::invalid(source, "land movement time is outside supported range")
-                })?;
-            Ok(LandConnection { from, to, days })
+            LandConnection {
+                from,
+                to,
+                distance: distance.max(1),
+            }
         })
         .collect()
 }

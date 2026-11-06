@@ -9,6 +9,7 @@ pub struct ManpowerRules {
     pub recovery_months: u32,
     pub minimum_monthly: u64,
     pub infantry_cost: u64,
+    pub cavalry_cost: u64,
 }
 
 /// 只保存可变储备；上限和恢复速度由领土及规则实时计算。

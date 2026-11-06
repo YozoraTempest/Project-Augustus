@@ -22,15 +22,16 @@ pub(crate) fn info(world: &OpeningWorld, country: &str, date: GameDate) -> VarDi
         regiment_count += army.regiments.len();
         armies.push(&military::army_info(world, army, date, Some(country)));
     }
-    let mut projects: Vec<_> = state
-        .recruitments()
-        .iter()
-        .filter(|(_, project)| project.country == country)
-        .collect();
-    // 优先显示即将完成的招募，同一天完成时按省份编号排列。
-    projects.sort_by_key(|(province, project)| (project.completes_on, **province));
+    let mut projects = Vec::new();
+    for (&province, queue) in state.recruitments() {
+        for project in queue.iter().filter(|project| project.country == country) {
+            projects.push((province, project));
+        }
+    }
+    // 优先显示即将完成的订单；同一天完成时按省份和订单编号排列。
+    projects.sort_by_key(|(province, project)| (project.completes_on, *province, project.id()));
     let mut recruitments: Array<VarDictionary> = Array::new();
-    for (&province, project) in projects {
+    for (province, project) in projects {
         recruitments.push(&military::recruitment_details(
             world,
             province,

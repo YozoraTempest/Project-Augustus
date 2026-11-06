@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::GameDate;
 
-/// 无向陆路及基础行军天数，由内容层根据地图与兵种规则生成。
+/// 无向陆路距离。行军天数按具体军队的最慢兵种速度计算。
 #[derive(Debug, Clone, Copy)]
 pub struct LandConnection {
     pub from: u32,
     pub to: u32,
-    pub days: u32,
+    pub distance: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

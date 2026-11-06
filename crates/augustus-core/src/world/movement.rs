@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 use pathfinding::prelude::dijkstra;
 
 use crate::{
-    Army, ArmyMovement, GameDate, LandConnection, MovementError, MovementLeg, ProvinceKind,
+    Army, ArmyMovement, GameDate, LandConnection, MilitaryRules, MovementError, MovementLeg,
+    ProvinceKind,
 };
 
 use super::World;
@@ -20,7 +21,7 @@ impl World {
             neighbors
                 .iter()
                 .filter(move |&(&to, _)| from < to)
-                .map(move |(&to, &days)| LandConnection { from, to, days })
+                .map(move |(&to, &distance)| LandConnection { from, to, distance })
         })
     }
 
@@ -54,6 +55,8 @@ impl World {
                     (current.to, current.arrives_on)
                 });
         // 先计算完整报价，失败时不改变已经下达的命令。
+        // 整支军队使用当前最慢兵种的速度；途中不会更换兵种。
+        let speed = army.march_speed(&self.military_rules);
         let (path, _) = dijkstra(
             &from,
             |id| {
@@ -61,7 +64,9 @@ impl World {
                     .into_iter()
                     .flatten()
                     .filter(|(next, _)| self.can_enter(country, **next))
-                    .map(|(&next, &days)| (next, u64::from(days)))
+                    .map(|(&next, &distance)| {
+                        (next, u64::from(MilitaryRules::travel_days(distance, speed)))
+                    })
             },
             |&id| id == destination,
         )
@@ -74,7 +79,10 @@ impl World {
         for pair in path.windows(2) {
             let (from, to) = (pair[0], pair[1]);
             let arrives_on = started_on
-                .checked_add_days(self.land_routes[&from][&to])
+                .checked_add_days(MilitaryRules::travel_days(
+                    self.land_routes[&from][&to],
+                    speed,
+                ))
                 .ok_or(MovementError::DateOutOfRange)?;
             legs.push(MovementLeg {
                 from,

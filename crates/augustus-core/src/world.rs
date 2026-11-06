@@ -73,12 +73,17 @@ impl World {
         connections: impl IntoIterator<Item = LandConnection>,
     ) -> Result<Self, WorldError> {
         if military_rules.infantry_cost < Money::ZERO
+            || military_rules.cavalry_cost < Money::ZERO
             || military_rules.infantry_days == 0
+            || military_rules.cavalry_days == 0
+            || military_rules.infantry_speed <= Money::ZERO
+            || military_rules.cavalry_speed <= Money::ZERO
             || !(Money::ZERO..=Money::ONE)
                 .contains(&military_rules.recruitment_full_refund_progress)
             || military_rules.land_maintenance_factor < Money::ZERO
             || military_rules.manpower.recovery_months == 0
             || military_rules.manpower.infantry_cost == 0
+            || military_rules.manpower.cavalry_cost == 0
         {
             return Err(WorldError::InvalidMilitaryRules);
         }
@@ -164,18 +169,23 @@ impl World {
             }
         }
         let mut land_routes: BTreeMap<u32, BTreeMap<u32, u32>> = BTreeMap::new();
+        let slowest_speed = military_rules
+            .infantry_speed
+            .min(military_rules.cavalry_speed);
         for connection in connections {
-            let LandConnection { from, to, days } = connection;
+            let LandConnection { from, to, distance } = connection;
+            // 最慢兵种的天数能表示时，更快的兵种也不会超出范围。
             if from == to
-                || days == 0
+                || distance == 0
+                || u32::try_from((Money::from(distance) / slowest_speed).ceil()).is_err()
                 || [from, to].iter().any(|id| {
                     !active_provinces.contains(id) || provinces[id].kind != ProvinceKind::Land
                 })
             {
                 return Err(WorldError::InvalidLandConnection(from, to));
             }
-            land_routes.entry(from).or_default().insert(to, days);
-            land_routes.entry(to).or_default().insert(from, days);
+            land_routes.entry(from).or_default().insert(to, distance);
+            land_routes.entry(to).or_default().insert(from, distance);
         }
         let mut world = Self {
             countries: registry,

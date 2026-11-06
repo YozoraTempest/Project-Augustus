@@ -74,6 +74,7 @@ dependencies = [
  "pathfinding",
  "rust_decimal",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

@@ -47,7 +47,10 @@ func show_info(info: Dictionary) -> void:
 	for candidate: Dictionary in info.candidates:
 		var id: int = candidate.id
 		var checkbox := CheckBox.new()
-		checkbox.text = "第 %d 军队 · %d 团 · %d 人" % [id, candidate.regiment_count, candidate.strength]
+		var units := PackedStringArray()
+		for unit: Dictionary in candidate.composition:
+			units.append("%s %d 团 · %d 人" % [unit.kind, unit.regiment_count, unit.strength])
+		checkbox.text = "第 %d 军队 · %s" % [id, " · ".join(units)]
 		checkbox.tooltip_text = candidate.name
 		checkbox.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		checkbox.set_pressed_no_signal(_checked.has(id))
