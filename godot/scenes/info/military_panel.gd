@@ -3,7 +3,7 @@ class_name ProvinceMilitaryPanel
 extends VBoxContainer
 
 signal recruitment_requested(province_id: int)
-signal recruitment_cancel_requested(province_id: int)
+signal recruitment_cancel_requested(province_id: int, order_id: int)
 signal army_selected(army_id: int)
 signal army_stop_requested(army_id: int)
 signal armies_merge_requested(target: int, sources: PackedInt64Array)
@@ -15,10 +15,6 @@ signal army_disband_requested(army_id: int)
 @onready var recruit_button: Button = %RecruitInfantry
 @onready var reason_label: Label = %RecruitmentReason
 @onready var project_box: VBoxContainer = %RecruitmentProject
-@onready var project_label: Label = %RecruitmentDates
-@onready var progress_bar: ProgressBar = %RecruitmentProgress
-@onready var cancel_button: Button = %CancelRecruitment
-@onready var refund_label: Label = %RecruitmentRefund
 @onready var garrison_label: Label = %GarrisonTitle
 @onready var armies_box: VBoxContainer = %Armies
 @onready var army_details: Label = %ArmyDetails
@@ -35,7 +31,6 @@ var _selected_army := 0
 
 func _ready() -> void:
 	recruit_button.pressed.connect(func(): recruitment_requested.emit(_province_id))
-	cancel_button.pressed.connect(func(): recruitment_cancel_requested.emit(_province_id))
 	stop_button.pressed.connect(func(): army_stop_requested.emit(_selected_army))
 	disband_button.pressed.connect(func(): army_disband_requested.emit(_selected_army))
 	organization_panel.armies_merge_requested.connect(func(target: int, sources: PackedInt64Array): armies_merge_requested.emit(target, sources))
@@ -58,17 +53,36 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 	recruit_button.tooltip_text = "" if info.completes_on == null else "预计完成：%s" % info.completes_on
 	reason_label.text = info.reason
 	reason_label.visible = not info.reason.is_empty()
-	project_box.visible = info.project != null
-	if info.project != null:
-		var project: Dictionary = info.project
-		project_label.text = "正在招募：步兵 (%s)\n开始：%s\n完成：%s · 剩余 %d 天" % [project.country, project.started_on, project.completes_on, project.days_remaining]
-		progress_bar.value = project.progress
-		cancel_button.visible = project.can_cancel
-		refund_label.visible = project.can_cancel
-		if project.can_cancel:
-			refund_label.text = "取消返还：%s 金币 · %d 人力" % [project.refund_cost, project.refund_manpower]
-			refund_label.tooltip_text = project.refund_rules
-			cancel_button.tooltip_text = project.refund_rules
+	for child in project_box.get_children():
+		project_box.remove_child(child)
+		child.queue_free()
+	var orders: Array = info.orders
+	project_box.visible = not orders.is_empty()
+	for order: Dictionary in orders:
+		var order_id: int = order.id
+		var row := VBoxContainer.new()
+		var title := Label.new()
+		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var phase := "排队" if order.queued else "正在招募"
+		title.text = "%s：步兵 #%d (%s)\n开始：%s\n完成：%s · 剩余 %d 天" % [phase, order_id, order.country, order.started_on, order.completes_on, order.days_remaining]
+		row.add_child(title)
+		var progress := ProgressBar.new()
+		progress.custom_minimum_size = Vector2(0, 28)
+		progress.max_value = 100
+		progress.value = order.progress
+		row.add_child(progress)
+		if order.can_cancel:
+			var refund := Label.new()
+			refund.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			refund.text = "取消返还：%s 金币 · %d 人力" % [order.refund_cost, order.refund_manpower]
+			refund.tooltip_text = order.refund_rules
+			row.add_child(refund)
+			var cancel := Button.new()
+			cancel.text = "取消招募"
+			cancel.tooltip_text = order.refund_rules
+			cancel.pressed.connect(func(): recruitment_cancel_requested.emit(_province_id, order_id))
+			row.add_child(cancel)
+		project_box.add_child(row)
 	garrison_label.text = "军队：无" if info.armies.is_empty() else "军队"
 	for child in armies_box.get_children():
 		armies_box.remove_child(child)

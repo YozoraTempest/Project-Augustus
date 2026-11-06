@@ -32,26 +32,7 @@ autowrap_mode = 2
 [node name="RecruitmentProject" type="VBoxContainer" parent="."]
 unique_name_in_owner = true
 layout_mode = 2
-
-[node name="RecruitmentDates" type="Label" parent="RecruitmentProject"]
-unique_name_in_owner = true
-layout_mode = 2
-autowrap_mode = 2
-
-[node name="RecruitmentProgress" type="ProgressBar" parent="RecruitmentProject"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 28)
-layout_mode = 2
-
-[node name="RecruitmentRefund" type="Label" parent="RecruitmentProject"]
-unique_name_in_owner = true
-layout_mode = 2
-autowrap_mode = 2
-
-[node name="CancelRecruitment" type="Button" parent="RecruitmentProject"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "取消招募"
+theme_override_constants/separation = 12
 
 [node name="GarrisonTitle" type="Label" parent="."]
 unique_name_in_owner = true
