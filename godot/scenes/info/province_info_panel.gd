@@ -10,6 +10,7 @@ signal army_stop_requested(army_id: int)
 signal armies_merge_requested(target: int, sources: PackedInt64Array)
 signal army_split_requested(army_id: int, count: int)
 signal army_disband_requested(army_id: int)
+signal war_declare_requested(tag: String)
 
 @onready var tabs: TabContainer = %Tabs
 @onready var province_title: Label = %ProvinceTitle
@@ -18,10 +19,16 @@ signal army_disband_requested(army_id: int)
 @onready var country_title: Label = %CountryTitle
 @onready var country_body: Label = %CountryBody
 @onready var country_color: ColorRect = %CountryColor
+@onready var wars_label: Label = %Wars
+@onready var declare_button: Button = %DeclareWar
+@onready var declare_reason: Label = %DeclareWarReason
+@onready var war_feedback: Label = %WarFeedback
 @onready var construction_panel: ProvinceConstructionPanel = %ConstructionPanel
 @onready var building_hint: Label = %BuildingHint
 @onready var military_panel: ProvinceMilitaryPanel = %MilitaryPanel
 @onready var military_hint: Label = %MilitaryHint
+
+var _country_tag := ""
 
 
 func _ready() -> void:
@@ -34,6 +41,7 @@ func _ready() -> void:
 	military_panel.armies_merge_requested.connect(func(target: int, sources: PackedInt64Array): armies_merge_requested.emit(target, sources))
 	military_panel.army_split_requested.connect(func(id: int, count: int): army_split_requested.emit(id, count))
 	military_panel.army_disband_requested.connect(func(id: int): army_disband_requested.emit(id))
+	declare_button.pressed.connect(func(): war_declare_requested.emit(_country_tag))
 	show_info({}, {})
 
 
@@ -75,6 +83,7 @@ func show_info(province: Dictionary, country: Dictionary, construction: Dictiona
 		if country.history_conflicts:
 			country_body.text += "\n\n历史信息存在冲突"
 	country_body.visible = not country.is_empty()
+	_show_wars(country)
 
 
 func _value(value: Variant) -> String:
@@ -99,6 +108,35 @@ func show_organization_error(error: String) -> void:
 
 func show_disband_error(error: String) -> void:
 	military_panel.show_disband_error(error)
+
+
+func show_war_error(message: String) -> void:
+	war_feedback.text = message
+	war_feedback.modulate = Color(1.0, 0.55, 0.48)
+	war_feedback.show()
+
+
+func _show_wars(country: Dictionary) -> void:
+	war_feedback.hide()
+	var has_country := not country.is_empty()
+	wars_label.visible = has_country
+	if not has_country:
+		_country_tag = ""
+		declare_button.hide()
+		declare_reason.hide()
+		return
+	_country_tag = country.tag
+	var lines := PackedStringArray()
+	for war: Dictionary in country.wars:
+		lines.append("%s 向 %s 宣战\n开始日期：%s" % [war.attacker_name, war.defender_name, war.started_on])
+	wars_label.text = "当前没有战争" if lines.is_empty() else "\n\n".join(lines)
+	var player := GameSession.get_player_country()
+	var foreign := not player.is_empty() and player != _country_tag
+	declare_button.visible = foreign
+	declare_button.disabled = not country.can_declare_war
+	declare_button.tooltip_text = "" if country.can_declare_war else str(country.declare_war_reason)
+	declare_reason.text = str(country.declare_war_reason)
+	declare_reason.visible = foreign and not country.can_declare_war
 
 
 func _country_name(province: Dictionary, field: String) -> String:

@@ -84,8 +84,8 @@ pub enum MovementError {
     SameProvince,
     #[error("只能移动到地图上的陆地省份")]
     InvalidDestination,
-    #[error("目标省份必须由本国拥有并控制")]
-    NotOwnedAndControlled,
+    #[error("只能进入本国控制的省份或交战国领土")]
+    NoAccess,
     #[error("没有通往目标省份的可通行陆路")]
     NoRoute,
     #[error("抵达日期超出游戏历法范围")]

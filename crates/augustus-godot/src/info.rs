@@ -82,7 +82,7 @@ pub(crate) fn province_info(world: &OpeningWorld, id: u32) -> VarDictionary {
     info
 }
 
-pub(crate) fn country_info(world: &OpeningWorld, tag: &str) -> VarDictionary {
+pub(crate) fn country_info(world: &OpeningWorld, tag: &str, player: Option<&str>) -> VarDictionary {
     let mut info = VarDictionary::new();
     let Some(country) = world.state().country(tag) else {
         return info;
@@ -128,6 +128,28 @@ pub(crate) fn country_info(world: &OpeningWorld, tag: &str) -> VarDictionary {
     number(&mut info, "development", summary.development);
     info.extend_dictionary(&country_finances(world, tag), true);
     info.set("manpower", &crate::manpower::info(world, tag));
+    let mut wars: Array<VarDictionary> = Array::new();
+    for war in world.state().wars_of(tag) {
+        let mut entry = VarDictionary::new();
+        entry.set("id", i64::from(war.id()));
+        entry.set("attacker", war.attacker());
+        entry.set("defender", war.defender());
+        entry.set("attacker_name", world.display_name(war.attacker()).as_str());
+        entry.set("defender_name", world.display_name(war.defender()).as_str());
+        entry.set("started_on", war.started_on().to_string().as_str());
+        entry.set("status", war.status().id());
+        wars.push(&entry);
+    }
+    info.set("wars", &wars);
+    let (can_declare, reason) = match player {
+        Some(player) => match world.state().declaration_error(player, tag) {
+            Ok(()) => (true, String::new()),
+            Err(error) => (false, error.to_string()),
+        },
+        None => (false, String::new()),
+    };
+    info.set("can_declare_war", can_declare);
+    info.set("declare_war_reason", reason.as_str());
     info
 }
 

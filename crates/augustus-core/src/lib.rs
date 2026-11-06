@@ -13,6 +13,7 @@ mod province;
 mod save;
 mod simulation;
 mod time;
+mod war;
 mod world;
 
 pub use building::{BuildingDefinition, Construction, ConstructionError, ConstructionQuote};
@@ -30,4 +31,6 @@ pub use rust_decimal::Decimal as Money;
 pub use save::{RestoredGame, SaveError, SavedGame};
 pub use simulation::Simulation;
 pub use time::{GameClock, GameDate, GameSpeed};
+pub(crate) use war::WarState;
+pub use war::{War, WarError, WarStatus};
 pub use world::{SupplyForecast, World, WorldError};

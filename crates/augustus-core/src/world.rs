@@ -12,12 +12,13 @@ mod recruitment_cancellation;
 mod reinforcement;
 mod saved_state;
 mod supply;
+mod war;
 
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use crate::{
     BuildingDefinition, Country, LandConnection, MilitaryRules, MilitaryState, Money, Province,
-    ProvinceKind,
+    ProvinceKind, WarState,
 };
 
 pub use supply::SupplyForecast;
@@ -65,6 +66,7 @@ pub struct World {
     buildings: BTreeMap<String, BuildingDefinition>,
     military_rules: MilitaryRules,
     military: MilitaryState,
+    war_state: WarState,
     land_routes: BTreeMap<u32, BTreeMap<u32, u32>>,
 }
 
@@ -205,6 +207,7 @@ impl World {
             buildings: definitions,
             military_rules,
             military: MilitaryState::default(),
+            war_state: WarState::default(),
             land_routes,
         };
         world.initialize_manpower()?;

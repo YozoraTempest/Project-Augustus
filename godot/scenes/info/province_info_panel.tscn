@@ -81,6 +81,28 @@ unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 2
 
+[node name="Wars" type="Label" parent="Tabs/国家/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2
+
+[node name="DeclareWar" type="Button" parent="Tabs/国家/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "宣战"
+
+[node name="DeclareWarReason" type="Label" parent="Tabs/国家/Content"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+autowrap_mode = 2
+
+[node name="WarFeedback" type="Label" parent="Tabs/国家/Content"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+autowrap_mode = 2
+
 [node name="建筑" type="ScrollContainer" parent="Tabs"]
 layout_mode = 2
 horizontal_scroll_mode = 0
