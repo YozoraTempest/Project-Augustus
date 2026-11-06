@@ -58,6 +58,26 @@ pub struct Recruitment {
     pub(crate) paid_manpower: Option<u64>,
 }
 
+impl Recruitment {
+    /// 订单编号，同时是这支部队完成时可能使用的军队编号。
+    pub fn id(&self) -> u32 {
+        self.army_id
+    }
+
+    /// 尚未到开始日的订单进度为零；进行中的订单按已过天数占本单工期的比例。
+    pub fn progress(&self, date: GameDate) -> f64 {
+        if date < self.started_on {
+            return 0.0;
+        }
+        let total = self.started_on.days_until(self.completes_on);
+        if total <= 0 {
+            return 0.0;
+        }
+        let elapsed = total - date.days_until(self.completes_on).max(0);
+        f64::from(elapsed) / f64::from(total) * 100.0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MilitaryRules {
     pub infantry_cost: Money,
@@ -82,6 +102,7 @@ impl MilitaryRules {
 pub struct RecruitmentQuote {
     pub cost: Money,
     pub manpower: u64,
+    pub started_on: GameDate,
     pub completes_on: GameDate,
 }
 
@@ -94,7 +115,9 @@ pub struct RecruitmentRefund {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MilitaryState {
     pub(crate) armies: BTreeMap<u32, Army>,
-    pub(crate) recruitments: BTreeMap<u32, Recruitment>,
+    // 每个省份按完成顺序保存订单。第 9 版之前每个省份只有一个对象，读取时视为仅含队首的队列。
+    #[serde(deserialize_with = "deserialize_recruitments")]
+    pub(crate) recruitments: BTreeMap<u32, Vec<Recruitment>>,
     pub(crate) next_army_id: u32,
 }
 
@@ -116,10 +139,12 @@ pub enum RecruitmentError {
     InvalidProvince,
     #[error("只能在本国拥有并控制的省份招募")]
     NotOwnedAndControlled,
-    #[error("该省份正在招募部队")]
-    AlreadyRecruiting,
+    #[error("该省份已有其他国家的招募")]
+    ForeignQueue,
     #[error("该省份没有正在进行的招募")]
     NotRecruiting,
+    #[error("找不到该招募订单")]
+    UnknownOrder,
     #[error("只能取消本国的招募")]
     NotPlayerRecruitment,
     #[error("该招募已完成或尚未开始，无法取消")]
@@ -132,4 +157,31 @@ pub enum RecruitmentError {
     DateOutOfRange,
     #[error("军队编号已用尽")]
     ArmyLimit,
+}
+
+fn deserialize_recruitments<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<u32, Vec<Recruitment>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Slot {
+        Orders(Vec<Recruitment>),
+        Single(Recruitment),
+    }
+
+    Ok(BTreeMap::<u32, Slot>::deserialize(deserializer)?
+        .into_iter()
+        .map(|(province, slot)| {
+            (
+                province,
+                match slot {
+                    Slot::Orders(orders) => orders,
+                    Slot::Single(order) => vec![order],
+                },
+            )
+        })
+        .collect())
 }
