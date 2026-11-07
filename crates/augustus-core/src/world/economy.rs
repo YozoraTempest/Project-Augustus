@@ -153,9 +153,9 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::{
-        Army, BuildingDefinition, Country, CountryFinances, Development, GameDate, ManpowerRules,
-        MilitaryRules, Money, Province, ProvinceKind, Regiment, SavedGame, Simulation, UnitKind,
-        World,
+        Army, BuildingDefinition, CombatRules, Country, CountryFinances, Development, GameDate,
+        ManpowerRules, MilitaryRules, Money, Province, ProvinceKind, Regiment, SavedGame,
+        Simulation, UnitKind, World,
     };
 
     fn date() -> GameDate {
@@ -188,6 +188,7 @@ mod tests {
                 infantry_cost: 1_000,
                 cavalry_cost: 1_000,
             },
+            combat: CombatRules::baseline(),
         }
     }
 
@@ -236,10 +237,7 @@ mod tests {
     fn add_regiments(world: &mut World, count: usize, strength: u32) {
         let mut regiments = Vec::with_capacity(count);
         for _ in 0..count {
-            regiments.push(Regiment {
-                kind: UnitKind::Infantry,
-                strength,
-            });
+            regiments.push(Regiment::fresh(UnitKind::Infantry, strength));
         }
         let id = world.military.next_army_id;
         world.military.next_army_id += 1;
@@ -251,6 +249,8 @@ mod tests {
                 province: 1,
                 regiments,
                 movement: None,
+                battle_id: None,
+                retreating: false,
             },
         );
     }

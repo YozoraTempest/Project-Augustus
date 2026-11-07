@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use rust_decimal::RoundingStrategy;
 use serde::{Deserialize, Serialize};
 
+use crate::combat::{CombatRules, UNSET_MORALE};
 use crate::{ArmyMovement, GameDate, ManpowerRules, Money};
 
 /// 一个满编团的兵力；军队可以持有多个团，编组与兵种分别保存。
@@ -29,10 +30,36 @@ impl UnitKind {
     }
 }
 
+fn unset_morale() -> u32 {
+    UNSET_MORALE
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Regiment {
     pub kind: UnitKind,
     pub strength: u32,
+    /// 以千分之一点保存。旧档没有该字段时先占位，读入后改成满士气。
+    #[serde(default = "unset_morale")]
+    pub morale: u32,
+}
+
+impl Regiment {
+    /// 测试和直接驻军使用满士气占位。招募完成时写入规则中的实际满士气。
+    pub fn fresh(kind: UnitKind, strength: u32) -> Self {
+        Self {
+            kind,
+            strength,
+            morale: UNSET_MORALE,
+        }
+    }
+
+    pub(crate) fn effective_morale(&self, max: u32) -> u32 {
+        if self.morale == UNSET_MORALE {
+            max
+        } else {
+            self.morale
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,11 +69,39 @@ pub struct Army {
     pub province: u32,
     pub regiments: Vec<Regiment>,
     pub movement: Option<ArmyMovement>,
+    /// 进行中的战斗。一支军队同时只属于一场战斗。
+    #[serde(default)]
+    pub(crate) battle_id: Option<u32>,
+    /// 败退途中不能接敌，也不能接受调动或编组。
+    #[serde(default)]
+    pub(crate) retreating: bool,
 }
 
 impl Army {
     pub fn id(&self) -> u32 {
         self.id
+    }
+
+    pub fn battle_id(&self) -> Option<u32> {
+        self.battle_id
+    }
+
+    pub fn is_retreating(&self) -> bool {
+        self.retreating
+    }
+
+    /// 仍有兵力的团的平均士气。没有活人时为零。
+    pub fn average_morale(&self, max: u32) -> u32 {
+        let mut total = 0_u64;
+        let mut count = 0_u64;
+        for regiment in &self.regiments {
+            if regiment.strength == 0 {
+                continue;
+            }
+            total += u64::from(regiment.effective_morale(max));
+            count += 1;
+        }
+        total.checked_div(count).unwrap_or(0) as u32
     }
 
     pub fn strength(&self) -> u64 {
@@ -139,6 +194,8 @@ pub struct MilitaryRules {
     /// 每点税收发展度加入的省份招募时间修正。
     pub tax_recruitment_time: Money,
     pub manpower: ManpowerRules,
+    /// 基础陆战。放在结构末尾，避免和开局军队规模字段抢同一位置。
+    pub combat: CombatRules,
 }
 
 impl MilitaryRules {
@@ -238,6 +295,10 @@ pub struct RecruitmentRefund {
     pub manpower: u64,
 }
 
+fn default_next_battle_id() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MilitaryState {
     pub(crate) armies: BTreeMap<u32, Army>,
@@ -245,6 +306,14 @@ pub struct MilitaryState {
     #[serde(deserialize_with = "deserialize_recruitments")]
     pub(crate) recruitments: BTreeMap<u32, Vec<Recruitment>>,
     pub(crate) next_army_id: u32,
+    /// 进行中的战斗。旧档没有战斗，读入后为空。
+    #[serde(default)]
+    pub(crate) battles: BTreeMap<u32, crate::Battle>,
+    /// 每个省份保留最近一场已结束的战斗，供界面和读档后续算查询。
+    #[serde(default)]
+    pub(crate) battle_reports: BTreeMap<u32, crate::BattleReport>,
+    #[serde(default = "default_next_battle_id")]
+    pub(crate) next_battle_id: u32,
 }
 
 impl Default for MilitaryState {
@@ -253,6 +322,9 @@ impl Default for MilitaryState {
             armies: BTreeMap::new(),
             recruitments: BTreeMap::new(),
             next_army_id: 1,
+            battles: BTreeMap::new(),
+            battle_reports: BTreeMap::new(),
+            next_battle_id: default_next_battle_id(),
         }
     }
 }

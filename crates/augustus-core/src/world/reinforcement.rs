@@ -317,9 +317,9 @@ mod tests {
     use std::{collections::BTreeMap, time::Duration};
 
     use crate::{
-        Army, ArmyMovement, Country, Development, GameDate, ManpowerRules, MilitaryRules, Money,
-        MovementLeg, Province, ProvinceKind, REGIMENT_STRENGTH, Regiment, SavedGame, Simulation,
-        UnitKind, World,
+        Army, ArmyMovement, CombatRules, Country, Development, GameDate, ManpowerRules,
+        MilitaryRules, Money, MovementLeg, Province, ProvinceKind, REGIMENT_STRENGTH, Regiment,
+        SavedGame, Simulation, UnitKind, World,
     };
 
     fn rules() -> MilitaryRules {
@@ -348,6 +348,7 @@ mod tests {
                 infantry_cost: 1_000,
                 cavalry_cost: 1_000,
             },
+            combat: CombatRules::baseline(),
         }
     }
 
@@ -406,13 +407,15 @@ mod tests {
                 province,
                 regiments,
                 movement: None,
+                battle_id: None,
+                retreating: false,
             },
         );
         id
     }
 
     fn regiment(kind: UnitKind, strength: u32) -> Regiment {
-        Regiment { kind, strength }
+        Regiment::fresh(kind, strength)
     }
 
     fn strength(world: &World, army: u32, index: usize) -> u32 {

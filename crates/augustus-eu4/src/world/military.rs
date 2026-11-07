@@ -88,6 +88,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
         goods_land_forcelimit: limits.goods,
         tax_recruitment_time: tax_recruitment_time(content)?,
         manpower: super::manpower::load(content, &text)?,
+        combat: super::combat::load(content, &text, &file.path)?,
     })
 }
 
@@ -192,6 +193,8 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("common/static_modifiers")).unwrap();
         fs::create_dir_all(root.join("common/tradegoods")).unwrap();
+        fs::create_dir_all(root.join("common/technologies")).unwrap();
+        fs::create_dir_all(root.join("common/units")).unwrap();
         fs::write(root.join("common/defines.lua"), DEFINES).unwrap();
         fs::write(
             root.join("common/static_modifiers/00_static_modifiers.txt"),
@@ -199,6 +202,22 @@ mod tests {
         )
         .unwrap();
         fs::write(root.join("common/tradegoods/00_tradegoods.txt"), GOODS).unwrap();
+        fs::write(root.join("common/technologies/mil.txt"), MIL).unwrap();
+        fs::write(
+            root.join("common/units/eastern_medieval_infantry.txt"),
+            EASTERN_INFANTRY,
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/western_medieval_infantry.txt"),
+            WESTERN_INFANTRY,
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/eastern_medieval_cavalry.txt"),
+            EASTERN_CAVALRY,
+        )
+        .unwrap();
 
         let rules = load(&ContentRoot::new(&root)).unwrap();
         assert_eq!(rules.supply_base, 6);
@@ -215,6 +234,17 @@ mod tests {
             rules.goods_land_forcelimit.get("fish").copied(),
             Some(Money::ZERO)
         );
+        assert_eq!(rules.combat.width, 15);
+        assert_eq!(rules.combat.max_morale, Money::from(2));
+        assert_eq!(rules.combat.tactics, Money::new(5, 1));
+        assert_eq!(rules.combat.recovery, Money::new(15, 2));
+        assert_eq!(rules.combat.recovery_own_territory, Money::new(5, 2));
+        assert_eq!(rules.combat.shattered_retreat_speed, Money::new(5, 1));
+        assert_eq!(rules.combat.battle_length_damage, Money::new(1, 2));
+        assert_eq!(rules.combat.infantry.offensive_shock, 1);
+        assert_eq!(rules.combat.infantry.fire_damage, Money::new(25, 2));
+        assert_eq!(rules.combat.cavalry.maneuver, 2);
+        assert_eq!(rules.combat.cavalry.shock_damage, Money::new(3, 1));
         fs::remove_dir_all(&root).unwrap();
     }
 
@@ -231,6 +261,11 @@ mod tests {
         SUPPLYLIMIT_BASE_MULTIPLIER = 6,
         INFANTRY_SPEED = 1,
         CAVALRY_SPEED = 2,
+        BASE_COMBAT_WIDTH = 15,
+        MORALE_RECOVERY_SPEED = 0.15,
+        MORALE_RECOVERY_SPEED_OWN_TERRITORY = 0.05,
+        SHATTERED_RETREAT_SPEED_MODIFIER = 0.5,
+        WAR_LENGTH_DAMAGE_MODIFIER = 0.01,
         BASE_MP_TO_MANPOWER = 0.25,
         MAX_MANPOWER = 10,
         MIN_MONTHLY_MANPOWER = 0.1,
@@ -242,6 +277,7 @@ mod tests {
         base_values = {
             global_manpower = 1
             land_forcelimit = 6
+            land_morale = 2
         }
         development = {
             land_forcelimit = 0.1
@@ -256,5 +292,51 @@ mod tests {
         fish = {
             province = { local_sailors_modifier = 0.25 }
         }
+    "#;
+
+    const MIL: &str = r#"
+        technology = {
+            enable = eastern_medieval_infantry
+            enable = western_medieval_infantry
+            enable = eastern_medieval_cavalry
+            infantry_fire = 0.25
+            infantry_shock = 0.20
+            cavalry_fire = 0.25
+            cavalry_shock = 0.30
+            military_tactics = 0.5
+        }
+    "#;
+
+    const EASTERN_INFANTRY: &str = r#"
+        type = infantry
+        maneuver = 1
+        offensive_morale = 0
+        defensive_morale = 0
+        offensive_fire = 0
+        defensive_fire = 0
+        offensive_shock = 9
+        defensive_shock = 0
+    "#;
+
+    const WESTERN_INFANTRY: &str = r#"
+        type = infantry
+        maneuver = 1
+        offensive_morale = 0
+        defensive_morale = 1
+        offensive_fire = 0
+        defensive_fire = 1
+        offensive_shock = 1
+        defensive_shock = 1
+    "#;
+
+    const EASTERN_CAVALRY: &str = r#"
+        type = cavalry
+        maneuver = 2
+        offensive_morale = 0
+        defensive_morale = 0
+        offensive_fire = 0
+        defensive_fire = 0
+        offensive_shock = 0
+        defensive_shock = 0
     "#;
 }

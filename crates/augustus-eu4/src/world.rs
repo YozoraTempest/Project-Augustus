@@ -3,6 +3,7 @@
 //! 将 EU4 的国家定义、地理分类和省份历史组合为固定日期的开局。
 
 mod buildings;
+mod combat;
 mod countries;
 mod forcelimit;
 mod geography;

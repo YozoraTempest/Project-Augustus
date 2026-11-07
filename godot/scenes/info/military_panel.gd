@@ -51,7 +51,10 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 	visible = not info.is_empty()
 	if not visible:
 		return
+	province_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	province_label.text = info.province_name + " · 军事"
+	if str(info.get("combat_status", "")) != "":
+		province_label.text += "\n" + str(info.combat_status)
 	if info.manpower != null:
 		manpower_label.text = "可用人力：%d / %d\n每月恢复：+%d 人" % [info.manpower.available, info.manpower.capacity, info.manpower.monthly_recovery]
 		manpower_label.show()
@@ -104,16 +107,29 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 		var id: int = army.id
 		var button := Button.new()
 		var relation := _stance_name(str(army.get("stance", "neutral")))
-		button.text = "%s · %s · %d 人%s" % [relation, army.name, army.strength, " · 行军中" if army.movement != null else ""]
+		var activity := ""
+		if bool(army.get("in_battle", false)):
+			activity = " · 交战中"
+		elif bool(army.get("retreating", false)):
+			activity = " · 撤退中"
+		elif army.movement != null:
+			activity = " · 行军中"
+		button.text = "%s · %s · %d 人%s" % [relation, army.name, army.strength, activity]
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		button.toggle_mode = true
 		button.set_pressed_no_signal(id == selected_army)
 		button.pressed.connect(func(): army_selected.emit(id))
 		armies_box.add_child(button)
 		if id == selected_army:
+			var blocked := str(army.get("order_block", ""))
 			disband_button.visible = army.can_command
-			disband_button.disabled = army.movement != null
-			disband_button.tooltip_text = "请先让军队驻扎" if disband_button.disabled else ""
+			disband_button.disabled = army.movement != null or not blocked.is_empty()
+			if not blocked.is_empty():
+				disband_button.tooltip_text = blocked
+			elif army.movement != null:
+				disband_button.tooltip_text = "请先让军队驻扎"
+			else:
+				disband_button.tooltip_text = ""
 			army_details.text = "%s\n编号：#%d\n所属国家：%s (%s) · %s\n驻扎：%s (#%d)\n部队：%d 团 · 总兵力 %d 人\n%s" % [army.name, id, army.country_name, army.country, relation, army.province_name, army.province, army.regiment_count, army.strength, _composition_text(army)]
 			if army.movement != null:
 				army_details.text = army_details.text.replace("驻扎：", "当前省份：")
@@ -126,11 +142,16 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 				movement_details.show()
 				movement_progress.show()
 				stop_button.visible = army.can_command
-				stop_button.disabled = movement.leg_index + 1 == movement.route.size()
-				stop_button.text = "抵达后驻扎" if stop_button.disabled else "停止行军"
-				stop_button.tooltip_text = "" if stop_button.disabled else "停止于：" + str(movement.to_name)
+				stop_button.disabled = not bool(army.get("can_move", true)) or movement.leg_index + 1 == movement.route.size()
+				stop_button.text = "抵达后驻扎" if movement.leg_index + 1 == movement.route.size() else "停止行军"
+				if not blocked.is_empty():
+					stop_button.tooltip_text = blocked
+				elif stop_button.disabled:
+					stop_button.tooltip_text = ""
+				else:
+					stop_button.tooltip_text = "停止于：" + str(movement.to_name)
 			else:
-				movement_details.text = "可达邻省：" + ("无" if army.move_targets.is_empty() else "、".join(army.move_targets))
+				movement_details.text = blocked if not blocked.is_empty() else "可达邻省：" + ("无" if army.move_targets.is_empty() else "、".join(army.move_targets))
 				movement_details.show()
 			for index in army.regiments.size():
 				var regiment: Dictionary = army.regiments[index]
@@ -138,6 +159,10 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 			army_details.text += _supply_text(army)
 			if army.has("reinforcement"):
 				army_details.text += "\n" + str(army.reinforcement)
+			if str(army.get("morale", "")) != "":
+				army_details.text += "\n士气：" + str(army.morale)
+			if str(army.get("combat_status", "")) != "":
+				army_details.text += "\n" + str(army.combat_status)
 			army_details.show()
 
 

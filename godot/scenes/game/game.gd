@@ -131,7 +131,13 @@ func _refresh_selection(select_tab: bool = true) -> void:
 	if select_tab:
 		info_panel.tabs.current_tab = 3 if not army.is_empty() else (1 if map_view.mode == MapMode.Type.COUNTRY else 0)
 	if not army.is_empty():
-		var location := "驻扎 " + str(army.province_name) if army.movement == null else "行军至 %s · 剩余 %d 天" % [army.movement.destination_name, army.movement.days_remaining]
+		var location := "驻扎 " + str(army.province_name)
+		if bool(army.get("in_battle", false)):
+			location = "交战中 · " + str(army.province_name)
+		elif bool(army.get("retreating", false)):
+			location = "撤退至 %s · 剩余 %d 天" % [army.movement.destination_name, army.movement.days_remaining]
+		elif army.movement != null:
+			location = "行军至 %s · 剩余 %d 天" % [army.movement.destination_name, army.movement.days_remaining]
 		var relation := ""
 		match str(army.get("stance", "neutral")):
 			"own":

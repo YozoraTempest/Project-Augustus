@@ -95,10 +95,10 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        Army, ArmyMovement, ArmyOrganizationError, Country, Development, GameDate, LandConnection,
-        ManpowerRules, MilitaryRules, Money, MovementError, MovementLeg, Province, ProvinceKind,
-        RecruitmentError, Regiment, SaveError, SavedGame, Simulation, UnitKind, WarError,
-        WarStatus,
+        Army, ArmyMovement, ArmyOrganizationError, CombatRules, Country, Development, GameDate,
+        LandConnection, ManpowerRules, MilitaryRules, Money, MovementError, MovementLeg, Province,
+        ProvinceKind, RecruitmentError, Regiment, SaveError, SavedGame, Simulation, UnitKind,
+        WarError, WarStatus,
     };
 
     use super::World;
@@ -145,6 +145,7 @@ mod tests {
                 infantry_cost: 1_000,
                 cavalry_cost: 1_000,
             },
+            combat: CombatRules::baseline(),
         }
     }
 
@@ -204,12 +205,11 @@ mod tests {
                 country: country.to_owned(),
                 province,
                 regiments: (0..regiments)
-                    .map(|_| Regiment {
-                        kind: UnitKind::Infantry,
-                        strength: 1_000,
-                    })
+                    .map(|_| Regiment::fresh(UnitKind::Infantry, 1_000))
                     .collect(),
                 movement: None,
+                battle_id: None,
+                retreating: false,
             },
         );
         world.military.next_army_id = world.military.next_army_id.max(id + 1);
@@ -330,8 +330,11 @@ mod tests {
         let mut simulation = Simulation::new(date);
         simulation.set_paused(false);
         assert_eq!(simulation.advance(&mut world, Duration::from_secs(2)), 2);
-        assert_eq!(world.armies()[&1].province, 4);
+        // 途经省份有敌军时停下接战，不再穿过该省继续前往原目的地。
+        assert_eq!(world.armies()[&1].province, 2);
         assert!(world.armies()[&1].movement.is_none());
+        assert!(world.armies()[&1].battle_id().is_some());
+        assert!(world.battle_in_province(2).is_some());
     }
 
     #[test]

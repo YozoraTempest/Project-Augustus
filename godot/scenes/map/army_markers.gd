@@ -41,8 +41,19 @@ func show_armies(armies: Array[Dictionary]) -> void:
 			"enemy":
 				relation = "敌方 · 只可查看"
 				mark = "敌 "
-		button.text = "%s%s %s · %d" % [mark, "→" if army.movement != null else "军", army.country, army.strength]
+		var prefix := ""
+		if bool(army.get("in_battle", false)):
+			prefix = "战 "
+		elif bool(army.get("retreating", false)):
+			prefix = "撤 "
+		button.text = "%s%s%s %s · %d" % [prefix, mark, "→" if army.movement != null else "军", army.country, army.strength]
+		var morale := str(army.get("morale", ""))
+		var status := str(army.get("combat_status", ""))
 		button.tooltip_text = "%s\n%s\n%s · %d 团 · %d 人" % [relation, army.name, army.province_name, army.regiment_count, army.strength]
+		if not morale.is_empty():
+			button.tooltip_text += "\n士气 " + morale
+		if not status.is_empty():
+			button.tooltip_text += "\n" + status
 		button.add_theme_color_override("font_color", Color.WHITE.lerp(army.color, 0.35))
 		button.set_pressed_no_signal(id == _selected)
 		button.reset_size()

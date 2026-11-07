@@ -192,15 +192,22 @@ impl World {
     }
 
     fn add_recruited_regiment(&mut self, province: u32, recruitment: Recruitment) {
+        let morale = self
+            .military_rules
+            .combat
+            .morale_milli()
+            .expect("陆战规则已检查");
         let regiment = Regiment {
             kind: recruitment.kind,
             strength: REGIMENT_STRENGTH,
+            morale,
         };
-        // 同国同省份的后续部队加入驻军，保留原军队编号。
+        // 同国同省份的后续部队加入驻军，保留原军队编号。撤退中的军队不接收新兵。
         if let Some(army) = self.military.armies.values_mut().find(|army| {
             army.country == recruitment.country
                 && army.province == province
                 && army.movement.is_none()
+                && !army.retreating
         }) {
             army.regiments.push(regiment);
         } else {
@@ -212,6 +219,8 @@ impl World {
                     province,
                     regiments: vec![regiment],
                     movement: None,
+                    battle_id: None,
+                    retreating: false,
                 },
             );
         }
@@ -285,6 +294,8 @@ impl World {
             return Err(SaveError::InvalidMilitary);
         }
         self.military = military;
+        self.fill_unset_morale();
+        self.validate_battles(date)?;
         Ok(())
     }
 }
@@ -294,7 +305,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::{
-        Country, Development, GameDate, LandConnection, ManpowerRules, MilitaryRules,
+        CombatRules, Country, Development, GameDate, LandConnection, ManpowerRules, MilitaryRules,
         MilitaryState, Money, Province, ProvinceKind, RecruitmentError, SaveError, SavedGame,
         Simulation, UnitKind, World,
     };
@@ -329,6 +340,7 @@ mod tests {
                 infantry_cost: 1_000,
                 cavalry_cost: 1_500,
             },
+            combat: CombatRules::baseline(),
         }
     }
 
@@ -358,6 +370,7 @@ mod tests {
                 infantry_cost: 1_000,
                 cavalry_cost: 1_000,
             },
+            combat: CombatRules::baseline(),
         }
     }
 
