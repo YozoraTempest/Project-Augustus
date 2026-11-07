@@ -10,6 +10,7 @@ signal army_stop_requested(army_id: int)
 signal armies_merge_requested(target: int, sources: PackedInt64Array)
 signal army_split_requested(army_id: int, count: int)
 signal army_disband_requested(army_id: int)
+signal army_retreat_requested(army_id: int)
 signal war_declare_requested(tag: String)
 
 @onready var tabs: TabContainer = %Tabs
@@ -41,6 +42,7 @@ func _ready() -> void:
 	military_panel.armies_merge_requested.connect(func(target: int, sources: PackedInt64Array): armies_merge_requested.emit(target, sources))
 	military_panel.army_split_requested.connect(func(id: int, count: int): army_split_requested.emit(id, count))
 	military_panel.army_disband_requested.connect(func(id: int): army_disband_requested.emit(id))
+	military_panel.army_retreat_requested.connect(func(id: int): army_retreat_requested.emit(id))
 	declare_button.pressed.connect(func(): war_declare_requested.emit(_country_tag))
 	show_info({}, {})
 
@@ -117,6 +119,10 @@ func show_recruitment_error(error: String) -> void:
 
 func show_movement_error(error: String) -> void:
 	military_panel.show_movement_error(error)
+
+
+func show_retreat_error(error: String) -> void:
+	military_panel.show_retreat_error(error)
 
 
 func show_organization_error(error: String) -> void:

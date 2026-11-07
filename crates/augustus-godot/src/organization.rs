@@ -29,11 +29,11 @@ pub(crate) fn disband_info(world: &OpeningWorld, id: u32, player: &str) -> VarDi
 pub(crate) fn info(world: &OpeningWorld, id: u32, player: Option<&str>) -> VarDictionary {
     let mut info = VarDictionary::new();
     let state = world.state();
-    let Some(army) = state
-        .armies()
-        .get(&id)
-        .filter(|army| player == Some(army.country.as_str()) && army.movement.is_none())
-    else {
+    let Some(army) = state.armies().get(&id).filter(|army| {
+        player == Some(army.country.as_str())
+            && army.movement.is_none()
+            && army.battle_id().is_none()
+    }) else {
         return info;
     };
     info.set("id", i64::from(id));
@@ -44,6 +44,7 @@ pub(crate) fn info(world: &OpeningWorld, id: u32, player: Option<&str>) -> VarDi
             && candidate.country == army.country
             && candidate.province == army.province
             && candidate.movement.is_none()
+            && candidate.battle_id().is_none()
     }) {
         let mut details = VarDictionary::new();
         details.set("id", i64::from(candidate.id()));

@@ -43,6 +43,7 @@ func _ready() -> void:
 	info_panel.armies_merge_requested.connect(_merge_armies)
 	info_panel.army_split_requested.connect(_split_army)
 	info_panel.army_disband_requested.connect(_open_disband_dialog)
+	info_panel.army_retreat_requested.connect(_retreat_army)
 	info_panel.war_declare_requested.connect(_open_war_dialog)
 	disband_dialog.army_disband_requested.connect(_disband_army)
 	war_dialog.confirmed_war.connect(_declare_war)
@@ -131,7 +132,13 @@ func _refresh_selection(select_tab: bool = true) -> void:
 	if select_tab:
 		info_panel.tabs.current_tab = 3 if not army.is_empty() else (1 if map_view.mode == MapMode.Type.COUNTRY else 0)
 	if not army.is_empty():
-		var location := "驻扎 " + str(army.province_name) if army.movement == null else "行军至 %s · 剩余 %d 天" % [army.movement.destination_name, army.movement.days_remaining]
+		var location := "驻扎 " + str(army.province_name)
+		if bool(army.get("in_battle", false)):
+			location = "交战中 · " + str(army.province_name)
+		elif bool(army.get("retreating", false)):
+			location = "撤退至 %s · 剩余 %d 天" % [army.movement.destination_name, army.movement.days_remaining]
+		elif army.movement != null:
+			location = "行军至 %s · 剩余 %d 天" % [army.movement.destination_name, army.movement.days_remaining]
 		var relation := ""
 		match str(army.get("stance", "neutral")):
 			"own":
@@ -183,6 +190,13 @@ func _stop_army(army_id: int) -> void:
 	if not error.is_empty():
 		_refresh_selection(false)
 		info_panel.show_movement_error(error)
+
+
+func _retreat_army(army_id: int) -> void:
+	var error := GameSession.retreat_army(army_id)
+	_refresh_selection(false)
+	if not error.is_empty():
+		info_panel.show_retreat_error(error)
 
 
 func _merge_armies(target: int, sources: PackedInt64Array) -> void:

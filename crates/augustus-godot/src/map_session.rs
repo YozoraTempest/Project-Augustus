@@ -316,6 +316,25 @@ impl AugustusMap {
     }
 
     #[func]
+    fn retreat_army(&mut self, id: i64) -> GString {
+        let (Some(world), Some(simulation), Some(country)) =
+            (&mut self.world, &self.simulation, &self.player_country)
+        else {
+            return "请先开始游戏".into();
+        };
+        let Ok(id) = u32::try_from(id) else {
+            return "请选择有效的军队".into();
+        };
+        match world
+            .state_mut()
+            .retreat_from_battle(country, id, simulation.clock().date())
+        {
+            Ok(()) => GString::new(),
+            Err(error) => error.to_string().as_str().into(),
+        }
+    }
+
+    #[func]
     fn stop_army(&mut self, id: i64) -> GString {
         let (Some(world), Some(country)) = (&mut self.world, &self.player_country) else {
             return "请先开始游戏".into();
