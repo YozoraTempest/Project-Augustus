@@ -414,7 +414,7 @@ impl World {
         strength_weighted_morale(&pairs)
     }
 
-    /// 堡垒未实现，中性为 0，不反转攻守。
+    /// 野战仍不按堡垒反转攻守。无要塞占领另行判断首都和建筑要塞。
     fn effective_fort_level(&self, province: u32) -> u32 {
         let _ = self.province(province);
         0
@@ -1521,7 +1521,7 @@ impl World {
     }
 
     /// 双边战争里两个不同国家不会站在同一侧。
-    fn same_war_side(&self, left: &str, right: &str) -> bool {
+    pub(super) fn same_war_side(&self, left: &str, right: &str) -> bool {
         if left == right {
             return true;
         }

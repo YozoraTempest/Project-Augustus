@@ -204,7 +204,8 @@ impl OpeningWorld {
             .len()
     }
 
-    /// 政治地图与省份查询使用同一个所有者状态，未绘制位置使用背景色。
+    /// 政治地图填色使用控制者；没有控制者时用所有者。未绘制位置使用背景色。
+    /// 国家边界和选中纹理仍使用所有者。
     pub fn province_color(&self, id: u32) -> [u8; 3] {
         let Some(province) = self.state.province(id) else {
             return [15, 20, 26];
@@ -213,12 +214,11 @@ impl OpeningWorld {
             ProvinceKind::Sea => [48, 78, 108],
             ProvinceKind::Lake => [63, 98, 130],
             ProvinceKind::Wasteland => [83, 80, 72],
-            ProvinceKind::Land => self
-                .state
-                .province_owner(id)
-                .map_or([170, 164, 145], |country| {
-                    self.country_colors[country.tag()]
-                }),
+            ProvinceKind::Land => {
+                let tag = province.controller.as_deref().or(province.owner.as_deref());
+                tag.and_then(|tag| self.country_colors.get(tag).copied())
+                    .unwrap_or([170, 164, 145])
+            }
         }
     }
 }

@@ -131,14 +131,22 @@ impl AugustusMap {
     /// 只传入单调时钟的实际经过时间；返回是否跨日，避免每帧刷新界面。
     #[func]
     fn advance_time(&mut self, elapsed_usec: i64) -> bool {
-        let (Some(simulation), Some(world), Ok(elapsed)) = (
-            &mut self.simulation,
-            &mut self.world,
-            u64::try_from(elapsed_usec),
-        ) else {
+        let Ok(elapsed) = u64::try_from(elapsed_usec) else {
             return false;
         };
-        simulation.advance(world.state_mut(), Duration::from_micros(elapsed)) > 0
+        let (advanced, control_changed) = {
+            let (Some(simulation), Some(world)) = (&mut self.simulation, &mut self.world) else {
+                return false;
+            };
+            let advanced =
+                simulation.advance(world.state_mut(), Duration::from_micros(elapsed)) > 0;
+            let control_changed = world.state_mut().take_control_changed();
+            (advanced, control_changed)
+        };
+        if control_changed {
+            self.refresh_political_texture();
+        }
+        advanced
     }
 
     #[func]
@@ -644,6 +652,25 @@ impl AugustusMap {
         self.player_country = None;
         self.simulation = None;
         GString::new()
+    }
+
+    /// 原地更新政治填色。平面和球面地图持有同一张纹理，因此一次更新两边一致。
+    fn refresh_political_texture(&mut self) {
+        let Some(image) = self.political_image() else {
+            return;
+        };
+        if let Some(texture) = &mut self.political_texture {
+            texture.update(&image);
+        }
+    }
+
+    fn political_image(&self) -> Option<Gd<Image>> {
+        let world = self.world.as_ref()?;
+        let summary = world.map().summary();
+        let width = i32::try_from(summary.width).ok()?;
+        let height = i32::try_from(summary.height).ok()?;
+        let bytes = PackedByteArray::from(political_colors(world).as_slice());
+        Image::create_from_data(width, height, false, Format::RGBA8, &bytes)
     }
 }
 

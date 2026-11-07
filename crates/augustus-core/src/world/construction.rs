@@ -126,6 +126,7 @@ impl World {
         Ok(())
     }
 
+    /// 已付款的建设不因失去控制而取消或退款，仍按完工日建成。
     pub(crate) fn complete_constructions(&mut self, date: GameDate) {
         for id in &self.active_provinces {
             let province = self.provinces.get_mut(id).expect("有效省份具有定义");

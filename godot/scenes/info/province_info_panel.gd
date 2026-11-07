@@ -65,6 +65,10 @@ func show_info(province: Dictionary, country: Dictionary, construction: Dictiona
 			var owner := _country_name(province, "owner") if province.owner != null else "无主"
 			province_body.text += "\n\n所属国家：%s\n控制者：%s\n\n文化：%s\n宗教：%s\n商品：%s\n\n总发展度：%s\n税收发展度：%s\n生产发展度：%s\n人力发展度：%s" % [owner, _country_name(province, "controller"), _value(province.culture), _value(province.religion), _value(province.trade_good), _value(province.development), _value(province.base_tax), _value(province.base_production), _value(province.base_manpower)]
 			province_body.text += "\n\n基础月税：%s 金币\n建筑税收加成：+%s\n当前月度税收：%s 金币" % [_value(province.base_monthly_tax), _value(province.building_tax_bonus), _value(province.monthly_tax)]
+			if province.fortified:
+				province_body.text += "\n\n要塞围城尚未实现，不能按无要塞省份占领"
+			elif province.occupation_days != null:
+				province_body.text += "\n\n占领进度：%d/%d（%s）" % [province.occupation_days, province.occupation_total, _country_name(province, "occupation_occupier")]
 		country_button.visible = not country.is_empty()
 	province_body.visible = not province.is_empty()
 	country_color.visible = not country.is_empty()

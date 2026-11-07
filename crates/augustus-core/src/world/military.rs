@@ -735,6 +735,7 @@ mod tests {
             land_forcelimit: Money::ZERO,
             local_regiment_cost: cost_modifier,
             regiment_recruit_speed: time_modifier,
+            fort_level: 0,
             replaces: None,
             constructible: false,
         }
