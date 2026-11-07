@@ -46,9 +46,13 @@ impl Simulation {
             if date.day() == 1 {
                 // 损耗先按抵达后的省份扣减兵力，再用本月恢复的人力补员。
                 world.settle_attrition(date);
+                // 交战中的军队不恢复。当天才会接战的军队先恢复再开战。
+                world.recover_monthly_morale();
                 world.reinforce_armies();
             }
             world.complete_recruitments(date);
+            // 行军、损耗和招募落地后，同一日期只结算一次。
+            world.resolve_battles(date);
         })
     }
 }

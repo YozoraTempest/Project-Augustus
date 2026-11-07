@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use rust_decimal::RoundingStrategy;
 use serde::{Deserialize, Serialize};
 
+use crate::combat::{CombatRules, RandomStream, UNSET_MORALE};
 use crate::{ArmyMovement, GameDate, ManpowerRules, Money};
 
 /// 一个满编团的兵力；军队可以持有多个团，编组与兵种分别保存。
@@ -29,10 +30,44 @@ impl UnitKind {
     }
 }
 
+fn unset_morale() -> u32 {
+    UNSET_MORALE
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Regiment {
     pub kind: UnitKind,
     pub strength: u32,
+    /// 以千分之一点保存。旧档没有该字段时先占位，读入后改成满士气。
+    #[serde(default = "unset_morale")]
+    pub morale: u32,
+    /// 本日尚未扣下的兵力。双方都算完后一次应用，避免先扣一方再用来反击。
+    #[serde(default)]
+    pub strength_pending: u32,
+    /// 本日尚未扣下的士气，单位与 `morale` 相同。
+    #[serde(default)]
+    pub morale_pending: u32,
+}
+
+impl Regiment {
+    /// 测试和直接驻军使用满士气占位。招募完成时写入规则中的实际满士气。
+    pub fn fresh(kind: UnitKind, strength: u32) -> Self {
+        Self {
+            kind,
+            strength,
+            morale: UNSET_MORALE,
+            strength_pending: 0,
+            morale_pending: 0,
+        }
+    }
+
+    pub(crate) fn effective_morale(&self, max: u32) -> u32 {
+        if self.morale == UNSET_MORALE {
+            max
+        } else {
+            self.morale
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,11 +77,56 @@ pub struct Army {
     pub province: u32,
     pub regiments: Vec<Regiment>,
     pub movement: Option<ArmyMovement>,
+    /// 进行中的战斗。一支军队同时只属于一场战斗。
+    #[serde(default)]
+    pub(crate) battle_id: Option<u32>,
+    /// 撤退标志 203。阻止新战斗和补员，不单独加快行军。
+    #[serde(default)]
+    pub(crate) retreating: bool,
+    /// 溃退标志 204。缺失时沿用 203：本阶段的自动败退会同时写上两个标志。
+    #[serde(default)]
+    pub(crate) retreat_shattered: Option<bool>,
+    /// 流放标志 207。本阶段保持关闭，只为存档留出独立字段。
+    #[serde(default)]
+    pub(crate) exiled: bool,
+    /// 要塞区域的 previous。没有要塞状态时保持空。
+    #[serde(default)]
+    pub(crate) retreat_previous: Option<u32>,
+    /// 要塞区域的 return。没有要塞状态时保持空。
+    #[serde(default)]
+    pub(crate) retreat_return: Option<u32>,
 }
 
 impl Army {
     pub fn id(&self) -> u32 {
         self.id
+    }
+
+    pub fn battle_id(&self) -> Option<u32> {
+        self.battle_id
+    }
+
+    pub fn is_retreating(&self) -> bool {
+        self.retreating || self.is_shattered()
+    }
+
+    /// 204 才把速度加成加上。旧档只有 203 时视为两个标志一起存在。
+    pub(crate) fn is_shattered(&self) -> bool {
+        self.retreat_shattered.unwrap_or(self.retreating)
+    }
+
+    /// 仍有兵力的团的平均士气。没有活人时为零。
+    pub fn average_morale(&self, max: u32) -> u32 {
+        let mut total = 0_u64;
+        let mut count = 0_u64;
+        for regiment in &self.regiments {
+            if regiment.strength == 0 {
+                continue;
+            }
+            total += u64::from(regiment.effective_morale(max));
+            count += 1;
+        }
+        total.checked_div(count).unwrap_or(0) as u32
     }
 
     pub fn strength(&self) -> u64 {
@@ -143,6 +223,8 @@ pub struct MilitaryRules {
     /// 已经处于战争时使用的开局比例，来自 `STARTING_ARMY_SIZE_AT_WAR`。
     pub starting_army_size_at_war: Money,
     pub manpower: ManpowerRules,
+    /// 基础陆战。放在结构末尾，避免和开局军队规模字段抢同一位置。
+    pub combat: CombatRules,
 }
 
 impl MilitaryRules {
@@ -242,6 +324,10 @@ pub struct RecruitmentRefund {
     pub manpower: u64,
 }
 
+fn default_next_battle_id() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MilitaryState {
     pub(crate) armies: BTreeMap<u32, Army>,
@@ -249,6 +335,17 @@ pub struct MilitaryState {
     #[serde(deserialize_with = "deserialize_recruitments")]
     pub(crate) recruitments: BTreeMap<u32, Vec<Recruitment>>,
     pub(crate) next_army_id: u32,
+    /// 进行中的战斗。旧档没有战斗，读入后为空。
+    #[serde(default)]
+    pub(crate) battles: BTreeMap<u32, crate::Battle>,
+    /// 每个省份保留最近一场已结束的战斗，供界面和读档后续算查询。
+    #[serde(default)]
+    pub(crate) battle_reports: BTreeMap<u32, crate::BattleReport>,
+    #[serde(default = "default_next_battle_id")]
+    pub(crate) next_battle_id: u32,
+    /// 骰子和退路加分共用一条可续算的序列。旧档从固定起点重新开始，不重掷已经保存的骰子。
+    #[serde(default)]
+    pub(crate) random: RandomStream,
 }
 
 impl Default for MilitaryState {
@@ -257,6 +354,10 @@ impl Default for MilitaryState {
             armies: BTreeMap::new(),
             recruitments: BTreeMap::new(),
             next_army_id: 1,
+            battles: BTreeMap::new(),
+            battle_reports: BTreeMap::new(),
+            next_battle_id: default_next_battle_id(),
+            random: RandomStream::default(),
         }
     }
 }
