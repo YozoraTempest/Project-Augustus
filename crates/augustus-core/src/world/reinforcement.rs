@@ -101,12 +101,12 @@ impl World {
         }
     }
 
-    /// 下一次补员看到的国库：先扣除当月税收与维护，允许余额为负。
+    /// 下一次补员看到的国库：税额按控制者计入，再扣除维护，允许余额为负。
     fn treasury_before_reinforcement(&self, tag: &str) -> Money {
         let annual_tax = self
             .active_provinces
             .iter()
-            .filter(|id| self.provinces[id].owner.as_deref() == Some(tag))
+            .filter(|id| self.province_tax_country(**id) == Some(tag))
             .map(|id| self.province_annual_tax(*id).expect("有效领土具备基础税收"))
             .sum();
         let upkeep = self.country_army_cost(tag, None);
@@ -785,5 +785,32 @@ mod tests {
             Money::from(10) - Money::new(5, 1)
         );
         assert_eq!(world.country_monthly_budget("AAA").unwrap(), budget);
+    }
+
+    #[test]
+    fn reinforcement_preview_counts_tax_by_controller() {
+        let mut world = world();
+        let province = world.provinces.get_mut(&4).unwrap();
+        province.development.tax = Some(12);
+        province.controller = Some("AAA".to_owned());
+        // 军队留在本国控制的省份，每月补员上限不变，只有税额归属变化。
+        let army = add_army(
+            &mut world,
+            "AAA",
+            1,
+            vec![regiment(UnitKind::Infantry, 500)],
+        );
+        let taxed = world.country_monthly_budget("AAA").unwrap().tax;
+        assert_eq!(
+            reinforcement_text(&world, army),
+            "下月补员：+100 人，0.500 金币"
+        );
+
+        world.provinces.get_mut(&4).unwrap().controller = Some("BBB".to_owned());
+        assert!(world.country_monthly_budget("AAA").unwrap().tax < taxed);
+        assert_eq!(
+            reinforcement_text(&world, army),
+            "下月补员：+0 人，0.000 金币（金币不足）"
+        );
     }
 }

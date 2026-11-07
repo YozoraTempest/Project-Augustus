@@ -109,7 +109,7 @@ impl World {
 
     /// 有控制者时，该省现有税额全部归控制者。没有自治度，不把税额拆回所有者。
     /// 控制者为空时仍归所有者。人力上限和陆军上限仍按所有者计算。
-    fn province_tax_country(&self, id: u32) -> Option<&str> {
+    pub(super) fn province_tax_country(&self, id: u32) -> Option<&str> {
         let province = &self.provinces[&id];
         province.controller.as_deref().or(province.owner.as_deref())
     }
