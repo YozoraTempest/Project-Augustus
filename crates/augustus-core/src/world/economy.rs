@@ -253,6 +253,10 @@ mod tests {
                 movement: None,
                 battle_id: None,
                 retreating: false,
+                retreat_shattered: Some(false),
+                exiled: false,
+                retreat_previous: None,
+                retreat_return: None,
             },
         );
     }

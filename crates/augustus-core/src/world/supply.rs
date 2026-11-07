@@ -278,6 +278,10 @@ mod tests {
                 movement: None,
                 battle_id: None,
                 retreating: false,
+                retreat_shattered: Some(false),
+                exiled: false,
+                retreat_previous: None,
+                retreat_return: None,
             },
         );
         world.military.next_army_id = world.military.next_army_id.max(id + 1);

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use rust_decimal::RoundingStrategy;
 use serde::{Deserialize, Serialize};
 
-use crate::combat::{CombatRules, UNSET_MORALE};
+use crate::combat::{CombatRules, RandomStream, UNSET_MORALE};
 use crate::{ArmyMovement, GameDate, ManpowerRules, Money};
 
 /// 一个满编团的兵力；军队可以持有多个团，编组与兵种分别保存。
@@ -41,6 +41,12 @@ pub struct Regiment {
     /// 以千分之一点保存。旧档没有该字段时先占位，读入后改成满士气。
     #[serde(default = "unset_morale")]
     pub morale: u32,
+    /// 本日尚未扣下的兵力。双方都算完后一次应用，避免先扣一方再用来反击。
+    #[serde(default)]
+    pub strength_pending: u32,
+    /// 本日尚未扣下的士气，单位与 `morale` 相同。
+    #[serde(default)]
+    pub morale_pending: u32,
 }
 
 impl Regiment {
@@ -50,6 +56,8 @@ impl Regiment {
             kind,
             strength,
             morale: UNSET_MORALE,
+            strength_pending: 0,
+            morale_pending: 0,
         }
     }
 
@@ -72,9 +80,21 @@ pub struct Army {
     /// 进行中的战斗。一支军队同时只属于一场战斗。
     #[serde(default)]
     pub(crate) battle_id: Option<u32>,
-    /// 败退途中不能接敌，也不能接受调动或编组。
+    /// 撤退标志 203。阻止新战斗和补员，不单独加快行军。
     #[serde(default)]
     pub(crate) retreating: bool,
+    /// 溃退标志 204。缺失时沿用 203：本阶段的自动败退会同时写上两个标志。
+    #[serde(default)]
+    pub(crate) retreat_shattered: Option<bool>,
+    /// 流放标志 207。本阶段保持关闭，只为存档留出独立字段。
+    #[serde(default)]
+    pub(crate) exiled: bool,
+    /// 要塞区域的 previous。没有要塞状态时保持空。
+    #[serde(default)]
+    pub(crate) retreat_previous: Option<u32>,
+    /// 要塞区域的 return。没有要塞状态时保持空。
+    #[serde(default)]
+    pub(crate) retreat_return: Option<u32>,
 }
 
 impl Army {
@@ -87,7 +107,12 @@ impl Army {
     }
 
     pub fn is_retreating(&self) -> bool {
-        self.retreating
+        self.retreating || self.is_shattered()
+    }
+
+    /// 204 才把速度加成加上。旧档只有 203 时视为两个标志一起存在。
+    pub(crate) fn is_shattered(&self) -> bool {
+        self.retreat_shattered.unwrap_or(self.retreating)
     }
 
     /// 仍有兵力的团的平均士气。没有活人时为零。
@@ -318,6 +343,9 @@ pub struct MilitaryState {
     pub(crate) battle_reports: BTreeMap<u32, crate::BattleReport>,
     #[serde(default = "default_next_battle_id")]
     pub(crate) next_battle_id: u32,
+    /// 骰子和退路加分共用一条可续算的序列。旧档从固定起点重新开始，不重掷已经保存的骰子。
+    #[serde(default)]
+    pub(crate) random: RandomStream,
 }
 
 impl Default for MilitaryState {
@@ -329,6 +357,7 @@ impl Default for MilitaryState {
             battles: BTreeMap::new(),
             battle_reports: BTreeMap::new(),
             next_battle_id: default_next_battle_id(),
+            random: RandomStream::default(),
         }
     }
 }

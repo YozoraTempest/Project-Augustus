@@ -201,6 +201,8 @@ impl World {
             kind: recruitment.kind,
             strength: REGIMENT_STRENGTH,
             morale,
+            strength_pending: 0,
+            morale_pending: 0,
         };
         // 同国同省份的后续部队加入驻军，保留原军队编号。撤退中的军队不接收新兵。
         if let Some(army) = self.military.armies.values_mut().find(|army| {
@@ -221,6 +223,10 @@ impl World {
                     movement: None,
                     battle_id: None,
                     retreating: false,
+                    retreat_shattered: Some(false),
+                    exiled: false,
+                    retreat_previous: None,
+                    retreat_return: None,
                 },
             );
         }
@@ -248,7 +254,7 @@ impl World {
                 || army
                     .regiments
                     .iter()
-                    .any(|regiment| regiment.strength == 0 || regiment.strength > REGIMENT_STRENGTH)
+                    .any(|regiment| regiment.strength > REGIMENT_STRENGTH)
             {
                 return Err(SaveError::InvalidMilitary);
             }

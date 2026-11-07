@@ -42,6 +42,8 @@ impl World {
                 kind: UnitKind::Infantry,
                 strength: REGIMENT_STRENGTH,
                 morale,
+                strength_pending: 0,
+                morale_pending: 0,
             })
             .take(usize::try_from(count).expect("开局团数在支持范围内"))
             .collect();
@@ -55,6 +57,10 @@ impl World {
                     movement: None,
                     battle_id: None,
                     retreating: false,
+                    retreat_shattered: Some(false),
+                    exiled: false,
+                    retreat_previous: None,
+                    retreat_return: None,
                 },
             );
         }
@@ -365,24 +371,41 @@ mod tests {
         world.reinforce_armies();
         assert_eq!(world.armies()[&france_id].strength(), damaged);
 
-        for regiment in &mut world.military.armies.get_mut(&france_id).unwrap().regiments {
-            regiment.morale = 1;
+        // 十二日前士气耗尽本身不结束战斗。把兵力压到不足 10、但够不上覆灭比例，才会当天败退。
+        for (id, men) in [(france_id, 9), (austria_id, 18)] {
+            for (index, regiment) in world
+                .military
+                .armies
+                .get_mut(&id)
+                .unwrap()
+                .regiments
+                .iter_mut()
+                .enumerate()
+            {
+                regiment.strength = if index == 0 { men } else { 0 };
+                regiment.morale = 9;
+            }
         }
         let next = battle_date.checked_add_days(1).unwrap();
         world.resolve_battles(next);
         assert!(matches!(
             world.battle_report(1).unwrap().outcome,
-            BattleOutcome::Retreat { loser: 0 }
+            BattleOutcome::Retreat { loser: 1 }
         ));
         let loser = &world.armies()[&france_id];
         assert!(loser.is_retreating());
+        assert!(loser.is_shattered());
         assert!(loser.battle_id().is_none());
         assert_eq!(loser.province, 1);
-        assert_eq!(loser.movement.as_ref().unwrap().destination(), 3);
+        assert_eq!(loser.movement.as_ref().unwrap().destination(), 2);
+        let arrives = loser.movement.as_ref().unwrap().arrives_on();
         assert!(world.armies()[&austria_id].battle_id().is_none());
-        world.resolve_battles(next);
+        world.complete_movements(arrives);
+        assert!(!world.armies()[&france_id].is_retreating());
+        assert_eq!(world.armies()[&france_id].province, 2);
+        world.resolve_battles(arrives);
         assert!(world.battle_in_province(1).is_none());
-        assert!(world.armies()[&france_id].is_retreating());
+        assert!(world.battle_in_province(2).is_none());
     }
 
     #[test]

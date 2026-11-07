@@ -1,31 +1,38 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! 每日交战、增援、士气崩溃和溃退。
+//! 每日交战、列阵、士气崩溃和撤退。
 //!
-//! 查询进行中的战斗供后续占领使用。本模块不处理围攻或占领。
+//! 将领、地形、渡河、火炮后排、堡垒区域和国家骑兵比例都还没有独立系统。
+//! 这些入口保留中性输入，不用另一套固定公式代替已经支持的步骑规则。
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeSet, VecDeque};
 
-use crate::combat::{OVERRUN_RATIO, RETREAT_LOCK_DAYS, STACKWIPE_RATIO};
+use crate::combat::{
+    CombatantRef, FRONT_SCALAR, LOW_MORALE_THRESHOLD, MoraleStrike, NEUTRAL_ABILITY,
+    NEUTRAL_DISCIPLINE, PhaseKind, RETREAT_LOCK_DAYS, SHATTERED_CLEAR_RELATIVE, StrengthStrike,
+    cavalry_support_penalty, center_out, daily_morale_loss, effective_tactics,
+    enemy_strength_blocks_retreat, far_retreat_score, flank_distance, front_ratio_loser,
+    initial_overrun_loser, line_plan, morale_damage, recovered_morale, regiment_sort_score,
+    strength_damage, strength_quarter, strength_weighted_morale, thousandths, winner_morale_floor,
+    wipe_refund_men, wipes_after_defeat,
+};
 use crate::{
-    ArmyMovement, Battle, BattleOutcome, BattleReport, GameDate, Money, MovementError, PhaseKind,
-    ReportedSide, SaveError, UNSET_MORALE, UnitKind, base_casualties, casualty_amount,
-    morale_milli_from, passive_morale, whole_men,
+    ArmyMovement, Battle, BattleOutcome, BattleReport, GameDate, Money, MovementError,
+    REGIMENT_STRENGTH, ReportedSide, SaveError, UNSET_MORALE, UnitKind,
 };
 
 use super::World;
 
-#[derive(Clone, Copy)]
-struct Fighter {
-    army_id: u32,
-    index: usize,
+#[derive(Clone)]
+struct ListedRegiment {
+    unit: CombatantRef,
     kind: UnitKind,
-    strength: u32,
-    maneuver: u32,
+    score: u128,
+    order: u32,
 }
 
 impl World {
-    pub fn battles(&self) -> &BTreeMap<u32, Battle> {
+    pub fn battles(&self) -> &std::collections::BTreeMap<u32, Battle> {
         &self.military.battles
     }
 
@@ -59,11 +66,7 @@ impl World {
         let Some(army) = self.armies().get(&army_id) else {
             return String::new();
         };
-        let max = self
-            .military_rules
-            .combat
-            .morale_milli()
-            .expect("陆战规则已检查");
+        let max = self.max_morale();
         let mut lines = vec![format!(
             "士气：{}",
             format_morale(army.average_morale(max), max)
@@ -82,61 +85,95 @@ impl World {
     }
 
     pub(crate) fn recover_monthly_morale(&mut self) {
-        let max = self
-            .military_rules
-            .combat
-            .morale_milli()
-            .expect("陆战规则已检查");
-        let rules = self.military_rules.combat.clone();
+        let max = self.max_morale();
         let ids: Vec<u32> = self.military.armies.keys().copied().collect();
         for id in ids {
             let army = &self.military.armies[&id];
             if army.battle_id().is_some() {
                 continue;
             }
-            let mut rate = rules.recovery;
-            if self.province(army.province).is_some_and(|province| {
-                province.controller.as_deref() == Some(army.country.as_str())
-            }) {
-                rate += rules.recovery_own_territory;
-            }
-            let gain = whole_men(Money::from(max) * rate);
+            let province = army.province;
+            let country = army.country.clone();
+            let rate = self.recovery_rate(&country, province);
+            self.recover_army(id, max, rate);
+        }
+    }
+
+    /// 停在当前省、而且 203/204 仍在时补的那一次恢复。正常走到终点没有这次。
+    pub(super) fn recover_army_now(&mut self, id: u32) {
+        let Some(army) = self.military.armies.get(&id) else {
+            return;
+        };
+        if army.battle_id().is_some() {
+            return;
+        }
+        let province = army.province;
+        let country = army.country.clone();
+        let rate = self.recovery_rate(&country, province);
+        self.recover_army(id, self.max_morale(), rate);
+    }
+
+    /// 进入本国控制区且相对士气达到 990/1000 时，先清 204 再清 203。
+    /// 已经写进路段的抵达日不重算。友方通行控制尚未单独实现，目前只认本国控制者。
+    pub(super) fn maybe_clear_shattered(&mut self, id: u32) {
+        let Some(army) = self.military.armies.get(&id) else {
+            return;
+        };
+        if !army.retreating {
+            return;
+        }
+        let max = self.max_morale();
+        let country = army.country.clone();
+        let province = army.province;
+        let at_home = self
+            .province(province)
+            .is_some_and(|province| province.controller.as_deref() == Some(country.as_str()));
+        if !at_home {
+            return;
+        }
+        let weighted = self.army_weighted_morale(id, max);
+        let relative = u64::try_from(weighted.max(0))
+            .unwrap_or(0)
+            .saturating_mul(1_000)
+            / u64::from(max);
+        if relative >= SHATTERED_CLEAR_RELATIVE {
             let army = self
                 .military
                 .armies
                 .get_mut(&id)
-                .expect("恢复士气的军队存在");
-            for regiment in &mut army.regiments {
-                let current = regiment.effective_morale(max);
-                regiment.morale = current.saturating_add(gain).min(max);
-            }
+                .expect("解除溃退的军队存在");
+            army.retreat_shattered = Some(false);
+            army.retreating = false;
         }
     }
 
+    /// 抵达或停在敌军所在省份时接战。新战斗留到当天的战斗列表里再结算。
+    pub(super) fn engage_province(&mut self, province: u32, date: GameDate, arriver: Option<u32>) {
+        self.engage(province, date, arriver, false);
+    }
+
     pub(crate) fn resolve_battles(&mut self, date: GameDate) {
+        let mut today: Vec<u32> = self.military.battles.keys().copied().collect();
         let provinces: BTreeSet<u32> = self
             .military
             .armies
             .values()
             .map(|army| army.province)
             .collect();
-        let ongoing: Vec<u32> = self.military.battles.keys().copied().collect();
-        for id in ongoing {
-            self.resolve_existing(id, date);
-        }
         for province in provinces {
-            if self.battle_in_province(province).is_none() {
-                self.try_start_battle(province, date);
+            if self.battle_in_province(province).is_none()
+                && let Some(id) = self.try_start(province, date, None, false)
+            {
+                today.push(id);
             }
+        }
+        for id in today {
+            self.resolve_existing(id, date);
         }
     }
 
     pub(super) fn validate_battles(&self, date: GameDate) -> Result<(), SaveError> {
-        let max = self
-            .military_rules
-            .combat
-            .morale_milli()
-            .expect("陆战规则已检查");
+        let max = self.max_morale();
         let mut seen = BTreeSet::new();
         for (&id, battle) in &self.military.battles {
             if id == 0
@@ -173,6 +210,15 @@ impl World {
         }
         for army in self.armies().values() {
             if army.is_retreating() && (army.movement.is_none() || army.battle_id().is_some()) {
+                return Err(SaveError::InvalidMilitary);
+            }
+            if army
+                .retreat_previous
+                .is_some_and(|province| !self.active_provinces.contains(&province))
+                || army
+                    .retreat_return
+                    .is_some_and(|province| !self.active_provinces.contains(&province))
+            {
                 return Err(SaveError::InvalidMilitary);
             }
             if let Some(battle_id) = army.battle_id() {
@@ -219,56 +265,114 @@ impl World {
         Ok(())
     }
 
-    fn resolve_existing(&mut self, battle_id: u32, date: GameDate) {
-        self.prune_battle(battle_id);
-        if !self.military.battles.contains_key(&battle_id) {
-            return;
+    pub(crate) fn fill_unset_morale(&mut self) {
+        let max = self.max_morale();
+        for army in self.military.armies.values_mut() {
+            for regiment in &mut army.regiments {
+                if regiment.morale == UNSET_MORALE {
+                    regiment.morale = max;
+                }
+            }
         }
-        self.admit_reinforcements(battle_id);
-        let battle = &self.military.battles[&battle_id];
-        if battle.last_resolved == Some(date) {
-            return;
-        }
-        if !self.sides_still_hostile(battle_id) {
-            self.disengage(battle_id);
-            return;
-        }
-        if (0..2).any(|side| {
-            self.military.battles[&battle_id]
-                .side_armies(side)
-                .is_empty()
-        }) {
-            self.finish_empty_side(battle_id, date);
-            return;
-        }
-        self.fight_day(battle_id, date);
     }
 
-    fn try_start_battle(&mut self, province: u32, date: GameDate) {
-        let Some((defender, attacker)) = self.opening_pair(province) else {
+    fn max_morale(&self) -> u32 {
+        self.military_rules
+            .combat
+            .morale_milli()
+            .expect("陆战规则已检查")
+    }
+
+    fn recovery_rate(&self, country: &str, province: u32) -> i64 {
+        let rules = &self.military_rules.combat;
+        let mut rate = thousandths(rules.recovery);
+        if self
+            .province(province)
+            .is_some_and(|province| province.controller.as_deref() == Some(country))
+        {
+            rate += thousandths(rules.recovery_own_territory);
+        }
+        rate
+    }
+
+    fn recover_army(&mut self, id: u32, max: u32, rate: i64) {
+        let Some(army) = self.military.armies.get_mut(&id) else {
             return;
         };
-        if self.military.next_battle_id == u32::MAX {
+        for regiment in &mut army.regiments {
+            let current = i64::from(regiment.effective_morale(max));
+            let next = recovered_morale(current, i64::from(max), 1_000, rate);
+            regiment.morale = u32::try_from(next).unwrap_or(max).min(max);
+        }
+    }
+
+    fn army_weighted_morale(&self, id: u32, max: u32) -> i64 {
+        let Some(army) = self.armies().get(&id) else {
+            return 0;
+        };
+        let pairs: Vec<(u32, u32)> = army
+            .regiments
+            .iter()
+            .map(|regiment| (regiment.strength, regiment.effective_morale(max)))
+            .collect();
+        strength_weighted_morale(&pairs)
+    }
+
+    /// 堡垒未实现，中性为 0，不反转攻守。
+    fn effective_fort_level(&self, province: u32) -> u32 {
+        let _ = self.province(province);
+        0
+    }
+
+    fn engage(&mut self, province: u32, date: GameDate, arriver: Option<u32>, defer: bool) {
+        if let Some(id) = self.battle_in_province(province).map(Battle::id) {
+            self.admit(id);
             return;
+        }
+        self.try_start(province, date, arriver, defer);
+    }
+
+    fn try_start(
+        &mut self,
+        province: u32,
+        date: GameDate,
+        arriver: Option<u32>,
+        defer: bool,
+    ) -> Option<u32> {
+        let (defenders, attackers) = self.opening_or_arrival(province, arriver)?;
+        if defenders.is_empty() || attackers.is_empty() || self.military.next_battle_id == u32::MAX
+        {
+            return None;
         }
         let id = self.military.next_battle_id;
         self.military.next_battle_id += 1;
         let mut battle = Battle::new(id, province, date);
-        battle.side_mut(0).armies = defender;
-        battle.side_mut(1).armies = attacker;
-        for army_id in battle.side_armies(0).iter().chain(battle.side_armies(1)) {
-            self.military
-                .armies
-                .get_mut(army_id)
-                .expect("参战军队存在")
-                .battle_id = Some(id);
-        }
+        battle.side_mut(0).armies = defenders;
+        battle.side_mut(1).armies = attackers;
         self.military.battles.insert(id, battle);
-        self.admit_reinforcements(id);
+        self.lock_side(id, 0);
+        self.lock_side(id, 1);
+        self.admit(id);
         if self.overrun(id, date) {
-            return;
+            return None;
         }
-        self.fight_day(id, date);
+        if defer && let Some(battle) = self.military.battles.get_mut(&id) {
+            // 当天结束战斗后新开的续战，留到下一日才第一次结算。
+            battle.last_resolved = Some(date);
+        }
+        Some(id)
+    }
+
+    fn opening_or_arrival(
+        &self,
+        province: u32,
+        arriver: Option<u32>,
+    ) -> Option<(Vec<u32>, Vec<u32>)> {
+        if let Some(arriver) = arriver {
+            self.arrival_pair(province, arriver)
+        } else {
+            self.opening_pair(province)
+        }
     }
 
     fn opening_pair(&self, province: u32) -> Option<(Vec<u32>, Vec<u32>)> {
@@ -291,13 +395,51 @@ impl World {
         None
     }
 
+    /// 新到的军队是进攻方。同省原驻、且与它交战的军队是防守方。
+    fn arrival_pair(&self, province: u32, arriver: u32) -> Option<(Vec<u32>, Vec<u32>)> {
+        let country = self.armies().get(&arriver)?.country.clone();
+        let present = self.present_armies(province);
+        let mut defenders: Vec<u32> = present
+            .iter()
+            .copied()
+            .filter(|&id| id != arriver && self.at_war(&country, &self.armies()[&id].country))
+            .collect();
+        let mut attackers: Vec<u32> = present
+            .iter()
+            .copied()
+            .filter(|&id| self.armies()[&id].country == country)
+            .collect();
+        if !attackers.contains(&arriver) && self.armies().contains_key(&arriver) {
+            attackers.push(arriver);
+        }
+        if defenders.is_empty() || attackers.is_empty() {
+            return None;
+        }
+        if self.effective_fort_level(province) > 0 {
+            let controller = self
+                .province(province)
+                .and_then(|province| province.controller.clone());
+            let reverse = controller.as_deref().is_some_and(|controller| {
+                defenders.iter().any(|id| {
+                    self.armies()
+                        .get(id)
+                        .is_some_and(|army| self.at_war(&army.country, controller))
+                })
+            });
+            if reverse {
+                std::mem::swap(&mut defenders, &mut attackers);
+            }
+        }
+        Some((defenders, attackers))
+    }
+
+    /// 行军中的敌军也可以被卷入。撤退、已参战和没有兵力的军队除外。
     fn present_armies(&self, province: u32) -> Vec<u32> {
         self.military
             .armies
             .values()
             .filter(|army| {
                 army.province == province
-                    && army.movement.is_none()
                     && !army.is_retreating()
                     && army.battle_id().is_none()
                     && army.strength() > 0
@@ -306,7 +448,29 @@ impl World {
             .collect()
     }
 
-    fn admit_reinforcements(&mut self, battle_id: u32) {
+    fn lock_side(&mut self, battle_id: u32, side: usize) {
+        let armies = self.military.battles[&battle_id].side_armies(side).to_vec();
+        let mut joined = 0_u64;
+        for army_id in armies {
+            let Some(army) = self.military.armies.get_mut(&army_id) else {
+                continue;
+            };
+            joined += army.strength();
+            army.battle_id = Some(battle_id);
+            army.movement = None;
+        }
+        self.military
+            .battles
+            .get_mut(&battle_id)
+            .expect("战斗存在")
+            .side_mut(side)
+            .joined_strength += joined;
+    }
+
+    fn admit(&mut self, battle_id: u32) {
+        if !self.military.battles.contains_key(&battle_id) {
+            return;
+        }
         let province = self.military.battles[&battle_id].province();
         let candidates: Vec<u32> = self
             .military
@@ -314,55 +478,60 @@ impl World {
             .values()
             .filter(|army| {
                 army.province == province
-                    && army.movement.is_none()
                     && !army.is_retreating()
                     && army.battle_id().is_none()
+                    && army.strength() > 0
             })
             .map(|army| army.id())
             .collect();
         for army_id in candidates {
             let country = self.armies()[&army_id].country.clone();
-            let side = self.reinforcement_side(battle_id, &country);
-            if let Some(side) = side {
-                self.military
-                    .battles
-                    .get_mut(&battle_id)
-                    .expect("战斗存在")
-                    .side_mut(side)
-                    .armies
-                    .push(army_id);
-                self.military
-                    .armies
-                    .get_mut(&army_id)
-                    .expect("增援军队存在")
-                    .battle_id = Some(battle_id);
+            let Some(side) = self.reinforcement_side(battle_id, &country) else {
+                continue;
+            };
+            let joined = self.armies()[&army_id].strength();
+            {
+                let battle = self.military.battles.get_mut(&battle_id).expect("战斗存在");
+                let battle_side = battle.side_mut(side);
+                battle_side.armies.push(army_id);
+                battle_side.joined_strength += joined;
             }
+            let army = self
+                .military
+                .armies
+                .get_mut(&army_id)
+                .expect("增援军队存在");
+            army.battle_id = Some(battle_id);
+            army.movement = None;
         }
     }
 
+    /// 同国军队加入已有一侧。否则必须与恰好一侧的全部军队交战。
     fn reinforcement_side(&self, battle_id: u32, country: &str) -> Option<usize> {
         let battle = &self.military.battles[&battle_id];
-        let on_side = |side: usize| {
+        let same = |side: usize| {
             battle.side_armies(side).iter().any(|id| {
                 self.armies()
                     .get(id)
                     .is_some_and(|army| army.country == country)
             })
         };
-        if on_side(0) {
+        if same(0) {
             return Some(0);
         }
-        if on_side(1) {
+        if same(1) {
             return Some(1);
         }
-        let hostile = |side: usize| {
-            battle.side_armies(side).iter().any(|id| {
-                self.armies()
-                    .get(id)
-                    .is_some_and(|army| self.at_war(country, &army.country))
-            })
+        let hostile_all = |side: usize| {
+            let armies = battle.side_armies(side);
+            !armies.is_empty()
+                && armies.iter().all(|id| {
+                    self.armies()
+                        .get(id)
+                        .is_some_and(|army| self.at_war(country, &army.country))
+                })
         };
-        match (hostile(0), hostile(1)) {
+        match (hostile_all(0), hostile_all(1)) {
             (true, false) => Some(1),
             (false, true) => Some(0),
             _ => None,
@@ -370,263 +539,59 @@ impl World {
     }
 
     fn overrun(&mut self, battle_id: u32, date: GameDate) -> bool {
-        let width = u64::from(self.military_rules.combat.width);
         let strengths = [
             self.side_strength(battle_id, 0),
             self.side_strength(battle_id, 1),
         ];
-        let regiments = [
-            self.side_regiments(battle_id, 0),
-            self.side_regiments(battle_id, 1),
-        ];
-        let loser = if strengths[1] >= strengths[0].saturating_mul(OVERRUN_RATIO)
-            && regiments[0] < width
-        {
-            Some(0)
-        } else if strengths[0] >= strengths[1].saturating_mul(OVERRUN_RATIO) && regiments[1] < width
-        {
-            Some(1)
-        } else {
-            None
-        };
+        // 军事科技尚未分国，两侧都是 0，高两级保护不会触发。
+        let loser = initial_overrun_loser(
+            strengths,
+            u64::from(self.military_rules.combat.width),
+            [0, 0],
+            [
+                self.side_fightable(battle_id, 0),
+                self.side_fightable(battle_id, 1),
+            ],
+        );
         let Some(loser) = loser else {
             return false;
         };
-        self.finish(battle_id, BattleOutcome::Overrun { loser }, date, false);
+        self.finish(
+            battle_id,
+            BattleOutcome::Overrun {
+                loser: u8::try_from(loser).expect("阵营只有两方"),
+            },
+            date,
+            true,
+        );
         true
     }
 
-    fn fight_day(&mut self, battle_id: u32, date: GameDate) {
-        let battle = self.military.battles.get_mut(&battle_id).expect("战斗存在");
-        battle.refresh_roll();
-        let phase = PhaseKind::from_elapsed(battle.elapsed_days);
-        let battle_day = battle.elapsed_days + 1;
-        let rolls = battle.rolls;
-        let sides = [
-            battle.side_armies(0).to_vec(),
-            battle.side_armies(1).to_vec(),
-        ];
-        let max = self
-            .military_rules
-            .combat
-            .morale_milli()
-            .expect("陆战规则已检查");
-        let deployed = [self.deploy(&sides[0], max), self.deploy(&sides[1], max)];
-        let mut damage: BTreeMap<(u32, usize), (u32, u32)> = BTreeMap::new();
-        for (attacker_side, attackers) in deployed.iter().enumerate() {
-            let defender_side = 1 - attacker_side;
-            let defenders = &deployed[defender_side];
-            for (slot, fighter) in attackers.front.iter().enumerate() {
-                let target = target_slot(slot, fighter.maneuver, &defenders.front);
-                let Some(target) = target else {
-                    continue;
-                };
-                let dealt = self.strike(
-                    fighter,
-                    &defenders.front[target],
-                    phase,
-                    rolls[attacker_side],
-                    battle_day,
-                );
-                let entry = damage
-                    .entry((
-                        defenders.front[target].army_id,
-                        defenders.front[target].index,
-                    ))
-                    .or_insert((0, 0));
-                entry.0 = entry.0.saturating_add(dealt.0);
-                entry.1 = entry.1.saturating_add(dealt.1);
-            }
-            for fighter in &attackers.front {
-                let entry = damage
-                    .entry((fighter.army_id, fighter.index))
-                    .or_insert((0, 0));
-                entry.1 = entry.1.saturating_add(passive_morale(max, false));
-            }
-            for fighter in &attackers.reserve {
-                let entry = damage
-                    .entry((fighter.army_id, fighter.index))
-                    .or_insert((0, 0));
-                entry.1 = entry.1.saturating_add(passive_morale(max, true));
-            }
-        }
-        self.apply_damage(battle_id, &damage, max);
-        let battle = self.military.battles.get_mut(&battle_id).expect("战斗存在");
-        battle.elapsed_days = battle_day;
-        battle.last_resolved = Some(date);
-        self.collapse_or_continue(battle_id, date);
-    }
-
-    fn strike(
-        &self,
-        attacker: &Fighter,
-        defender: &Fighter,
-        phase: PhaseKind,
-        roll: u8,
-        battle_day: u32,
-    ) -> (u32, u32) {
-        let rules = &self.military_rules.combat;
-        let attacker_unit = rules.unit(attacker.kind);
-        let defender_unit = rules.unit(defender.kind);
-        let (offense, _, damage) = attacker_unit.stats(phase, false);
-        let (_, defense, _) = defender_unit.stats(phase, false);
-        let (morale_offense, _, _) = attacker_unit.stats(phase, true);
-        let (_, morale_defense, _) = defender_unit.stats(phase, true);
-        let strength_base = base_casualties(u32::from(roll), offense, defense);
-        let morale_base = base_casualties(u32::from(roll), morale_offense, morale_defense);
-        let men = casualty_amount(
-            strength_base,
-            attacker.strength,
-            damage,
-            rules.tactics,
-            rules.battle_length_damage,
-            battle_day,
-        );
-        let morale = casualty_amount(
-            morale_base,
-            attacker.strength,
-            damage,
-            rules.tactics,
-            rules.battle_length_damage,
-            battle_day,
-        );
-        (whole_men(men), morale_milli_from(morale, rules.max_morale))
-    }
-
-    /// 原版没有公开列阵规则。这里按军队编号和团序号，先步兵后骑兵，从左侧填满宽度。
-    /// 超出宽度的部队只攻击机动范围内最近的敌军；机动为 0 时只打正前方。
-    fn deploy(&self, armies: &[u32], max: u32) -> Deployment {
-        let mut infantry = Vec::new();
-        let mut cavalry = Vec::new();
-        let mut ordered = armies.to_vec();
-        ordered.sort_unstable();
-        for &army_id in &ordered {
-            let Some(army) = self.armies().get(&army_id) else {
-                continue;
-            };
-            for (index, regiment) in army.regiments.iter().enumerate() {
-                if regiment.strength == 0 || regiment.effective_morale(max) == 0 {
-                    continue;
-                }
-                let fighter = Fighter {
-                    army_id,
-                    index,
-                    kind: regiment.kind,
-                    strength: regiment.strength,
-                    maneuver: self.military_rules.combat.unit(regiment.kind).maneuver,
-                };
-                match regiment.kind {
-                    UnitKind::Infantry => infantry.push(fighter),
-                    UnitKind::Cavalry => cavalry.push(fighter),
-                }
-            }
-        }
-        infantry.append(&mut cavalry);
-        let width = self.military_rules.combat.width as usize;
-        let split = infantry.len().min(width);
-        let reserve = infantry.split_off(split);
-        Deployment {
-            front: infantry,
-            reserve,
-        }
-    }
-
-    fn apply_damage(
-        &mut self,
-        battle_id: u32,
-        damage: &BTreeMap<(u32, usize), (u32, u32)>,
-        max: u32,
-    ) {
-        for (&(army_id, index), &(men, morale)) in damage {
-            let lost = {
-                let Some(army) = self.military.armies.get_mut(&army_id) else {
-                    continue;
-                };
-                let Some(regiment) = army.regiments.get_mut(index) else {
-                    continue;
-                };
-                let before = regiment.strength;
-                regiment.strength = before.saturating_sub(men);
-                let current = regiment.effective_morale(max);
-                regiment.morale = current.saturating_sub(morale);
-                u64::from(before - regiment.strength)
-            };
-            if lost > 0 {
-                let battle = self.military.battles.get_mut(&battle_id).expect("战斗存在");
-                for side in 0..2 {
-                    if battle.side_armies(side).contains(&army_id) {
-                        battle.side_mut(side).strength_lost += lost;
-                    }
-                }
-            }
-        }
-        let armies: Vec<u32> = self.military.battles[&battle_id]
-            .side_armies(0)
-            .iter()
-            .chain(self.military.battles[&battle_id].side_armies(1))
-            .copied()
-            .collect();
-        for army_id in armies {
-            let Some(army) = self.military.armies.get_mut(&army_id) else {
-                continue;
-            };
-            army.regiments.retain(|regiment| regiment.strength > 0);
-            if army.regiments.is_empty() {
-                self.remove_from_battle(battle_id, army_id);
-                self.military.armies.remove(&army_id);
-            }
-        }
-    }
-
-    fn collapse_or_continue(&mut self, battle_id: u32, date: GameDate) {
-        let max = self
-            .military_rules
-            .combat
-            .morale_milli()
-            .expect("陆战规则已检查");
-        let broken = [
-            self.side_broken(battle_id, 0, max),
-            self.side_broken(battle_id, 1, max),
-        ];
-        if broken == [false, false] {
+    fn resolve_existing(&mut self, battle_id: u32, date: GameDate) {
+        if !self.military.battles.contains_key(&battle_id) {
             return;
         }
-        if broken == [true, true] {
-            self.finish(battle_id, BattleOutcome::MutualRetreat, date, true);
+        self.prune_battle(battle_id);
+        if !self.military.battles.contains_key(&battle_id) {
             return;
         }
-        let loser = if broken[0] { 0_u8 } else { 1 };
-        let winner = usize::from(1 - loser);
-        let elapsed = self.military.battles[&battle_id].elapsed_days;
-        let loser_strength = self.side_strength(battle_id, usize::from(loser));
-        let winner_strength = self.side_strength(battle_id, winner);
-        // 兵力已经归零，或十二天锁定期内敌方仍有两倍兵力，都按全歼处理。
-        let wiped = loser_strength == 0
-            || (elapsed < RETREAT_LOCK_DAYS
-                && winner_strength >= loser_strength.saturating_mul(STACKWIPE_RATIO));
-        let outcome = if wiped {
-            BattleOutcome::Stackwipe { loser }
-        } else {
-            BattleOutcome::Retreat { loser }
-        };
-        let refund = matches!(outcome, BattleOutcome::Stackwipe { .. });
-        self.finish(battle_id, outcome, date, refund);
-    }
-
-    fn finish_empty_side(&mut self, battle_id: u32, date: GameDate) {
-        let empty = (0..2).find(|side| {
-            self.military.battles[&battle_id]
-                .side_armies(*side)
-                .is_empty()
-        });
-        if let Some(loser) = empty {
-            if self.military.battles[&battle_id]
-                .side_armies(1 - loser)
-                .is_empty()
-            {
-                self.military.battles.remove(&battle_id);
-                return;
-            }
+        self.admit(battle_id);
+        if self.military.battles[&battle_id].last_resolved == Some(date) {
+            return;
+        }
+        if !self.sides_still_hostile(battle_id) {
+            self.disengage(battle_id);
+            return;
+        }
+        let empty = [
+            self.military.battles[&battle_id].side_armies(0).is_empty(),
+            self.military.battles[&battle_id].side_armies(1).is_empty(),
+        ];
+        if empty == [true, true] {
+            self.military.battles.remove(&battle_id);
+            return;
+        }
+        if let Some(loser) = empty.iter().position(|side| *side) {
             self.finish(
                 battle_id,
                 BattleOutcome::Retreat {
@@ -635,7 +600,564 @@ impl World {
                 date,
                 false,
             );
+            return;
         }
+        self.fight_day(battle_id, date);
+    }
+
+    fn fight_day(&mut self, battle_id: u32, date: GameDate) {
+        self.advance_phase(battle_id);
+        self.prepare_lines(battle_id);
+        self.accumulate_pending(battle_id);
+        self.apply_pending(battle_id);
+        if let Some(battle) = self.military.battles.get_mut(&battle_id) {
+            battle.last_resolved = Some(date);
+        }
+        self.collapse_or_continue(battle_id, date);
+    }
+
+    fn advance_phase(&mut self, battle_id: u32) {
+        let elapsed = self.military.battles[&battle_id].elapsed_days;
+        if elapsed.is_multiple_of(3) {
+            let attacker = self.military.random.dice();
+            let defender = self.military.random.dice();
+            let battle = self.military.battles.get_mut(&battle_id).expect("战斗存在");
+            battle.rolls = [defender, attacker];
+        }
+        self.military
+            .battles
+            .get_mut(&battle_id)
+            .expect("战斗存在")
+            .elapsed_days = elapsed + 1;
+    }
+
+    fn prepare_lines(&mut self, battle_id: u32) {
+        let deployed = [
+            self.military.battles[&battle_id].side(0).deployed,
+            self.military.battles[&battle_id].side(1).deployed,
+        ];
+        if !deployed[0] || !deployed[1] {
+            self.deploy_side(battle_id, 0);
+            self.deploy_side(battle_id, 1);
+            return;
+        }
+        self.drop_invalid_from_lines(battle_id, 0);
+        self.drop_invalid_from_lines(battle_id, 1);
+        let snapshots = [
+            self.military.battles[&battle_id].side(0).front.clone(),
+            self.military.battles[&battle_id].side(1).front.clone(),
+        ];
+        self.rearrange_side(battle_id, 0, &snapshots[1]);
+        self.rearrange_side(battle_id, 1, &snapshots[0]);
+    }
+
+    fn deploy_side(&mut self, battle_id: u32, side: usize) {
+        let enemy = self.valid_regiments(battle_id, 1 - side).len();
+        let mut listed = self.valid_regiments(battle_id, side);
+        listed.sort_by(|left, right| {
+            right
+                .score
+                .cmp(&left.score)
+                .then(right.order.cmp(&left.order))
+        });
+        let infantry: Vec<_> = listed
+            .iter()
+            .filter(|regiment| regiment.kind == UnitKind::Infantry)
+            .cloned()
+            .collect();
+        let cavalry: Vec<_> = listed
+            .iter()
+            .filter(|regiment| regiment.kind == UnitKind::Cavalry)
+            .cloned()
+            .collect();
+        let width = self.military_rules.combat.width as usize;
+        let flank = flank_distance(
+            self.military_rules.combat.infantry.maneuver,
+            REGIMENT_STRENGTH,
+            REGIMENT_STRENGTH,
+        );
+        let plan = line_plan(infantry.len(), cavalry.len(), enemy, width, flank);
+        let order = center_out(width);
+        let mut front = vec![None; width];
+        let mut cursor = 0;
+        let mut placed = BTreeSet::new();
+        let place_one = |regiment: &ListedRegiment,
+                         front: &mut Vec<Option<CombatantRef>>,
+                         placed: &mut BTreeSet<(u32, usize)>,
+                         cursor: &mut usize| {
+            if *cursor >= order.len() {
+                return;
+            }
+            front[order[*cursor]] = Some(regiment.unit.clone());
+            placed.insert((regiment.unit.army_id, regiment.unit.index));
+            *cursor += 1;
+        };
+        for regiment in infantry.iter().take(plan.core) {
+            place_one(regiment, &mut front, &mut placed, &mut cursor);
+        }
+        for regiment in cavalry.iter().take(plan.cavalry) {
+            place_one(regiment, &mut front, &mut placed, &mut cursor);
+        }
+        // 后排支撑列尚未实现，中性为没有后排。额外步兵只补在前排外侧。
+        for regiment in infantry.iter().skip(plan.core).take(plan.extra_infantry) {
+            place_one(regiment, &mut front, &mut placed, &mut cursor);
+        }
+        let reserve = listed
+            .into_iter()
+            .filter(|regiment| !placed.contains(&(regiment.unit.army_id, regiment.unit.index)))
+            .map(|regiment| regiment.unit)
+            .collect();
+        let battle_side = self
+            .military
+            .battles
+            .get_mut(&battle_id)
+            .expect("战斗存在")
+            .side_mut(side);
+        battle_side.front = front;
+        battle_side.reserve = reserve;
+        battle_side.deployed = true;
+    }
+
+    fn drop_invalid_from_lines(&mut self, battle_id: u32, side: usize) {
+        let province = self.military.battles[&battle_id].province();
+        let front = self.military.battles[&battle_id].side(side).front.clone();
+        let reserve = self.military.battles[&battle_id].side(side).reserve.clone();
+        let keep = |unit: &CombatantRef| self.regiment_on_line(battle_id, side, province, unit);
+        let front: Vec<_> = front
+            .into_iter()
+            .map(|slot| slot.filter(|unit| keep(unit)))
+            .collect();
+        let reserve: Vec<_> = reserve.into_iter().filter(|unit| keep(unit)).collect();
+        let battle_side = self
+            .military
+            .battles
+            .get_mut(&battle_id)
+            .expect("战斗存在")
+            .side_mut(side);
+        battle_side.front = front;
+        battle_side.reserve = reserve;
+    }
+
+    fn rearrange_side(&mut self, battle_id: u32, side: usize, enemy: &[Option<CombatantRef>]) {
+        self.pull_outermost(battle_id, side, enemy);
+        self.add_unlisted_to_reserve(battle_id, side);
+        self.refill_front(battle_id, side, enemy);
+        self.compress_front(battle_id, side);
+    }
+
+    fn pull_outermost(&mut self, battle_id: u32, side: usize, enemy: &[Option<CombatantRef>]) {
+        let width = self.military.battles[&battle_id].side(side).front.len();
+        let center = width / 2;
+        loop {
+            let front = self.military.battles[&battle_id].side(side).front.clone();
+            let occupied: Vec<usize> = front
+                .iter()
+                .enumerate()
+                .filter_map(|(index, slot)| slot.as_ref().map(|_| index))
+                .collect();
+            if occupied.is_empty() {
+                break;
+            }
+            let mut ends = vec![occupied[0]];
+            let right = occupied[occupied.len() - 1];
+            if right != ends[0] {
+                ends.push(right);
+            }
+            ends.sort_by_key(|slot| std::cmp::Reverse(slot.abs_diff(center)));
+            let mut pulled = None;
+            for slot in ends {
+                let Some(unit) = front[slot].clone() else {
+                    continue;
+                };
+                if self.attack_target(slot, &unit, enemy).is_none() {
+                    pulled = Some((slot, unit));
+                    break;
+                }
+            }
+            let Some((slot, unit)) = pulled else {
+                break;
+            };
+            let battle_side = self
+                .military
+                .battles
+                .get_mut(&battle_id)
+                .expect("战斗存在")
+                .side_mut(side);
+            battle_side.front[slot] = None;
+            battle_side.reserve.push(unit);
+        }
+    }
+
+    fn add_unlisted_to_reserve(&mut self, battle_id: u32, side: usize) {
+        let listed = self.listed_keys(battle_id, side);
+        let fresh: Vec<_> = self
+            .valid_regiments(battle_id, side)
+            .into_iter()
+            .filter(|regiment| !listed.contains(&(regiment.unit.army_id, regiment.unit.index)))
+            .map(|regiment| regiment.unit)
+            .collect();
+        self.military
+            .battles
+            .get_mut(&battle_id)
+            .expect("战斗存在")
+            .side_mut(side)
+            .reserve
+            .extend(fresh);
+    }
+
+    fn refill_front(&mut self, battle_id: u32, side: usize, enemy: &[Option<CombatantRef>]) {
+        let enemy_count = enemy
+            .iter()
+            .filter(|slot| {
+                slot.as_ref()
+                    .is_some_and(|unit| self.regiment_fightable(unit))
+            })
+            .count();
+        let mut reserve_units = self.reserve_listed(battle_id, side);
+        reserve_units.sort_by(|left, right| {
+            right
+                .score
+                .cmp(&left.score)
+                .then(right.order.cmp(&left.order))
+        });
+        let infantry = reserve_units
+            .iter()
+            .filter(|regiment| regiment.kind == UnitKind::Infantry)
+            .count();
+        let cavalry = reserve_units
+            .iter()
+            .filter(|regiment| regiment.kind == UnitKind::Cavalry)
+            .count();
+        let on_line = self.military.battles[&battle_id]
+            .side(side)
+            .front
+            .iter()
+            .filter(|slot| slot.is_some())
+            .count();
+        let width = self.military_rules.combat.width as usize;
+        let flank = flank_distance(
+            self.military_rules.combat.infantry.maneuver,
+            REGIMENT_STRENGTH,
+            REGIMENT_STRENGTH,
+        );
+        let plan = line_plan(
+            infantry + self.front_kind_count(battle_id, side, UnitKind::Infantry),
+            cavalry + self.front_kind_count(battle_id, side, UnitKind::Cavalry),
+            enemy_count,
+            width,
+            flank,
+        );
+        let cap = plan.core + plan.cavalry + plan.extra_infantry;
+        if on_line >= cap {
+            return;
+        }
+        let mut placed = on_line;
+        let slots = center_out(self.military.battles[&battle_id].side(side).front.len());
+        let mut used = BTreeSet::new();
+        for slot in slots {
+            if placed >= cap {
+                break;
+            }
+            if self.military.battles[&battle_id].side(side).front[slot].is_some() {
+                continue;
+            }
+            let Some(choice) = reserve_units.iter().find(|regiment| {
+                !used.contains(&(regiment.unit.army_id, regiment.unit.index))
+                    && self.attack_target(slot, &regiment.unit, enemy).is_some()
+            }) else {
+                continue;
+            };
+            let unit = choice.unit.clone();
+            used.insert((unit.army_id, unit.index));
+            self.military
+                .battles
+                .get_mut(&battle_id)
+                .expect("战斗存在")
+                .side_mut(side)
+                .front[slot] = Some(unit);
+            placed += 1;
+        }
+        if used.is_empty() {
+            return;
+        }
+        self.military
+            .battles
+            .get_mut(&battle_id)
+            .expect("战斗存在")
+            .side_mut(side)
+            .reserve
+            .retain(|unit| !used.contains(&(unit.army_id, unit.index)));
+    }
+
+    fn compress_front(&mut self, battle_id: u32, side: usize) {
+        let front = self.military.battles[&battle_id].side(side).front.clone();
+        let width = front.len();
+        let present: Vec<_> = front.into_iter().flatten().collect();
+        let mut compressed = vec![None; width];
+        let start = width.saturating_sub(present.len()) / 2;
+        for (offset, unit) in present.into_iter().enumerate() {
+            compressed[start + offset] = Some(unit);
+        }
+        self.military
+            .battles
+            .get_mut(&battle_id)
+            .expect("战斗存在")
+            .side_mut(side)
+            .front = compressed;
+    }
+
+    fn accumulate_pending(&mut self, battle_id: u32) {
+        let phase = PhaseKind::from_battle_day(self.military.battles[&battle_id].elapsed_days);
+        let rolls = self.military.battles[&battle_id].rolls;
+        let elapsed = i64::from(self.military.battles[&battle_id].elapsed_days);
+        let average = self.average_max_morale(battle_id);
+        let penalties = [
+            self.support_penalty(battle_id, 0),
+            self.support_penalty(battle_id, 1),
+        ];
+        let fronts = [
+            self.military.battles[&battle_id].side(0).front.clone(),
+            self.military.battles[&battle_id].side(1).front.clone(),
+        ];
+        let reserves = [
+            self.military.battles[&battle_id].side(0).reserve.clone(),
+            self.military.battles[&battle_id].side(1).reserve.clone(),
+        ];
+        for attacker_side in 0..2 {
+            let defender_side = 1 - attacker_side;
+            let die = i32::from(rolls[attacker_side]);
+            for (slot, unit) in fronts[attacker_side].iter().enumerate() {
+                let Some(unit) = unit else {
+                    continue;
+                };
+                let Some(target_slot) = self.attack_target(slot, unit, &fronts[defender_side])
+                else {
+                    continue;
+                };
+                let Some(target) = fronts[defender_side].get(target_slot).cloned().flatten() else {
+                    continue;
+                };
+                let same_column_empty = fronts[defender_side]
+                    .get(slot)
+                    .and_then(|entry| entry.as_ref())
+                    .is_none();
+                self.queue_strike(PendingStrike {
+                    attacker: unit,
+                    defender: &target,
+                    phase,
+                    die,
+                    elapsed,
+                    defender_penalty: penalties[defender_side],
+                    same_column_empty,
+                });
+            }
+            for unit in fronts[attacker_side].iter().flatten() {
+                self.add_pending(unit, 0, daily_morale_loss(average, false));
+            }
+            for unit in &reserves[attacker_side] {
+                self.add_pending(unit, 0, daily_morale_loss(average, true));
+            }
+        }
+    }
+
+    fn queue_strike(&mut self, strike: PendingStrike<'_>) {
+        let PendingStrike {
+            attacker,
+            defender,
+            phase,
+            die,
+            elapsed,
+            defender_penalty,
+            same_column_empty,
+        } = strike;
+        let max = self.max_morale();
+        let Some(attacker_regiment) = self.regiment_snapshot(attacker) else {
+            return;
+        };
+        let Some(defender_regiment) = self.regiment_snapshot(defender) else {
+            return;
+        };
+        let rules = &self.military_rules.combat;
+        let attacker_unit = rules.unit(attacker_regiment.kind);
+        let defender_unit = rules.unit(defender_regiment.kind);
+        let (phase_off, _) = attacker_unit.phase_pips(phase);
+        let (_, phase_def) = defender_unit.phase_pips(phase);
+        // 将领、地形和渡河还没有数值，中性修正是 0。骰子单独相加，不放进这里。
+        let margin = phase_off - phase_def;
+        let (morale_off, _) = attacker_unit.morale_pips();
+        let (_, morale_def) = defender_unit.morale_pips();
+        let tech = thousandths(match phase {
+            PhaseKind::Fire => attacker_unit.fire_damage,
+            PhaseKind::Shock => attacker_unit.shock_damage,
+        });
+        let tactics = effective_tactics(
+            thousandths(rules.tactics),
+            defender_regiment.kind == UnitKind::Cavalry,
+            defender_penalty,
+        );
+        let men = strength_damage(StrengthStrike {
+            die,
+            margin,
+            strength: i64::from(attacker_regiment.strength),
+            discipline: NEUTRAL_DISCIPLINE,
+            front_scalar: FRONT_SCALAR,
+            defender_tactics: tactics,
+            tech_multiplier: tech,
+            ability: NEUTRAL_ABILITY,
+            defender_received: 0,
+            attacker_dealt: 0,
+            elapsed_days: elapsed,
+            same_column_empty,
+            quarter: strength_quarter(attacker_regiment.strength, REGIMENT_STRENGTH),
+        });
+        let morale = morale_damage(MoraleStrike {
+            die,
+            margin: margin + morale_off - morale_def,
+            max_morale: i64::from(max),
+            strength: i64::from(attacker_regiment.strength),
+            discipline: NEUTRAL_DISCIPLINE,
+            front_scalar: FRONT_SCALAR,
+            defender_tactics: tactics,
+            ability: NEUTRAL_ABILITY,
+            tech_multiplier: tech,
+            elapsed_days: elapsed,
+            defender_received: 0,
+            attacker_dealt: 0,
+        });
+        self.add_pending(defender, men, morale);
+    }
+
+    fn add_pending(&mut self, unit: &CombatantRef, men: i64, morale: i64) {
+        let Some(regiment) = self
+            .military
+            .armies
+            .get_mut(&unit.army_id)
+            .and_then(|army| army.regiments.get_mut(unit.index))
+        else {
+            return;
+        };
+        if men > 0 {
+            regiment.strength_pending = regiment
+                .strength_pending
+                .saturating_add(u32::try_from(men).unwrap_or(u32::MAX));
+        }
+        if morale > 0 {
+            regiment.morale_pending = regiment
+                .morale_pending
+                .saturating_add(u32::try_from(morale).unwrap_or(u32::MAX));
+        }
+    }
+
+    fn apply_pending(&mut self, battle_id: u32) {
+        let max = self.max_morale();
+        let armies = self.battle_armies(battle_id);
+        for army_id in armies {
+            let Some(army) = self.military.armies.get_mut(&army_id) else {
+                continue;
+            };
+            let mut lost = 0_u64;
+            for regiment in &mut army.regiments {
+                let drop_men = regiment.strength_pending.min(regiment.strength);
+                regiment.strength -= drop_men;
+                let current = regiment.effective_morale(max);
+                let drop_morale = regiment.morale_pending.min(current);
+                regiment.morale = current - drop_morale;
+                regiment.strength_pending = 0;
+                regiment.morale_pending = 0;
+                lost += u64::from(drop_men);
+            }
+            if lost == 0 {
+                continue;
+            }
+            let battle = self.military.battles.get_mut(&battle_id).expect("战斗存在");
+            for side in 0..2 {
+                if battle.side_armies(side).contains(&army_id) {
+                    battle.side_mut(side).strength_lost += lost;
+                }
+            }
+        }
+    }
+
+    fn collapse_or_continue(&mut self, battle_id: u32, date: GameDate) {
+        if !self.military.battles.contains_key(&battle_id) {
+            return;
+        }
+        let elapsed = self.military.battles[&battle_id].elapsed_days;
+        if self.side_failed(battle_id, 1, elapsed) {
+            self.finish_loss(battle_id, 1, date);
+            return;
+        }
+        if self.side_failed(battle_id, 0, elapsed) {
+            self.finish_loss(battle_id, 0, date);
+            return;
+        }
+        if elapsed < RETREAT_LOCK_DAYS {
+            let front = [
+                self.front_strength(battle_id, 0),
+                self.front_strength(battle_id, 1),
+            ];
+            let fightable = [
+                self.side_fightable(battle_id, 0),
+                self.side_fightable(battle_id, 1),
+            ];
+            if let Some(loser) = front_ratio_loser(front, [0, 0], fightable) {
+                self.finish(
+                    battle_id,
+                    BattleOutcome::Stackwipe {
+                        loser: u8::try_from(loser).expect("阵营只有两方"),
+                    },
+                    date,
+                    true,
+                );
+            }
+        }
+    }
+
+    fn finish_loss(&mut self, battle_id: u32, loser: usize, date: GameDate) {
+        let elapsed = self.military.battles[&battle_id].elapsed_days;
+        let wiped = wipes_after_defeat(
+            elapsed,
+            self.side_strength(battle_id, loser),
+            self.side_strength(battle_id, 1 - loser),
+        );
+        let loser = u8::try_from(loser).expect("阵营只有两方");
+        let outcome = if wiped {
+            BattleOutcome::Stackwipe { loser }
+        } else {
+            BattleOutcome::Retreat { loser }
+        };
+        self.finish(battle_id, outcome, date, wiped);
+    }
+
+    fn side_failed(&self, battle_id: u32, side: usize, elapsed: u32) -> bool {
+        if self.military.battles[&battle_id]
+            .side_armies(side)
+            .is_empty()
+            || self.side_strength(battle_id, side) < 10
+        {
+            return true;
+        }
+        if elapsed < RETREAT_LOCK_DAYS {
+            return false;
+        }
+        let max = self.max_morale();
+        let mut total = 0_u64;
+        let mut count = 0_u64;
+        for unit in self.line_units(battle_id, side) {
+            let Some(regiment) = self.regiment_snapshot(&unit) else {
+                continue;
+            };
+            let morale = if regiment.morale == UNSET_MORALE {
+                max
+            } else {
+                regiment.morale
+            };
+            if regiment.strength > 0 && morale >= 10 {
+                total += u64::from(morale);
+                count += 1;
+            }
+        }
+        count == 0 || total / count <= 10
     }
 
     fn finish(
@@ -645,6 +1167,12 @@ impl World {
         date: GameDate,
         refund_wipe: bool,
     ) {
+        if !self.military.battles.contains_key(&battle_id) {
+            return;
+        }
+        if let Some(loser) = outcome.loser() {
+            self.apply_winner_floor(battle_id, usize::from(1 - loser));
+        }
         let mut snapshot = self.snapshot(battle_id);
         let battle = self
             .military
@@ -652,8 +1180,8 @@ impl World {
             .remove(&battle_id)
             .expect("结束的战斗存在");
         for side in 0..2 {
-            for army_id in battle.side_armies(side).to_vec() {
-                if let Some(army) = self.military.armies.get_mut(&army_id) {
+            for army_id in battle.side_armies(side) {
+                if let Some(army) = self.military.armies.get_mut(army_id) {
                     army.battle_id = None;
                 }
             }
@@ -661,7 +1189,6 @@ impl World {
         let mut outcome = outcome;
         match outcome {
             BattleOutcome::Retreat { loser } => {
-                // 走不通的军队已在撤退时解散并返还半数人力，这里只改结果。
                 if !self.retreat_side(&battle, usize::from(loser), date) {
                     outcome = BattleOutcome::NoRetreat { loser };
                 }
@@ -675,10 +1202,10 @@ impl World {
                     (true, false) => BattleOutcome::NoRetreat { loser: 1 },
                 };
             }
-            BattleOutcome::Stackwipe { loser } | BattleOutcome::NoRetreat { loser } => {
+            BattleOutcome::Stackwipe { loser } | BattleOutcome::Overrun { loser } => {
                 self.destroy_side(&battle, usize::from(loser), refund_wipe);
             }
-            BattleOutcome::Overrun { loser } => {
+            BattleOutcome::NoRetreat { loser } => {
                 self.destroy_side(&battle, usize::from(loser), false);
             }
         }
@@ -695,23 +1222,85 @@ impl World {
                 side.morale = 0;
             }
         }
+        let province = battle.province();
         self.military.battle_reports.insert(
-            battle.province(),
+            province,
             BattleReport {
                 battle_id,
-                province: battle.province(),
+                province,
                 on: date,
                 outcome,
                 sides: snapshot,
             },
         );
+        self.reengage_after(&battle, date);
     }
 
-    /// 一侧全部军队都开始撤退时返回真。没有退路的军队在这里解散并返还半数剩余人力。
+    fn apply_winner_floor(&mut self, battle_id: u32, winner: usize) {
+        let max = self.max_morale();
+        let loser_joined = i64::try_from(
+            self.military.battles[&battle_id]
+                .side(1 - winner)
+                .joined_strength,
+        )
+        .unwrap_or(i64::MAX);
+        let winner_joined = i64::try_from(
+            self.military.battles[&battle_id]
+                .side(winner)
+                .joined_strength,
+        )
+        .unwrap_or(i64::MAX);
+        let floor = winner_morale_floor(loser_joined, winner_joined, i64::from(max));
+        let floor = u32::try_from(floor.max(0)).unwrap_or(0).min(max);
+        let armies = self.military.battles[&battle_id]
+            .side_armies(winner)
+            .to_vec();
+        for army_id in armies {
+            let Some(army) = self.military.armies.get_mut(&army_id) else {
+                continue;
+            };
+            for regiment in &mut army.regiments {
+                let current = regiment.effective_morale(max);
+                regiment.morale = current.max(floor).min(max);
+            }
+        }
+    }
+
+    fn reengage_after(&mut self, battle: &Battle, date: GameDate) {
+        let province = battle.province();
+        let mut order = battle.side_armies(1).to_vec();
+        for id in battle.side_armies(0) {
+            if !order.contains(id) {
+                order.push(*id);
+            }
+        }
+        let extras: Vec<u32> = self
+            .military
+            .armies
+            .values()
+            .filter(|army| army.province == province && !order.contains(&army.id()))
+            .map(|army| army.id())
+            .collect();
+        order.extend(extras);
+        for army_id in order {
+            let Some(army) = self.military.armies.get(&army_id) else {
+                continue;
+            };
+            if army.province != province
+                || army.is_retreating()
+                || army.battle_id().is_some()
+                || army.strength() == 0
+            {
+                continue;
+            }
+            self.engage(province, date, Some(army_id), true);
+        }
+    }
+
     fn retreat_side(&mut self, battle: &Battle, side: usize, date: GameDate) -> bool {
         let mut ok = true;
-        for army_id in battle.side_armies(side).to_vec() {
-            if self.armies().contains_key(&army_id) && !self.begin_retreat(army_id, date) {
+        for army_id in battle.side_armies(side) {
+            if self.armies().contains_key(army_id) && !self.begin_retreat(*army_id, date) {
                 ok = false;
             }
         }
@@ -719,13 +1308,22 @@ impl World {
     }
 
     fn begin_retreat(&mut self, army_id: u32, date: GameDate) -> bool {
+        let max = self.max_morale();
         let army = &self.military.armies[&army_id];
         let country = army.country.clone();
         let from = army.province;
+        let our_men = army.strength();
+        let low = self.army_weighted_morale(army_id, max) < LOW_MORALE_THRESHOLD;
         let speed = army.march_speed(&self.military_rules)
             * (Money::ONE + self.military_rules.combat.shattered_retreat_speed);
-        let Some(destination) = self.retreat_destination(&country, from) else {
-            self.destroy_army(army_id, true);
+        let destination = if low {
+            self.far_retreat_destination(&country, from)
+                .or_else(|| self.adjacent_retreat_destination(&country, from, our_men))
+        } else {
+            self.adjacent_retreat_destination(&country, from, our_men)
+        };
+        let Some(destination) = destination else {
+            self.destroy_army(army_id, false);
             return false;
         };
         match self.route_between(&country, from, destination, speed, date) {
@@ -737,51 +1335,36 @@ impl World {
                     .expect("撤退军队存在");
                 army.movement = Some(movement);
                 army.retreating = true;
+                army.retreat_shattered = Some(true);
                 army.battle_id = None;
                 true
             }
             Err(_) => {
-                self.destroy_army(army_id, true);
-                false
+                // 目的地已经选出，但寻路失败：留下军队，清掉撤退标志，不返还人力。
+                let army = self
+                    .military
+                    .armies
+                    .get_mut(&army_id)
+                    .expect("撤退军队存在");
+                army.movement = None;
+                army.retreating = false;
+                army.retreat_shattered = Some(false);
+                army.battle_id = None;
+                true
             }
         }
     }
 
-    /// 优先撤往本国控制、附近无敌军且发展度较高的省份。
-    /// 要塞和距离上限没有已核实的数值，这里不另造。没有控制区时只退入一个可进入的邻省。
-    fn retreat_destination(&self, country: &str, from: u32) -> Option<u32> {
-        let controlled = self.reachable(country, from);
-        let mut best: Option<(bool, u64, u32)> = None;
-        for province in controlled {
-            let development = self
-                .province(province)
-                .and_then(|province| province.development.total())
-                .unwrap_or(0);
-            let threatened = self.hostile_present(country, province)
-                || self
-                    .land_neighbors(province)
-                    .into_iter()
-                    .flat_map(|neighbors| neighbors.iter())
-                    .any(|(&next, _)| self.hostile_present(country, next));
-            let rank = (!threatened, development, u32::MAX - province);
-            if best.is_none_or(|current| rank > current) {
-                best = Some(rank);
-            }
-        }
-        if let Some((_, _, encoded)) = best {
-            return Some(u32::MAX - encoded);
-        }
-        self.land_neighbors(from)
-            .into_iter()
-            .flat_map(|neighbors| neighbors.iter())
-            .find_map(|(&next, _)| self.can_enter(country, next).then_some(next))
-    }
-
-    fn reachable(&self, country: &str, from: u32) -> Vec<u32> {
+    /// 低士气先走远端。评分只看 1 到 10 步，而且每一步都要能进入。
+    /// 要塞区域阻挡尚未实现；退路仍受现有通行规则限制，不绕过要隘。
+    fn far_retreat_destination(&self, country: &str, from: u32) -> Option<u32> {
         let mut seen = BTreeSet::from([from]);
-        let mut queue = vec![from];
-        let mut found = Vec::new();
-        while let Some(province) = queue.pop() {
+        let mut queue = VecDeque::from([(from, 0_u32)]);
+        let mut best: Option<(u64, u32)> = None;
+        while let Some((province, hops)) = queue.pop_front() {
+            if hops == 10 {
+                continue;
+            }
             let Some(neighbors) = self.land_neighbors(province) else {
                 continue;
             };
@@ -789,21 +1372,116 @@ impl World {
                 if !seen.insert(next) || !self.can_enter(country, next) {
                     continue;
                 }
-                queue.push(next);
-                if self
+                let next_hops = hops + 1;
+                queue.push_back((next, next_hops));
+                if !self.far_endpoint_allowed(country, next) {
+                    continue;
+                }
+                let development = self
                     .province(next)
-                    .is_some_and(|state| state.controller.as_deref() == Some(country))
-                {
-                    found.push(next);
+                    .and_then(|province| province.development.total())
+                    .unwrap_or(0);
+                let owned = self
+                    .province(next)
+                    .is_some_and(|province| province.owner.as_deref() == Some(country));
+                let score = far_retreat_score(development, next_hops, owned);
+                if best.is_none_or(|(current, _)| score > current) {
+                    best = Some((score, next));
                 }
             }
         }
-        found
+        best.map(|(_, province)| province)
+    }
+
+    fn far_endpoint_allowed(&self, country: &str, province: u32) -> bool {
+        if self.hostile_present(country, province) {
+            return false;
+        }
+        let Some(controller) = self
+            .province(province)
+            .and_then(|province| province.controller.clone())
+        else {
+            return false;
+        };
+        controller == country || self.same_war_side(country, &controller)
+    }
+
+    /// 双边战争里两个不同国家不会站在同一侧。
+    fn same_war_side(&self, left: &str, right: &str) -> bool {
+        if left == right {
+            return true;
+        }
+        self.war_state.active.values().any(|war| {
+            (left == war.attacker() && right == war.attacker())
+                || (left == war.defender() && right == war.defender())
+        })
+    }
+
+    fn adjacent_retreat_destination(
+        &mut self,
+        country: &str,
+        from: u32,
+        our_men: u64,
+    ) -> Option<u32> {
+        let neighbors: Vec<u32> = self.land_neighbors(from)?.keys().copied().collect();
+        let mut best: Option<(u64, u32)> = None;
+        for next in neighbors {
+            if next == from || !self.can_enter(country, next) {
+                continue;
+            }
+            let enemy = self.enemy_men(country, next);
+            if enemy_strength_blocks_retreat(our_men, enemy) {
+                continue;
+            }
+            let base = self.retreat_base_score(country, next);
+            let mut score = base;
+            if base > 2_000 {
+                score += u64::from(self.military.random.bonus_steps()) * 1_000;
+                if enemy == 0 {
+                    score = score.saturating_mul(200);
+                }
+            }
+            if best.is_none_or(|(current, _)| score > current) {
+                best = Some((score, next));
+            }
+        }
+        best.map(|(_, province)| province)
+    }
+
+    fn retreat_base_score(&self, country: &str, province: u32) -> u64 {
+        let Some(province) = self.province(province) else {
+            return 1_000;
+        };
+        if province.owner.is_none() {
+            return 50;
+        }
+        let own = province.owner.as_deref() == Some(country);
+        let control = province.controller.as_deref() == Some(country);
+        if own && control {
+            4_000
+        } else if control {
+            3_000
+        } else if own {
+            2_000
+        } else {
+            1_000
+        }
+    }
+
+    fn enemy_men(&self, country: &str, province: u32) -> u64 {
+        self.military
+            .armies
+            .values()
+            .filter(|army| {
+                army.province == province && !army.retreating && self.at_war(country, &army.country)
+            })
+            .map(|army| army.strength())
+            .sum()
     }
 
     fn destroy_side(&mut self, battle: &Battle, side: usize, refund: bool) {
-        for army_id in battle.side_armies(side).to_vec() {
-            self.destroy_army(army_id, refund);
+        for army_id in battle.side_armies(side) {
+            self.destroy_army(*army_id, refund);
         }
     }
 
@@ -811,34 +1489,32 @@ impl World {
         let Some(army) = self.military.armies.remove(&army_id) else {
             return;
         };
-        if refund {
-            let men = army.strength() / 2;
-            if let Some(pool) = self
-                .countries
-                .get_mut(&army.country)
-                .and_then(|country| country.manpower.as_mut())
-            {
-                pool.refund(men);
-            }
+        if !refund {
+            return;
         }
-    }
-
-    fn remove_from_battle(&mut self, battle_id: u32, army_id: u32) {
-        if let Some(battle) = self.military.battles.get_mut(&battle_id) {
-            for side in 0..2 {
-                battle.side_mut(side).armies.retain(|id| *id != army_id);
-            }
+        let mut men = 0_i64;
+        for regiment in &army.regiments {
+            men += wipe_refund_men(
+                i64::from(regiment.strength),
+                i64::from(REGIMENT_STRENGTH),
+                i64::try_from(self.military_rules.manpower_cost(regiment.kind)).unwrap_or(0),
+            );
+        }
+        if men <= 0 {
+            return;
+        }
+        if let Some(pool) = self
+            .countries
+            .get_mut(&army.country)
+            .and_then(|country| country.manpower.as_mut())
+        {
+            pool.refund(u64::try_from(men).unwrap_or(0));
         }
     }
 
     fn prune_battle(&mut self, battle_id: u32) {
         let province = self.military.battles[&battle_id].province();
-        let listed: Vec<u32> = self.military.battles[&battle_id]
-            .side_armies(0)
-            .iter()
-            .chain(self.military.battles[&battle_id].side_armies(1))
-            .copied()
-            .collect();
+        let listed = self.battle_armies(battle_id);
         for army_id in listed {
             let keep = self.armies().get(&army_id).is_some_and(|army| {
                 army.province == province
@@ -852,6 +1528,14 @@ impl World {
                 {
                     army.battle_id = None;
                 }
+            }
+        }
+    }
+
+    fn remove_from_battle(&mut self, battle_id: u32, army_id: u32) {
+        if let Some(battle) = self.military.battles.get_mut(&battle_id) {
+            for side in 0..2 {
+                battle.side_mut(side).armies.retain(|id| *id != army_id);
             }
         }
     }
@@ -880,29 +1564,28 @@ impl World {
             .sum()
     }
 
-    fn side_regiments(&self, battle_id: u32, side: usize) -> u64 {
+    fn front_strength(&self, battle_id: u32, side: usize) -> u64 {
+        self.military.battles[&battle_id]
+            .side(side)
+            .front
+            .iter()
+            .filter_map(|slot| slot.as_ref())
+            .filter_map(|unit| self.regiment_snapshot(unit))
+            .map(|regiment| u64::from(regiment.strength))
+            .sum()
+    }
+
+    fn side_fightable(&self, battle_id: u32, side: usize) -> bool {
+        let max = self.max_morale();
         self.military.battles[&battle_id]
             .side_armies(side)
             .iter()
             .filter_map(|id| self.armies().get(id))
-            .map(|army| army.regiments.len() as u64)
-            .sum()
-    }
-
-    fn side_broken(&self, battle_id: u32, side: usize, max: u32) -> bool {
-        for army_id in self.military.battles[&battle_id].side_armies(side) {
-            let Some(army) = self.armies().get(army_id) else {
-                continue;
-            };
-            if army
-                .regiments
-                .iter()
-                .any(|regiment| regiment.strength > 0 && regiment.effective_morale(max) > 0)
-            {
-                return false;
-            }
-        }
-        true
+            .any(|army| {
+                army.regiments
+                    .iter()
+                    .any(|regiment| regiment.strength > 0 && regiment.effective_morale(max) >= 10)
+            })
     }
 
     fn side_morale(&self, battle_id: u32, side: usize, max: u32) -> u32 {
@@ -920,15 +1603,11 @@ impl World {
                 count += 1;
             }
         }
-        total.checked_div(count).unwrap_or(0) as u32
+        u32::try_from(total.checked_div(count).unwrap_or(0)).unwrap_or(u32::MAX)
     }
 
     fn snapshot(&self, battle_id: u32) -> [ReportedSide; 2] {
-        let max = self
-            .military_rules
-            .combat
-            .morale_milli()
-            .expect("陆战规则已检查");
+        let max = self.max_morale();
         let battle = &self.military.battles[&battle_id];
         [0, 1].map(|side| {
             let army_ids = battle.side_armies(side).to_vec();
@@ -951,7 +1630,9 @@ impl World {
     }
 
     fn disengage(&mut self, battle_id: u32) {
-        let battle = self.military.battles.remove(&battle_id).expect("战斗存在");
+        let Some(battle) = self.military.battles.remove(&battle_id) else {
+            return;
+        };
         for side in 0..2 {
             for army_id in battle.side_armies(side) {
                 if let Some(army) = self.military.armies.get_mut(army_id) {
@@ -971,12 +1652,8 @@ impl World {
     }
 
     fn ongoing_text(&self, battle: &Battle) -> String {
-        let max = self
-            .military_rules
-            .combat
-            .morale_milli()
-            .expect("陆战规则已检查");
-        let phase = PhaseKind::from_elapsed(battle.elapsed_days.saturating_sub(1));
+        let max = self.max_morale();
+        let phase = PhaseKind::from_battle_day(battle.elapsed_days().max(1));
         format!(
             "战斗 #{} · 第 {} 天 · {}\n{}",
             battle.id(),
@@ -1014,11 +1691,7 @@ impl World {
     }
 
     fn report_text(&self, report: &BattleReport) -> String {
-        let max = self
-            .military_rules
-            .combat
-            .morale_milli()
-            .expect("陆战规则已检查");
+        let max = self.max_morale();
         let headline = match report.outcome {
             BattleOutcome::Retreat { loser } => format!("{}撤退", side_name(loser as usize)),
             BattleOutcome::Stackwipe { loser } => format!("{}覆灭", side_name(loser as usize)),
@@ -1057,36 +1730,249 @@ impl World {
         )
     }
 
-    pub(crate) fn fill_unset_morale(&mut self) {
-        let max = self
-            .military_rules
-            .combat
-            .morale_milli()
-            .expect("陆战规则已检查");
-        for army in self.military.armies.values_mut() {
-            for regiment in &mut army.regiments {
-                if regiment.morale == UNSET_MORALE {
-                    regiment.morale = max;
+    fn battle_armies(&self, battle_id: u32) -> Vec<u32> {
+        let Some(battle) = self.military.battles.get(&battle_id) else {
+            return Vec::new();
+        };
+        battle
+            .side_armies(0)
+            .iter()
+            .chain(battle.side_armies(1))
+            .copied()
+            .collect()
+    }
+
+    fn line_units(&self, battle_id: u32, side: usize) -> Vec<CombatantRef> {
+        let Some(battle) = self.military.battles.get(&battle_id) else {
+            return Vec::new();
+        };
+        battle
+            .side(side)
+            .front
+            .iter()
+            .flatten()
+            .cloned()
+            .chain(battle.side(side).reserve.iter().cloned())
+            .collect()
+    }
+
+    fn listed_keys(&self, battle_id: u32, side: usize) -> BTreeSet<(u32, usize)> {
+        self.line_units(battle_id, side)
+            .into_iter()
+            .map(|unit| (unit.army_id, unit.index))
+            .collect()
+    }
+
+    fn valid_regiments(&self, battle_id: u32, side: usize) -> Vec<ListedRegiment> {
+        let max = self.max_morale();
+        let mut listed = Vec::new();
+        let mut order = 0_u32;
+        let armies = self.military.battles[&battle_id].side_armies(side).to_vec();
+        let mut armies = armies;
+        armies.sort_unstable();
+        for army_id in armies {
+            let Some(army) = self.armies().get(&army_id) else {
+                continue;
+            };
+            for (index, regiment) in army.regiments.iter().enumerate() {
+                let morale = regiment.effective_morale(max);
+                if regiment.strength == 0 || morale < 10 {
+                    continue;
                 }
+                order += 1;
+                let unit_rules = self.military_rules.combat.unit(regiment.kind);
+                listed.push(ListedRegiment {
+                    unit: CombatantRef { army_id, index },
+                    kind: regiment.kind,
+                    score: regiment_sort_score(
+                        unit_rules.maneuver,
+                        unit_rules.pip_sum(),
+                        morale,
+                        regiment.strength,
+                    ),
+                    order,
+                });
             }
         }
+        listed
+    }
+
+    fn reserve_listed(&self, battle_id: u32, side: usize) -> Vec<ListedRegiment> {
+        let keys: BTreeSet<_> = self.military.battles[&battle_id]
+            .side(side)
+            .reserve
+            .iter()
+            .map(|unit| (unit.army_id, unit.index))
+            .collect();
+        self.valid_regiments(battle_id, side)
+            .into_iter()
+            .filter(|regiment| keys.contains(&(regiment.unit.army_id, regiment.unit.index)))
+            .collect()
+    }
+
+    fn front_kind_count(&self, battle_id: u32, side: usize, kind: UnitKind) -> usize {
+        self.military.battles[&battle_id]
+            .side(side)
+            .front
+            .iter()
+            .filter_map(|slot| slot.as_ref())
+            .filter_map(|unit| self.regiment_snapshot(unit))
+            .filter(|regiment| regiment.kind == kind)
+            .count()
+    }
+
+    fn regiment_on_line(
+        &self,
+        battle_id: u32,
+        side: usize,
+        province: u32,
+        unit: &CombatantRef,
+    ) -> bool {
+        let max = self.max_morale();
+        let Some(army) = self.armies().get(&unit.army_id) else {
+            return false;
+        };
+        if army.province != province
+            || army.battle_id() != Some(battle_id)
+            || !self.military.battles[&battle_id]
+                .side_armies(side)
+                .contains(&unit.army_id)
+        {
+            return false;
+        }
+        army.regiments
+            .get(unit.index)
+            .is_some_and(|regiment| regiment.strength > 0 && regiment.effective_morale(max) >= 10)
+    }
+
+    fn regiment_fightable(&self, unit: &CombatantRef) -> bool {
+        let max = self.max_morale();
+        self.regiment_snapshot(unit).is_some_and(|regiment| {
+            let morale = if regiment.morale == UNSET_MORALE {
+                max
+            } else {
+                regiment.morale
+            };
+            regiment.strength > 0 && morale >= 10
+        })
+    }
+
+    fn regiment_snapshot(&self, unit: &CombatantRef) -> Option<RegimentView> {
+        let regiment = self
+            .armies()
+            .get(&unit.army_id)?
+            .regiments
+            .get(unit.index)?;
+        Some(RegimentView {
+            kind: regiment.kind,
+            strength: regiment.strength,
+            morale: regiment.morale,
+        })
+    }
+
+    fn attack_target(
+        &self,
+        slot: usize,
+        attacker: &CombatantRef,
+        enemy: &[Option<CombatantRef>],
+    ) -> Option<usize> {
+        if enemy.is_empty() {
+            return None;
+        }
+        let attacker = self.regiment_snapshot(attacker)?;
+        let maneuver = self.military_rules.combat.unit(attacker.kind).maneuver;
+        let range = flank_distance(maneuver, attacker.strength, REGIMENT_STRENGTH);
+        let valid = |index: usize| {
+            enemy
+                .get(index)
+                .and_then(|slot| slot.as_ref())
+                .is_some_and(|unit| self.regiment_fightable(unit))
+        };
+        let occupied = |index: usize| enemy.get(index).and_then(|slot| slot.as_ref()).is_some();
+        if valid(slot) {
+            return Some(slot);
+        }
+        let last = enemy.len() - 1;
+        let start = slot.saturating_sub(range);
+        let end = slot.saturating_add(range).min(last);
+        if let Some(index) = (start..=end).find(|&index| valid(index)) {
+            return Some(index);
+        }
+        if occupied(slot) {
+            return Some(slot);
+        }
+        (start..=end).find(|&index| occupied(index))
+    }
+
+    fn support_penalty(&self, battle_id: u32, side: usize) -> i64 {
+        let mut infantry = 0_i64;
+        let mut cavalry = 0_i64;
+        for unit in self.military.battles[&battle_id]
+            .side(side)
+            .front
+            .iter()
+            .flatten()
+        {
+            let Some(regiment) = self.regiment_snapshot(unit) else {
+                continue;
+            };
+            match regiment.kind {
+                UnitKind::Infantry => infantry += i64::from(regiment.strength),
+                UnitKind::Cavalry => cavalry += i64::from(regiment.strength),
+            }
+        }
+        cavalry_support_penalty(
+            infantry,
+            cavalry,
+            i64::from(self.military_rules.combat.allowed_cavalry_ratio),
+        )
+    }
+
+    fn average_max_morale(&self, battle_id: u32) -> i64 {
+        let max = i64::from(self.max_morale());
+        let mut weighted = 0_i64;
+        let mut count = 0_i64;
+        for army_id in self.battle_armies(battle_id) {
+            let Some(army) = self.armies().get(&army_id) else {
+                continue;
+            };
+            let regiments = army
+                .regiments
+                .iter()
+                .filter(|regiment| regiment.strength > 0)
+                .count() as i64;
+            weighted += regiments * max;
+            count += regiments;
+        }
+        if count == 0 { max } else { weighted / count }
+    }
+
+    fn route_between(
+        &self,
+        country: &str,
+        from: u32,
+        destination: u32,
+        speed: Money,
+        started_on: GameDate,
+    ) -> Result<ArmyMovement, MovementError> {
+        self.land_route(country, from, destination, speed, started_on, None)
     }
 }
 
-struct Deployment {
-    front: Vec<Fighter>,
-    reserve: Vec<Fighter>,
+struct PendingStrike<'a> {
+    attacker: &'a CombatantRef,
+    defender: &'a CombatantRef,
+    phase: PhaseKind,
+    die: i32,
+    elapsed: i64,
+    defender_penalty: i64,
+    same_column_empty: bool,
 }
 
-fn target_slot(slot: usize, maneuver: u32, front: &[Fighter]) -> Option<usize> {
-    if front.is_empty() {
-        return None;
-    }
-    if slot < front.len() {
-        return Some(slot);
-    }
-    let distance = slot - (front.len() - 1);
-    (distance <= maneuver as usize).then_some(front.len() - 1)
+struct RegimentView {
+    kind: UnitKind,
+    strength: u32,
+    morale: u32,
 }
 
 fn side_name(side: usize) -> &'static str {
@@ -1101,29 +1987,17 @@ fn format_morale(current: u32, max: u32) -> String {
     )
 }
 
-impl World {
-    fn route_between(
-        &self,
-        country: &str,
-        from: u32,
-        destination: u32,
-        speed: Money,
-        started_on: GameDate,
-    ) -> Result<ArmyMovement, MovementError> {
-        self.land_route(country, from, destination, speed, started_on, None)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
     use std::time::Duration;
 
+    use crate::combat::{StrengthStrike, strength_damage};
     use crate::{
         Army, ArmyMovement, ArmyOrganizationError, BattleOutcome, CombatRules, Country,
         Development, GameDate, GameSpeed, LandConnection, ManpowerRules, MilitaryRules, Money,
         MovementError, MovementLeg, Province, ProvinceKind, Regiment, SavedGame, Simulation,
-        UnitKind, World, base_casualties, casualty_amount, whole_men,
+        UnitKind, World,
     };
 
     fn date() -> GameDate {
@@ -1209,6 +2083,10 @@ mod tests {
                 movement: None,
                 battle_id: None,
                 retreating: false,
+                retreat_shattered: Some(false),
+                exiled: false,
+                retreat_previous: None,
+                retreat_return: None,
             },
         );
         world.military.next_army_id = world.military.next_army_id.max(id + 1);
@@ -1224,16 +2102,39 @@ mod tests {
         }
     }
 
-    /// 测试兵种点数为 0，伤害系数和战技都是 0.5，因此只由阶段骰子和战斗天数决定减员。
-    fn men_lost(roll: u8, day: u32) -> u32 {
-        whole_men(casualty_amount(
-            base_casualties(u32::from(roll), 0, 0),
-            1_000,
-            Money::new(5, 1),
-            Money::new(5, 1),
-            Money::new(1, 2),
-            day,
-        ))
+    fn set_first(world: &mut World, id: u32, men: u32, morale: u32) {
+        for (index, regiment) in world
+            .military
+            .armies
+            .get_mut(&id)
+            .unwrap()
+            .regiments
+            .iter_mut()
+            .enumerate()
+        {
+            regiment.strength = if index == 0 { men } else { 0 };
+            regiment.morale = morale;
+        }
+    }
+
+    /// 中性满编团在第 1 天、同列有敌时的兵力伤害。骰子来自战斗里保存的点数。
+    fn men_lost(roll: u8) -> u32 {
+        u32::try_from(strength_damage(StrengthStrike {
+            die: i32::from(roll),
+            margin: 0,
+            strength: 1_000,
+            discipline: 1_000,
+            front_scalar: 1_000,
+            defender_tactics: 500,
+            tech_multiplier: 500,
+            ability: 1_000,
+            defender_received: 0,
+            attacker_dealt: 0,
+            elapsed_days: 1,
+            same_column_empty: false,
+            quarter: 4,
+        }))
+        .unwrap()
     }
 
     #[test]
@@ -1248,14 +2149,31 @@ mod tests {
         world.declare_war("AAA", "BBB", date()).unwrap();
         world.resolve_battles(date());
         let battle = world.battle_in_province(1).unwrap();
-        let attacker_loss = u64::from(men_lost(battle.rolls[0], 1));
-        let defender_loss = u64::from(men_lost(battle.rolls[1], 1));
+        let attacker_loss = u64::from(men_lost(battle.rolls[0]));
+        let defender_loss = u64::from(men_lost(battle.rolls[1]));
         assert_eq!(strength(&world, 1), 1_000 - attacker_loss);
         assert_eq!(strength(&world, 2), 1_000 - defender_loss);
         assert_eq!(
             world.armies()[&1].regiments[0].strength,
             u32::try_from(1_000 - attacker_loss).unwrap()
         );
+        assert_eq!(world.military.random.count(), 2);
+    }
+
+    #[test]
+    fn phase_dice_change_on_the_first_day_of_each_phase() {
+        let mut world = world(vec![(1, province("AAA", 1))], vec![]);
+        station(&mut world, 1, "AAA", 1, 1);
+        station(&mut world, 2, "BBB", 1, 1);
+        world.declare_war("AAA", "BBB", date()).unwrap();
+        world.resolve_battles(date());
+        assert_eq!(world.military.random.count(), 2);
+        for day in 1..3 {
+            world.resolve_battles(date().checked_add_days(day).unwrap());
+            assert_eq!(world.military.random.count(), 2);
+        }
+        world.resolve_battles(date().checked_add_days(3).unwrap());
+        assert_eq!(world.military.random.count(), 4);
     }
 
     #[test]
@@ -1351,18 +2269,20 @@ mod tests {
             vec![
                 (1, province("BBB", 1)),
                 (2, province("AAA", 1)),
-                (3, province("BBB", 3)),
+                (3, province("BBB", 100)),
             ],
             vec![link(2, 1), link(2, 3)],
         );
         station(&mut world, 1, "AAA", 2, 1);
         station(&mut world, 2, "BBB", 2, 1);
-        set_morale(&mut world, 2, 1);
+        set_first(&mut world, 1, 18, 2_000);
+        set_first(&mut world, 2, 9, 9);
         world.declare_war("AAA", "BBB", date()).unwrap();
         world.resolve_battles(date());
         assert!(world.battle_in_province(2).is_none());
         let loser = &world.armies()[&2];
         assert!(loser.is_retreating());
+        assert!(loser.is_shattered());
         assert_eq!(loser.movement.as_ref().unwrap().destination(), 3);
         assert_eq!(loser.province, 2);
         world.resolve_battles(date());
@@ -1383,37 +2303,53 @@ mod tests {
     }
 
     #[test]
-    fn no_exit_removes_the_army_and_refunds_half_the_survivors() {
+    fn no_exit_removes_the_army_without_a_refund() {
         let mut world = world(vec![(1, province("AAA", 1))], vec![]);
         station(&mut world, 1, "AAA", 1, 1);
         station(&mut world, 2, "BBB", 1, 1);
-        set_morale(&mut world, 2, 1);
+        set_first(&mut world, 1, 18, 2_000);
+        set_first(&mut world, 2, 9, 9);
         world.declare_war("AAA", "BBB", date()).unwrap();
         let before = world.country_manpower("BBB").unwrap().available;
-        let lost = u64::from(men_lost(crate::combat::phase_roll(1, 0, 1) as u8, 1));
         world.resolve_battles(date());
         assert!(world.armies().get(&2).is_none());
         assert!(matches!(
             world.battle_report(1).unwrap().outcome,
             BattleOutcome::NoRetreat { loser: 0 }
         ));
-        assert_eq!(
-            world.country_manpower("BBB").unwrap().available,
-            before + (1_000 - lost) / 2
-        );
+        assert_eq!(world.country_manpower("BBB").unwrap().available, before);
     }
 
     #[test]
-    fn overrun_destroys_the_smaller_side_without_a_refund_or_winner_losses() {
+    fn ten_thousand_against_one_thousand_is_not_an_initial_overrun() {
         let mut world = world(vec![(1, province("AAA", 1))], vec![]);
         station(&mut world, 1, "BBB", 1, 1);
         station(&mut world, 2, "AAA", 1, 10);
         world.declare_war("AAA", "BBB", date()).unwrap();
+        world.resolve_battles(date());
+        // 恰好十倍不走开场歼灭。前排仍可能因为两倍比较在当天覆灭。
+        assert!(matches!(
+            world.battle_report(1).unwrap().outcome,
+            BattleOutcome::Stackwipe { loser: 0 }
+        ));
+        assert!(world.armies().get(&1).is_none());
+        assert!(strength(&world, 2) > 0);
+    }
+
+    #[test]
+    fn overrun_refunds_half_the_remaining_manpower() {
+        let mut world = world(vec![(1, province("AAA", 1))], vec![]);
+        station(&mut world, 1, "BBB", 1, 1);
+        station(&mut world, 2, "AAA", 1, 11);
+        world.declare_war("AAA", "BBB", date()).unwrap();
         let before = world.country_manpower("BBB").unwrap().available;
         world.resolve_battles(date());
         assert!(world.armies().get(&1).is_none());
-        assert_eq!(strength(&world, 2), 10_000);
-        assert_eq!(world.country_manpower("BBB").unwrap().available, before);
+        assert_eq!(strength(&world, 2), 11_000);
+        assert_eq!(
+            world.country_manpower("BBB").unwrap().available,
+            before + 500
+        );
         assert!(matches!(
             world.battle_report(1).unwrap().outcome,
             BattleOutcome::Overrun { loser: 0 }
@@ -1421,28 +2357,25 @@ mod tests {
     }
 
     #[test]
-    fn early_two_to_one_break_is_a_stackwipe_and_even_odds_retreat() {
+    fn early_strength_break_wipes_below_half_and_even_odds_wait_until_day_twelve() {
         let mut wiped = world(
             vec![(1, province("AAA", 1)), (2, province("BBB", 1))],
             vec![link(1, 2)],
         );
         station(&mut wiped, 1, "BBB", 1, 1);
-        station(&mut wiped, 2, "AAA", 1, 2);
-        set_morale(&mut wiped, 1, 1);
+        station(&mut wiped, 2, "AAA", 1, 1);
+        // 胜方 20 人：9 小于一半，但还不小于十分之一，所以是当天覆灭而不是开场十倍。
+        set_first(&mut wiped, 1, 9, 9);
+        set_first(&mut wiped, 2, 20, 2_000);
         wiped.declare_war("AAA", "BBB", date()).unwrap();
         let before = wiped.country_manpower("BBB").unwrap().available;
-        // 败方是守方，减员来自攻方这一阶段的骰子。
-        let lost = u64::from(men_lost(crate::combat::phase_roll(1, 0, 1) as u8, 1));
         wiped.resolve_battles(date());
         assert!(wiped.armies().get(&1).is_none());
         assert!(matches!(
             wiped.battle_report(1).unwrap().outcome,
             BattleOutcome::Stackwipe { loser: 0 }
         ));
-        assert_eq!(
-            wiped.country_manpower("BBB").unwrap().available,
-            before + (1_000 - lost) / 2
-        );
+        assert_eq!(wiped.country_manpower("BBB").unwrap().available, before + 4);
 
         let mut even = world(
             vec![(1, province("AAA", 1)), (2, province("BBB", 1))],
@@ -1450,14 +2383,23 @@ mod tests {
         );
         station(&mut even, 1, "AAA", 1, 1);
         station(&mut even, 2, "BBB", 1, 1);
-        set_morale(&mut even, 2, 1);
+        set_morale(&mut even, 1, 9);
+        set_morale(&mut even, 2, 9);
         even.declare_war("AAA", "BBB", date()).unwrap();
-        even.resolve_battles(date());
-        assert!(even.armies().get(&2).is_some());
+        for day in 0..12 {
+            even.resolve_battles(date().checked_add_days(day).unwrap());
+        }
         assert!(matches!(
             even.battle_report(1).unwrap().outcome,
-            BattleOutcome::Retreat { loser: 0 }
+            BattleOutcome::Retreat { loser: 1 }
         ));
+        assert!(even.armies()[&1].is_retreating());
+        assert_eq!(
+            even.armies()[&1].movement.as_ref().unwrap().destination(),
+            2
+        );
+        assert!(even.armies().contains_key(&2));
+        assert!(!even.armies()[&2].is_retreating());
     }
 
     #[test]
@@ -1504,6 +2446,7 @@ mod tests {
         station(&mut world, 2, "BBB", 1, 1);
         world.declare_war("AAA", "BBB", date()).unwrap();
         world.resolve_battles(date());
+        assert_eq!(world.military.random.count(), 2);
         let saved = SavedGame::capture(&world, &Simulation::new(date()), "AAA");
         let restored = serde_json::from_value::<SavedGame>(serde_json::to_value(&saved).unwrap())
             .unwrap()
@@ -1514,9 +2457,11 @@ mod tests {
             restored.world.armies()[&1].regiments[0].morale,
             world.armies()[&1].regiments[0].morale
         );
+        assert_eq!(restored.world.military.random.count(), 2);
         let mut continued = restored.world;
         continued.resolve_battles(date());
         assert_eq!(strength(&continued, 1), strength(&world, 1));
+        assert_eq!(continued.military.random.count(), 2);
         let after_first_day = strength(&world, 1);
         let next = date().checked_add_days(1).unwrap();
         continued.resolve_battles(next);
@@ -1531,19 +2476,38 @@ mod tests {
         station(&mut world, 1, "AAA", 1, 1);
         let saved = SavedGame::capture(&world, &Simulation::new(date()), "AAA");
         let mut value = serde_json::to_value(&saved).unwrap();
-        value["military"]["armies"]["1"]["regiments"][0]
+        let regiment = value["military"]["armies"]["1"]["regiments"][0]
             .as_object_mut()
-            .unwrap()
-            .remove("morale");
+            .unwrap();
+        regiment.remove("morale");
+        regiment.remove("strength_pending");
+        regiment.remove("morale_pending");
         let military = value["military"].as_object_mut().unwrap();
         military.remove("battles");
         military.remove("battle_reports");
         military.remove("next_battle_id");
+        military.remove("random");
         let restored = serde_json::from_value::<SavedGame>(value)
             .unwrap()
             .restore(&world)
             .unwrap();
-        assert_eq!(restored.world.armies()[&1].regiments[0].morale, 2_000);
+        let regiment = &restored.world.armies()[&1].regiments[0];
+        assert_eq!(regiment.morale, 2_000);
+        assert_eq!(regiment.strength_pending, 0);
+        assert_eq!(regiment.morale_pending, 0);
         assert!(restored.world.battles().is_empty());
+        assert_eq!(restored.world.military.random.count(), 0);
+
+        let mut army = world.armies()[&1].clone();
+        army.retreating = true;
+        army.movement = None;
+        let mut army_value = serde_json::to_value(&army).unwrap();
+        army_value
+            .as_object_mut()
+            .unwrap()
+            .remove("retreat_shattered");
+        let loaded: Army = serde_json::from_value(army_value).unwrap();
+        assert!(loaded.is_shattered());
+        assert!(loaded.is_retreating());
     }
 }

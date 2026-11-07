@@ -156,75 +156,90 @@ impl World {
         Ok(())
     }
 
-    /// 每个回合每支军队最多完成一段。
-    /// 非撤退军队离开前，若当前省份有尚未撤退的敌军，就停在原地接战。
-    /// 撤退不因敌军停留；整条撤退路线走完后才恢复可交战。
+    /// 按军队编号逐支走完今天到期的路段，抵达后立刻接战。
+    /// 先到的一方会锁住同省敌军，使它本次移动停止。撤退军队不接战。
     pub(crate) fn complete_movements(&mut self, date: GameDate) {
-        loop {
-            let ids: Vec<u32> = self.military.armies.keys().copied().collect();
-            let mut steps = Vec::new();
-            for id in ids {
-                let Some(army) = self.military.armies.get(&id) else {
-                    continue;
-                };
-                let Some(movement) = army.movement.as_ref() else {
-                    continue;
-                };
-                if movement.current_leg().arrives_on > date {
-                    continue;
-                }
-                let to = movement.current_leg().to;
-                let finished = movement.leg_index + 1 == movement.legs.len();
-                let country = army.country.clone();
-                let province = army.province;
-                let retreating = army.retreating;
-                // 抵达边界时再判断一次。不能进入就停在当前省份，不把后续路段继续走完。
-                if !self.can_enter(&country, to)
-                    || (!retreating && self.hostile_present(&country, province))
-                {
-                    steps.push((id, None));
-                    continue;
-                }
-                steps.push((id, Some((to, finished))));
-            }
-            if steps.is_empty() {
-                break;
-            }
-            for (id, step) in steps {
-                let army = self.military.armies.get_mut(&id).expect("行军军队存在");
-                match step {
-                    None => {
-                        army.movement = None;
-                        army.retreating = false;
-                    }
-                    Some((to, finished)) => {
-                        army.province = to;
-                        if finished {
-                            army.movement = None;
-                            army.retreating = false;
-                        } else {
-                            army.movement.as_mut().expect("行军尚未结束").leg_index += 1;
-                        }
-                    }
-                }
-            }
-        }
-        // 今天不会再离开、且已经和敌军同省的军队就地停下，便于当天接战。
         let ids: Vec<u32> = self.military.armies.keys().copied().collect();
         for id in ids {
-            let Some(army) = self.military.armies.get(&id) else {
-                continue;
-            };
-            if army.movement.is_none() || army.retreating {
-                continue;
+            while self.step_army(id, date) {}
+        }
+    }
+
+    fn step_army(&mut self, id: u32, date: GameDate) -> bool {
+        let Some(army) = self.military.armies.get(&id) else {
+            return false;
+        };
+        if army.battle_id().is_some() {
+            return false;
+        }
+        let Some(movement) = army.movement.as_ref() else {
+            return false;
+        };
+        if movement.current_leg().arrives_on > date {
+            return false;
+        }
+        let to = movement.current_leg().to;
+        let finished = movement.leg_index + 1 == movement.legs.len();
+        let country = army.country.clone();
+        let province = army.province;
+        let retreating = army.retreating;
+        // 还没进入下一省就停住。这种停路没有额外的一次士气恢复。
+        if !self.can_enter(&country, to)
+            || (!retreating && self.hostile_present(&country, province))
+        {
+            self.clear_movement(id, retreating);
+            if !retreating {
+                self.engage_province(province, date, Some(id));
             }
-            let country = army.country.clone();
-            let province = army.province;
-            if self.hostile_present(&country, province) {
-                let army = self.military.armies.get_mut(&id).expect("行军军队存在");
+            return true;
+        }
+        {
+            let army = self.military.armies.get_mut(&id).expect("行军军队存在");
+            army.province = to;
+            if finished {
                 army.movement = None;
-                army.retreating = false;
+                if retreating {
+                    army.retreating = false;
+                    army.retreat_shattered = Some(false);
+                }
+            } else {
+                army.movement.as_mut().expect("行军尚未结束").leg_index += 1;
             }
+        }
+        // 已经走进当前省，后面还有路，但下一段不能进入：先按当前省恢复一次，再清旗。
+        if retreating && !finished {
+            let next = self.military.armies[&id]
+                .movement
+                .as_ref()
+                .expect("余路还在")
+                .current_leg()
+                .to;
+            if !self.can_enter(&country, next) && self.military.armies[&id].is_shattered() {
+                self.recover_army_now(id);
+                self.clear_movement(id, true);
+                return true;
+            }
+        }
+        if self.military.armies[&id].retreating {
+            self.maybe_clear_shattered(id);
+        }
+        if !self.military.armies[&id].retreating {
+            if self.hostile_present(&country, to) {
+                self.clear_movement(id, false);
+            }
+            self.engage_province(to, date, Some(id));
+        }
+        true
+    }
+
+    fn clear_movement(&mut self, id: u32, clear_retreat: bool) {
+        let Some(army) = self.military.armies.get_mut(&id) else {
+            return;
+        };
+        army.movement = None;
+        if clear_retreat {
+            army.retreating = false;
+            army.retreat_shattered = Some(false);
         }
     }
 

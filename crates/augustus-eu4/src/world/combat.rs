@@ -68,6 +68,8 @@ pub(super) fn load(
             "SHATTERED_RETREAT_SPEED_MODIFIER",
         )?,
         battle_length_damage: required(length_damage, defines_path, "WAR_LENGTH_DAMAGE_MODIFIER")?,
+        // 国家骑兵比例尚未分国读取。500 是基础允许比例，不是临时惩罚。
+        allowed_cavalry_ratio: 500,
         infantry: with_damage(
             infantry,
             technology.infantry_fire,

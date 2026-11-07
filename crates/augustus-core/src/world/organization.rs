@@ -102,6 +102,10 @@ impl World {
             movement: None,
             battle_id: None,
             retreating: false,
+            retreat_shattered: Some(false),
+            exiled: false,
+            retreat_previous: None,
+            retreat_return: None,
         };
         // 招募和拆分共用编号序列，已预留给招募的编号不会被重新分配。
         self.military.next_army_id += 1;

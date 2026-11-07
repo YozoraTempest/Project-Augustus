@@ -128,7 +128,7 @@ impl World {
         self.military
             .armies
             .values()
-            .filter(|army| army.country == tag)
+            .filter(|army| army.country == tag && army.battle_id().is_none() && !army.retreating)
             .map(|army| {
                 if let Some((province, strengths)) = projected
                     .as_ref()
@@ -411,6 +411,10 @@ mod tests {
                 movement: None,
                 battle_id: None,
                 retreating: false,
+                retreat_shattered: Some(false),
+                exiled: false,
+                retreat_previous: None,
+                retreat_return: None,
             },
         );
         id
