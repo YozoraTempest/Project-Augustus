@@ -20,6 +20,8 @@ pub enum ArmyOrganizationError {
     NotPlayerArmy,
     #[error("请先让军队驻扎")]
     ArmyMoving,
+    #[error("军队正在交战，不能编组")]
+    InBattle,
     #[error("只能合并驻扎在同一省份的军队")]
     DifferentProvince,
     #[error("请选择要合并的军队")]

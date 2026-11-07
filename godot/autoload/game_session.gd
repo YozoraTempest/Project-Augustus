@@ -129,6 +129,16 @@ func stop_army(army_id: int) -> String:
 	return error
 
 
+func retreat_army(army_id: int) -> String:
+	if not is_started():
+		return "请先开始游戏"
+	_advance_clock()
+	var error := backend.retreat_army(army_id)
+	if error.is_empty():
+		world_changed.emit()
+	return error
+
+
 func merge_armies(target: int, sources: PackedInt64Array) -> String:
 	if not is_started():
 		return "请先开始游戏"

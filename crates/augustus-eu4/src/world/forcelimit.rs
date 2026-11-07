@@ -31,7 +31,8 @@ fn static_limits(content: &ContentRoot) -> Result<(Money, Money), Error> {
         let tape = script::parse(&file)?;
         for (key, operator, value) in tape.windows1252_reader().fields() {
             let name = key.read_str().into_owned();
-            if name != "base_values" && name != "development" {
+            // 原版基础陆军上限写在 static modifier all_nations。
+            if name != "all_nations" && name != "development" {
                 continue;
             }
             script::equal(&file, operator, &name)?;
@@ -45,7 +46,7 @@ fn static_limits(content: &ContentRoot) -> Result<(Money, Money), Error> {
                 script::equal(&file, operator, "land_forcelimit")?;
                 let amount = decimal(&value, &file)?;
                 match name.as_str() {
-                    "base_values" => base = Some(amount),
+                    "all_nations" => base = Some(amount),
                     "development" => per_development = Some(amount),
                     _ => (),
                 }
@@ -54,7 +55,7 @@ fn static_limits(content: &ContentRoot) -> Result<(Money, Money), Error> {
     }
     Ok((
         base.ok_or_else(|| {
-            Error::invalid(directory.clone(), "missing base_values.land_forcelimit")
+            Error::invalid(directory.clone(), "missing all_nations.land_forcelimit")
         })?,
         per_development
             .ok_or_else(|| Error::invalid(directory, "missing development.land_forcelimit"))?,

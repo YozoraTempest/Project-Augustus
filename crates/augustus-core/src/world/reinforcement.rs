@@ -128,7 +128,7 @@ impl World {
         self.military
             .armies
             .values()
-            .filter(|army| army.country == tag)
+            .filter(|army| army.country == tag && army.battle_id().is_none() && !army.retreating)
             .map(|army| {
                 if let Some((province, strengths)) = projected
                     .as_ref()
@@ -317,9 +317,9 @@ mod tests {
     use std::{collections::BTreeMap, time::Duration};
 
     use crate::{
-        Army, ArmyMovement, Country, Development, GameDate, ManpowerRules, MilitaryRules, Money,
-        MovementLeg, Province, ProvinceKind, REGIMENT_STRENGTH, Regiment, SavedGame, Simulation,
-        UnitKind, World,
+        Army, ArmyMovement, CombatRules, Country, Development, GameDate, ManpowerRules,
+        MilitaryRules, Money, MovementLeg, Province, ProvinceKind, REGIMENT_STRENGTH, Regiment,
+        SavedGame, Simulation, UnitKind, World,
     };
 
     fn rules() -> MilitaryRules {
@@ -340,6 +340,8 @@ mod tests {
             land_forcelimit_extra_cost_factor: Money::from(2),
             goods_land_forcelimit: BTreeMap::new(),
             tax_recruitment_time: Money::ZERO,
+            starting_army_size: Money::ZERO,
+            starting_army_size_at_war: Money::ZERO,
             manpower: ManpowerRules {
                 base_capacity: 0,
                 per_development: 1_000,
@@ -348,6 +350,7 @@ mod tests {
                 infantry_cost: 1_000,
                 cavalry_cost: 1_000,
             },
+            combat: CombatRules::baseline(),
         }
     }
 
@@ -406,13 +409,19 @@ mod tests {
                 province,
                 regiments,
                 movement: None,
+                battle_id: None,
+                retreating: false,
+                retreat_shattered: Some(false),
+                exiled: false,
+                retreat_previous: None,
+                retreat_return: None,
             },
         );
         id
     }
 
     fn regiment(kind: UnitKind, strength: u32) -> Regiment {
-        Regiment { kind, strength }
+        Regiment::fresh(kind, strength)
     }
 
     fn strength(world: &World, army: u32, index: usize) -> u32 {

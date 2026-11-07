@@ -2,6 +2,7 @@
 
 //! 管理国家和省份实体，并解析它们之间的归属关系。
 
+mod combat;
 mod construction;
 mod economy;
 mod manpower;
@@ -11,6 +12,7 @@ mod organization;
 mod recruitment_cancellation;
 mod reinforcement;
 mod saved_state;
+mod starting_army;
 mod supply;
 mod war;
 
@@ -95,6 +97,9 @@ impl World {
             || military_rules.manpower.infantry_cost == 0
             || military_rules.manpower.cavalry_cost == 0
             || military_rules.supply_base == 0
+            || military_rules.starting_army_size < Money::ZERO
+            || military_rules.starting_army_size_at_war < Money::ZERO
+            || !military_rules.combat.is_playable()
         {
             return Err(WorldError::InvalidMilitaryRules);
         }

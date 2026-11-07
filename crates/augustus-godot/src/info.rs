@@ -128,6 +128,7 @@ pub(crate) fn country_info(world: &OpeningWorld, tag: &str, player: Option<&str>
     number(&mut info, "development", summary.development);
     info.extend_dictionary(&country_finances(world, tag), true);
     info.set("manpower", &crate::manpower::info(world, tag));
+    info.set("armies", &country_armies(world, tag, player));
     let mut wars: Array<VarDictionary> = Array::new();
     for war in world.state().wars_of(tag) {
         let mut entry = VarDictionary::new();
@@ -151,6 +152,29 @@ pub(crate) fn country_info(world: &OpeningWorld, tag: &str, player: Option<&str>
     info.set("can_declare_war", can_declare);
     info.set("declare_war_reason", reason.as_str());
     info
+}
+
+/// 国家页只列出编制。指挥、拆分和解散仍由省份军事面板按 `can_command` 限制。
+fn country_armies(world: &OpeningWorld, tag: &str, player: Option<&str>) -> Array<VarDictionary> {
+    let mut armies = Array::new();
+    for army in world
+        .state()
+        .armies()
+        .values()
+        .filter(|army| army.country == tag)
+    {
+        let mut entry = VarDictionary::new();
+        entry.set("id", i64::from(army.id()));
+        entry.set("name", crate::military::army_name(world, army).as_str());
+        entry.set("province", i64::from(army.province));
+        entry.set("province_name", world.province_name(army.province).as_str());
+        entry.set("strength", army.strength() as i64);
+        entry.set("regiment_count", army.regiments.len() as i64);
+        entry.set("composition", &crate::military::composition(army));
+        entry.set("can_command", player == Some(tag));
+        armies.push(&entry);
+    }
+    armies
 }
 
 pub(crate) fn country_finances(world: &OpeningWorld, tag: &str) -> VarDictionary {

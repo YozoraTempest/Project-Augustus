@@ -16,6 +16,14 @@ fn stance(world: &OpeningWorld, player: Option<&str>, country: &str) -> &'static
     }
 }
 
+pub(crate) fn morale_text(current: u32, max: u32) -> String {
+    format!(
+        "{:.1}/{:.1}",
+        f64::from(current) / 1_000.0,
+        f64::from(max) / 1_000.0
+    )
+}
+
 pub(crate) fn unit_label(kind: UnitKind) -> &'static str {
     match kind {
         UnitKind::Infantry => "步兵",
@@ -70,6 +78,34 @@ pub(crate) fn army_info(
     info.set("position", crate::movement::anchor(world, army.province));
     info.set("strength", army.strength() as i64);
     info.set("regiment_count", army.regiments.len() as i64);
+    let max_morale = world
+        .state()
+        .military_rules()
+        .combat
+        .morale_milli()
+        .expect("陆战规则已检查");
+    let in_battle = army.battle_id().is_some();
+    let retreating = army.is_retreating();
+    info.set("in_battle", in_battle);
+    info.set("retreating", retreating);
+    info.set(
+        "morale",
+        morale_text(army.average_morale(max_morale), max_morale).as_str(),
+    );
+    let combat_status = world.state().army_combat_status(army.id());
+    info.set("combat_status", combat_status.as_str());
+    let order_block = if in_battle {
+        "正在交战，不能下达命令"
+    } else if retreating {
+        "正在撤退，到达前不能接受命令"
+    } else {
+        ""
+    };
+    info.set("order_block", order_block);
+    info.set(
+        "can_move",
+        order_block.is_empty() && player == Some(army.country.as_str()),
+    );
     if let Some(forecast) = world.state().supply_forecast(army.id(), date) {
         let mut supply = VarDictionary::new();
         supply.set("date", forecast.on.to_string().as_str());
@@ -190,6 +226,10 @@ pub(crate) fn recruitment_info(
         orders.push(&recruitment_details(world, id, project, player, date));
     }
     info.set("orders", &orders);
+    let combat_status = state.province_combat_status(id);
+    if !combat_status.is_empty() {
+        info.set("combat_status", combat_status.as_str());
+    }
     let mut armies: Array<VarDictionary> = Array::new();
     for army in state.armies().values().filter(|army| army.province == id) {
         armies.push(&army_info(world, army, date, player));

@@ -100,6 +100,12 @@ layout_mode = 2
 theme_override_colors/font_color = Color(0.7, 0.77, 0.84, 1)
 autowrap_mode = 2
 
+[node name="RetreatArmy" type="Button" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "脱离战斗"
+
 [node name="DisbandArmy" type="Button" parent="."]
 unique_name_in_owner = true
 visible = false

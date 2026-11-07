@@ -192,15 +192,24 @@ impl World {
     }
 
     fn add_recruited_regiment(&mut self, province: u32, recruitment: Recruitment) {
+        let morale = self
+            .military_rules
+            .combat
+            .morale_milli()
+            .expect("陆战规则已检查");
         let regiment = Regiment {
             kind: recruitment.kind,
             strength: REGIMENT_STRENGTH,
+            morale,
+            strength_pending: 0,
+            morale_pending: 0,
         };
-        // 同国同省份的后续部队加入驻军，保留原军队编号。
+        // 同国同省份的后续部队加入驻军，保留原军队编号。撤退中的军队不接收新兵。
         if let Some(army) = self.military.armies.values_mut().find(|army| {
             army.country == recruitment.country
                 && army.province == province
                 && army.movement.is_none()
+                && !army.retreating
         }) {
             army.regiments.push(regiment);
         } else {
@@ -212,6 +221,12 @@ impl World {
                     province,
                     regiments: vec![regiment],
                     movement: None,
+                    battle_id: None,
+                    retreating: false,
+                    retreat_shattered: Some(false),
+                    exiled: false,
+                    retreat_previous: None,
+                    retreat_return: None,
                 },
             );
         }
@@ -239,7 +254,7 @@ impl World {
                 || army
                     .regiments
                     .iter()
-                    .any(|regiment| regiment.strength == 0 || regiment.strength > REGIMENT_STRENGTH)
+                    .any(|regiment| regiment.strength > REGIMENT_STRENGTH)
             {
                 return Err(SaveError::InvalidMilitary);
             }
@@ -285,6 +300,8 @@ impl World {
             return Err(SaveError::InvalidMilitary);
         }
         self.military = military;
+        self.fill_unset_morale();
+        self.validate_battles(date)?;
         Ok(())
     }
 }
@@ -294,7 +311,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::{
-        Country, Development, GameDate, LandConnection, ManpowerRules, MilitaryRules,
+        CombatRules, Country, Development, GameDate, LandConnection, ManpowerRules, MilitaryRules,
         MilitaryState, Money, Province, ProvinceKind, RecruitmentError, SaveError, SavedGame,
         Simulation, UnitKind, World,
     };
@@ -321,6 +338,8 @@ mod tests {
             land_forcelimit_extra_cost_factor: Money::from(2),
             goods_land_forcelimit: BTreeMap::new(),
             tax_recruitment_time: Money::ZERO,
+            starting_army_size: Money::ZERO,
+            starting_army_size_at_war: Money::ZERO,
             manpower: ManpowerRules {
                 base_capacity: 0,
                 per_development: 1_000,
@@ -329,6 +348,7 @@ mod tests {
                 infantry_cost: 1_000,
                 cavalry_cost: 1_500,
             },
+            combat: CombatRules::baseline(),
         }
     }
 
@@ -350,6 +370,8 @@ mod tests {
             land_forcelimit_extra_cost_factor: Money::from(2),
             goods_land_forcelimit: BTreeMap::new(),
             tax_recruitment_time: Money::ZERO,
+            starting_army_size: Money::ZERO,
+            starting_army_size_at_war: Money::ZERO,
             manpower: ManpowerRules {
                 base_capacity: 20_000,
                 per_development: 0,
@@ -358,6 +380,7 @@ mod tests {
                 infantry_cost: 1_000,
                 cavalry_cost: 1_000,
             },
+            combat: CombatRules::baseline(),
         }
     }
 

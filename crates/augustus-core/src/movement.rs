@@ -90,4 +90,14 @@ pub enum MovementError {
     NoRoute,
     #[error("抵达日期超出游戏历法范围")]
     DateOutOfRange,
+    #[error("军队正在交战，不能下达命令")]
+    InBattle,
+    #[error("军队正在撤退，到达前不能接受命令")]
+    Retreating,
+    #[error("军队不在战斗中")]
+    NotInBattle,
+    #[error("战斗未满十二天，不能主动撤退")]
+    RetreatLocked,
+    #[error("没有合法的撤退路线")]
+    NoRetreatRoute,
 }

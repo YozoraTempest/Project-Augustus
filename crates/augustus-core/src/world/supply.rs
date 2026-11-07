@@ -195,9 +195,9 @@ mod tests {
     use std::{collections::BTreeMap, time::Duration};
 
     use crate::{
-        Army, ArmyMovement, Country, Development, GameDate, ManpowerRules, MilitaryRules, Money,
-        MovementLeg, Province, ProvinceKind, Regiment, SavedGame, Simulation, UnitKind, World,
-        WorldError,
+        Army, ArmyMovement, CombatRules, Country, Development, GameDate, ManpowerRules,
+        MilitaryRules, Money, MovementLeg, Province, ProvinceKind, Regiment, SavedGame, Simulation,
+        UnitKind, World, WorldError,
     };
 
     use super::supply_limit_value;
@@ -224,6 +224,8 @@ mod tests {
             land_forcelimit_extra_cost_factor: Money::ZERO,
             goods_land_forcelimit: BTreeMap::new(),
             tax_recruitment_time: Money::ZERO,
+            starting_army_size: Money::ZERO,
+            starting_army_size_at_war: Money::ZERO,
             manpower: ManpowerRules {
                 base_capacity: 20_000,
                 per_development: 0,
@@ -232,6 +234,7 @@ mod tests {
                 infantry_cost: 1_000,
                 cavalry_cost: 1_000,
             },
+            combat: CombatRules::baseline(),
         }
     }
 
@@ -270,12 +273,15 @@ mod tests {
                 province,
                 regiments: strengths
                     .iter()
-                    .map(|&strength| Regiment {
-                        kind: UnitKind::Infantry,
-                        strength,
-                    })
+                    .map(|&strength| Regiment::fresh(UnitKind::Infantry, strength))
                     .collect(),
                 movement: None,
+                battle_id: None,
+                retreating: false,
+                retreat_shattered: Some(false),
+                exiled: false,
+                retreat_previous: None,
+                retreat_return: None,
             },
         );
         world.military.next_army_id = world.military.next_army_id.max(id + 1);

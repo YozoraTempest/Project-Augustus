@@ -3,6 +3,7 @@
 //! 与内容格式和显示引擎无关的国家、省份、归属和游戏时间状态。
 
 mod building;
+mod combat;
 mod country;
 mod economy;
 mod manpower;
@@ -17,6 +18,8 @@ mod war;
 mod world;
 
 pub use building::{BuildingDefinition, Construction, ConstructionError, ConstructionQuote};
+pub(crate) use combat::ReportedSide;
+pub use combat::{Battle, BattleOutcome, BattleReport, CombatRules, UNSET_MORALE, UnitCombat};
 pub use country::Country;
 pub use economy::{CountryFinances, MonthlyBudget, MonthlySettlement};
 pub use manpower::{ManpowerPool, ManpowerRules, ManpowerSummary};
