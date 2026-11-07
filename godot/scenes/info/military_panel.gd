@@ -9,6 +9,7 @@ signal army_stop_requested(army_id: int)
 signal armies_merge_requested(target: int, sources: PackedInt64Array)
 signal army_split_requested(army_id: int, count: int)
 signal army_disband_requested(army_id: int)
+signal army_retreat_requested(army_id: int)
 
 @onready var province_label: Label = %MilitaryProvince
 @onready var manpower_label: Label = %RecruitmentManpower
@@ -29,6 +30,7 @@ signal army_disband_requested(army_id: int)
 @onready var movement_feedback: Label = %MovementFeedback
 @onready var organization_panel: ArmyOrganizationPanel = %OrganizationPanel
 @onready var disband_button: Button = %DisbandArmy
+@onready var retreat_button: Button = %RetreatArmy
 
 var _province_id := 0
 var _selected_army := 0
@@ -39,6 +41,7 @@ func _ready() -> void:
 	recruit_cavalry.pressed.connect(func(): recruitment_requested.emit(_province_id, "cavalry"))
 	stop_button.pressed.connect(func(): army_stop_requested.emit(_selected_army))
 	disband_button.pressed.connect(func(): army_disband_requested.emit(_selected_army))
+	retreat_button.pressed.connect(func(): army_retreat_requested.emit(_selected_army))
 	organization_panel.armies_merge_requested.connect(func(target: int, sources: PackedInt64Array): armies_merge_requested.emit(target, sources))
 	organization_panel.army_split_requested.connect(func(id: int, count: int): army_split_requested.emit(id, count))
 	hide()
@@ -102,6 +105,7 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 	movement_progress.hide()
 	stop_button.hide()
 	disband_button.hide()
+	retreat_button.hide()
 	movement_feedback.hide()
 	for army: Dictionary in info.armies:
 		var id: int = army.id
@@ -123,6 +127,8 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 		if id == selected_army:
 			var blocked := str(army.get("order_block", ""))
 			disband_button.visible = army.can_command
+			retreat_button.visible = army.can_command and bool(army.get("in_battle", false))
+			retreat_button.tooltip_text = "满十二个战斗日后脱离。同侧其余军队按退出兵力分担士气。"
 			disband_button.disabled = army.movement != null or not blocked.is_empty()
 			if not blocked.is_empty():
 				disband_button.tooltip_text = blocked
@@ -215,6 +221,12 @@ func _composition_text(army: Dictionary) -> String:
 
 func show_movement_error(message: String) -> void:
 	movement_feedback.text = "无法行军：" + message
+	movement_feedback.modulate = Color(1.0, 0.55, 0.48)
+	movement_feedback.show()
+
+
+func show_retreat_error(message: String) -> void:
+	movement_feedback.text = "无法撤退：" + message
 	movement_feedback.modulate = Color(1.0, 0.55, 0.48)
 	movement_feedback.show()
 

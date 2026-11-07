@@ -31,6 +31,8 @@ pub(crate) const FRONT_SCALAR: i64 = 1_000;
 pub(crate) const LOW_MORALE_THRESHOLD: i64 = 500;
 /// 提前结束溃退所需的相对士气，990/1000。
 pub(crate) const SHATTERED_CLEAR_RELATIVE: u64 = 990;
+/// 主动撤退让同侧其他军队承担的士气比例，对应 1.0。
+pub(crate) const DELIBERATE_RETREAT_PENALTY_MILLI: i64 = 1_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnitCombat {

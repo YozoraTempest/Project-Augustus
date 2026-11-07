@@ -8,12 +8,13 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use crate::combat::{
-    CombatantRef, FRONT_SCALAR, LOW_MORALE_THRESHOLD, MoraleStrike, NEUTRAL_ABILITY,
-    NEUTRAL_DISCIPLINE, PhaseKind, RETREAT_LOCK_DAYS, SHATTERED_CLEAR_RELATIVE, StrengthStrike,
-    cavalry_support_penalty, center_out, daily_morale_loss, effective_tactics,
-    enemy_strength_blocks_retreat, far_retreat_score, flank_distance, front_ratio_loser,
-    initial_overrun_loser, line_plan, morale_damage, recovered_morale, regiment_sort_score,
-    strength_damage, strength_quarter, strength_weighted_morale, thousandths, winner_morale_floor,
+    CombatantRef, DELIBERATE_RETREAT_PENALTY_MILLI, FRONT_SCALAR, LOW_MORALE_THRESHOLD,
+    MoraleStrike, NEUTRAL_ABILITY, NEUTRAL_DISCIPLINE, PhaseKind, RETREAT_LOCK_DAYS,
+    SHATTERED_CLEAR_RELATIVE, StrengthStrike, cavalry_support_penalty, center_out,
+    daily_morale_loss, effective_tactics, enemy_strength_blocks_retreat, far_retreat_score,
+    flank_distance, front_ratio_loser, initial_overrun_loser, line_plan, morale_damage,
+    recovered_morale, regiment_sort_score, strength_damage, strength_quarter,
+    strength_weighted_morale, thousandths, trunc_div, trunc_mul, winner_morale_floor,
     wipe_refund_men, wipes_after_defeat,
 };
 use crate::{
@@ -29,6 +30,12 @@ struct ListedRegiment {
     kind: UnitKind,
     score: u128,
     order: u32,
+}
+
+enum RetreatPlan {
+    NoDestination,
+    RouteFailed,
+    Ready(ArmyMovement),
 }
 
 impl World {
@@ -114,7 +121,7 @@ impl World {
     }
 
     /// 进入本国控制区且相对士气达到 990/1000 时，先清 204 再清 203。
-    /// 已经写进路段的抵达日不重算。友方通行控制尚未单独实现，目前只认本国控制者。
+    /// 余下路段改按普通速度重算。友方通行控制尚未单独实现，目前只认本国控制者。
     pub(super) fn maybe_clear_shattered(&mut self, id: u32) {
         let Some(army) = self.military.armies.get(&id) else {
             return;
@@ -137,34 +144,123 @@ impl World {
             .saturating_mul(1_000)
             / u64::from(max);
         if relative >= SHATTERED_CLEAR_RELATIVE {
-            let army = self
-                .military
-                .armies
-                .get_mut(&id)
-                .expect("解除溃退的军队存在");
-            army.retreat_shattered = Some(false);
-            army.retreating = false;
+            {
+                let army = self
+                    .military
+                    .armies
+                    .get_mut(&id)
+                    .expect("解除溃退的军队存在");
+                army.retreat_shattered = Some(false);
+                army.retreating = false;
+            }
+            self.retime_remaining(id);
         }
     }
 
-    /// 抵达或停在敌军所在省份时接战。新战斗留到当天的战斗列表里再结算。
+    /// 204 清除后，还没走完的路段不再沿用出发时的 1.5 倍速度。
+    fn retime_remaining(&mut self, id: u32) {
+        let Some(army) = self.military.armies.get(&id) else {
+            return;
+        };
+        let Some(movement) = army.movement.clone() else {
+            return;
+        };
+        if movement.leg_index >= movement.legs.len() {
+            return;
+        }
+        let speed = army.march_speed(&self.military_rules);
+        let mut started = movement.legs[movement.leg_index].started_on;
+        let mut updated = movement;
+        for leg in &mut updated.legs[updated.leg_index..] {
+            let distance = self.land_routes[&leg.from][&leg.to];
+            let days = crate::MilitaryRules::travel_days(distance, speed);
+            let arrives_on = started
+                .checked_add_days(days)
+                .expect("余路抵达日在历法范围内");
+            leg.started_on = started;
+            leg.arrives_on = arrives_on;
+            started = arrives_on;
+        }
+        self.military
+            .armies
+            .get_mut(&id)
+            .expect("重算余路的军队存在")
+            .movement = Some(updated);
+    }
+
+    /// 抵达或停在敌军所在省份时接战。只锁定参战军队，开场十倍留到当天初始化。
     pub(super) fn engage_province(&mut self, province: u32, date: GameDate, arriver: Option<u32>) {
         self.engage(province, date, arriver, false);
     }
 
-    pub(crate) fn resolve_battles(&mut self, date: GameDate) {
-        let mut today: Vec<u32> = self.military.battles.keys().copied().collect();
-        let provinces: BTreeSet<u32> = self
+    /// 满十二个战斗日后脱离。先找好退路再离场；没有退路就留在战斗里。
+    /// 同侧其他军队按退出兵力占比承担士气，写入待结算，离开者自己不承担。
+    pub fn retreat_from_battle(
+        &mut self,
+        country: &str,
+        id: u32,
+        date: GameDate,
+    ) -> Result<(), MovementError> {
+        self.country(country).ok_or(MovementError::UnknownCountry)?;
+        let army = self.armies().get(&id).ok_or(MovementError::UnknownArmy)?;
+        if army.country != country {
+            return Err(MovementError::NotPlayerArmy);
+        }
+        if army.is_retreating() {
+            return Err(MovementError::Retreating);
+        }
+        let Some(battle_id) = army.battle_id() else {
+            return Err(MovementError::NotInBattle);
+        };
+        if self.military.battles[&battle_id].elapsed_days < RETREAT_LOCK_DAYS {
+            return Err(MovementError::RetreatLocked);
+        }
+        let RetreatPlan::Ready(movement) = self.plan_retreat(id, date) else {
+            return Err(MovementError::NoRetreatRoute);
+        };
+        self.apply_deliberate_penalty(battle_id, id);
+        self.remove_from_battle(battle_id, id);
+        let army = self
             .military
             .armies
-            .values()
-            .map(|army| army.province)
+            .get_mut(&id)
+            .expect("主动撤退的军队存在");
+        army.battle_id = None;
+        army.movement = Some(movement);
+        army.retreating = true;
+        army.retreat_shattered = Some(true);
+        Ok(())
+    }
+
+    pub(crate) fn resolve_battles(&mut self, date: GameDate) {
+        // 按军队编号遍历。当天轮到的这支军队是进攻方，原驻敌军是防守方。
+        let army_ids: Vec<u32> = self.military.armies.keys().copied().collect();
+        for id in army_ids {
+            let Some(army) = self.military.armies.get(&id) else {
+                continue;
+            };
+            if army.battle_id().is_some() || army.is_retreating() || army.strength() == 0 {
+                continue;
+            }
+            let province = army.province;
+            self.engage(province, date, Some(id), false);
+        }
+        // 先记下今天要处理的战斗。结束时新开的续战不在这张表里，下一日才初始化和结算。
+        let today: Vec<u32> = self
+            .military
+            .battles
+            .iter()
+            .filter(|(_, battle)| battle.last_resolved != Some(date))
+            .map(|(id, _)| *id)
             .collect();
-        for province in provinces {
-            if self.battle_in_province(province).is_none()
-                && let Some(id) = self.try_start(province, date, None, false)
+        for id in &today {
+            if self
+                .military
+                .battles
+                .get(id)
+                .is_some_and(|battle| battle.elapsed_days == 0)
             {
-                today.push(id);
+                self.overrun(*id, date);
             }
         }
         for id in today {
@@ -329,17 +425,21 @@ impl World {
             self.admit(id);
             return;
         }
+        let Some(arriver) = arriver else {
+            return;
+        };
         self.try_start(province, date, arriver, defer);
     }
 
+    /// 接战只建战斗并锁住军队。十倍覆灭要等当天军队都更新完，在初始化里做。
     fn try_start(
         &mut self,
         province: u32,
         date: GameDate,
-        arriver: Option<u32>,
+        arriver: u32,
         defer: bool,
     ) -> Option<u32> {
-        let (defenders, attackers) = self.opening_or_arrival(province, arriver)?;
+        let (defenders, attackers) = self.arrival_pair(province, arriver)?;
         if defenders.is_empty() || attackers.is_empty() || self.military.next_battle_id == u32::MAX
         {
             return None;
@@ -353,46 +453,11 @@ impl World {
         self.lock_side(id, 0);
         self.lock_side(id, 1);
         self.admit(id);
-        if self.overrun(id, date) {
-            return None;
-        }
         if defer && let Some(battle) = self.military.battles.get_mut(&id) {
-            // 当天结束战斗后新开的续战，留到下一日才第一次结算。
+            // 当天结束战斗后新开的续战，下一日才初始化和结算。
             battle.last_resolved = Some(date);
         }
         Some(id)
-    }
-
-    fn opening_or_arrival(
-        &self,
-        province: u32,
-        arriver: Option<u32>,
-    ) -> Option<(Vec<u32>, Vec<u32>)> {
-        if let Some(arriver) = arriver {
-            self.arrival_pair(province, arriver)
-        } else {
-            self.opening_pair(province)
-        }
-    }
-
-    fn opening_pair(&self, province: u32) -> Option<(Vec<u32>, Vec<u32>)> {
-        let present = self.present_armies(province);
-        for war in self.war_state.active.values() {
-            let defender: Vec<u32> = present
-                .iter()
-                .copied()
-                .filter(|&id| self.armies()[&id].country == war.defender())
-                .collect();
-            let attacker: Vec<u32> = present
-                .iter()
-                .copied()
-                .filter(|&id| self.armies()[&id].country == war.attacker())
-                .collect();
-            if !defender.is_empty() && !attacker.is_empty() {
-                return Some((defender, attacker));
-            }
-        }
-        None
     }
 
     /// 新到的军队是进攻方。同省原驻、且与它交战的军队是防守方。
@@ -1308,6 +1373,41 @@ impl World {
     }
 
     fn begin_retreat(&mut self, army_id: u32, date: GameDate) -> bool {
+        match self.plan_retreat(army_id, date) {
+            RetreatPlan::NoDestination => {
+                self.destroy_army(army_id, false);
+                false
+            }
+            RetreatPlan::RouteFailed => {
+                // 目的地已经选出，但寻路失败：留下军队，清掉撤退标志，不返还人力。
+                let army = self
+                    .military
+                    .armies
+                    .get_mut(&army_id)
+                    .expect("撤退军队存在");
+                army.movement = None;
+                army.retreating = false;
+                army.retreat_shattered = Some(false);
+                army.battle_id = None;
+                true
+            }
+            RetreatPlan::Ready(movement) => {
+                let army = self
+                    .military
+                    .armies
+                    .get_mut(&army_id)
+                    .expect("撤退军队存在");
+                army.movement = Some(movement);
+                army.retreating = true;
+                army.retreat_shattered = Some(true);
+                army.battle_id = None;
+                true
+            }
+        }
+    }
+
+    /// 低士气先远端再相邻，否则只走相邻。这里不改军队，只决定路线。
+    fn plan_retreat(&mut self, army_id: u32, date: GameDate) -> RetreatPlan {
         let max = self.max_morale();
         let army = &self.military.armies[&army_id];
         let country = army.country.clone();
@@ -1323,34 +1423,48 @@ impl World {
             self.adjacent_retreat_destination(&country, from, our_men)
         };
         let Some(destination) = destination else {
-            self.destroy_army(army_id, false);
-            return false;
+            return RetreatPlan::NoDestination;
         };
         match self.route_between(&country, from, destination, speed, date) {
-            Ok(movement) => {
-                let army = self
-                    .military
-                    .armies
-                    .get_mut(&army_id)
-                    .expect("撤退军队存在");
-                army.movement = Some(movement);
-                army.retreating = true;
-                army.retreat_shattered = Some(true);
-                army.battle_id = None;
-                true
+            Ok(movement) => RetreatPlan::Ready(movement),
+            Err(_) => RetreatPlan::RouteFailed,
+        }
+    }
+
+    /// 各军最大士气 × 退出兵力 / 本侧当前兵力 × 惩罚。计入待结算士气。
+    fn apply_deliberate_penalty(&mut self, battle_id: u32, leaver: u32) {
+        let Some(side) = (0..2).find(|&side| {
+            self.military.battles[&battle_id]
+                .side_armies(side)
+                .contains(&leaver)
+        }) else {
+            return;
+        };
+        let armies = self.military.battles[&battle_id].side_armies(side).to_vec();
+        let side_strength: u64 = armies
+            .iter()
+            .filter_map(|id| self.armies().get(id).map(crate::Army::strength))
+            .sum();
+        let leaver_strength = self.armies().get(&leaver).map_or(0, crate::Army::strength);
+        let max = i64::from(self.max_morale());
+        let share = trunc_div(
+            i64::try_from(leaver_strength).unwrap_or(i64::MAX),
+            i64::try_from(side_strength).unwrap_or(0),
+        );
+        let hit = trunc_mul(trunc_mul(max, share), DELIBERATE_RETREAT_PENALTY_MILLI);
+        let hit = u32::try_from(hit.max(0)).unwrap_or(u32::MAX);
+        if hit == 0 {
+            return;
+        }
+        for army_id in armies {
+            if army_id == leaver {
+                continue;
             }
-            Err(_) => {
-                // 目的地已经选出，但寻路失败：留下军队，清掉撤退标志，不返还人力。
-                let army = self
-                    .military
-                    .armies
-                    .get_mut(&army_id)
-                    .expect("撤退军队存在");
-                army.movement = None;
-                army.retreating = false;
-                army.retreat_shattered = Some(false);
-                army.battle_id = None;
-                true
+            let Some(army) = self.military.armies.get_mut(&army_id) else {
+                continue;
+            };
+            for regiment in &mut army.regiments {
+                regiment.morale_pending = regiment.morale_pending.saturating_add(hit);
             }
         }
     }
@@ -1435,11 +1549,12 @@ impl World {
             }
             let base = self.retreat_base_score(country, next);
             let mut score = base;
+            // 先按控制关系加分。高于 2000 再加 0–3000。无敌军时对这个分数乘 200，不限基础分。
             if base > 2_000 {
                 score += u64::from(self.military.random.bonus_steps()) * 1_000;
-                if enemy == 0 {
-                    score = score.saturating_mul(200);
-                }
+            }
+            if enemy == 0 {
+                score = score.saturating_mul(200);
             }
             if best.is_none_or(|(current, _)| score > current) {
                 best = Some((score, next));
@@ -2328,9 +2443,10 @@ mod tests {
         world.declare_war("AAA", "BBB", date()).unwrap();
         world.resolve_battles(date());
         // 恰好十倍不走开场歼灭。前排仍可能因为两倍比较在当天覆灭。
+        // 编号小的军队先被遍历，所以弱方是进攻方。
         assert!(matches!(
             world.battle_report(1).unwrap().outcome,
-            BattleOutcome::Stackwipe { loser: 0 }
+            BattleOutcome::Stackwipe { loser: 1 }
         ));
         assert!(world.armies().get(&1).is_none());
         assert!(strength(&world, 2) > 0);
@@ -2352,7 +2468,7 @@ mod tests {
         );
         assert!(matches!(
             world.battle_report(1).unwrap().outcome,
-            BattleOutcome::Overrun { loser: 0 }
+            BattleOutcome::Overrun { loser: 1 }
         ));
     }
 
@@ -2373,7 +2489,7 @@ mod tests {
         assert!(wiped.armies().get(&1).is_none());
         assert!(matches!(
             wiped.battle_report(1).unwrap().outcome,
-            BattleOutcome::Stackwipe { loser: 0 }
+            BattleOutcome::Stackwipe { loser: 1 }
         ));
         assert_eq!(wiped.country_manpower("BBB").unwrap().available, before + 4);
 
@@ -2509,5 +2625,159 @@ mod tests {
         let loaded: Army = serde_json::from_value(army_value).unwrap();
         assert!(loaded.is_shattered());
         assert!(loaded.is_retreating());
+    }
+
+    #[test]
+    fn empty_neighbor_beats_an_occupied_home_province() {
+        let mut world = world(
+            vec![
+                (1, province("BBB", 1)),
+                (2, province("BBB", 1)),
+                (3, province("AAA", 1)),
+            ],
+            vec![link(1, 2), link(1, 3)],
+        );
+        station(&mut world, 1, "BBB", 1, 1);
+        station(&mut world, 2, "AAA", 1, 1);
+        station(&mut world, 4, "AAA", 2, 1);
+        set_first(&mut world, 1, 9, 2_000);
+        set_first(&mut world, 2, 18, 2_000);
+        world.declare_war("AAA", "BBB", date()).unwrap();
+        world.resolve_battles(date());
+        let loser = &world.armies()[&1];
+        assert!(loser.is_retreating());
+        assert_eq!(loser.movement.as_ref().unwrap().destination(), 3);
+    }
+
+    #[test]
+    fn same_day_reinforcement_joins_before_the_initial_overrun() {
+        let mut world = world(
+            vec![(1, province("AAA", 1)), (2, province("BBB", 1))],
+            vec![link(1, 2)],
+        );
+        station(&mut world, 1, "BBB", 2, 11);
+        station(&mut world, 2, "AAA", 1, 1);
+        station(&mut world, 3, "AAA", 1, 11);
+        world.declare_war("AAA", "BBB", date()).unwrap();
+        for id in [2, 3] {
+            world.military.armies.get_mut(&id).unwrap().movement = Some(ArmyMovement {
+                legs: vec![MovementLeg {
+                    from: 1,
+                    to: 2,
+                    started_on: date(),
+                    arrives_on: date(),
+                }],
+                leg_index: 0,
+            });
+        }
+        world.complete_movements(date());
+        assert!(world.armies().contains_key(&2));
+        world.resolve_battles(date());
+        let battle = world.battle_in_province(2).unwrap();
+        assert!(battle.side_armies(1).contains(&2));
+        assert!(battle.side_armies(1).contains(&3));
+        assert!(world.armies().contains_key(&2));
+        assert!(world.battle_report(2).is_none());
+    }
+
+    #[test]
+    fn follow_up_overrun_waits_until_the_next_day() {
+        let mut world = world(vec![(1, province("AAA", 1))], vec![]);
+        station(&mut world, 1, "BBB", 1, 1);
+        station(&mut world, 2, "AAA", 1, 11);
+        world.declare_war("AAA", "BBB", date()).unwrap();
+        world.engage(1, date(), Some(1), true);
+        assert_eq!(strength(&world, 1), 1_000);
+        assert_eq!(
+            world.battle_in_province(1).unwrap().last_resolved,
+            Some(date())
+        );
+        world.resolve_battles(date());
+        assert_eq!(strength(&world, 1), 1_000);
+        let next = date().checked_add_days(1).unwrap();
+        world.resolve_battles(next);
+        assert!(world.armies().get(&1).is_none());
+        assert!(matches!(
+            world.battle_report(1).unwrap().outcome,
+            BattleOutcome::Overrun { loser: 1 }
+        ));
+    }
+
+    #[test]
+    fn deliberate_retreat_after_twelve_days_penalizes_the_other_army() {
+        let mut world = world(
+            vec![(1, province("BBB", 1)), (2, province("AAA", 1))],
+            vec![link(1, 2)],
+        );
+        station(&mut world, 1, "AAA", 1, 1);
+        station(&mut world, 2, "BBB", 1, 1);
+        station(&mut world, 3, "AAA", 1, 1);
+        world.declare_war("AAA", "BBB", date()).unwrap();
+        world.engage(1, date(), Some(1), true);
+        assert_eq!(
+            world.retreat_from_battle("AAA", 1, date()),
+            Err(MovementError::RetreatLocked)
+        );
+        let battle_id = world.battle_in_province(1).unwrap().id();
+        world
+            .military
+            .battles
+            .get_mut(&battle_id)
+            .unwrap()
+            .elapsed_days = 12;
+        world.retreat_from_battle("AAA", 1, date()).unwrap();
+        let leaver = &world.armies()[&1];
+        assert!(leaver.is_retreating());
+        assert!(leaver.battle_id().is_none());
+        assert_eq!(leaver.regiments[0].morale_pending, 0);
+        assert_eq!(leaver.movement.as_ref().unwrap().destination(), 2);
+        assert_eq!(world.armies()[&3].regiments[0].morale_pending, 1_000);
+        assert_eq!(world.armies()[&3].battle_id(), Some(battle_id));
+
+        let mut blocked = super::tests::world(vec![(1, province("BBB", 1))], vec![]);
+        station(&mut blocked, 1, "AAA", 1, 1);
+        station(&mut blocked, 2, "BBB", 1, 1);
+        blocked.declare_war("AAA", "BBB", date()).unwrap();
+        blocked.engage(1, date(), Some(1), true);
+        let battle_id = blocked.battle_in_province(1).unwrap().id();
+        blocked
+            .military
+            .battles
+            .get_mut(&battle_id)
+            .unwrap()
+            .elapsed_days = 12;
+        assert_eq!(
+            blocked.retreat_from_battle("AAA", 1, date()),
+            Err(MovementError::NoRetreatRoute)
+        );
+        assert_eq!(blocked.armies()[&1].battle_id(), Some(battle_id));
+    }
+
+    #[test]
+    fn clearing_shattered_retreat_retimes_the_remaining_route() {
+        let mut world = world(
+            vec![(1, province("AAA", 1)), (2, province("AAA", 1))],
+            vec![LandConnection {
+                from: 1,
+                to: 2,
+                distance: 3,
+            }],
+        );
+        station(&mut world, 1, "AAA", 1, 1);
+        let shattered = Money::from(1) * (Money::ONE + Money::new(5, 1));
+        let movement = world
+            .land_route("AAA", 1, 2, shattered, date(), None)
+            .unwrap();
+        let fast = movement.arrives_on();
+        world.military.armies.get_mut(&1).unwrap().movement = Some(movement);
+        world.military.armies.get_mut(&1).unwrap().retreating = true;
+        world.military.armies.get_mut(&1).unwrap().retreat_shattered = Some(true);
+        world.maybe_clear_shattered(1);
+        let army = &world.armies()[&1];
+        assert!(!army.is_retreating());
+        assert!(!army.is_shattered());
+        let slowed = army.movement.as_ref().unwrap().arrives_on();
+        assert!(slowed > fast);
+        assert_eq!(date().days_until(slowed), 3);
     }
 }

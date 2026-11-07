@@ -43,6 +43,7 @@ func _ready() -> void:
 	info_panel.armies_merge_requested.connect(_merge_armies)
 	info_panel.army_split_requested.connect(_split_army)
 	info_panel.army_disband_requested.connect(_open_disband_dialog)
+	info_panel.army_retreat_requested.connect(_retreat_army)
 	info_panel.war_declare_requested.connect(_open_war_dialog)
 	disband_dialog.army_disband_requested.connect(_disband_army)
 	war_dialog.confirmed_war.connect(_declare_war)
@@ -189,6 +190,13 @@ func _stop_army(army_id: int) -> void:
 	if not error.is_empty():
 		_refresh_selection(false)
 		info_panel.show_movement_error(error)
+
+
+func _retreat_army(army_id: int) -> void:
+	var error := GameSession.retreat_army(army_id)
+	_refresh_selection(false)
+	if not error.is_empty():
+		info_panel.show_retreat_error(error)
 
 
 func _merge_armies(target: int, sources: PackedInt64Array) -> void:
