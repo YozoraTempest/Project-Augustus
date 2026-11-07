@@ -239,7 +239,11 @@ impl World {
             let Some(army) = self.military.armies.get(&id) else {
                 continue;
             };
-            if army.battle_id().is_some() || army.is_retreating() || army.strength() == 0 {
+            if army.battle_id().is_some()
+                || army.is_retreating()
+                || army.is_exiled()
+                || army.strength() == 0
+            {
                 continue;
             }
             let province = army.province;
@@ -506,6 +510,7 @@ impl World {
             .filter(|army| {
                 army.province == province
                     && !army.is_retreating()
+                    && !army.is_exiled()
                     && army.battle_id().is_none()
                     && army.strength() > 0
             })
@@ -544,6 +549,7 @@ impl World {
             .filter(|army| {
                 army.province == province
                     && !army.is_retreating()
+                    && !army.is_exiled()
                     && army.battle_id().is_none()
                     && army.strength() > 0
             })
@@ -1295,9 +1301,10 @@ impl World {
                 province,
                 on: date,
                 outcome,
-                sides: snapshot,
+                sides: snapshot.clone(),
             },
         );
+        self.record_finished_battle(province, date, &snapshot, outcome.loser());
         self.reengage_after(&battle, date);
     }
 
@@ -1744,7 +1751,7 @@ impl World {
         })
     }
 
-    fn disengage(&mut self, battle_id: u32) {
+    pub(crate) fn disengage(&mut self, battle_id: u32) {
         let Some(battle) = self.military.battles.remove(&battle_id) else {
             return;
         };
@@ -2070,7 +2077,7 @@ impl World {
         speed: Money,
         started_on: GameDate,
     ) -> Result<ArmyMovement, MovementError> {
-        self.land_route(country, from, destination, speed, started_on, None)
+        self.land_route(country, from, destination, speed, started_on, None, false)
     }
 }
 
@@ -2766,7 +2773,7 @@ mod tests {
         station(&mut world, 1, "AAA", 1, 1);
         let shattered = Money::from(1) * (Money::ONE + Money::new(5, 1));
         let movement = world
-            .land_route("AAA", 1, 2, shattered, date(), None)
+            .land_route("AAA", 1, 2, shattered, date(), None, false)
             .unwrap();
         let fast = movement.arrives_on();
         world.military.armies.get_mut(&1).unwrap().movement = Some(movement);

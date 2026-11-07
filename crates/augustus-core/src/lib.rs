@@ -10,6 +10,7 @@ mod manpower;
 mod military;
 mod movement;
 mod organization;
+mod peace;
 mod province;
 mod save;
 mod simulation;
@@ -29,6 +30,7 @@ pub use military::{
 };
 pub use movement::{ArmyMovement, LandConnection, MovementError, MovementLeg};
 pub use organization::{ArmyDisbandQuote, ArmyOrganizationError};
+pub use peace::{PeaceError, PeaceQuote, PeaceSheet, ProvinceCost, WarScoreView};
 pub use province::{
     Development, OCCUPATION_PHASE_DAYS, OccupationProgress, Province, ProvinceKind,
 };
@@ -37,5 +39,5 @@ pub use save::{RestoredGame, SaveError, SavedGame};
 pub use simulation::Simulation;
 pub use time::{GameClock, GameDate, GameSpeed};
 pub(crate) use war::WarState;
-pub use war::{War, WarError, WarStatus};
+pub use war::{BattleScore, Truce, War, WarError, WarStatus};
 pub use world::{SupplyForecast, World, WorldError};

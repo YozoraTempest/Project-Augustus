@@ -2,7 +2,7 @@
 
 //! 将核心状态投影为界面数据，不在 Godot 中维护另一份国家或省份状态。
 
-use augustus_core::{Money, OCCUPATION_PHASE_DAYS, ProvinceKind};
+use augustus_core::{GameDate, Money, OCCUPATION_PHASE_DAYS, PeaceQuote, PeaceSheet, ProvinceKind};
 use augustus_eu4::world::OpeningWorld;
 use godot::prelude::*;
 
@@ -105,7 +105,12 @@ pub(crate) fn province_info(world: &OpeningWorld, id: u32) -> VarDictionary {
     info
 }
 
-pub(crate) fn country_info(world: &OpeningWorld, tag: &str, player: Option<&str>) -> VarDictionary {
+pub(crate) fn country_info(
+    world: &OpeningWorld,
+    tag: &str,
+    player: Option<&str>,
+    date: GameDate,
+) -> VarDictionary {
     let mut info = VarDictionary::new();
     let Some(country) = world.state().country(tag) else {
         return info;
@@ -162,11 +167,29 @@ pub(crate) fn country_info(world: &OpeningWorld, tag: &str, player: Option<&str>
         entry.set("defender_name", world.display_name(war.defender()).as_str());
         entry.set("started_on", war.started_on().to_string().as_str());
         entry.set("status", war.status().id());
+        if let Some(score) = world.state().war_score(tag, war.id()) {
+            entry.set("score_text", score.summary_text().as_str());
+            entry.set("battle_text", score.battle_text().as_str());
+            entry.set("occupation_text", score.occupation_text().as_str());
+        }
         wars.push(&entry);
     }
     info.set("wars", &wars);
+    let mut truces: Array<VarDictionary> = Array::new();
+    for truce in world.state().truces_of(tag) {
+        let Some(other) = truce.countries().iter().find(|country| country.as_str() != tag) else {
+            continue;
+        };
+        let mut entry = VarDictionary::new();
+        entry.set("other", other.as_str());
+        entry.set("other_name", world.display_name(other).as_str());
+        entry.set("until", truce.until().to_string().as_str());
+        entry.set("active", truce.active_on(date));
+        truces.push(&entry);
+    }
+    info.set("truces", &truces);
     let (can_declare, reason) = match player {
-        Some(player) => match world.state().declaration_error(player, tag) {
+        Some(player) => match world.state().declaration_error(player, tag, date) {
             Ok(()) => (true, String::new()),
             Err(error) => (false, error.to_string()),
         },
@@ -174,6 +197,49 @@ pub(crate) fn country_info(world: &OpeningWorld, tag: &str, player: Option<&str>
     };
     info.set("can_declare_war", can_declare);
     info.set("declare_war_reason", reason.as_str());
+    info.set(
+        "can_offer_peace",
+        player.is_some_and(|player| player != tag && world.state().at_war(player, tag)),
+    );
+    info
+}
+
+pub(crate) fn peace_sheet(sheet: &PeaceSheet, world: &OpeningWorld, target: &str) -> VarDictionary {
+    let mut info = VarDictionary::new();
+    info.set("ok", true);
+    info.set("target", target);
+    info.set("target_name", world.display_name(target).as_str());
+    info.set("score_text", sheet.score.summary_text().as_str());
+    info.set("battle_text", sheet.score.battle_text().as_str());
+    info.set("occupation_text", sheet.score.occupation_text().as_str());
+    let mut provinces: Array<VarDictionary> = Array::new();
+    for province in &sheet.provinces {
+        let mut entry = VarDictionary::new();
+        entry.set("id", i64::from(province.province));
+        entry.set("name", world.province_name(province.province).as_str());
+        entry.set("cost_text", province.cost_text().as_str());
+        provinces.push(&entry);
+    }
+    info.set("provinces", &provinces);
+    info.extend_dictionary(&peace_quote(&sheet.white_peace), true);
+    info.set("white_reason", sheet.white_peace.reason.as_str());
+    info
+}
+
+pub(crate) fn peace_quote(quote: &PeaceQuote) -> VarDictionary {
+    let mut info = VarDictionary::new();
+    info.set("ok", true);
+    info.set("accepted", quote.accepted);
+    info.set("reason", quote.reason.as_str());
+    info.set("until", quote.truce_until.to_string().as_str());
+    info
+}
+
+pub(crate) fn peace_error(message: &str) -> VarDictionary {
+    let mut info = VarDictionary::new();
+    info.set("ok", false);
+    info.set("accepted", false);
+    info.set("reason", message);
     info
 }
 

@@ -259,7 +259,7 @@ impl World {
                 return Err(SaveError::InvalidMilitary);
             }
             if let Some(movement) = &army.movement
-                && !self.valid_movement(movement, army.province, &army.country, date)
+                && !self.valid_movement(movement, army.province, &army.country, date, army.exiled)
             {
                 return Err(SaveError::InvalidMilitary);
             }
