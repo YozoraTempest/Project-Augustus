@@ -18,6 +18,7 @@ struct PendingBuilding {
     land_forcelimit: Money,
     local_regiment_cost: Money,
     regiment_recruit_speed: Money,
+    fort_level: u32,
     replaces: Option<String>,
     manufactory: bool,
     path: PathBuf,
@@ -47,6 +48,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
             let mut land_forcelimit = Money::ZERO;
             let mut local_regiment_cost = Money::ZERO;
             let mut regiment_recruit_speed = Money::ZERO;
+            let mut fort_level = 0;
             let mut replaces = None;
             let mut manufactory = false;
             for (key, operator, value) in object.fields() {
@@ -109,6 +111,10 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
                                     script::equal(&file, operator, "regiment_recruit_speed")?;
                                     regiment_recruit_speed = decimal(&value, &file)?;
                                 }
+                                "fort_level" => {
+                                    script::equal(&file, operator, "fort_level")?;
+                                    fort_level = whole_u32(&value, &file, "fort_level")?;
+                                }
                                 _ => (),
                             }
                         }
@@ -123,6 +129,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
                 land_forcelimit,
                 local_regiment_cost,
                 regiment_recruit_speed,
+                fort_level,
                 replaces,
                 manufactory,
                 path: file.path.clone(),
@@ -172,6 +179,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, BuildingDef
                     land_forcelimit: pending.land_forcelimit,
                     local_regiment_cost: pending.local_regiment_cost,
                     regiment_recruit_speed: pending.regiment_recruit_speed,
+                    fort_level: pending.fort_level,
                     replaces: pending.replaces,
                 },
             ))
@@ -207,6 +215,8 @@ mod tests {
             Some("regimental_camp")
         );
         assert_eq!(buildings["temple"].land_forcelimit, Money::ZERO);
+        assert_eq!(buildings["temple"].fort_level, 0);
+        assert_eq!(buildings["fort_15th"].fort_level, 2);
         fs::remove_dir_all(&root).unwrap();
     }
 
@@ -226,6 +236,11 @@ mod tests {
             time = 12
             make_obsolete = regimental_camp
             modifier = { land_forcelimit = 2 }
+        }
+        fort_15th = {
+            cost = 200
+            time = 30
+            modifier = { fort_level = 2 }
         }
     "#;
 
@@ -260,6 +275,24 @@ temple = {
         assert_eq!(temple.regiment_recruit_speed, Money::new(-2, 1));
         assert_eq!(temple.tax_modifier, Money::new(4, 1));
     }
+}
+
+fn whole_u32(
+    value: &ValueReader<'_, '_, Windows1252Encoding>,
+    file: &ContentFile,
+    label: &str,
+) -> Result<u32, Error> {
+    value
+        .read_scalar()
+        .ok()
+        .and_then(|value| value.to_u64().ok())
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| {
+            Error::invalid(
+                &file.path,
+                format!("{label} must be a non-negative integer"),
+            )
+        })
 }
 
 fn decimal(

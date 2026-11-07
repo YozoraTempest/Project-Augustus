@@ -2,7 +2,7 @@
 
 //! 将核心状态投影为界面数据，不在 Godot 中维护另一份国家或省份状态。
 
-use augustus_core::{Money, ProvinceKind};
+use augustus_core::{Money, OCCUPATION_PHASE_DAYS, ProvinceKind};
 use augustus_eu4::world::OpeningWorld;
 use godot::prelude::*;
 
@@ -70,6 +70,29 @@ pub(crate) fn province_info(world: &OpeningWorld, id: u32) -> VarDictionary {
         world.state().province_monthly_tax(id),
     );
     money(&mut info, "base_monthly_tax", province.monthly_tax());
+    info.set("fortified", world.state().province_is_fortified(id));
+    match province.occupation.as_ref() {
+        Some(progress) => {
+            info.set("occupation_days", i64::from(progress.days));
+            info.set("occupation_total", i64::from(OCCUPATION_PHASE_DAYS));
+            text(
+                &mut info,
+                "occupation_occupier",
+                Some(progress.occupier.as_str()),
+            );
+            text(
+                &mut info,
+                "occupation_occupier_name",
+                Some(world.display_name(&progress.occupier).as_str()),
+            );
+        }
+        None => {
+            info.set("occupation_days", &Variant::nil());
+            info.set("occupation_total", &Variant::nil());
+            text(&mut info, "occupation_occupier", None);
+            text(&mut info, "occupation_occupier_name", None);
+        }
+    }
     text(
         &mut info,
         "building_tax_bonus",

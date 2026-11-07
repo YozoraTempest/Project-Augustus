@@ -8,6 +8,7 @@ mod economy;
 mod manpower;
 mod military;
 mod movement;
+mod occupation;
 mod organization;
 mod recruitment_cancellation;
 mod reinforcement;
@@ -19,8 +20,8 @@ mod war;
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use crate::{
-    BuildingDefinition, Country, LandConnection, MilitaryRules, MilitaryState, Money, Province,
-    ProvinceKind, WarState,
+    BuildingDefinition, Country, LandConnection, MilitaryRules, MilitaryState, Money,
+    OCCUPATION_PHASE_DAYS, Province, ProvinceKind, WarState,
 };
 
 pub use supply::SupplyForecast;
@@ -57,6 +58,8 @@ pub enum WorldError {
     InvalidMilitaryRules,
     #[error("invalid land connection: {0} - {1}")]
     InvalidLandConnection(u32, u32),
+    #[error("province {province} has invalid occupation progress")]
+    InvalidOccupation { province: u32 },
 }
 
 #[derive(Debug)]
@@ -70,6 +73,8 @@ pub struct World {
     military: MilitaryState,
     war_state: WarState,
     land_routes: BTreeMap<u32, BTreeMap<u32, u32>>,
+    /// 控制者发生变化后由界面刷新政治地图。运行时标记，不写入存档。
+    control_changed: bool,
 }
 
 impl World {
@@ -158,6 +163,14 @@ impl World {
                     controller: controller.clone(),
                 });
             }
+            if let Some(progress) = &province.occupation
+                && (province.kind != ProvinceKind::Land
+                    || progress.days == 0
+                    || progress.days >= OCCUPATION_PHASE_DAYS
+                    || !registry.contains_key(&progress.occupier))
+            {
+                return Err(WorldError::InvalidOccupation { province: id });
+            }
         }
         for country in registry.values() {
             if let Some(capital) = country.capital
@@ -214,6 +227,7 @@ impl World {
             military: MilitaryState::default(),
             war_state: WarState::default(),
             land_routes,
+            control_changed: false,
         };
         world.initialize_manpower()?;
         Ok(world)
@@ -239,5 +253,12 @@ impl World {
     /// 无所有者或省份不存在时返回 None。
     pub fn province_owner(&self, id: u32) -> Option<&Country> {
         self.country(self.province(id)?.owner.as_deref()?)
+    }
+
+    /// 取出并清除“控制者已变化”标记，供政治地图刷新一次。
+    pub fn take_control_changed(&mut self) -> bool {
+        let changed = self.control_changed;
+        self.control_changed = false;
+        changed
     }
 }

@@ -315,7 +315,7 @@ mod tests {
         assert!(!world.can_enter("AAA", 3));
         assert!(!world.can_enter("BBB", 3));
         world.provinces.get_mut(&1).unwrap().controller = Some("BBB".to_owned());
-        assert!(!world.can_enter("AAA", 1));
+        assert!(world.can_enter("AAA", 1));
         assert!(world.can_enter("BBB", 1));
         world.provinces.get_mut(&1).unwrap().controller = Some("AAA".to_owned());
 
@@ -341,6 +341,54 @@ mod tests {
         assert!(world.armies()[&1].movement.is_none());
         assert!(world.armies()[&1].battle_id().is_some());
         assert!(world.battle_in_province(2).is_some());
+    }
+
+    #[test]
+    fn owner_marches_into_occupied_land_and_the_save_still_loads() {
+        let mut world = sample();
+        let date = date();
+        world.declare_war("AAA", "BBB", date).unwrap();
+        world.provinces.get_mut(&1).unwrap().controller = Some("BBB".to_owned());
+        station(&mut world, 1, "AAA", 5, 1);
+        world.move_army("AAA", 1, 1, date).unwrap();
+
+        let saved = SavedGame::capture(&world, &Simulation::new(date), "AAA");
+        let restored = saved.restore(&world).unwrap();
+        assert_eq!(
+            restored.world.armies()[&1].movement,
+            world.armies()[&1].movement
+        );
+        assert_eq!(restored.world.armies()[&1].province, 5);
+
+        let crate::RestoredGame {
+            mut world,
+            mut simulation,
+            ..
+        } = restored;
+        simulation.set_paused(false);
+        // 11 月 11 日出发，次日抵达并开始计天。推进 29 天后占领仍未完成。
+        assert_eq!(simulation.advance(&mut world, Duration::from_secs(29)), 29);
+        assert_eq!(world.armies()[&1].province, 1);
+        assert_eq!(world.armies()[&1].strength(), 1_000);
+        assert!(world.armies()[&1].battle_id().is_none());
+        assert_eq!(
+            world.province(1).unwrap().controller.as_deref(),
+            Some("BBB")
+        );
+        assert_eq!(
+            world
+                .province(1)
+                .unwrap()
+                .occupation
+                .as_ref()
+                .map(|progress| progress.days),
+            Some(29)
+        );
+        assert_eq!(simulation.advance(&mut world, Duration::from_secs(1)), 1);
+        let province = world.province(1).unwrap();
+        assert_eq!(province.owner.as_deref(), Some("AAA"));
+        assert_eq!(province.controller.as_deref(), Some("AAA"));
+        assert!(province.occupation.is_none());
     }
 
     #[test]

@@ -26,9 +26,22 @@ pub struct Province {
     pub development: Development,
     pub buildings: BTreeSet<String>,
     pub construction: Option<Construction>,
+    /// 无要塞占领进度。旧档没有该字段时视为没有进行中的占领。
+    #[serde(default)]
+    pub occupation: Option<OccupationProgress>,
     /// 地形提供的补给加成来自地图内容，不随存档变化；读档时由当前内容重新填入。
     #[serde(skip)]
     pub terrain_supply: u32,
+}
+
+/// 中性围城阶段长度。围城能力、封锁、火炮和领袖围城未实现，固定为原版 `DAYS_PER_SIEGE_PHASE`。
+pub const OCCUPATION_PHASE_DAYS: u32 = 30;
+
+/// 无要塞占领已累计的天数。满一个阶段后立即改变控制者并清除，因此存档中的天数小于阶段长度。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OccupationProgress {
+    pub occupier: String,
+    pub days: u32,
 }
 
 impl Province {
@@ -43,6 +56,7 @@ impl Province {
             development: Development::default(),
             buildings: BTreeSet::new(),
             construction: None,
+            occupation: None,
             terrain_supply: 0,
         }
     }

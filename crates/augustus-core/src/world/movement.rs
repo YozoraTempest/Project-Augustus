@@ -250,7 +250,8 @@ impl World {
         })
     }
 
-    /// 本国当前控制的陆地，以及交战国拥有的陆地。中立国和无主土地不可进入。
+    /// 所有者始终可以进入自己拥有的陆地，包括被占领之后，以便行军回家并收复。
+    /// 其他国家只能进入交战国拥有的陆地。中立国和无主土地不可进入。
     pub fn can_enter(&self, country: &str, province: u32) -> bool {
         let Some(province_state) = self.province(province).filter(|province_state| {
             self.active_provinces.contains(&province) && province_state.kind == ProvinceKind::Land
@@ -260,10 +261,7 @@ impl World {
         let Some(owner) = province_state.owner.as_deref() else {
             return false;
         };
-        if owner == country {
-            return province_state.controller.as_deref() == Some(country);
-        }
-        self.at_war(country, owner)
+        owner == country || self.at_war(country, owner)
     }
 
     fn commanded_army(&self, country: &str, id: u32) -> Result<&Army, MovementError> {

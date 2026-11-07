@@ -15,6 +15,8 @@ pub struct BuildingDefinition {
     pub local_regiment_cost: Money,
     /// 建成后加入该省招募时间修正。负值缩短工期。
     pub regiment_recruit_speed: Money,
+    /// 建筑 `modifier.fort_level`。大于 0 时该省不按无要塞占领。
+    pub fort_level: u32,
     pub replaces: Option<String>,
     /// 当前内容规则允许新建的建筑；其他定义仍用于读取开局已有建筑。
     pub constructible: bool,
