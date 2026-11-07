@@ -246,10 +246,15 @@ fn parse_tables(file: &ContentFile) -> Result<Tables, Error> {
     for (key, operator, value) in tree_object.fields() {
         let name = key.read_str();
         script::equal(file, operator, &name)?;
-        let (graphic_name, colors) = typed_colors(&value, file, "terrain")?;
-        let category = *graphics.get(&graphic_name).ok_or_else(|| {
-            Error::invalid(&file.path, format!("unknown tree terrain: {graphic_name}"))
-        })?;
+        let (terrain_name, colors) = typed_colors(&value, file, "terrain")?;
+        // 原版树木项的 terrain 多数与地形图条目同名。forest 只有分类、没有同名地形图条目。
+        let category = graphics
+            .get(&terrain_name)
+            .or_else(|| category_names.get(&terrain_name))
+            .copied()
+            .ok_or_else(|| {
+                Error::invalid(&file.path, format!("unknown tree terrain: {terrain_name}"))
+            })?;
         for color in colors {
             if tables.tree_category[usize::from(color)].is_some() {
                 return Err(Error::invalid(
@@ -781,6 +786,32 @@ tree = {}
             &[(1, ProvinceKind::Land)],
         );
         assert!(failed.unwrap_err().to_string().contains("province: 99"));
+    }
+
+    #[test]
+    fn tree_terrain_uses_a_category_when_no_graphic_has_that_name() {
+        let trees = indexed(1, 1, &[3]);
+        let states = run(
+            "
+categories = {
+    forest = { supply_limit = 4 }
+    plains = { supply_limit = 1 }
+}
+terrain = {
+    forest_12 = { type = forest color = { 12 } }
+    grasslands = { type = plains color = { 0 } }
+}
+tree = { forest = { terrain = forest color = { 3 } } }
+",
+            &[1],
+            &[0],
+            &[[0, 0, 0]],
+            &trees,
+            &[(1, ProvinceKind::Land)],
+        )
+        .expect("分类名可解析");
+        // 地形图像素是 plains。树木颜色 3 指向分类 forest，否则补给应是 1。
+        assert_eq!(states[&1].terrain_supply, 4);
     }
 
     #[test]

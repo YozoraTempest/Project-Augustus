@@ -224,6 +224,8 @@ mod tests {
             land_forcelimit_extra_cost_factor: Money::ZERO,
             goods_land_forcelimit: BTreeMap::new(),
             tax_recruitment_time: Money::ZERO,
+            starting_army_size: Money::ZERO,
+            starting_army_size_at_war: Money::ZERO,
             manpower: ManpowerRules {
                 base_capacity: 20_000,
                 per_development: 0,

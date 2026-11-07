@@ -47,9 +47,12 @@ func show_armies(armies: Array[Dictionary]) -> void:
 		elif bool(army.get("retreating", false)):
 			prefix = "撤 "
 		button.text = "%s%s%s %s · %d" % [prefix, mark, "→" if army.movement != null else "军", army.country, army.strength]
+		var units := PackedStringArray()
+		for unit: Dictionary in army.composition:
+			units.append("%s %d 团" % [unit.kind, unit.regiment_count])
 		var morale := str(army.get("morale", ""))
 		var status := str(army.get("combat_status", ""))
-		button.tooltip_text = "%s\n%s\n%s · %d 团 · %d 人" % [relation, army.name, army.province_name, army.regiment_count, army.strength]
+		button.tooltip_text = "%s\n%s\n%s · %s · %d 人" % [relation, army.name, army.province_name, "、".join(units), army.strength]
 		if not morale.is_empty():
 			button.tooltip_text += "\n士气 " + morale
 		if not status.is_empty():
