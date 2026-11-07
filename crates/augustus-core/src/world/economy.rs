@@ -37,7 +37,7 @@ impl World {
         let annual_tax: Money = self
             .active_provinces
             .iter()
-            .filter(|id| self.provinces[id].owner.as_deref() == Some(tag))
+            .filter(|id| self.province_tax_country(**id) == Some(tag))
             .map(|id| self.province_annual_tax(*id).expect("有效领土具备基础税收"))
             .sum();
         let upkeep = self.country_army_cost(tag, None);
@@ -58,8 +58,8 @@ impl World {
             .map(|tag| (tag.clone(), Money::ZERO))
             .collect();
         for id in &self.active_provinces {
-            if let Some(tag) = &self.provinces[id].owner {
-                *tax.get_mut(tag).expect("省份所有者已注册") +=
+            if let Some(tag) = self.province_tax_country(*id) {
+                *tax.get_mut(tag).expect("收税国家已注册") +=
                     self.province_annual_tax(*id).expect("有效领土具备基础税收");
             }
         }
@@ -105,6 +105,13 @@ impl World {
             ),
             base_annual,
         }
+    }
+
+    /// 有控制者时，该省现有税额全部归控制者。没有自治度，不把税额拆回所有者。
+    /// 控制者为空时仍归所有者。人力上限和陆军上限仍按所有者计算。
+    fn province_tax_country(&self, id: u32) -> Option<&str> {
+        let province = &self.provinces[&id];
+        province.controller.as_deref().or(province.owner.as_deref())
     }
 
     fn raw_land_force_limit(&self, tag: &str) -> Money {
@@ -203,6 +210,7 @@ mod tests {
             land_forcelimit: Money::from(limit),
             local_regiment_cost: Money::ZERO,
             regiment_recruit_speed: Money::ZERO,
+            fort_level: 0,
             replaces: replaces.map(str::to_owned),
             constructible: false,
         }

@@ -53,6 +53,8 @@ impl Simulation {
             world.complete_recruitments(date);
             // 行军、损耗和招募落地后，同一日期只结算一次。
             world.resolve_battles(date);
+            // 交战结算之后才推进占领：撤退离开的军队不再计进度，当天仍在进行的战斗也不会完成占领。
+            world.tick_occupations(date);
         })
     }
 }
