@@ -11,6 +11,7 @@ mod organization;
 mod recruitment_cancellation;
 mod reinforcement;
 mod saved_state;
+mod starting_army;
 mod supply;
 mod war;
 
@@ -95,6 +96,8 @@ impl World {
             || military_rules.manpower.infantry_cost == 0
             || military_rules.manpower.cavalry_cost == 0
             || military_rules.supply_base == 0
+            || military_rules.starting_army_size < Money::ZERO
+            || military_rules.starting_army_size_at_war < Money::ZERO
         {
             return Err(WorldError::InvalidMilitaryRules);
         }

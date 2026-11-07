@@ -42,7 +42,10 @@ func show_armies(armies: Array[Dictionary]) -> void:
 				relation = "敌方 · 只可查看"
 				mark = "敌 "
 		button.text = "%s%s %s · %d" % [mark, "→" if army.movement != null else "军", army.country, army.strength]
-		button.tooltip_text = "%s\n%s\n%s · %d 团 · %d 人" % [relation, army.name, army.province_name, army.regiment_count, army.strength]
+		var units := PackedStringArray()
+		for unit: Dictionary in army.composition:
+			units.append("%s %d 团" % [unit.kind, unit.regiment_count])
+		button.tooltip_text = "%s\n%s\n%s · %s · %d 人" % [relation, army.name, army.province_name, "、".join(units), army.strength]
 		button.add_theme_color_override("font_color", Color.WHITE.lerp(army.color, 0.35))
 		button.set_pressed_no_signal(id == _selected)
 		button.reset_size()

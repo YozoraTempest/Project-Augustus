@@ -128,7 +128,7 @@ pub struct MilitaryRules {
     pub extra_land_reinforce_cost: Money,
     /// 省份补给上限的基础值，对应 defines 的 SUPPLYLIMIT_BASE_MULTIPLIER。
     pub supply_base: u32,
-    /// 有陆地领土的国家获得一次，来自 static modifier `base_values`。
+    /// 有陆地领土的国家获得一次，来自 static modifier `all_nations`。
     pub base_land_forcelimit: Money,
     /// 本国每点发展度提供的陆军上限，来自 static modifier `development`，不按自治度折减。
     pub development_land_forcelimit: Money,
@@ -138,6 +138,10 @@ pub struct MilitaryRules {
     pub goods_land_forcelimit: BTreeMap<String, Money>,
     /// 每点税收发展度加入的省份招募时间修正。
     pub tax_recruitment_time: Money,
+    /// 和平开局陆军占已取整陆军上限的比例，来自 `STARTING_ARMY_SIZE`。0.75 表示 75%。
+    pub starting_army_size: Money,
+    /// 已经处于战争时使用的开局比例，来自 `STARTING_ARMY_SIZE_AT_WAR`。
+    pub starting_army_size_at_war: Money,
     pub manpower: ManpowerRules,
 }
 
