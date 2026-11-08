@@ -29,8 +29,13 @@ impl World {
             .filter(move |war| war.involves(country))
     }
 
-    /// 拒绝时不修改已有战争、编号或开始日期。
-    pub fn declaration_error(&self, attacker: &str, defender: &str) -> Result<(), WarError> {
+    /// 拒绝时不修改已有战争、编号或开始日期。`on` 用来判断停战是否仍有效。
+    pub fn declaration_error(
+        &self,
+        attacker: &str,
+        defender: &str,
+        on: GameDate,
+    ) -> Result<(), WarError> {
         if self.country(attacker).is_none() || self.country(defender).is_none() {
             return Err(WarError::UnknownCountry);
         }
@@ -39,6 +44,13 @@ impl World {
         }
         if self.at_war(attacker, defender) {
             return Err(WarError::AlreadyAtWar);
+        }
+        if let Some(truce) = self.truce_between(attacker, defender)
+            && truce.active_on(on)
+        {
+            return Err(WarError::Truce {
+                until: truce.until(),
+            });
         }
         if self.war_state.next_id == u32::MAX {
             return Err(WarError::WarLimit);
@@ -52,7 +64,7 @@ impl World {
         defender: &str,
         started_on: GameDate,
     ) -> Result<u32, WarError> {
-        self.declaration_error(attacker, defender)?;
+        self.declaration_error(attacker, defender, started_on)?;
         Ok(self.war_state.insert(attacker, defender, started_on))
     }
 
@@ -82,6 +94,19 @@ impl World {
                 .is_some_and(|id| *id >= wars.next_id)
         {
             return Err(SaveError::InvalidWar);
+        }
+        let mut truce_pairs = BTreeSet::new();
+        for truce in &wars.truces {
+            let [left, right] = truce.countries();
+            let mut pair = [left.clone(), right.clone()];
+            pair.sort();
+            if left == right
+                || self.country(left).is_none()
+                || self.country(right).is_none()
+                || !truce_pairs.insert((pair[0].clone(), pair[1].clone()))
+            {
+                return Err(SaveError::InvalidWar);
+            }
         }
         self.war_state = wars;
         Ok(())
