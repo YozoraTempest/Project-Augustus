@@ -100,4 +100,8 @@ pub enum MovementError {
     RetreatLocked,
     #[error("没有合法的撤退路线")]
     NoRetreatRoute,
+    #[error("流放军队只能返回本国拥有的省份")]
+    ExileDestination,
+    #[error("流放军队正在返回，到达前不能取消行军")]
+    Exiled,
 }

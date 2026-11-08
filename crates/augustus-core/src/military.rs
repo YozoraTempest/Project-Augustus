@@ -86,7 +86,7 @@ pub struct Army {
     /// 溃退标志 204。缺失时沿用 203：本阶段的自动败退会同时写上两个标志。
     #[serde(default)]
     pub(crate) retreat_shattered: Option<bool>,
-    /// 流放标志 207。本阶段保持关闭，只为存档留出独立字段。
+    /// 流放标志 207。停战后身处无法进入的土地时置位，沿任意陆地返回本国，抵达后清除。
     #[serde(default)]
     pub(crate) exiled: bool,
     /// 要塞区域的 previous。没有要塞状态时保持空。
@@ -108,6 +108,10 @@ impl Army {
 
     pub fn is_retreating(&self) -> bool {
         self.retreating || self.is_shattered()
+    }
+
+    pub fn is_exiled(&self) -> bool {
+        self.exiled
     }
 
     /// 204 才把速度加成加上。旧档只有 203 时视为两个标志一起存在。

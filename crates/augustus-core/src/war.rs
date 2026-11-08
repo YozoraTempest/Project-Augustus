@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! 双边战争。联盟、属国、宣战理由和议和都不在此对象内。
+//! 双边战争与停战。联盟、属国、单独媾和和赔款不在此对象内。
 
 use std::collections::BTreeMap;
 
@@ -23,6 +23,55 @@ impl WarStatus {
     }
 }
 
+/// 一场已结束战斗对战争进攻方的分数。合计限制在查询时计算，不写回本条。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BattleScore {
+    province: u32,
+    on: GameDate,
+    /// 战争进攻方视角的千分点。正数表示进攻方因这场战斗领先。
+    attacker_milli: i64,
+    loser: String,
+    losses: u64,
+}
+
+impl BattleScore {
+    pub(crate) fn new(
+        province: u32,
+        on: GameDate,
+        attacker_milli: i64,
+        loser: String,
+        losses: u64,
+    ) -> Self {
+        Self {
+            province,
+            on,
+            attacker_milli,
+            loser,
+            losses,
+        }
+    }
+
+    pub fn province(&self) -> u32 {
+        self.province
+    }
+
+    pub fn on(&self) -> GameDate {
+        self.on
+    }
+
+    pub fn attacker_milli(&self) -> i64 {
+        self.attacker_milli
+    }
+
+    pub fn loser(&self) -> &str {
+        &self.loser
+    }
+
+    pub fn losses(&self) -> u64 {
+        self.losses
+    }
+}
+
 /// 一场只有进攻方和防守方的战争。双方查询到的是同一条记录。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct War {
@@ -31,6 +80,9 @@ pub struct War {
     defender: String,
     started_on: GameDate,
     status: WarStatus,
+    /// 旧档没有战斗账本时视为这场战争尚未产生战斗分数。
+    #[serde(default)]
+    battles: Vec<BattleScore>,
 }
 
 impl War {
@@ -62,6 +114,44 @@ impl War {
         (self.attacker == left && self.defender == right)
             || (self.attacker == right && self.defender == left)
     }
+
+    pub fn battles(&self) -> &[BattleScore] {
+        &self.battles
+    }
+
+    pub(crate) fn record_battle(&mut self, score: BattleScore) {
+        self.battles.push(score);
+    }
+}
+
+/// 双方共享的停战。`until` 当天已经可以再次宣战，停战在该日之前有效。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Truce {
+    countries: [String; 2],
+    until: GameDate,
+}
+
+impl Truce {
+    pub(crate) fn new(countries: [String; 2], until: GameDate) -> Self {
+        Self { countries, until }
+    }
+
+    pub fn countries(&self) -> &[String; 2] {
+        &self.countries
+    }
+
+    pub fn until(&self) -> GameDate {
+        self.until
+    }
+
+    pub fn binds(&self, left: &str, right: &str) -> bool {
+        let [first, second] = &self.countries;
+        (first == left && second == right) || (first == right && second == left)
+    }
+
+    pub fn active_on(&self, date: GameDate) -> bool {
+        date < self.until
+    }
 }
 
 /// 进行中的战争。编号只增不减，读档后新战争不会占用旧编号。
@@ -71,6 +161,9 @@ pub(crate) struct WarState {
     pub(crate) active: BTreeMap<u32, War>,
     #[serde(default = "first_war_id")]
     pub(crate) next_id: u32,
+    /// 旧档没有停战字段时视为没有停战。
+    #[serde(default)]
+    pub(crate) truces: Vec<Truce>,
 }
 
 fn first_war_id() -> u32 {
@@ -82,6 +175,7 @@ impl Default for WarState {
         Self {
             active: BTreeMap::new(),
             next_id: first_war_id(),
+            truces: Vec::new(),
         }
     }
 }
@@ -98,6 +192,7 @@ impl WarState {
                 defender: defender.to_owned(),
                 started_on,
                 status: WarStatus::Ongoing,
+                battles: Vec::new(),
             },
         );
         assert!(replaced.is_none(), "战争编号不可重复");
@@ -115,4 +210,6 @@ pub enum WarError {
     AlreadyAtWar,
     #[error("战争编号已用尽")]
     WarLimit,
+    #[error("停战在 {until} 之前有效，不能宣战")]
+    Truce { until: GameDate },
 }

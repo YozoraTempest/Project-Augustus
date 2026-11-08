@@ -145,6 +145,7 @@ impl AugustusMap {
         };
         if control_changed {
             self.refresh_political_texture();
+            self.refresh_owner_texture();
         }
         advanced
     }
@@ -468,6 +469,67 @@ impl AugustusMap {
     }
 
     #[func]
+    fn get_peace_info(&self, tag: GString) -> VarDictionary {
+        let tag = tag.to_string();
+        let (Some(world), Some(offerer)) = (&self.world, &self.player_country) else {
+            return crate::info::peace_error("请先开始游戏");
+        };
+        let date = self.simulation.as_ref().map_or_else(
+            || world.start_date(),
+            |simulation| simulation.clock().date(),
+        );
+        match world.state().peace_sheet(offerer, &tag, date) {
+            Ok(sheet) => crate::info::peace_sheet(&sheet, world, &tag),
+            Err(error) => crate::info::peace_error(&error.to_string()),
+        }
+    }
+
+    #[func]
+    fn quote_peace(&self, tag: GString, provinces: PackedInt64Array) -> VarDictionary {
+        let tag = tag.to_string();
+        let (Some(world), Some(offerer)) = (&self.world, &self.player_country) else {
+            return crate::info::peace_error("请先开始游戏");
+        };
+        let Some(provinces) = province_ids(&provinces) else {
+            return crate::info::peace_error("只能割让对方拥有的陆地省份");
+        };
+        let date = self.simulation.as_ref().map_or_else(
+            || world.start_date(),
+            |simulation| simulation.clock().date(),
+        );
+        match world.state().quote_peace(offerer, &tag, &provinces, date) {
+            Ok(quote) => crate::info::peace_quote(&quote),
+            Err(error) => crate::info::peace_error(&error.to_string()),
+        }
+    }
+
+    #[func]
+    fn make_peace(&mut self, tag: GString, provinces: PackedInt64Array) -> GString {
+        let tag = tag.to_string();
+        let Some(provinces) = province_ids(&provinces) else {
+            return "只能割让对方拥有的陆地省份".into();
+        };
+        let (Some(world), Some(simulation), Some(offerer)) =
+            (&mut self.world, &self.simulation, &self.player_country)
+        else {
+            return "请先开始游戏".into();
+        };
+        let changed =
+            match world
+                .state_mut()
+                .make_peace(offerer, &tag, &provinces, simulation.clock().date())
+            {
+                Ok(_) => world.state_mut().take_control_changed(),
+                Err(error) => return error.to_string().as_str().into(),
+            };
+        if changed {
+            self.refresh_political_texture();
+            self.refresh_owner_texture();
+        }
+        GString::new()
+    }
+
+    #[func]
     fn declare_war(&mut self, defender: GString) -> GString {
         let defender = defender.to_string();
         let (Some(world), Some(simulation), Some(attacker)) =
@@ -502,11 +564,19 @@ impl AugustusMap {
 
     #[func]
     fn get_country_info(&self, tag: GString) -> VarDictionary {
-        self.world
-            .as_ref()
-            .map_or_else(VarDictionary::new, |world| {
-                crate::info::country_info(world, &tag.to_string(), self.player_country.as_deref())
-            })
+        let Some(world) = self.world.as_ref() else {
+            return VarDictionary::new();
+        };
+        let date = self.simulation.as_ref().map_or_else(
+            || world.start_date(),
+            |simulation| simulation.clock().date(),
+        );
+        crate::info::country_info(
+            world,
+            &tag.to_string(),
+            self.player_country.as_deref(),
+            date,
+        )
     }
 
     // 返回省份内部的地图像素，列表定位与地图上的部队锚点保持一致。
@@ -654,6 +724,25 @@ impl AugustusMap {
         GString::new()
     }
 
+    /// 原地更新省份所有者。割让后平面和球面地图共用这一张纹理。
+    fn refresh_owner_texture(&mut self) {
+        let Some(image) = self.owner_image() else {
+            return;
+        };
+        if let Some(texture) = &mut self.owner_texture {
+            texture.update(&image);
+        }
+    }
+
+    fn owner_image(&self) -> Option<Gd<Image>> {
+        let world = self.world.as_ref()?;
+        let summary = world.map().summary();
+        let width = i32::try_from(summary.width).ok()?;
+        let height = i32::try_from(summary.height).ok()?;
+        let bytes = PackedByteArray::from(owner_ids(world, &self.country_render_ids).as_slice());
+        Image::create_from_data(width, height, false, Format::RGBA8, &bytes)
+    }
+
     /// 原地更新政治填色。平面和球面地图持有同一张纹理，因此一次更新两边一致。
     fn refresh_political_texture(&mut self) {
         let Some(image) = self.political_image() else {
@@ -672,6 +761,14 @@ impl AugustusMap {
         let bytes = PackedByteArray::from(political_colors(world).as_slice());
         Image::create_from_data(width, height, false, Format::RGBA8, &bytes)
     }
+}
+
+fn province_ids(values: &PackedInt64Array) -> Option<Vec<u32>> {
+    let mut ids = Vec::with_capacity(values.len());
+    for value in values.as_slice() {
+        ids.push(u32::try_from(*value).ok()?);
+    }
+    Some(ids)
 }
 
 fn encode_ids(ids: &[u32]) -> Vec<u8> {

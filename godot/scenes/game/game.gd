@@ -20,6 +20,7 @@ const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 @onready var save_error_dialog: AcceptDialog = $SaveError
 @onready var disband_dialog: ConfirmationDialog = $DisbandArmyDialog
 @onready var war_dialog: ConfirmationDialog = $DeclareWarDialog
+@onready var peace_dialog: Window = $PeaceDialog
 
 var backend: AugustusMap
 
@@ -45,8 +46,10 @@ func _ready() -> void:
 	info_panel.army_disband_requested.connect(_open_disband_dialog)
 	info_panel.army_retreat_requested.connect(_retreat_army)
 	info_panel.war_declare_requested.connect(_open_war_dialog)
+	info_panel.peace_requested.connect(_open_peace_dialog)
 	disband_dialog.army_disband_requested.connect(_disband_army)
 	war_dialog.confirmed_war.connect(_declare_war)
+	peace_dialog.confirmed_peace.connect(_make_peace)
 	GameSession.clock_changed.connect(func(): _refresh_selection(false))
 	GameSession.world_changed.connect(func(): _refresh_selection(false))
 	map_view.projection_changed.connect(func(_projection: MapMode.ViewType): _refresh_projection())
@@ -137,6 +140,8 @@ func _refresh_selection(select_tab: bool = true) -> void:
 			location = "交战中 · " + str(army.province_name)
 		elif bool(army.get("retreating", false)):
 			location = "撤退至 %s · 剩余 %d 天" % [army.movement.destination_name, army.movement.days_remaining]
+		elif bool(army.get("exiled", false)) and army.movement != null:
+			location = "流放返回 %s · 剩余 %d 天" % [army.movement.destination_name, army.movement.days_remaining]
 		elif army.movement != null:
 			location = "行军至 %s · 剩余 %d 天" % [army.movement.destination_name, army.movement.days_remaining]
 		var relation := ""
@@ -223,6 +228,20 @@ func _open_war_dialog(tag: String) -> void:
 
 func _declare_war(tag: String) -> void:
 	var error := GameSession.declare_war(tag)
+	_refresh_selection(false)
+	info_panel.tabs.current_tab = 1
+	if not error.is_empty():
+		info_panel.show_war_error(error)
+
+
+func _open_peace_dialog(tag: String) -> void:
+	var error: String = peace_dialog.open_for_country(backend, tag)
+	if not error.is_empty():
+		info_panel.show_war_error(error)
+
+
+func _make_peace(tag: String, provinces: PackedInt64Array) -> void:
+	var error := GameSession.make_peace(tag, provinces)
 	_refresh_selection(false)
 	info_panel.tabs.current_tab = 1
 	if not error.is_empty():

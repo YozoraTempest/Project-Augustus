@@ -88,6 +88,7 @@ pub(crate) fn army_info(
     let retreating = army.is_retreating();
     info.set("in_battle", in_battle);
     info.set("retreating", retreating);
+    info.set("exiled", army.is_exiled());
     info.set(
         "morale",
         morale_text(army.average_morale(max_morale), max_morale).as_str(),

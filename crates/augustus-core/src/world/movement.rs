@@ -11,6 +11,12 @@ use crate::{
 
 use super::World;
 
+/// 行军报价沿用的已走路段，以及是否按流放返回计算可通行省份。
+pub(crate) struct RouteRequest<'a> {
+    pub kept: Option<&'a ArmyMovement>,
+    pub exiled: bool,
+}
+
 impl World {
     pub fn land_neighbors(&self, province: u32) -> Option<&BTreeMap<u32, u32>> {
         self.land_routes.get(&province)
@@ -59,11 +65,15 @@ impl World {
             destination,
             speed,
             started_on,
-            army.movement.as_ref(),
+            RouteRequest {
+                kept: army.movement.as_ref(),
+                exiled: army.exiled,
+            },
         )
     }
 
     /// 计算可进入陆地上的路线。不检查交战或撤退，撤退命令由此绕过玩家指令限制。
+    /// 流放军队可以经过任何有主或无主的有效陆地，但目的地必须是本国拥有的省份。
     pub(crate) fn land_route(
         &self,
         country: &str,
@@ -71,14 +81,20 @@ impl World {
         destination: u32,
         speed: Money,
         mut started_on: GameDate,
-        kept: Option<&ArmyMovement>,
+        request: RouteRequest<'_>,
     ) -> Result<ArmyMovement, MovementError> {
-        if !self.province(destination).is_some_and(|province| {
-            self.active_provinces.contains(&destination) && province.kind == ProvinceKind::Land
-        }) {
+        if !self.is_active_land(destination) {
             return Err(MovementError::InvalidDestination);
         }
-        if !self.can_enter(country, destination) {
+        if request.exiled {
+            if self
+                .province(destination)
+                .and_then(|province| province.owner.as_deref())
+                != Some(country)
+            {
+                return Err(MovementError::ExileDestination);
+            }
+        } else if !self.can_enter(country, destination) {
             return Err(MovementError::NoAccess);
         }
         let (path, _) = dijkstra(
@@ -87,7 +103,7 @@ impl World {
                 self.land_neighbors(*id)
                     .into_iter()
                     .flatten()
-                    .filter(|(next, _)| self.can_enter(country, **next))
+                    .filter(|(next, _)| self.may_transit(country, **next, request.exiled))
                     .map(|(&next, &distance)| {
                         (next, u64::from(MilitaryRules::travel_days(distance, speed)))
                     })
@@ -95,10 +111,10 @@ impl World {
             |&id| id == destination,
         )
         .ok_or(MovementError::NoRoute)?;
-        let mut legs = kept.map_or_else(Vec::new, |movement| {
+        let mut legs = request.kept.map_or_else(Vec::new, |movement| {
             movement.legs[..=movement.leg_index].to_vec()
         });
-        let leg_index = kept.map_or(0, ArmyMovement::leg_index);
+        let leg_index = request.kept.map_or(0, ArmyMovement::leg_index);
         legs.reserve(path.len() - 1);
         for pair in path.windows(2) {
             let (from, to) = (pair[0], pair[1]);
@@ -144,6 +160,9 @@ impl World {
         if army.is_retreating() {
             return Err(MovementError::Retreating);
         }
+        if army.exiled {
+            return Err(MovementError::Exiled);
+        }
         let movement = self
             .military
             .armies
@@ -183,8 +202,19 @@ impl World {
         let country = army.country.clone();
         let province = army.province;
         let retreating = army.retreating;
-        // 还没进入下一省就停住。这种停路没有额外的一次士气恢复。
-        if !self.can_enter(&country, to)
+        let exiled = army.exiled;
+        let arrives_home = exiled
+            && self
+                .province(to)
+                .and_then(|province| province.owner.as_deref())
+                == Some(country.as_str());
+        // 流放返回可以穿过停战后不能进入的土地，抵达本国省份后清除流放。
+        if exiled {
+            if !self.is_active_land(to) {
+                self.clear_movement(id, false);
+                return true;
+            }
+        } else if !self.can_enter(&country, to)
             || (!retreating && self.hostile_present(&country, province))
         {
             self.clear_movement(id, retreating);
@@ -201,6 +231,9 @@ impl World {
                 if retreating {
                     army.retreating = false;
                     army.retreat_shattered = Some(false);
+                }
+                if arrives_home {
+                    army.exiled = false;
                 }
             } else {
                 army.movement.as_mut().expect("行军尚未结束").leg_index += 1;
@@ -219,6 +252,9 @@ impl World {
                 self.clear_movement(id, true);
                 return true;
             }
+        }
+        if exiled {
+            return true;
         }
         if self.military.armies[&id].retreating {
             self.maybe_clear_shattered(id);
@@ -264,6 +300,43 @@ impl World {
         owner == country || self.at_war(country, owner)
     }
 
+    pub(crate) fn is_active_land(&self, province: u32) -> bool {
+        self.province(province).is_some_and(|province_state| {
+            self.active_provinces.contains(&province) && province_state.kind == ProvinceKind::Land
+        })
+    }
+
+    fn may_transit(&self, country: &str, province: u32, exiled: bool) -> bool {
+        if exiled {
+            self.is_active_land(province)
+        } else {
+            self.can_enter(country, province)
+        }
+    }
+
+    /// 从当前位置沿任意有效陆地走到最近的本国省份。已经站在本国时返回该省。
+    pub(crate) fn nearest_owned_land(&self, country: &str, from: u32) -> Option<u32> {
+        if !self.is_active_land(from) {
+            return None;
+        }
+        let (path, _) = dijkstra(
+            &from,
+            |id| {
+                self.land_neighbors(*id)
+                    .into_iter()
+                    .flatten()
+                    .filter(|(next, _)| self.is_active_land(**next))
+                    .map(|(&next, &distance)| (next, u64::from(distance)))
+            },
+            |id| {
+                self.province(*id)
+                    .and_then(|province| province.owner.as_deref())
+                    == Some(country)
+            },
+        )?;
+        path.last().copied()
+    }
+
     fn commanded_army(&self, country: &str, id: u32) -> Result<&Army, MovementError> {
         self.country(country).ok_or(MovementError::UnknownCountry)?;
         let army = self.armies().get(&id).ok_or(MovementError::UnknownArmy)?;
@@ -279,6 +352,7 @@ impl World {
         province: u32,
         country: &str,
         date: GameDate,
+        exiled: bool,
     ) -> bool {
         // 先检查游标，避免把不完整或错位的存档恢复为可执行命令。
         let Some(current) = movement.legs.get(movement.leg_index) else {
@@ -292,8 +366,14 @@ impl World {
                     && self
                         .land_neighbors(leg.from)
                         .is_some_and(|neighbors| neighbors.contains_key(&leg.to))
-                    && self.can_enter(country, leg.to)
+                    && self.may_transit(country, leg.to, exiled)
             })
+            && (!exiled
+                || movement.legs.last().is_some_and(|leg| {
+                    self.province(leg.to)
+                        .and_then(|province| province.owner.as_deref())
+                        == Some(country)
+                }))
             && movement
                 .legs
                 .windows(2)

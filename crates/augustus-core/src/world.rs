@@ -10,6 +10,7 @@ mod military;
 mod movement;
 mod occupation;
 mod organization;
+mod peace;
 mod recruitment_cancellation;
 mod reinforcement;
 mod saved_state;

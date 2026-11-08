@@ -128,6 +128,7 @@ impl World {
             if army.province != province
                 || army.movement.is_some()
                 || army.is_retreating()
+                || army.is_exiled()
                 || army.battle_id().is_some()
                 || army.strength() == 0
                 || !self.at_war(&army.country, controller)
@@ -211,7 +212,12 @@ impl World {
     }
 
     /// 控制者改变后，取消该省里不属于新控制者、且尚未交付的招募。退款沿用原有规则，只退一次。
-    fn cancel_uncontrolled_recruitment(&mut self, province: u32, controller: &str, date: GameDate) {
+    pub(crate) fn cancel_uncontrolled_recruitment(
+        &mut self,
+        province: u32,
+        controller: &str,
+        date: GameDate,
+    ) {
         let orders: Vec<(String, u32)> = self
             .recruitment_queue(province)
             .iter()

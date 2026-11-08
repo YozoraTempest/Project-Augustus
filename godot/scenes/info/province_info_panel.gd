@@ -12,6 +12,7 @@ signal army_split_requested(army_id: int, count: int)
 signal army_disband_requested(army_id: int)
 signal army_retreat_requested(army_id: int)
 signal war_declare_requested(tag: String)
+signal peace_requested(tag: String)
 
 @onready var tabs: TabContainer = %Tabs
 @onready var province_title: Label = %ProvinceTitle
@@ -22,6 +23,7 @@ signal war_declare_requested(tag: String)
 @onready var country_color: ColorRect = %CountryColor
 @onready var wars_label: Label = %Wars
 @onready var declare_button: Button = %DeclareWar
+@onready var peace_button: Button = %MakePeace
 @onready var declare_reason: Label = %DeclareWarReason
 @onready var war_feedback: Label = %WarFeedback
 @onready var construction_panel: ProvinceConstructionPanel = %ConstructionPanel
@@ -44,6 +46,7 @@ func _ready() -> void:
 	military_panel.army_disband_requested.connect(func(id: int): army_disband_requested.emit(id))
 	military_panel.army_retreat_requested.connect(func(id: int): army_retreat_requested.emit(id))
 	declare_button.pressed.connect(func(): war_declare_requested.emit(_country_tag))
+	peace_button.pressed.connect(func(): peace_requested.emit(_country_tag))
 	show_info({}, {})
 
 
@@ -150,12 +153,16 @@ func _show_wars(country: Dictionary) -> void:
 	if not has_country:
 		_country_tag = ""
 		declare_button.hide()
+		peace_button.hide()
 		declare_reason.hide()
 		return
 	_country_tag = country.tag
 	var lines := PackedStringArray()
 	for war: Dictionary in country.wars:
-		lines.append("%s 向 %s 宣战\n开始日期：%s" % [war.attacker_name, war.defender_name, war.started_on])
+		lines.append("%s 向 %s 宣战\n开始日期：%s\n%s\n%s\n%s" % [war.attacker_name, war.defender_name, war.started_on, war.score_text, war.battle_text, war.occupation_text])
+	for truce: Dictionary in country.truces:
+		if truce.active:
+			lines.append("与 %s 停战至 %s 前" % [truce.other_name, truce.until])
 	wars_label.text = "当前没有战争" if lines.is_empty() else "\n\n".join(lines)
 	var player := GameSession.get_player_country()
 	var foreign := not player.is_empty() and player != _country_tag
@@ -164,6 +171,7 @@ func _show_wars(country: Dictionary) -> void:
 	declare_button.tooltip_text = "" if country.can_declare_war else str(country.declare_war_reason)
 	declare_reason.text = str(country.declare_war_reason)
 	declare_reason.visible = foreign and not country.can_declare_war
+	peace_button.visible = bool(country.get("can_offer_peace", false))
 
 
 func _country_name(province: Dictionary, field: String) -> String:
