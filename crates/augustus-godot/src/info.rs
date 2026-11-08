@@ -177,7 +177,11 @@ pub(crate) fn country_info(
     info.set("wars", &wars);
     let mut truces: Array<VarDictionary> = Array::new();
     for truce in world.state().truces_of(tag) {
-        let Some(other) = truce.countries().iter().find(|country| country.as_str() != tag) else {
+        let Some(other) = truce
+            .countries()
+            .iter()
+            .find(|country| country.as_str() != tag)
+        else {
             continue;
         };
         let mut entry = VarDictionary::new();

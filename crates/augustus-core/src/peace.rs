@@ -50,12 +50,16 @@ pub fn occupation_share_milli(occupied_development: u64, total_development: u64)
         return 0;
     }
     let points = (100 * occupied_development) / total_development;
-    i64::try_from(points).unwrap_or(i64::MAX).saturating_mul(SCALE)
+    i64::try_from(points)
+        .unwrap_or(i64::MAX)
+        .saturating_mul(SCALE)
 }
 
 /// 发展度千分点依次乘首都 1.2、未由提出方控制 1.1、省份要求 0.8。每步向零截断。
 pub fn province_cost_milli(development: u64, capital: bool, controlled_by_offerer: bool) -> i64 {
-    let mut cost = i64::try_from(development).unwrap_or(i64::MAX).saturating_mul(SCALE);
+    let mut cost = i64::try_from(development)
+        .unwrap_or(i64::MAX)
+        .saturating_mul(SCALE);
     if capital {
         cost = cost.saturating_mul(12) / 10;
     }
@@ -263,13 +267,7 @@ mod tests {
         assert_eq!(truce_months(50), 121);
         assert_eq!(truce_months(100), 181);
         let signed = GameDate::new(1444, 11, 11).unwrap();
-        assert_eq!(
-            truce_expiry(signed, 0),
-            GameDate::new(1449, 12, 2)
-        );
-        assert_eq!(
-            truce_expiry(signed, 100),
-            GameDate::new(1459, 12, 2)
-        );
+        assert_eq!(truce_expiry(signed, 0), GameDate::new(1449, 12, 2));
+        assert_eq!(truce_expiry(signed, 100), GameDate::new(1459, 12, 2));
     }
 }

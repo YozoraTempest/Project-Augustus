@@ -514,15 +514,14 @@ impl AugustusMap {
         else {
             return "请先开始游戏".into();
         };
-        let changed = match world.state_mut().make_peace(
-            offerer,
-            &tag,
-            &provinces,
-            simulation.clock().date(),
-        ) {
-            Ok(_) => world.state_mut().take_control_changed(),
-            Err(error) => return error.to_string().as_str().into(),
-        };
+        let changed =
+            match world
+                .state_mut()
+                .make_peace(offerer, &tag, &provinces, simulation.clock().date())
+            {
+                Ok(_) => world.state_mut().take_control_changed(),
+                Err(error) => return error.to_string().as_str().into(),
+            };
         if changed {
             self.refresh_political_texture();
             self.refresh_owner_texture();
@@ -568,11 +567,16 @@ impl AugustusMap {
         let Some(world) = self.world.as_ref() else {
             return VarDictionary::new();
         };
-        let date = self
-            .simulation
-            .as_ref()
-            .map_or_else(|| world.start_date(), |simulation| simulation.clock().date());
-        crate::info::country_info(world, &tag.to_string(), self.player_country.as_deref(), date)
+        let date = self.simulation.as_ref().map_or_else(
+            || world.start_date(),
+            |simulation| simulation.clock().date(),
+        );
+        crate::info::country_info(
+            world,
+            &tag.to_string(),
+            self.player_country.as_deref(),
+            date,
+        )
     }
 
     // 返回省份内部的地图像素，列表定位与地图上的部队锚点保持一致。

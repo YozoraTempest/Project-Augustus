@@ -2077,7 +2077,17 @@ impl World {
         speed: Money,
         started_on: GameDate,
     ) -> Result<ArmyMovement, MovementError> {
-        self.land_route(country, from, destination, speed, started_on, None, false)
+        self.land_route(
+            country,
+            from,
+            destination,
+            speed,
+            started_on,
+            super::movement::RouteRequest {
+                kept: None,
+                exiled: false,
+            },
+        )
     }
 }
 
@@ -2773,7 +2783,17 @@ mod tests {
         station(&mut world, 1, "AAA", 1, 1);
         let shattered = Money::from(1) * (Money::ONE + Money::new(5, 1));
         let movement = world
-            .land_route("AAA", 1, 2, shattered, date(), None, false)
+            .land_route(
+                "AAA",
+                1,
+                2,
+                shattered,
+                date(),
+                crate::world::movement::RouteRequest {
+                    kept: None,
+                    exiled: false,
+                },
+            )
             .unwrap();
         let fast = movement.arrives_on();
         world.military.armies.get_mut(&1).unwrap().movement = Some(movement);

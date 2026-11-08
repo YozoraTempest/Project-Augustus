@@ -11,6 +11,12 @@ use crate::{
 
 use super::World;
 
+/// 行军报价沿用的已走路段，以及是否按流放返回计算可通行省份。
+pub(crate) struct RouteRequest<'a> {
+    pub kept: Option<&'a ArmyMovement>,
+    pub exiled: bool,
+}
+
 impl World {
     pub fn land_neighbors(&self, province: u32) -> Option<&BTreeMap<u32, u32>> {
         self.land_routes.get(&province)
@@ -53,15 +59,16 @@ impl World {
         // 先计算完整报价，失败时不改变已经下达的命令。
         // 整支军队使用当前最慢兵种的速度；途中不会更换兵种。
         let speed = army.march_speed(&self.military_rules);
-        let exiled = army.exiled;
         self.land_route(
             country,
             from,
             destination,
             speed,
             started_on,
-            army.movement.as_ref(),
-            exiled,
+            RouteRequest {
+                kept: army.movement.as_ref(),
+                exiled: army.exiled,
+            },
         )
     }
 
@@ -74,14 +81,15 @@ impl World {
         destination: u32,
         speed: Money,
         mut started_on: GameDate,
-        kept: Option<&ArmyMovement>,
-        exiled: bool,
+        request: RouteRequest<'_>,
     ) -> Result<ArmyMovement, MovementError> {
         if !self.is_active_land(destination) {
             return Err(MovementError::InvalidDestination);
         }
-        if exiled {
-            if self.province(destination).and_then(|province| province.owner.as_deref())
+        if request.exiled {
+            if self
+                .province(destination)
+                .and_then(|province| province.owner.as_deref())
                 != Some(country)
             {
                 return Err(MovementError::ExileDestination);
@@ -95,7 +103,7 @@ impl World {
                 self.land_neighbors(*id)
                     .into_iter()
                     .flatten()
-                    .filter(|(next, _)| self.may_transit(country, **next, exiled))
+                    .filter(|(next, _)| self.may_transit(country, **next, request.exiled))
                     .map(|(&next, &distance)| {
                         (next, u64::from(MilitaryRules::travel_days(distance, speed)))
                     })
@@ -103,10 +111,10 @@ impl World {
             |&id| id == destination,
         )
         .ok_or(MovementError::NoRoute)?;
-        let mut legs = kept.map_or_else(Vec::new, |movement| {
+        let mut legs = request.kept.map_or_else(Vec::new, |movement| {
             movement.legs[..=movement.leg_index].to_vec()
         });
-        let leg_index = kept.map_or(0, ArmyMovement::leg_index);
+        let leg_index = request.kept.map_or(0, ArmyMovement::leg_index);
         legs.reserve(path.len() - 1);
         for pair in path.windows(2) {
             let (from, to) = (pair[0], pair[1]);

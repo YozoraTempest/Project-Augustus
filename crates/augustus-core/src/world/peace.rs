@@ -54,7 +54,8 @@ impl World {
         let cost_milli = demands.iter().map(|demand| demand.cost_milli).sum();
         let white_peace = provinces.is_empty();
         let accepted = accepts_terms(score.total_milli, cost_milli, white_peace);
-        let truce_until = truce_expiry(date, cost_milli / 1_000).ok_or(PeaceError::DateOutOfRange)?;
+        let truce_until =
+            truce_expiry(date, cost_milli / 1_000).ok_or(PeaceError::DateOutOfRange)?;
         let reason = if white_peace {
             format!("白和平可以缔结，停战至 {truce_until} 前")
         } else if accepted {
@@ -156,7 +157,11 @@ impl World {
         let loser_limit = self.country_land_force_limit(loser_country).unwrap_or(0);
         let attacker_limit = self.country_land_force_limit(&attacker).unwrap_or(0);
         let milli = land_battle_milli(sides[loser_index].lost, loser_limit.min(attacker_limit));
-        let attacker_milli = if loser_country == &attacker { -milli } else { milli };
+        let attacker_milli = if loser_country == &attacker {
+            -milli
+        } else {
+            milli
+        };
         self.war_state
             .active
             .get_mut(&war_id)
@@ -181,11 +186,9 @@ impl World {
         let (defender_occupied, attacker_total) = self.occupied_development(attacker, defender);
         let occupation = occupation_share_milli(attacker_occupied, defender_total)
             - occupation_share_milli(defender_occupied, attacker_total);
-        let battle_unclamped = battles
-            .iter()
-            .fold(0_i64, |sum, battle| {
-                sum.saturating_add(battle.attacker_milli())
-            });
+        let battle_unclamped = battles.iter().fold(0_i64, |sum, battle| {
+            sum.saturating_add(battle.attacker_milli())
+        });
         let battle = clamp_battle_milli(battle_unclamped);
         let total = clamp_warscore_milli(occupation.saturating_add(battle));
         let mut view_battles = Vec::with_capacity(battles.len());
@@ -328,12 +331,17 @@ impl World {
                     && (controller.as_deref() == Some(offerer.as_str())
                         || controller.as_deref() == Some(target.as_str()));
                 if held_by_belligerent {
-                    self.provinces.get_mut(&id).expect("归还省份存在").controller =
-                        Some(owner.clone());
+                    self.provinces
+                        .get_mut(&id)
+                        .expect("归还省份存在")
+                        .controller = Some(owner.clone());
                     self.control_changed = true;
                     controllers.push((id, owner));
                 }
-                self.provinces.get_mut(&id).expect("交战省份存在").occupation = None;
+                self.provinces
+                    .get_mut(&id)
+                    .expect("交战省份存在")
+                    .occupation = None;
             }
         }
         for (id, controller) in controllers {
@@ -355,15 +363,15 @@ impl World {
             let mut countries = BTreeSet::new();
             for side in 0..2 {
                 for army_id in self.military.battles[&id].side_armies(side) {
-                    if let Some(country) = self.armies().get(army_id).map(|army| army.country.clone())
+                    if let Some(country) =
+                        self.armies().get(army_id).map(|army| army.country.clone())
                     {
                         countries.insert(country);
                     }
                 }
             }
-            let only_pair = countries.len() == 2
-                && countries.contains(left)
-                && countries.contains(right);
+            let only_pair =
+                countries.len() == 2 && countries.contains(left) && countries.contains(right);
             if only_pair {
                 self.disengage(id);
             }
@@ -371,9 +379,16 @@ impl World {
     }
 
     fn ensure_owned_capital(&mut self, tag: &str) {
-        let still_owned = self.countries.get(tag).and_then(|country| country.capital).is_some_and(
-            |id| self.provinces.get(&id).and_then(|province| province.owner.as_deref()) == Some(tag),
-        );
+        let still_owned = self
+            .countries
+            .get(tag)
+            .and_then(|country| country.capital)
+            .is_some_and(|id| {
+                self.provinces
+                    .get(&id)
+                    .and_then(|province| province.owner.as_deref())
+                    == Some(tag)
+            });
         if still_owned {
             return;
         }
@@ -436,7 +451,11 @@ impl World {
                 break;
             }
         }
-        let army = self.military.armies.get_mut(&id).expect("调整行军的军队存在");
+        let army = self
+            .military
+            .armies
+            .get_mut(&id)
+            .expect("调整行军的军队存在");
         if end <= movement.leg_index {
             army.movement = None;
             if army.retreating {
@@ -464,7 +483,17 @@ impl World {
             self.military.armies.remove(&id);
             return;
         };
-        match self.land_route(&country, from, home, speed, date, None, true) {
+        match self.land_route(
+            &country,
+            from,
+            home,
+            speed,
+            date,
+            super::movement::RouteRequest {
+                kept: None,
+                exiled: true,
+            },
+        ) {
             Ok(movement) => {
                 let army = self
                     .military
@@ -501,9 +530,9 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        Army, Battle, Construction, Country, Development, GameDate, LandConnection, ManpowerRules,
-        MilitaryRules, Money, PeaceError, Province, ProvinceKind, Regiment, ReportedSide,
-        SaveError, SavedGame, Simulation, UnitKind, WarError, CombatRules,
+        Army, Battle, CombatRules, Construction, Country, Development, GameDate, LandConnection,
+        ManpowerRules, MilitaryRules, Money, PeaceError, Province, ProvinceKind, Regiment,
+        ReportedSide, SaveError, SavedGame, Simulation, UnitKind, WarError,
     };
 
     use super::World;
@@ -558,7 +587,11 @@ mod tests {
 
     fn sample() -> World {
         World::new(
-            [Country::new("AAA"), Country::new("BBB"), Country::new("CCC")],
+            [
+                Country::new("AAA"),
+                Country::new("BBB"),
+                Country::new("CCC"),
+            ],
             BTreeMap::from([
                 (1, province("AAA")),
                 (5, province("AAA")),
@@ -570,11 +603,31 @@ mod tests {
             Vec::<crate::BuildingDefinition>::new(),
             rules(),
             [
-                LandConnection { from: 1, to: 5, distance: 1 },
-                LandConnection { from: 1, to: 2, distance: 1 },
-                LandConnection { from: 2, to: 4, distance: 1 },
-                LandConnection { from: 1, to: 3, distance: 1 },
-                LandConnection { from: 3, to: 4, distance: 1 },
+                LandConnection {
+                    from: 1,
+                    to: 5,
+                    distance: 1,
+                },
+                LandConnection {
+                    from: 1,
+                    to: 2,
+                    distance: 1,
+                },
+                LandConnection {
+                    from: 2,
+                    to: 4,
+                    distance: 1,
+                },
+                LandConnection {
+                    from: 1,
+                    to: 3,
+                    distance: 1,
+                },
+                LandConnection {
+                    from: 3,
+                    to: 4,
+                    distance: 1,
+                },
             ],
         )
         .unwrap()
@@ -611,12 +664,7 @@ mod tests {
     }
 
     fn record_loss(world: &mut World, losses: u64) {
-        world.record_finished_battle(
-            2,
-            date(),
-            &[side("BBB", losses), side("AAA", 0)],
-            Some(0),
-        );
+        world.record_finished_battle(2, date(), &[side("BBB", losses), side("AAA", 0)], Some(0));
     }
 
     #[test]
@@ -666,13 +714,25 @@ mod tests {
         assert!(!world.at_war("AAA", "BBB"));
         assert!(world.at_war("AAA", "CCC"));
         assert_eq!(world.province(2).unwrap().owner.as_deref(), Some("AAA"));
-        assert_eq!(world.province(2).unwrap().controller.as_deref(), Some("AAA"));
+        assert_eq!(
+            world.province(2).unwrap().controller.as_deref(),
+            Some("AAA")
+        );
         assert_eq!(world.province(4).unwrap().owner.as_deref(), Some("BBB"));
-        assert_eq!(world.province(4).unwrap().controller.as_deref(), Some("BBB"));
+        assert_eq!(
+            world.province(4).unwrap().controller.as_deref(),
+            Some("BBB")
+        );
         assert!(world.province(4).unwrap().occupation.is_none());
         assert!(world.recruitment_queue(2).is_empty());
         assert_eq!(
-            world.province(2).unwrap().construction.as_ref().unwrap().building,
+            world
+                .province(2)
+                .unwrap()
+                .construction
+                .as_ref()
+                .unwrap()
+                .building,
             "temple"
         );
         assert_eq!(world.country("BBB").unwrap().capital, Some(4));
@@ -737,13 +797,19 @@ mod tests {
 
         let until = world.make_peace("BBB", "AAA", &[], date).unwrap();
         assert_eq!(until, GameDate::new(1449, 12, 2).unwrap());
-        assert_eq!(world.province(1).unwrap().controller.as_deref(), Some("AAA"));
+        assert_eq!(
+            world.province(1).unwrap().controller.as_deref(),
+            Some("AAA")
+        );
         assert_eq!(world.province(1).unwrap().owner.as_deref(), Some("AAA"));
         assert!(world.province(1).unwrap().occupation.is_none());
         assert!(world.battles().is_empty());
         assert!(world.armies()[&1].battle_id().is_none());
         assert!(world.armies()[&1].is_exiled());
-        assert_eq!(world.armies()[&1].movement.as_ref().unwrap().destination(), 1);
+        assert_eq!(
+            world.armies()[&1].movement.as_ref().unwrap().destination(),
+            1
+        );
         assert!(!world.armies()[&2].is_exiled());
 
         let saved = SavedGame::capture(&world, &Simulation::new(date), "AAA");
@@ -752,7 +818,13 @@ mod tests {
             restored.world.armies()[&1].movement,
             world.armies()[&1].movement
         );
-        assert!(restored.world.truce_between("AAA", "BBB").unwrap().active_on(date));
+        assert!(
+            restored
+                .world
+                .truce_between("AAA", "BBB")
+                .unwrap()
+                .active_on(date)
+        );
 
         let mut simulation = Simulation::new(date);
         simulation.set_paused(false);
@@ -761,7 +833,10 @@ mod tests {
         assert!(!world.armies()[&1].is_exiled());
         assert_eq!(world.armies()[&1].strength(), strength);
         assert!(world.battles().is_empty());
-        assert_eq!(world.province(1).unwrap().controller.as_deref(), Some("AAA"));
+        assert_eq!(
+            world.province(1).unwrap().controller.as_deref(),
+            Some("AAA")
+        );
         assert!(!world.at_war("AAA", "BBB"));
     }
 
