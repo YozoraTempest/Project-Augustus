@@ -2,6 +2,7 @@
 
 //! 管理国家和省份实体，并解析它们之间的归属关系。
 
+mod ai;
 mod combat;
 mod construction;
 mod economy;

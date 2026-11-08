@@ -134,12 +134,17 @@ impl AugustusMap {
         let Ok(elapsed) = u64::try_from(elapsed_usec) else {
             return false;
         };
+        let player = self.player_country.clone();
         let (advanced, control_changed) = {
             let (Some(simulation), Some(world)) = (&mut self.simulation, &mut self.world) else {
                 return false;
             };
-            let advanced =
-                simulation.advance(world.state_mut(), Duration::from_micros(elapsed)) > 0;
+            // 玩家标签只用来排除本人。敌国命令仍走核心里的招募、行军与和谈接口。
+            let advanced = simulation.advance_for(
+                world.state_mut(),
+                Duration::from_micros(elapsed),
+                player.as_deref(),
+            ) > 0;
             let control_changed = world.state_mut().take_control_changed();
             (advanced, control_changed)
         };
