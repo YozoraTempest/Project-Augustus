@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use pathfinding::prelude::dijkstra;
+use pathfinding::prelude::{dijkstra, dijkstra_all};
 
 use crate::{
     Army, ArmyMovement, GameDate, LandConnection, MilitaryRules, Money, MovementError, MovementLeg,
@@ -312,6 +312,31 @@ impl World {
         } else {
             self.can_enter(country, province)
         }
+    }
+
+    /// 沿当前军队速度可进入的陆地，给出每个省份的最短行军天数。起点为 0。
+    /// 不能进入的中立国和无主土地不会出现，调用方因此也不会把它们选成目的地。
+    pub(crate) fn land_travel_days(
+        &self,
+        country: &str,
+        from: u32,
+        speed: Money,
+        exiled: bool,
+    ) -> BTreeMap<u32, u32> {
+        if !self.is_active_land(from) || speed <= Money::ZERO {
+            return BTreeMap::new();
+        }
+        let mut days = BTreeMap::from([(from, 0)]);
+        for (province, (_, cost)) in dijkstra_all(&from, |id| {
+            self.land_neighbors(*id)
+                .into_iter()
+                .flatten()
+                .filter(|(next, _)| self.may_transit(country, **next, exiled))
+                .map(|(&next, &distance)| (next, MilitaryRules::travel_days(distance, speed)))
+        }) {
+            days.insert(province, cost);
+        }
+        days
     }
 
     /// 从当前位置沿任意有效陆地走到最近的本国省份。已经站在本国时返回该省。
