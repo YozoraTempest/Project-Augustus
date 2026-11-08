@@ -33,7 +33,19 @@ impl Simulation {
     }
 
     /// 时间与世界变化一起推进；只有真正进入新月份时才为所有国家结算一次。
+    /// 不指定玩家时不为任何国家代下命令，既有测试和工具因此保持原样。
     pub fn advance(&mut self, world: &mut World, elapsed: Duration) -> u32 {
+        self.advance_for(world, elapsed, None)
+    }
+
+    /// 与 [`Self::advance`] 相同，并在每个新游戏日结算后让非玩家交战国各决策一次。
+    /// 暂停不进入新日期；倍速只改变同一段现实时间跨过的日期数，不会把同一天结算两次。
+    pub fn advance_for(
+        &mut self,
+        world: &mut World,
+        elapsed: Duration,
+        player: Option<&str>,
+    ) -> u32 {
         self.clock.advance_with(elapsed, |date| {
             if date.day() == 1 {
                 world.settle_monthly_finances(date);
@@ -55,6 +67,7 @@ impl Simulation {
             world.resolve_battles(date);
             // 交战结算之后才推进占领：撤退离开的军队不再计进度，当天仍在进行的战斗也不会完成占领。
             world.tick_occupations(date);
+            world.direct_war_ai(player, date);
         })
     }
 }
