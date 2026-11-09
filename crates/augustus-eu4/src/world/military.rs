@@ -273,8 +273,10 @@ mod tests {
         assert_eq!(rules.combat.battle_length_damage, Money::new(1, 2));
         assert_eq!(rules.combat.infantry.offensive_shock, 1);
         assert_eq!(rules.combat.infantry.fire_damage, Money::new(25, 2));
+        assert_eq!(rules.combat.infantry.shock_damage, Money::new(2, 1));
         assert_eq!(rules.combat.cavalry.maneuver, 2);
-        assert_eq!(rules.combat.cavalry.shock_damage, Money::new(3, 1));
+        assert_eq!(rules.combat.cavalry.fire_damage, Money::ZERO);
+        assert_eq!(rules.combat.cavalry.shock_damage, Money::new(8, 1));
         fs::remove_dir_all(&root).unwrap();
     }
 
@@ -308,7 +310,6 @@ mod tests {
     const STATICS: &str = r#"
         base_values = {
             global_manpower = 1
-            land_morale = 2
         }
         all_nations = {
             global_tax_income = 12
@@ -336,9 +337,15 @@ mod tests {
             enable = eastern_medieval_cavalry
             infantry_fire = 0.25
             infantry_shock = 0.20
-            cavalry_fire = 0.25
-            cavalry_shock = 0.30
-            military_tactics = 0.5
+            cavalry_shock = 0.8
+            land_morale = 2.0
+        }
+        technology = {
+            enable = eastern_medieval_infantry
+            infantry_fire = 1
+            cavalry_fire = 1
+            military_tactics = 0.25
+            land_morale = 5
         }
     "#;
 
