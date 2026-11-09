@@ -2,6 +2,10 @@
 
 use std::{path::PathBuf, process::ExitCode};
 
+mod debug;
+mod mcp;
+mod screenshot;
+
 use augustus_eu4::map::ProvinceMap;
 use clap::{CommandFactory, Parser, Subcommand};
 
@@ -18,6 +22,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// 运行给 AI 调用的调试服务。标准输入输出是 MCP，不是给人敲的命令。
+    Mcp,
     #[command(about = "读取 EU4 省份地图")]
     Map {
         #[arg(long, value_name = "DIRECTORY", help = "EU4 游戏安装目录")]
@@ -40,6 +46,7 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         None => Cli::command().print_help()?,
+        Some(Commands::Mcp) => mcp::serve()?,
         Some(Commands::Map { game_dir, at }) => {
             let map = ProvinceMap::load(game_dir)?;
             // 先完成可选的坐标查询，成功后统一输出，避免失败时留下部分摘要。

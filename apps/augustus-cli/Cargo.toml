@@ -14,5 +14,14 @@ name = "augustus"
 path = "src/main.rs"
 
 [dependencies]
+augustus-core = { path = "../../crates/augustus-core" }
 augustus-eu4 = { path = "../../crates/augustus-eu4" }
+base64 = "0.22"
 clap.workspace = true
+rmcp = { version = "3.9", features = ["macros", "schemars", "server", "transport-io"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -159,6 +159,17 @@ impl GameClock {
         self.speed = speed;
     }
 
+    /// 只把日期向前推一天，不读取暂停、倍速或不足一天的进度。
+    /// 已经停在历法末日时保持原日期并返回 false。
+    pub(crate) fn step_calendar_day(&mut self) -> bool {
+        let remaining = self.date.0.days_until(&Self::last_date());
+        if remaining == 0 {
+            return false;
+        }
+        self.date = self.date.add_days(1);
+        true
+    }
+
     /// 1× 时每个现实秒推进一天；一次调用可跨过多天，不依赖渲染帧数。
     pub fn advance(&mut self, elapsed: Duration) -> u32 {
         self.advance_with(elapsed, |_| {})
