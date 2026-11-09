@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use rust_decimal::RoundingStrategy;
 use serde::{Deserialize, Serialize};
 
-use crate::combat::{CombatRules, RandomStream, UNSET_MORALE};
+use crate::combat::{CombatRules, RandomStream, UNSET_MORALE, UnitPips};
 use crate::{ArmyMovement, GameDate, ManpowerRules, Money};
 
 /// 一个满编团的兵力；军队可以持有多个团，编组与兵种分别保存。
@@ -47,6 +47,12 @@ pub struct Regiment {
     /// 本日尚未扣下的士气，单位与 `morale` 相同。
     #[serde(default)]
     pub morale_pending: u32,
+    /// 团的兵种身份。空字符串表示旧档，沿用所属国家当时的选择。
+    #[serde(default)]
+    pub unit: String,
+    /// 团自己的点数。旧档没有时用所属国家的当前兵种。
+    #[serde(default)]
+    pub pips: Option<UnitPips>,
 }
 
 impl Regiment {
@@ -58,6 +64,8 @@ impl Regiment {
             morale: UNSET_MORALE,
             strength_pending: 0,
             morale_pending: 0,
+            unit: String::new(),
+            pips: None,
         }
     }
 
@@ -392,6 +400,13 @@ pub enum RecruitmentError {
     DateOutOfRange,
     #[error("军队编号已用尽")]
     ArmyLimit,
+    #[error("{country} 的兵种组 {group} 在军事科技 {level} 没有可用{kind}")]
+    NoUnit {
+        country: String,
+        group: String,
+        level: u32,
+        kind: String,
+    },
 }
 
 fn deserialize_recruitments<'de, D>(

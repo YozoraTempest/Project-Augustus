@@ -34,7 +34,7 @@ pub(crate) const SHATTERED_CLEAR_RELATIVE: u64 = 990;
 /// 主动撤退让同侧其他军队承担的士气比例，对应 1.0。
 pub(crate) const DELIBERATE_RETREAT_PENALTY_MILLI: i64 = 1_000;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnitCombat {
     pub offensive_fire: u32,
     pub defensive_fire: u32,
@@ -43,10 +43,46 @@ pub struct UnitCombat {
     pub offensive_morale: u32,
     pub defensive_morale: u32,
     pub maneuver: u32,
-    /// 该兵种在火力阶段使用的伤害系数。未接入分国科技时取军事科技 0 级。
+    /// 该兵种在火力阶段使用的伤害系数，来自所属国家已累计的军事科技。
     pub fire_damage: Money,
     /// 冲击伤害系数，来源与火力相同。
     pub shock_damage: Money,
+}
+
+/// 团自己保存的点数。伤害系数仍读所属国家的当前科技，不随兵种身份一起冻结。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnitPips {
+    pub offensive_fire: u32,
+    pub defensive_fire: u32,
+    pub offensive_shock: u32,
+    pub defensive_shock: u32,
+    pub offensive_morale: u32,
+    pub defensive_morale: u32,
+    pub maneuver: u32,
+}
+
+impl UnitPips {
+    pub fn from_unit(unit: &UnitCombat) -> Self {
+        Self {
+            offensive_fire: unit.offensive_fire,
+            defensive_fire: unit.defensive_fire,
+            offensive_shock: unit.offensive_shock,
+            defensive_shock: unit.defensive_shock,
+            offensive_morale: unit.offensive_morale,
+            defensive_morale: unit.defensive_morale,
+            maneuver: unit.maneuver,
+        }
+    }
+
+    pub fn apply(self, unit: &mut UnitCombat) {
+        unit.offensive_fire = self.offensive_fire;
+        unit.defensive_fire = self.defensive_fire;
+        unit.offensive_shock = self.offensive_shock;
+        unit.defensive_shock = self.defensive_shock;
+        unit.offensive_morale = self.offensive_morale;
+        unit.defensive_morale = self.defensive_morale;
+        unit.maneuver = self.maneuver;
+    }
 }
 
 impl UnitCombat {
@@ -101,12 +137,13 @@ impl PhaseKind {
     }
 }
 
-/// 全体国家共用的基础陆战规则。正式对局由内容文件填充，测试使用 [`CombatRules::baseline`]。
+/// 各国共用的定义值，以及旧档还没有国家军事配置时沿用的统一兵种。
+/// 新开局的等级、兵种和累计数值在 [`CountryMilitary`]，不读这里的兵种。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CombatRules {
     pub width: u32,
     pub max_morale: Money,
-    /// 军事科技 0 级的战技。防守方战技再乘该方训练度；训练度尚未分国，中性为 1。
+    /// 统一配置下的战技。分国之后，战斗改用防守方国家的战技。
     pub tactics: Money,
     pub recovery: Money,
     pub recovery_own_territory: Money,
@@ -175,6 +212,92 @@ impl CombatRules {
         match kind {
             UnitKind::Infantry => &self.infantry,
             UnitKind::Cavalry => &self.cavalry,
+        }
+    }
+}
+
+/// 一个国家当前的军事等级、招募兵种和已累计数值。
+///
+/// 新招募使用这里的兵种。已经存在的团各自保存兵种身份，不跟着这份选择改变。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CountryMilitary {
+    /// 兵种组。历史写了 `unit_type` 时用它，否则用科技组。
+    pub unit_group: String,
+    /// 科技组。开局等级只读该组的 `start_level`。
+    pub technology_group: String,
+    /// 开局有效军事科技等级。
+    pub level: u32,
+    /// 当前步兵。空字符串表示还没有选中的步兵。
+    pub infantry_unit: String,
+    /// 当前骑兵。这一级没有可用骑兵时为空。
+    pub cavalry_unit: String,
+    pub infantry: UnitCombat,
+    /// 这一级没有可用骑兵时为空。招募骑兵会报告国家和等级，不另选默认兵种。
+    pub cavalry: Option<UnitCombat>,
+    pub max_morale: Money,
+    pub tactics: Money,
+    pub width: u32,
+}
+
+impl CountryMilitary {
+    /// 旧档没有分国配置时，全体国家沿用当时的统一兵种和科技 0 数值。
+    pub fn from_shared(rules: &CombatRules) -> Self {
+        Self {
+            unit_group: String::new(),
+            technology_group: String::new(),
+            level: 0,
+            infantry_unit: String::new(),
+            cavalry_unit: String::new(),
+            infantry: rules.infantry.clone(),
+            cavalry: Some(rules.cavalry.clone()),
+            max_morale: rules.max_morale,
+            tactics: rules.tactics,
+            width: rules.width,
+        }
+    }
+
+    pub fn unit(&self, kind: UnitKind) -> Option<&UnitCombat> {
+        match kind {
+            UnitKind::Infantry => Some(&self.infantry),
+            UnitKind::Cavalry => self.cavalry.as_ref(),
+        }
+    }
+
+    pub fn unit_name(&self, kind: UnitKind) -> &str {
+        match kind {
+            UnitKind::Infantry => &self.infantry_unit,
+            UnitKind::Cavalry => &self.cavalry_unit,
+        }
+    }
+
+    pub fn morale_milli(&self) -> Option<u32> {
+        let scaled = (self.max_morale * Money::from(1_000)).trunc();
+        u32::try_from(scaled)
+            .ok()
+            .filter(|value| (1..UNSET_MORALE).contains(value))
+    }
+
+    pub fn is_playable(&self) -> bool {
+        self.width >= 1
+            && self.max_morale > Money::ZERO
+            && self.tactics > Money::ZERO
+            && self.morale_milli().is_some()
+            && self.infantry.non_negative()
+            && self.cavalry.as_ref().is_none_or(UnitCombat::non_negative)
+    }
+
+    /// 升级只更换国家当前招募的兵种。已经存在的团继续使用自己保存的点数。
+    pub fn select_unit(&mut self, kind: UnitKind, name: impl Into<String>, unit: UnitCombat) {
+        let name = name.into();
+        match kind {
+            UnitKind::Infantry => {
+                self.infantry_unit = name;
+                self.infantry = unit;
+            }
+            UnitKind::Cavalry => {
+                self.cavalry_unit = name;
+                self.cavalry = Some(unit);
+            }
         }
     }
 }

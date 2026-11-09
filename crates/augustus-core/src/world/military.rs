@@ -3,8 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    Army, GameDate, MilitaryRules, MilitaryState, Money, ProvinceKind, REGIMENT_STRENGTH,
-    Recruitment, RecruitmentError, RecruitmentQuote, Regiment, SaveError, UnitKind,
+    Army, CountryMilitary, GameDate, MilitaryRules, MilitaryState, Money, ProvinceKind,
+    REGIMENT_STRENGTH, Recruitment, RecruitmentError, RecruitmentQuote, Regiment, SaveError,
+    UnitKind, UnitPips,
 };
 
 use super::World;
@@ -12,6 +13,60 @@ use super::World;
 impl World {
     pub fn military_rules(&self) -> &MilitaryRules {
         &self.military_rules
+    }
+
+    pub fn country_military(&self, tag: &str) -> Option<&CountryMilitary> {
+        self.countries.get(tag)?.military.as_ref()
+    }
+
+    /// 旧档没有分国配置。全体国家改用读取内容时保留的统一兵种，已有战斗不重新列阵。
+    pub(crate) fn apply_unified_military(&mut self) {
+        let legacy = CountryMilitary::from_shared(&self.military_rules.combat);
+        for country in self.countries.values_mut() {
+            if country.military.is_none() {
+                country.military = Some(legacy.clone());
+            }
+        }
+    }
+
+    pub(crate) fn country_morale_milli(&self, tag: &str) -> u32 {
+        self.country_military(tag)
+            .and_then(CountryMilitary::morale_milli)
+            .unwrap_or_else(|| {
+                self.military_rules
+                    .combat
+                    .morale_milli()
+                    .expect("陆战规则已检查")
+            })
+    }
+
+    pub(crate) fn fresh_regiment(
+        &self,
+        country: &str,
+        kind: UnitKind,
+        strength: u32,
+        morale: u32,
+    ) -> Regiment {
+        let (unit, pips) = self
+            .country_military(country)
+            .and_then(|military| {
+                military.unit(kind).map(|selected| {
+                    (
+                        military.unit_name(kind).to_owned(),
+                        Some(UnitPips::from_unit(selected)),
+                    )
+                })
+            })
+            .unwrap_or_else(|| (String::new(), None));
+        Regiment {
+            kind,
+            strength,
+            morale,
+            strength_pending: 0,
+            morale_pending: 0,
+            unit,
+            pips,
+        }
     }
 
     pub fn military(&self) -> &MilitaryState {
@@ -76,6 +131,20 @@ impl World {
         let country = self
             .country(country)
             .ok_or(RecruitmentError::UnknownCountry)?;
+        if let Some(military) = &country.military
+            && military.unit(kind).is_none()
+        {
+            return Err(RecruitmentError::NoUnit {
+                country: country.tag().to_owned(),
+                group: military.unit_group.clone(),
+                level: military.level,
+                kind: match kind {
+                    UnitKind::Infantry => "步兵",
+                    UnitKind::Cavalry => "骑兵",
+                }
+                .to_owned(),
+            });
+        }
         let state = self
             .province(province)
             .filter(|state| {
@@ -192,18 +261,13 @@ impl World {
     }
 
     fn add_recruited_regiment(&mut self, province: u32, recruitment: Recruitment) {
-        let morale = self
-            .military_rules
-            .combat
-            .morale_milli()
-            .expect("陆战规则已检查");
-        let regiment = Regiment {
-            kind: recruitment.kind,
-            strength: REGIMENT_STRENGTH,
+        let morale = self.country_morale_milli(&recruitment.country);
+        let regiment = self.fresh_regiment(
+            &recruitment.country,
+            recruitment.kind,
+            REGIMENT_STRENGTH,
             morale,
-            strength_pending: 0,
-            morale_pending: 0,
-        };
+        );
         // 同国同省份的后续部队加入驻军，保留原军队编号。撤退中的军队不接收新兵。
         if let Some(army) = self.military.armies.values_mut().find(|army| {
             army.country == recruitment.country

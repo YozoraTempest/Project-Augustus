@@ -8,9 +8,12 @@
 //! 步兵和骑兵按兵种组筛选：`unit_type` 与该组相同，没写 `unit_type` 则各组都能用。
 //! 同一兵种有多个时，用历史兵种名单里最后一项已经启用的；名单没有就用该级最后一项 `enable`。
 
-use std::path::Path;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
-use augustus_core::{CombatRules, Money, UnitCombat, UnitKind};
+use augustus_core::{CombatRules, CountryMilitary, Money, UnitCombat, UnitKind};
 
 use crate::{Error, content::ContentRoot, script};
 
@@ -128,20 +131,211 @@ impl LoadedUnit {
 
 fn technology(content: &ContentRoot) -> Result<Technology, Error> {
     let file = content.read("common/technologies/mil.txt")?;
-    let tape = script::parse(&file)?;
-    // 文件和 defines 都不写基础战术。科技 0 只把写出的键加到这个起点上。
+    let levels = read_levels(content)?;
+    // 旧的统一配置仍只使用科技 0 的数值，兵种取其后第一个写出 enable 的等级。
+    let Some(first) = levels.first() else {
+        return Err(Error::invalid(&file.path, "missing technology"));
+    };
     let mut technology = Technology {
         level: 0,
         enabled: Vec::new(),
-        infantry_fire: Money::ZERO,
-        infantry_shock: Money::ZERO,
-        cavalry_fire: Money::ZERO,
-        cavalry_shock: Money::ZERO,
-        land_morale: Money::ZERO,
-        tactics: Money::new(5, 1),
+        infantry_fire: first.infantry_fire,
+        infantry_shock: first.infantry_shock,
+        cavalry_fire: first.cavalry_fire,
+        cavalry_shock: first.cavalry_shock,
+        land_morale: first.land_morale,
+        tactics: Money::new(5, 1) + first.tactics,
     };
-    let mut found = false;
-    let mut index = 0_u32;
+    if technology.tactics <= Money::ZERO {
+        return Err(Error::invalid(
+            &file.path,
+            "military_tactics must be positive",
+        ));
+    }
+    let Some((index, level)) = levels
+        .iter()
+        .enumerate()
+        .find(|(_, level)| !level.enables.is_empty())
+    else {
+        return Err(Error::invalid(&file.path, "no technology enables a unit"));
+    };
+    technology.level = u32::try_from(index).unwrap_or(u32::MAX);
+    technology.enabled = level.enables.clone();
+    Ok(technology)
+}
+
+struct TechLevel {
+    enables: Vec<String>,
+    infantry_fire: Money,
+    infantry_shock: Money,
+    cavalry_fire: Money,
+    cavalry_shock: Money,
+    land_morale: Money,
+    tactics: Money,
+    combat_width: Money,
+}
+
+/// 各国开局军事配置。科技文件只解析一次，再按国家的起始等级累计。
+pub(super) struct OpeningMilitary {
+    base_width: u32,
+    levels: Vec<TechLevel>,
+    units: Vec<LoadedUnit>,
+    start_levels: BTreeMap<String, u32>,
+}
+
+impl OpeningMilitary {
+    pub(super) fn load(content: &ContentRoot) -> Result<Self, Error> {
+        let file = content.read("common/defines.lua")?;
+        let text = String::from_utf8_lossy(&file.bytes);
+        let mut width = None;
+        for line in text.lines() {
+            let line = line.split("--").next().unwrap_or("");
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            if key.trim() != "BASE_COMBAT_WIDTH" {
+                continue;
+            }
+            let value = value.trim().trim_end_matches(',').trim();
+            width = Some(parse_money(value, &file.path, "BASE_COMBAT_WIDTH")?);
+        }
+        let levels = read_levels(content)?;
+        if levels.is_empty() {
+            return Err(Error::invalid(
+                content.path().join("common/technologies/mil.txt"),
+                "missing technology",
+            ));
+        }
+        let mut names = Vec::new();
+        let mut seen = BTreeSet::new();
+        for level in &levels {
+            for name in &level.enables {
+                if seen.insert(name.clone()) {
+                    names.push(name.clone());
+                }
+            }
+        }
+        Ok(Self {
+            base_width: positive_whole(
+                required(width, &file.path, "BASE_COMBAT_WIDTH")?,
+                &file.path,
+            )?,
+            levels,
+            units: load_units(content, &names)?,
+            start_levels: start_levels(content)?,
+        })
+    }
+
+    /// 从科技 0 累加到该科技组的 `start_level`。没写的键加 0。步兵缺失则失败，骑兵可以没有。
+    pub(super) fn resolve(
+        &self,
+        tag: &str,
+        technology_group: &str,
+        unit_group: &str,
+        historical_units: &[impl AsRef<str>],
+    ) -> Result<CountryMilitary, Error> {
+        let level = self
+            .start_levels
+            .get(technology_group)
+            .copied()
+            .ok_or_else(|| {
+                Error::invalid(
+                    Path::new("common/technology.txt"),
+                    format!("{tag} technology group {technology_group} has no start_level"),
+                )
+            })?;
+        let last = u32::try_from(self.levels.len() - 1).unwrap_or(0);
+        if level > last {
+            return Err(Error::invalid(
+                Path::new("common/technologies/mil.txt"),
+                format!("{tag} military technology {level} is past the last technology"),
+            ));
+        }
+        let mut infantry_fire = Money::ZERO;
+        let mut infantry_shock = Money::ZERO;
+        let mut cavalry_fire = Money::ZERO;
+        let mut cavalry_shock = Money::ZERO;
+        let mut land_morale = Money::ZERO;
+        let mut tactics = Money::new(5, 1);
+        let mut combat_width = Money::ZERO;
+        let mut enabled = Vec::new();
+        for tech in self
+            .levels
+            .iter()
+            .take(usize::try_from(level).unwrap_or(0) + 1)
+        {
+            infantry_fire += tech.infantry_fire;
+            infantry_shock += tech.infantry_shock;
+            cavalry_fire += tech.cavalry_fire;
+            cavalry_shock += tech.cavalry_shock;
+            land_morale += tech.land_morale;
+            tactics += tech.tactics;
+            combat_width += tech.combat_width;
+            enabled.extend(tech.enables.iter().cloned());
+        }
+        if tactics <= Money::ZERO {
+            return Err(Error::invalid(
+                Path::new("common/technologies/mil.txt"),
+                format!("{tag} military_tactics must be positive"),
+            ));
+        }
+        let added = whole_width(combat_width)?;
+        let width = self.base_width.checked_add(added).ok_or_else(|| {
+            Error::invalid(
+                Path::new("common/technologies/mil.txt"),
+                format!("{tag} combat width overflows"),
+            )
+        })?;
+        let infantry = choose_named(
+            &self.units,
+            UnitKind::Infantry,
+            &enabled,
+            unit_group,
+            historical_units,
+        )?
+        .ok_or_else(|| missing_unit(tag, unit_group, level, "infantry"))?;
+        let cavalry = choose_named(
+            &self.units,
+            UnitKind::Cavalry,
+            &enabled,
+            unit_group,
+            historical_units,
+        )?;
+        let military = CountryMilitary {
+            unit_group: unit_group.to_owned(),
+            technology_group: technology_group.to_owned(),
+            level,
+            infantry_unit: infantry.name.clone(),
+            cavalry_unit: cavalry.map(|unit| unit.name.clone()).unwrap_or_default(),
+            infantry: with_damage(&infantry.combat, infantry_fire, infantry_shock),
+            cavalry: cavalry.map(|unit| with_damage(&unit.combat, cavalry_fire, cavalry_shock)),
+            max_morale: land_morale,
+            tactics,
+            width,
+        };
+        if !military.is_playable() {
+            return Err(Error::invalid(
+                Path::new("common/technologies/mil.txt"),
+                format!("{tag} military technology {level} is not playable"),
+            ));
+        }
+        Ok(military)
+    }
+}
+
+fn missing_unit(tag: &str, group: &str, level: u32, kind: &str) -> Error {
+    Error::invalid(
+        Path::new("common/technologies/mil.txt"),
+        format!(
+            "{tag} unit group {group} at military technology {level} does not enable a {kind} unit"
+        ),
+    )
+}
+
+fn read_levels(content: &ContentRoot) -> Result<Vec<TechLevel>, Error> {
+    let file = content.read("common/technologies/mil.txt")?;
+    let tape = script::parse(&file)?;
+    let mut levels = Vec::new();
     for (key, operator, value) in tape.windows1252_reader().fields() {
         if key.read_str() != "technology" {
             continue;
@@ -150,14 +344,22 @@ fn technology(content: &ContentRoot) -> Result<Technology, Error> {
         let object = value
             .read_object()
             .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
-        found = true;
-        let mut enabled = Vec::new();
+        let mut level = TechLevel {
+            enables: Vec::new(),
+            infantry_fire: Money::ZERO,
+            infantry_shock: Money::ZERO,
+            cavalry_fire: Money::ZERO,
+            cavalry_shock: Money::ZERO,
+            land_morale: Money::ZERO,
+            tactics: Money::ZERO,
+            combat_width: Money::ZERO,
+        };
         for (key, operator, value) in object.fields() {
             let name = key.read_str().to_string();
             match name.as_str() {
                 "enable" => {
                     script::equal(&file, operator, "enable")?;
-                    enabled.push(
+                    level.enables.push(
                         value
                             .read_string()
                             .map_err(|error| Error::invalid(&file.path, error.to_string()))?
@@ -165,44 +367,128 @@ fn technology(content: &ContentRoot) -> Result<Technology, Error> {
                     );
                 }
                 "infantry_fire" | "infantry_shock" | "cavalry_fire" | "cavalry_shock"
-                | "military_tactics" | "land_morale"
-                    if index == 0 =>
-                {
+                | "military_tactics" | "land_morale" | "combat_width" => {
                     script::equal(&file, operator, &name)?;
                     let amount = decimal(&value, &file, &name)?;
                     match name.as_str() {
-                        "infantry_fire" => technology.infantry_fire += amount,
-                        "infantry_shock" => technology.infantry_shock += amount,
-                        "cavalry_fire" => technology.cavalry_fire += amount,
-                        "cavalry_shock" => technology.cavalry_shock += amount,
-                        "military_tactics" => technology.tactics += amount,
-                        "land_morale" => technology.land_morale += amount,
+                        "infantry_fire" => level.infantry_fire += amount,
+                        "infantry_shock" => level.infantry_shock += amount,
+                        "cavalry_fire" => level.cavalry_fire += amount,
+                        "cavalry_shock" => level.cavalry_shock += amount,
+                        "military_tactics" => level.tactics += amount,
+                        "land_morale" => level.land_morale += amount,
+                        "combat_width" => level.combat_width += amount,
                         _ => {}
                     }
                 }
                 _ => {}
             }
         }
-        if !enabled.is_empty() {
-            technology.level = index;
-            technology.enabled = enabled;
-            break;
+        levels.push(level);
+    }
+    Ok(levels)
+}
+
+fn start_levels(content: &ContentRoot) -> Result<BTreeMap<String, u32>, Error> {
+    let file = content.read("common/technology.txt")?;
+    let tape = script::parse(&file)?;
+    let mut groups = None;
+    for (key, operator, value) in tape.windows1252_reader().fields() {
+        if key.read_str() != "groups" {
+            continue;
         }
-        index += 1;
+        script::equal(&file, operator, "groups")?;
+        if groups.is_some() {
+            return Err(Error::invalid(&file.path, "duplicate technology groups"));
+        }
+        groups = Some(
+            value
+                .read_object()
+                .map_err(|error| Error::invalid(&file.path, error.to_string()))?,
+        );
     }
-    if !found {
-        return Err(Error::invalid(&file.path, "missing technology"));
+    let Some(groups) = groups else {
+        return Err(Error::invalid(&file.path, "missing technology groups"));
+    };
+    let mut levels = BTreeMap::new();
+    for (key, operator, value) in groups.fields() {
+        let name = key.read_str().to_string();
+        script::equal(&file, operator, &name)?;
+        let object = value
+            .read_object()
+            .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
+        let mut start = None;
+        for (key, operator, value) in object.fields() {
+            if key.read_str() != "start_level" {
+                continue;
+            }
+            script::equal(&file, operator, "start_level")?;
+            if start.is_some() {
+                return Err(Error::invalid(
+                    &file.path,
+                    format!("duplicate start_level for {name}"),
+                ));
+            }
+            let number = value
+                .read_scalar()
+                .map_err(|error| Error::invalid(&file.path, error.to_string()))?
+                .to_i64()
+                .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
+            start = Some(u32::try_from(number).map_err(|_| {
+                Error::invalid(&file.path, format!("invalid start_level for {name}"))
+            })?);
+        }
+        let start = start
+            .ok_or_else(|| Error::invalid(&file.path, format!("missing start_level for {name}")))?;
+        levels.insert(name, start);
     }
-    if technology.tactics <= Money::ZERO {
-        return Err(Error::invalid(
-            &file.path,
-            "military_tactics must be positive",
-        ));
+    if levels.is_empty() {
+        return Err(Error::invalid(&file.path, "missing technology groups"));
     }
-    if technology.enabled.is_empty() {
-        return Err(Error::invalid(&file.path, "no technology enables a unit"));
-    }
-    Ok(technology)
+    Ok(levels)
+}
+
+fn whole_width(value: Money) -> Result<u32, Error> {
+    u32::try_from(value)
+        .ok()
+        .filter(|_| value.is_integer() && value >= Money::ZERO)
+        .ok_or_else(|| {
+            Error::invalid(
+                Path::new("common/technologies/mil.txt"),
+                "combat_width must be a non-negative whole number",
+            )
+        })
+}
+
+/// 启用名单里，历史兵种从后往前取第一项。没有就用启用顺序的最后一项。骑兵可以没有。
+fn choose_named<'a>(
+    units: &'a [LoadedUnit],
+    kind: UnitKind,
+    enabled: &[String],
+    unit_group: &str,
+    historical_units: &[impl AsRef<str>],
+) -> Result<Option<&'a LoadedUnit>, Error> {
+    let enabled_names: BTreeSet<&str> = enabled.iter().map(String::as_str).collect();
+    let selected = historical_units
+        .iter()
+        .rev()
+        .find_map(|name| {
+            let name = name.as_ref();
+            if !enabled_names.contains(name) {
+                return None;
+            }
+            units
+                .iter()
+                .find(|unit| unit.name == name && unit.available_to(kind, unit_group))
+        })
+        .or_else(|| {
+            enabled.iter().rev().find_map(|name| {
+                units
+                    .iter()
+                    .find(|unit| unit.name == *name && unit.available_to(kind, unit_group))
+            })
+        });
+    Ok(selected)
 }
 
 fn load_units(content: &ContentRoot, names: &[String]) -> Result<Vec<LoadedUnit>, Error> {
@@ -369,7 +655,7 @@ mod tests {
 
     use crate::content::ContentRoot;
 
-    use super::load;
+    use super::{OpeningMilitary, load};
 
     fn temp_root(name: &str) -> std::path::PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -686,6 +972,109 @@ mod tests {
         .unwrap();
         let _ = fs::remove_dir_all(&root);
         assert_eq!(rules.max_morale, Money::ZERO);
+    }
+
+    #[test]
+    fn accumulated_level_uses_start_level_and_not_later_technology() {
+        let root = temp_root("mil-level");
+        fs::write(root.join("common/defines.lua"), DEFINES).unwrap();
+        fs::write(
+            root.join("common/technology.txt"),
+            r#"
+                groups = {
+                    western = { start_level = 3 }
+                    mesoamerican = { start_level = 1 }
+                    eastern = { start_level = 3 }
+                }
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/technologies/mil.txt"),
+            r#"
+                technology = {
+                    infantry_fire = 0.25
+                    land_morale = 2.0
+                }
+                technology = {
+                    infantry_fire = 0.10
+                    enable = western_infantry
+                    enable = western_cavalry
+                    enable = meso_infantry
+                }
+                technology = {
+                    infantry_shock = 0.2
+                    combat_width = 5
+                }
+                technology = {
+                    land_morale = 0.5
+                }
+                technology = {
+                    military_tactics = 0.25
+                    combat_width = 9
+                    enable = later_infantry
+                }
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/western_infantry.txt"),
+            unit_text("infantry", "western", 1),
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/western_cavalry.txt"),
+            unit_text("cavalry", "western", 2),
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/meso_infantry.txt"),
+            unit_text("infantry", "mesoamerican", 4),
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/later_infantry.txt"),
+            unit_text("infantry", "western", 8),
+        )
+        .unwrap();
+
+        let opening = OpeningMilitary::load(&ContentRoot::new(&root)).unwrap();
+        let western = opening
+            .resolve(
+                "FRA",
+                "western",
+                "western",
+                &["western_infantry", "western_cavalry"],
+            )
+            .unwrap();
+        assert_eq!(western.level, 3);
+        assert_eq!(western.width, 20);
+        assert_eq!(western.infantry.fire_damage, Money::new(35, 2));
+        assert_eq!(western.infantry.shock_damage, Money::new(2, 1));
+        assert_eq!(western.cavalry.as_ref().unwrap().shock_damage, Money::ZERO);
+        assert_eq!(western.max_morale, Money::new(25, 1));
+        assert_eq!(western.tactics, Money::new(5, 1));
+        assert_eq!(western.infantry_unit, "western_infantry");
+        assert_eq!(western.infantry.offensive_shock, 1);
+
+        let meso = opening
+            .resolve("AZT", "mesoamerican", "mesoamerican", &["meso_infantry"])
+            .unwrap();
+        assert_eq!(meso.level, 1);
+        assert_eq!(meso.width, 15);
+        assert_eq!(meso.infantry.shock_damage, Money::ZERO);
+        assert_eq!(meso.max_morale, Money::from(2));
+        assert!(meso.cavalry.is_none());
+
+        let error = opening
+            .resolve("LIT", "eastern", "eastern", NO_HISTORY)
+            .unwrap_err();
+        let _ = fs::remove_dir_all(&root);
+        let message = error.to_string();
+        assert!(message.contains("LIT"), "{message}");
+        assert!(message.contains("eastern"), "{message}");
+        assert!(message.contains("technology 3"), "{message}");
+        assert!(message.contains("infantry"), "{message}");
     }
 
     fn unit_text(kind: &str, group: &str, shock: u32) -> String {

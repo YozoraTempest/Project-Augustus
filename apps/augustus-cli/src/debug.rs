@@ -41,6 +41,20 @@ pub fn country_report(world: &World, tag: &str, name: &str) -> Result<Value, Str
             "monthly_recovery": summary.monthly_recovery,
         })),
         "land_force_limit": world.country_land_force_limit(tag),
+        "military": world.country_military(tag).map(|military| json!({
+            "level": military.level,
+            "technology_group": military.technology_group,
+            "unit_group": military.unit_group,
+            "infantry_unit": military.infantry_unit,
+            "cavalry_unit": military.cavalry_unit,
+            "max_morale": money(military.max_morale),
+            "tactics": money(military.tactics),
+            "width": military.width,
+            "infantry_fire": money(military.infantry.fire_damage),
+            "infantry_shock": money(military.infantry.shock_damage),
+            "cavalry_fire": military.cavalry.as_ref().map(|unit| money(unit.fire_damage)),
+            "cavalry_shock": military.cavalry.as_ref().map(|unit| money(unit.shock_damage)),
+        })),
         "budget": budget,
         "wars": wars,
         "truces": truces,
@@ -226,7 +240,10 @@ pub fn advance(
 }
 
 fn army_value(world: &World, army: &Army, date: GameDate) -> Value {
-    let max_morale = world.military_rules().combat.morale_milli();
+    let military = world.country_military(&army.country);
+    let max_morale = military
+        .and_then(|military| military.morale_milli())
+        .or_else(|| world.military_rules().combat.morale_milli());
     let (infantry, infantry_strength) = army.composition(UnitKind::Infantry);
     let (cavalry, cavalry_strength) = army.composition(UnitKind::Cavalry);
     json!({
@@ -234,7 +251,17 @@ fn army_value(world: &World, army: &Army, date: GameDate) -> Value {
         "country": army.country,
         "province": army.province,
         "strength": army.strength(),
+        "military_level": military.map(|military| military.level),
+        "unit_group": military.map(|military| &military.unit_group),
         "morale": max_morale.map(|max| army.average_morale(max)),
+        "regiments": army.regiments.iter().map(|regiment| json!({
+            "kind": match regiment.kind {
+                UnitKind::Infantry => "infantry",
+                UnitKind::Cavalry => "cavalry",
+            },
+            "unit": regiment.unit,
+            "strength": regiment.strength,
+        })).collect::<Vec<_>>(),
         "infantry": { "regiments": infantry, "strength": infantry_strength },
         "cavalry": { "regiments": cavalry, "strength": cavalry_strength },
         "retreating": army.is_retreating(),

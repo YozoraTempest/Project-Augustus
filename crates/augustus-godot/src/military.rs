@@ -80,10 +80,17 @@ pub(crate) fn army_info(
     info.set("regiment_count", army.regiments.len() as i64);
     let max_morale = world
         .state()
-        .military_rules()
-        .combat
-        .morale_milli()
+        .country_military(&army.country)
+        .and_then(|military| military.morale_milli())
+        .or_else(|| world.state().military_rules().combat.morale_milli())
         .expect("陆战规则已检查");
+    if let Some(military) = world.state().country_military(&army.country) {
+        info.set("military_level", i64::from(military.level));
+        info.set("unit_group", military.unit_group.as_str());
+    } else {
+        info.set("military_level", &Variant::nil());
+        info.set("unit_group", &Variant::nil());
+    }
     let in_battle = army.battle_id().is_some();
     let retreating = army.is_retreating();
     info.set("in_battle", in_battle);
@@ -127,6 +134,11 @@ pub(crate) fn army_info(
     for regiment in &army.regiments {
         let mut details = VarDictionary::new();
         details.set("kind", unit_label(regiment.kind));
+        if regiment.unit.is_empty() {
+            details.set("unit", &Variant::nil());
+        } else {
+            details.set("unit", regiment.unit.as_str());
+        }
         details.set("strength", i64::from(regiment.strength));
         regiments.push(&details);
     }

@@ -56,7 +56,8 @@ impl OpeningWorld {
             .collect();
         geography::apply(&content, &mut provinces)?;
         terrain::apply(&content, &map, &mut provinces)?;
-        let country_history_conflicts = history::apply_countries(&content, &mut countries.states)?;
+        let country_history = history::apply_countries(&content, &mut countries.states)?;
+        let country_history_conflicts = country_history.conflicts;
         let histories =
             history::apply_provinces(&content, &countries.colors, &mut provinces, &buildings)?;
         // 已绘制的陆地必须有历史文件；缺失内容不能被误当成未殖民省份。
@@ -72,10 +73,18 @@ impl OpeningWorld {
                 ));
             }
         }
-        // 地图在选定玩家之前载入，陆战兵种仍全体共用。这一套取法国历史中的兵种组
-        // （unit_type，否则 technology_group）和定义文件里的 historical_units。
-        let (unit_group, historical_units) = france_land_units(&content)?;
-        let military_rules = military::load(&content, &unit_group, &historical_units)?;
+        // 旧档没有分国配置，统一兵种仍取法国历史，只填 MilitaryRules。各国开局不读它。
+        let historical = countries::all_historical_units(&content)?;
+        let (legacy_group, legacy_units) = france_legacy(&country_history.groups, &historical)?;
+        let military_rules = military::load(&content, &legacy_group, legacy_units)?;
+        let opening_military = combat::OpeningMilitary::load(&content)?;
+        assign_opening_military(
+            &opening_military,
+            &country_history.groups,
+            &historical,
+            &provinces,
+            &mut countries.states,
+        )?;
         let connections = navigation::connections(&map, &provinces);
         let mut state = World::new(
             countries.states.into_values(),
@@ -226,13 +235,72 @@ impl OpeningWorld {
     }
 }
 
-/// 开局共用兵种的来源国家。玩家要等地图载入之后才选定，法国是这份开局要能进入的国家。
-fn france_land_units(content: &ContentRoot) -> Result<(String, Vec<String>), Error> {
-    const TAG: &str = "FRA";
+/// 只给旧档保留的统一兵种。新开局的国家各自使用自己的科技组和兵种组。
+fn france_legacy<'a>(
+    groups: &'a BTreeMap<String, history::CountryGroups>,
+    historical: &'a BTreeMap<String, Vec<String>>,
+) -> Result<(String, &'a [String]), Error> {
+    let origin = groups.get("FRA").ok_or_else(|| {
+        Error::invalid(
+            Path::new("history/countries"),
+            "legacy military snapshot requires FRA history",
+        )
+    })?;
+    let group = origin
+        .unit_type
+        .clone()
+        .or_else(|| origin.technology_group.clone())
+        .ok_or_else(|| {
+            Error::invalid(
+                Path::new("history/countries"),
+                "legacy military snapshot requires FRA unit group",
+            )
+        })?;
     Ok((
-        history::unit_group(content, TAG)?,
-        countries::historical_units(content, TAG)?,
+        group,
+        historical.get("FRA").map(Vec::as_slice).unwrap_or(&[]),
     ))
+}
+
+fn assign_opening_military(
+    military: &combat::OpeningMilitary,
+    groups: &BTreeMap<String, history::CountryGroups>,
+    historical: &BTreeMap<String, Vec<String>>,
+    provinces: &BTreeMap<u32, Province>,
+    countries: &mut BTreeMap<String, Country>,
+) -> Result<(), Error> {
+    let landed: BTreeSet<String> = provinces
+        .values()
+        .filter(|province| province.kind == ProvinceKind::Land)
+        .filter_map(|province| province.owner.clone())
+        .collect();
+    for (tag, country) in countries.iter_mut() {
+        let Some(origin) = groups.get(tag) else {
+            if landed.contains(tag) {
+                return Err(Error::invalid(
+                    Path::new("history/countries"),
+                    format!("{tag} has land but no technology_group"),
+                ));
+            }
+            continue;
+        };
+        let Some(technology_group) = origin.technology_group.clone() else {
+            if landed.contains(tag) {
+                return Err(Error::invalid(
+                    Path::new("history/countries"),
+                    format!("{tag} has land but no technology_group"),
+                ));
+            }
+            continue;
+        };
+        let unit_group = origin
+            .unit_type
+            .clone()
+            .unwrap_or_else(|| technology_group.clone());
+        let units = historical.get(tag).map(Vec::as_slice).unwrap_or(&[]);
+        country.military = Some(military.resolve(tag, &technology_group, &unit_group, units)?);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -263,6 +331,42 @@ mod tests {
         assert_eq!(combat.cavalry.offensive_shock, 1);
         assert_eq!(combat.cavalry.defensive_shock, 1);
         assert_eq!(combat.cavalry.defensive_morale, 0);
+        assert_eq!(combat.width, 15);
+        let fra = state.country_military("FRA").expect("法国有军事配置");
+        assert_eq!(fra.level, 3);
+        assert_eq!(fra.technology_group, "western");
+        assert_eq!(fra.unit_group, "western");
+        assert_eq!(fra.infantry_unit, "western_medieval_infantry");
+        assert_eq!(fra.cavalry_unit, "chevauchee");
+        assert_eq!(fra.width, 20);
+        assert_eq!(fra.max_morale, Money::new(25, 1));
+        assert_eq!(fra.tactics, Money::new(5, 1));
+        assert_eq!(fra.infantry.fire_damage, Money::new(35, 2));
+        assert_eq!(fra.infantry.shock_damage, Money::new(5, 1));
+        assert_eq!(fra.cavalry.as_ref().unwrap().shock_damage, Money::from(1));
+        assert_eq!(fra.infantry.offensive_morale, 1);
+        assert_eq!(fra.infantry.offensive_shock, 0);
+        let lit = state.country_military("LIT").expect("立陶宛有军事配置");
+        assert_eq!(lit.level, 3);
+        assert_eq!(lit.technology_group, "eastern");
+        assert_eq!(lit.unit_group, "eastern");
+        assert_eq!(lit.infantry_unit, "bardiche_infantry");
+        assert_eq!(lit.cavalry_unit, "eastern_knights");
+        assert_eq!(lit.width, fra.width);
+        assert_eq!(lit.max_morale, fra.max_morale);
+        assert_eq!(lit.infantry.offensive_shock, 0);
+        assert_eq!(lit.cavalry.as_ref().unwrap().defensive_shock, 0);
+        let azt = state.country_military("AZT").expect("阿兹特克有军事配置");
+        assert_eq!(azt.level, 1);
+        assert_eq!(azt.technology_group, "mesoamerican");
+        assert_eq!(azt.unit_group, "mesoamerican");
+        assert_eq!(azt.infantry_unit, "mesoamerican_spearmen");
+        assert!(azt.cavalry.is_none());
+        assert_eq!(azt.width, 15);
+        assert_eq!(azt.max_morale, Money::from(2));
+        assert_eq!(azt.infantry.fire_damage, Money::new(35, 2));
+        assert_eq!(azt.infantry.shock_damage, Money::new(3, 1));
+        assert_eq!(azt.infantry.offensive_shock, 1);
         let fraction = state.military_rules().starting_army_size;
         let owners: BTreeSet<_> = state
             .armies()
@@ -274,8 +378,14 @@ mod tests {
             let province = state.province(army.province).expect("驻地存在");
             assert_eq!(province.kind, ProvinceKind::Land);
             assert_eq!(province.owner.as_deref(), Some(army.country.as_str()));
+            let military = state
+                .country_military(&army.country)
+                .expect("有军队的国家有军事配置");
             assert!(army.regiments.iter().all(|regiment| {
-                regiment.kind == UnitKind::Infantry && regiment.strength == REGIMENT_STRENGTH
+                regiment.kind == UnitKind::Infantry
+                    && regiment.strength == REGIMENT_STRENGTH
+                    && regiment.unit == military.infantry_unit
+                    && regiment.morale == military.morale_milli().unwrap()
             }));
             let limit = state.country_land_force_limit(&army.country).unwrap();
             let expected = (Money::from(limit) * fraction).floor();
