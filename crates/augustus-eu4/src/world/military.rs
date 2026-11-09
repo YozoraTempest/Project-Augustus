@@ -8,7 +8,11 @@ use crate::{Error, content::ContentRoot};
 
 use super::forcelimit;
 
-pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
+pub(super) fn load(
+    content: &ContentRoot,
+    unit_group: &str,
+    historical_units: &[impl AsRef<str>],
+) -> Result<MilitaryRules, Error> {
     let file = content.read("common/defines.lua")?;
     let text = String::from_utf8_lossy(&file.bytes);
     let mut infantry_cost = None;
@@ -108,7 +112,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<MilitaryRules, Error> {
             "STARTING_ARMY_SIZE_AT_WAR",
         )?,
         manpower: super::manpower::load(content, &text)?,
-        combat: super::combat::load(content, &text, &file.path)?,
+        combat: super::combat::load(content, &text, &file.path, unit_group, historical_units)?,
     })
 }
 
@@ -247,7 +251,7 @@ mod tests {
         )
         .unwrap();
 
-        let rules = load(&ContentRoot::new(&root)).unwrap();
+        let rules = load(&ContentRoot::new(&root), "western", &[] as &[&str]).unwrap();
         assert_eq!(rules.supply_base, 6);
         assert_eq!(rules.base_land_forcelimit, Money::from(6));
         assert_eq!(rules.development_land_forcelimit, Money::new(1, 1));
