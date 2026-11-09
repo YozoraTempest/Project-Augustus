@@ -86,6 +86,58 @@ pub(super) fn apply_countries(
     Ok(conflicts)
 }
 
+/// 开局兵种组。历史写了 `unit_type` 时用它，否则用 `technology_group`。
+pub(super) fn unit_group(content: &ContentRoot, tag: &str) -> Result<String, Error> {
+    let mut group = None;
+    for path in content.text_files("history/countries")? {
+        let file = content.read(path)?;
+        if history_id(&file)? != tag {
+            continue;
+        }
+        let resolved = read_unit_group(&file)?;
+        if let Some(previous) = &group
+            && previous != &resolved
+        {
+            return Err(Error::invalid(
+                &file.path,
+                format!("conflicting unit group for {tag}"),
+            ));
+        }
+        group = Some(resolved);
+    }
+    group.ok_or_else(|| {
+        Error::invalid(
+            content.path().join("history/countries"),
+            format!("missing history for {tag}"),
+        )
+    })
+}
+
+fn read_unit_group(file: &ContentFile) -> Result<String, Error> {
+    let tape = script::parse(file)?;
+    let at = Date::parse(super::START_DATE).expect("固定开局日期必须有效");
+    let mut technology_group = None;
+    let mut unit_type = None;
+    for block in script::history_blocks(file, &tape, at)? {
+        for (key, operator, value) in block.fields() {
+            let name = key.read_str();
+            if !matches!(name.as_ref(), "technology_group" | "unit_type") {
+                continue;
+            }
+            script::equal(file, operator, &name)?;
+            let text = optional_text(&value, file)?;
+            match name.as_ref() {
+                "technology_group" => technology_group = text,
+                "unit_type" => unit_type = text,
+                _ => unreachable!(),
+            }
+        }
+    }
+    unit_type
+        .or(technology_group)
+        .ok_or_else(|| Error::invalid(&file.path, "missing unit_type or technology_group"))
+}
+
 pub(super) fn apply_provinces(
     content: &ContentRoot,
     countries: &BTreeMap<String, [u8; 3]>,
@@ -232,4 +284,39 @@ fn integer(
         .map_err(|error| Error::invalid(&file.path, error.to_string()))?
         .to_i64()
         .map_err(|error| Error::invalid(&file.path, error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use crate::content::ContentRoot;
+
+    use super::unit_group;
+
+    #[test]
+    fn unit_type_overrides_technology_group_until_the_start_date() {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "augustus-unit-group-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("history/countries")).unwrap();
+        fs::write(
+            root.join("history/countries/FRA - France.txt"),
+            r#"
+                technology_group = eastern
+                unit_type = western
+                1400.1.1 = { unit_type = muslim }
+                1500.1.1 = { unit_type = ottoman }
+            "#,
+        )
+        .unwrap();
+        let group = unit_group(&ContentRoot::new(&root), "FRA").unwrap();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(group, "muslim");
+    }
 }
