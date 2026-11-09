@@ -55,23 +55,27 @@ jobs:
           executable = directory / filename
           if not executable.is_file():
               archive = directory.with_suffix(".zip")
-              # 两处均为 Godot 官方发布，避免单个发布地址持续 504 阻断检查。
-              repositories = ("godotengine/godot-builds", "godotengine/godot")
-              for repository in repositories:
-                  url = f"https://github.com/{repository}/releases/download/{version}-stable/{name}.zip"
+              host = "windows.64" if os.name == "nt" else "linux.64"
+              # 官方下载站转到对象存储。GitHub 发布在 Actions 上会持续 504，只作后备。
+              urls = (
+                  f"https://downloads.godotengine.org/?version={version}&flavor=stable&slug={platform}.zip&platform={host}",
+                  f"https://github.com/godotengine/godot-builds/releases/download/{version}-stable/{name}.zip",
+              )
+              for index, url in enumerate(urls):
                   try:
-                      # curl 对临时错误有限重试；所有官方地址失败时仍让 CI 失败。
+                      # curl 对临时网络错误和 5xx 有限重试；全部地址失败时仍让 CI 失败。
                       subprocess.run([
                           "curl", "--fail", "--location", "--retry", "5",
                           "--retry-delay", "3", "--retry-max-time", "300",
-                          "--connect-timeout", "30", "--max-time", "120",
+                          "--connect-timeout", "30", "--max-time", "180",
                           "--output", str(archive), url,
                       ], check=True)
                       break
                   except subprocess.CalledProcessError:
-                      if repository == repositories[-1]:
+                      if index == len(urls) - 1:
                           raise
-                      print("下载失败，改用另一官方发布地址", flush=True)
+                      # Windows 默认代码页不是 UTF-8，日志必须用 ASCII，否则后备下载不会执行。
+                      print("download failed, trying the next official url", flush=True)
               with zipfile.ZipFile(archive) as package:
                   package.extractall(directory)
           executable.chmod(0o755)
