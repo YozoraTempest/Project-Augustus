@@ -140,6 +140,7 @@ impl World {
                 remove_obsolete(province, &self.buildings);
             }
         }
+        self.ensure_garrisons();
     }
 }
 

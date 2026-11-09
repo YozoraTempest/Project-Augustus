@@ -71,6 +71,63 @@ pub(crate) fn province_info(world: &OpeningWorld, id: u32) -> VarDictionary {
     );
     money(&mut info, "base_monthly_tax", province.monthly_tax());
     info.set("fortified", world.state().province_is_fortified(id));
+    info.set(
+        "fort_level",
+        i64::from(world.state().province_fort_level(id)),
+    );
+    number(
+        &mut info,
+        "garrison",
+        world.state().province_garrison(id).map(u64::from),
+    );
+    number(
+        &mut info,
+        "garrison_cap",
+        Some(u64::from(world.state().province_garrison_cap(id))),
+    );
+    info.set("fort_mothballed", province.fort_mothballed);
+    number(
+        &mut info,
+        "siege_required_men",
+        world.state().siege_required_men(id),
+    );
+    number(
+        &mut info,
+        "besieging_men",
+        Some(world.state().besieging_men(id)),
+    );
+    match province.siege.as_ref() {
+        Some(progress) => {
+            info.set("siege_days", i64::from(progress.days));
+            info.set("siege_total", i64::from(OCCUPATION_PHASE_DAYS));
+            info.set("siege_status", i64::from(progress.status));
+            text(
+                &mut info,
+                "siege_besieger",
+                Some(progress.besieger.as_str()),
+            );
+            text(
+                &mut info,
+                "siege_besieger_name",
+                Some(world.display_name(&progress.besieger).as_str()),
+            );
+            number(&mut info, "siege_roll", progress.last_roll.map(u64::from));
+            text(
+                &mut info,
+                "siege_result",
+                progress.last_result.map(|result| result.label()),
+            );
+        }
+        None => {
+            info.set("siege_days", &Variant::nil());
+            info.set("siege_total", &Variant::nil());
+            info.set("siege_status", &Variant::nil());
+            text(&mut info, "siege_besieger", None);
+            text(&mut info, "siege_besieger_name", None);
+            number(&mut info, "siege_roll", None);
+            text(&mut info, "siege_result", None);
+        }
+    }
     match province.occupation.as_ref() {
         Some(progress) => {
             info.set("occupation_days", i64::from(progress.days));

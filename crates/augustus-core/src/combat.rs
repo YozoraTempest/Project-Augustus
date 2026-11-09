@@ -679,6 +679,11 @@ impl RandomStream {
         (self.next_u64() % u64::from(DICE_SIDES)) as u8
     }
 
+    /// 闭区间 1 到 `sides`。围城骰面数和野战的 10 面不是同一个定义。
+    pub(crate) fn roll_to(&mut self, sides: u32) -> u32 {
+        (self.next_u64() % u64::from(sides)) as u32 + 1
+    }
+
     /// 相邻退路在基础分高于 2000 时追加的 0 到 3。
     pub(crate) fn bonus_steps(&mut self) -> u32 {
         (self.next_u64() % 4) as u32
