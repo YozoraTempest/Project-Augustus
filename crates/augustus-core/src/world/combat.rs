@@ -545,15 +545,9 @@ impl World {
         strength_weighted_morale(&pairs)
     }
 
-    /// 启用中的要塞让原驻围攻军成为进攻方。停用要塞没有驻军，不反转。
+    /// 围攻要塞的军队算进攻方。停用不取消这个反转。
     /// 要塞区域的通行阻挡仍未实现。
     fn effective_fort_level(&self, province: u32) -> u32 {
-        if self
-            .province(province)
-            .is_some_and(|province| province.fort_mothballed)
-        {
-            return 0;
-        }
         self.province_fort_level(province)
     }
 

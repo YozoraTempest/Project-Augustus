@@ -596,10 +596,8 @@ mod tests {
             .expect("法国有首都");
         let level = opening.state().province_fort_level(capital);
         assert!(level >= 1);
-        assert_eq!(
-            opening.state().province_garrison(capital),
-            Some(1_000 * level)
-        );
+        assert_eq!(opening.state().province_garrison(capital), Some(1_000));
+        assert_eq!(opening.state().province_garrison_cap(capital), 1_000);
         assert!(!opening.state().province(capital).unwrap().fort_mothballed);
 
         let plain = opening

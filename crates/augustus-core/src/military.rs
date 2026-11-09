@@ -358,7 +358,7 @@ pub struct MilitaryState {
     /// 骰子和退路加分共用一条可续算的序列。旧档从固定起点重新开始，不重掷已经保存的骰子。
     #[serde(default)]
     pub(crate) random: RandomStream,
-    /// 围城检定单独取数，避免占领要塞时打乱野战骰序。
+    /// 围城检定单独留一条序列，避免以后接入时打乱野战骰序。检定表未接入，结算不取数。
     #[serde(default)]
     pub(crate) siege_random: RandomStream,
 }
