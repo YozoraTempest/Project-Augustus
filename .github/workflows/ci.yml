@@ -9,6 +9,7 @@ permissions:
 
 env:
   GODOT_VERSION: 4.7.2
+  PYTHONUTF8: "1"
 
 jobs:
   check:
