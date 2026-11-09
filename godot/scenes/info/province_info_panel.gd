@@ -85,6 +85,10 @@ func show_info(province: Dictionary, country: Dictionary, construction: Dictiona
 		country_body.text = "国家标签：%s\n\n首都：%s\n主流文化：%s\n国教：%s\n\n领土省份：%d\n总发展度：%s" % [country.tag, capital, _value(country.primary_culture), _value(country.religion), country.province_count, _value(country.development)]
 		country_body.text += "\n\n国库：%s 金币\n月度税收：+%s 金币\n陆军维护：-%s 金币（基础 %s，超额 %s）\n月度净收支：%s 金币" % [_value(country.treasury), _value(country.monthly_tax), _value(country.army_maintenance), _value(country.base_army_maintenance), _value(country.excess_army_maintenance), _value(country.monthly_balance)]
 		country_body.text += "\n\n可用人力：%d / %d\n每月恢复：+%d 人" % [country.manpower.available, country.manpower.capacity, country.manpower.monthly_recovery]
+		if country.has_military:
+			var cavalry_name := "无" if country.cavalry_unit == null else str(country.cavalry_unit)
+			var cavalry_stats := "无" if country.cavalry_fire == null else "火力 %s · 冲击 %s" % [country.cavalry_fire, country.cavalry_shock]
+			country_body.text += "\n\n军事科技：%d\n科技组：%s\n兵种组：%s\n战线宽度：%d\n最大士气：%s\n战术：%s\n步兵：%s（火力 %s · 冲击 %s）\n骑兵：%s（%s）" % [country.military_level, country.technology_group, country.unit_group, country.military_width, country.military_morale, country.military_tactics, country.infantry_unit, country.infantry_fire, country.infantry_shock, cavalry_name, cavalry_stats]
 		country_body.text += _army_text(country)
 		if country.last_settlement_month == null:
 			country_body.text += "\n最近结算：尚未结算"

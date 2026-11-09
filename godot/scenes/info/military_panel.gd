@@ -137,6 +137,8 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 			else:
 				disband_button.tooltip_text = ""
 			army_details.text = "%s\n编号：#%d\n所属国家：%s (%s) · %s\n驻扎：%s (#%d)\n部队：%d 团 · 总兵力 %d 人\n%s" % [army.name, id, army.country_name, army.country, relation, army.province_name, army.province, army.regiment_count, army.strength, _composition_text(army)]
+			if army.military_level != null:
+				army_details.text += "\n军事科技：%d · 兵种组：%s" % [army.military_level, army.unit_group]
 			if army.movement != null:
 				army_details.text = army_details.text.replace("驻扎：", "当前省份：")
 				var movement: Dictionary = army.movement
@@ -161,7 +163,9 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 				movement_details.show()
 			for index in army.regiments.size():
 				var regiment: Dictionary = army.regiments[index]
-				army_details.text += "\n第 %d 团：%s · %d 人" % [index + 1, regiment.kind, regiment.strength]
+				var unit_name := str(regiment.get("unit", ""))
+				var label := str(regiment.kind) if unit_name.is_empty() else "%s · %s" % [regiment.kind, unit_name]
+				army_details.text += "\n第 %d 团：%s · %d 人" % [index + 1, label, regiment.strength]
 			army_details.text += _supply_text(army)
 			if army.has("reinforcement"):
 				army_details.text += "\n" + str(army.reinforcement)

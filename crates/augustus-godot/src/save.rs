@@ -5,8 +5,8 @@ use std::{fs, path::Path};
 use augustus_core::{GameDate, MilitaryState, SavedGame};
 use serde::{Deserialize, Serialize};
 
-// 第 9 版起，每个省份的招募按订单数组保存。更早版本每个省份只有一个对象，核心反序列化仍接受该形状。
-const SAVE_VERSION: u32 = 9;
+// 第 10 版起保存各国军事配置和团的兵种身份。更早版本沿用统一配置。
+const SAVE_VERSION: u32 = 10;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SaveFile {
@@ -81,6 +81,9 @@ impl SaveFile {
                         .ok_or("存档中的招募格式无效")?
                         .insert("paid_manpower".to_owned(), 0.into());
                 }
+            }
+            if header.version <= 9 {
+                game.insert("uses_unified_military".to_owned(), true.into());
             }
             data["version"] = SAVE_VERSION.into();
             return serde_json::from_value(data).map_err(|error| format!("无法解析存档：{error}"));

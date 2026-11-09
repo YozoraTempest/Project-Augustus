@@ -63,19 +63,18 @@ pub(super) fn load(content: &ContentRoot) -> Result<CountryDefinitions, Error> {
     Ok(countries)
 }
 
-/// 国家定义里的历史兵种，按文件顺序。没有该字段时为空。
-pub(super) fn historical_units(content: &ContentRoot, tag: &str) -> Result<Vec<String>, Error> {
-    let mut found = None;
+/// 每个国家定义里的历史兵种，按文件顺序。没有该字段时为空名单。
+pub(super) fn all_historical_units(
+    content: &ContentRoot,
+) -> Result<BTreeMap<String, Vec<String>>, Error> {
+    let mut units = BTreeMap::new();
     for path in content.text_files("common/country_tags")? {
         let file = content.read(path)?;
         let tape = script::parse(&file)?;
         for (key, operator, value) in tape.windows1252_reader().fields() {
-            let name = key.read_string();
-            if name != tag {
-                continue;
-            }
-            script::equal(&file, operator, &name)?;
-            if found.is_some() {
+            let tag = key.read_string();
+            script::equal(&file, operator, &tag)?;
+            if units.contains_key(&tag) {
                 return Err(Error::invalid(
                     &file.path,
                     format!("duplicate country tag: {tag}"),
@@ -89,15 +88,10 @@ pub(super) fn historical_units(content: &ContentRoot, tag: &str) -> Result<Vec<S
                 ));
             }
             let definition = content.read(Path::new("common").join(relative))?;
-            found = Some(read_historical_units(&definition)?);
+            units.insert(tag, read_historical_units(&definition)?);
         }
     }
-    found.ok_or_else(|| {
-        Error::invalid(
-            content.path().join("common/country_tags"),
-            format!("unknown country {tag}"),
-        )
-    })
+    Ok(units)
 }
 
 fn read_historical_units(file: &ContentFile) -> Result<Vec<String>, Error> {
@@ -171,7 +165,7 @@ mod tests {
 
     use crate::content::ContentRoot;
 
-    use super::historical_units;
+    use super::all_historical_units;
 
     #[test]
     fn historical_units_keep_file_order() {
@@ -194,7 +188,10 @@ mod tests {
             "historical_units = { western_medieval_infantry chevauchee }\n",
         )
         .unwrap();
-        let units = historical_units(&ContentRoot::new(&root), "FRA").unwrap();
+        let units = all_historical_units(&ContentRoot::new(&root))
+            .unwrap()
+            .remove("FRA")
+            .unwrap();
         let _ = fs::remove_dir_all(&root);
         assert_eq!(units, ["western_medieval_infantry", "chevauchee"]);
     }
