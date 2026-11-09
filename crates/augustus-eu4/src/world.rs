@@ -72,7 +72,10 @@ impl OpeningWorld {
                 ));
             }
         }
-        let military_rules = military::load(&content)?;
+        // 地图在选定玩家之前载入，陆战兵种仍全体共用。这一套取法国历史中的兵种组
+        // （unit_type，否则 technology_group）和定义文件里的 historical_units。
+        let (unit_group, historical_units) = france_land_units(&content)?;
+        let military_rules = military::load(&content, &unit_group, &historical_units)?;
         let connections = navigation::connections(&map, &provinces);
         let mut state = World::new(
             countries.states.into_values(),
@@ -223,6 +226,15 @@ impl OpeningWorld {
     }
 }
 
+/// 开局共用兵种的来源国家。玩家要等地图载入之后才选定，法国是这份开局要能进入的国家。
+fn france_land_units(content: &ContentRoot) -> Result<(String, Vec<String>), Error> {
+    const TAG: &str = "FRA";
+    Ok((
+        history::unit_group(content, TAG)?,
+        countries::historical_units(content, TAG)?,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -237,6 +249,20 @@ mod tests {
         let dir = std::env::var("AUGUSTUS_EU4_DIR").expect("设置 AUGUSTUS_EU4_DIR");
         let world = OpeningWorld::load(dir).expect("EU4 开局");
         let state = world.state();
+        let combat = &state.military_rules().combat;
+        assert_eq!(combat.tactics, Money::new(5, 1));
+        assert_eq!(combat.infantry.fire_damage, Money::new(25, 2));
+        assert_eq!(combat.infantry.shock_damage, Money::new(2, 1));
+        assert_eq!(combat.cavalry.fire_damage, Money::ZERO);
+        assert_eq!(combat.cavalry.shock_damage, Money::new(8, 1));
+        assert_eq!(combat.max_morale, Money::from(2));
+        // 法国历史名单在科技 1 选中 western_medieval_infantry 和 chevauchee。
+        assert_eq!(combat.infantry.offensive_morale, 1);
+        assert_eq!(combat.infantry.defensive_morale, 1);
+        assert_eq!(combat.infantry.offensive_shock, 0);
+        assert_eq!(combat.cavalry.offensive_shock, 1);
+        assert_eq!(combat.cavalry.defensive_shock, 1);
+        assert_eq!(combat.cavalry.defensive_morale, 0);
         let fraction = state.military_rules().starting_army_size;
         let owners: BTreeSet<_> = state
             .armies()

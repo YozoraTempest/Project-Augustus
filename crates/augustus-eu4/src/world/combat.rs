@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! 从 defines、军事科技 0 级和兵种文件读取基础陆战数值。
+//! 从 defines、军事科技和兵种文件读取基础陆战数值。
 //!
-//! 国家科技组和后续科技等级尚未实现，因此只应用 `mil.txt` 的第一个 technology 块，
-//! 而不是 1444 年各国已经研究的等级。应用之前战术是 0.5，其余数值是 0；
+//! 数值只累加第一个 technology 块。应用之前战术是 0.5，其余数值是 0；
 //! 块里没写的键加 0。陆战士气取该块的 `land_morale`，不读 `base_values`。
+//! 科技 0 没有 `enable` 时，兵种改取其后第一个写出 `enable` 的科技级，不累加那一级的数值。
+//! 步兵和骑兵按兵种组筛选：`unit_type` 与该组相同，没写 `unit_type` 则各组都能用。
+//! 同一兵种有多个时，用历史兵种名单里最后一项已经启用的；名单没有就用该级最后一项 `enable`。
 
 use std::path::Path;
 
@@ -16,6 +18,8 @@ pub(super) fn load(
     content: &ContentRoot,
     defines: &str,
     defines_path: &Path,
+    unit_group: &str,
+    historical_units: &[impl AsRef<str>],
 ) -> Result<CombatRules, Error> {
     let mut width = None;
     let mut recovery = None;
@@ -46,10 +50,22 @@ pub(super) fn load(
             _ => {}
         }
     }
-    let technology = first_technology(content)?;
+    let technology = technology(content)?;
     let units = load_units(content, &technology.enabled)?;
-    let infantry = choose(&units, UnitKind::Infantry, &technology)?;
-    let cavalry = choose(&units, UnitKind::Cavalry, &technology)?;
+    let infantry = choose(
+        &units,
+        UnitKind::Infantry,
+        &technology,
+        unit_group,
+        historical_units,
+    )?;
+    let cavalry = choose(
+        &units,
+        UnitKind::Cavalry,
+        &technology,
+        unit_group,
+        historical_units,
+    )?;
     Ok(CombatRules {
         width: positive_whole(
             required(width, defines_path, "BASE_COMBAT_WIDTH")?,
@@ -81,6 +97,8 @@ pub(super) fn load(
 }
 
 struct Technology {
+    /// 第一个写出 `enable` 的 technology 块序号。科技 0 是 0。
+    level: u32,
     enabled: Vec<String>,
     infantry_fire: Money,
     infantry_shock: Money,
@@ -92,15 +110,28 @@ struct Technology {
 
 struct LoadedUnit {
     name: String,
+    /// 没写时各组都能用。
+    group: Option<String>,
     kind: UnitKind,
     combat: UnitCombat,
 }
 
-fn first_technology(content: &ContentRoot) -> Result<Technology, Error> {
+impl LoadedUnit {
+    fn available_to(&self, kind: UnitKind, group: &str) -> bool {
+        self.kind == kind
+            && self
+                .group
+                .as_deref()
+                .is_none_or(|candidate| candidate == group)
+    }
+}
+
+fn technology(content: &ContentRoot) -> Result<Technology, Error> {
     let file = content.read("common/technologies/mil.txt")?;
     let tape = script::parse(&file)?;
-    // 文件和 defines 都不写基础战术。第一个 technology 块只把写出的键加到这个起点上。
+    // 文件和 defines 都不写基础战术。科技 0 只把写出的键加到这个起点上。
     let mut technology = Technology {
+        level: 0,
         enabled: Vec::new(),
         infantry_fire: Money::ZERO,
         infantry_shock: Money::ZERO,
@@ -110,6 +141,7 @@ fn first_technology(content: &ContentRoot) -> Result<Technology, Error> {
         tactics: Money::new(5, 1),
     };
     let mut found = false;
+    let mut index = 0_u32;
     for (key, operator, value) in tape.windows1252_reader().fields() {
         if key.read_str() != "technology" {
             continue;
@@ -119,12 +151,13 @@ fn first_technology(content: &ContentRoot) -> Result<Technology, Error> {
             .read_object()
             .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
         found = true;
+        let mut enabled = Vec::new();
         for (key, operator, value) in object.fields() {
             let name = key.read_str().to_string();
             match name.as_str() {
                 "enable" => {
                     script::equal(&file, operator, "enable")?;
-                    technology.enabled.push(
+                    enabled.push(
                         value
                             .read_string()
                             .map_err(|error| Error::invalid(&file.path, error.to_string()))?
@@ -132,7 +165,9 @@ fn first_technology(content: &ContentRoot) -> Result<Technology, Error> {
                     );
                 }
                 "infantry_fire" | "infantry_shock" | "cavalry_fire" | "cavalry_shock"
-                | "military_tactics" | "land_morale" => {
+                | "military_tactics" | "land_morale"
+                    if index == 0 =>
+                {
                     script::equal(&file, operator, &name)?;
                     let amount = decimal(&value, &file, &name)?;
                     match name.as_str() {
@@ -148,7 +183,12 @@ fn first_technology(content: &ContentRoot) -> Result<Technology, Error> {
                 _ => {}
             }
         }
-        break;
+        if !enabled.is_empty() {
+            technology.level = index;
+            technology.enabled = enabled;
+            break;
+        }
+        index += 1;
     }
     if !found {
         return Err(Error::invalid(&file.path, "missing technology"));
@@ -160,10 +200,7 @@ fn first_technology(content: &ContentRoot) -> Result<Technology, Error> {
         ));
     }
     if technology.enabled.is_empty() {
-        return Err(Error::invalid(
-            &file.path,
-            "technology 0 does not enable a unit",
-        ));
+        return Err(Error::invalid(&file.path, "no technology enables a unit"));
     }
     Ok(technology)
 }
@@ -175,6 +212,7 @@ fn load_units(content: &ContentRoot, names: &[String]) -> Result<Vec<LoadedUnit>
         let file = content.read(&relative)?;
         let tape = script::parse(&file)?;
         let mut kind = None;
+        let mut group = None;
         let mut other_type = false;
         let mut pips = [None; 7];
         for (key, operator, value) in tape.windows1252_reader().fields() {
@@ -191,6 +229,16 @@ fn load_units(content: &ContentRoot, names: &[String]) -> Result<Vec<LoadedUnit>
                         // 火炮和后排不在本阶段。启用了也不当作步兵或骑兵。
                         _ => other_type = true,
                     }
+                    continue;
+                }
+                "unit_type" => {
+                    script::equal(&file, operator, "unit_type")?;
+                    group = Some(
+                        value
+                            .read_string()
+                            .map_err(|error| Error::invalid(&file.path, error.to_string()))?
+                            .to_string(),
+                    );
                     continue;
                 }
                 "offensive_fire" => 0,
@@ -221,6 +269,7 @@ fn load_units(content: &ContentRoot, names: &[String]) -> Result<Vec<LoadedUnit>
         };
         units.push(LoadedUnit {
             name: name.clone(),
+            group,
             kind,
             combat: UnitCombat {
                 offensive_fire: pip(0, "offensive_fire")?,
@@ -238,26 +287,37 @@ fn load_units(content: &ContentRoot, names: &[String]) -> Result<Vec<LoadedUnit>
     Ok(units)
 }
 
-/// 同一兵种有多个单位时优先名称以 `western_` 开头的，否则取名称排序的第一个。
+/// 历史名单从后往前，取第一项已经启用且属于该兵种组的。名单没有就用启用顺序的最后一项。
 fn choose<'a>(
     units: &'a [LoadedUnit],
     kind: UnitKind,
     technology: &Technology,
+    unit_group: &str,
+    historical_units: &[impl AsRef<str>],
 ) -> Result<&'a UnitCombat, Error> {
-    let mut matching: Vec<_> = units.iter().filter(|unit| unit.kind == kind).collect();
-    matching.sort_by(|left, right| left.name.cmp(&right.name));
-    matching
+    historical_units
         .iter()
-        .find(|unit| unit.name.starts_with("western_"))
-        .or_else(|| matching.first())
+        .rev()
+        .find_map(|name| {
+            let name = name.as_ref();
+            units
+                .iter()
+                .find(|unit| unit.name == name && unit.available_to(kind, unit_group))
+        })
+        .or_else(|| {
+            units
+                .iter()
+                .rev()
+                .find(|unit| unit.available_to(kind, unit_group))
+        })
         .map(|unit| &unit.combat)
         .ok_or_else(|| {
             Error::invalid(
                 Path::new("common/technologies/mil.txt"),
                 format!(
-                    "technology 0 does not enable a {} unit ({})",
-                    kind.id(),
-                    technology.enabled.join(", ")
+                    "technology {} does not enable a {} unit for {unit_group}",
+                    technology.level,
+                    kind.id()
                 ),
             )
         })
@@ -384,7 +444,14 @@ mod tests {
         )
         .unwrap();
 
-        let rules = load(&ContentRoot::new(&root), DEFINES, Path::new("defines.lua")).unwrap();
+        let rules = load(
+            &ContentRoot::new(&root),
+            DEFINES,
+            Path::new("defines.lua"),
+            "western",
+            NO_HISTORY,
+        )
+        .unwrap();
         let _ = fs::remove_dir_all(&root);
         assert_eq!(rules.tactics, Money::new(5, 1) + Money::new(25, 2));
         assert_eq!(rules.max_morale, Money::from(2));
@@ -422,20 +489,141 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("common/units/western_medieval_infantry.txt"),
-            "type = infantry\n",
+            unit_text("infantry", "western", 1),
         )
         .unwrap();
 
-        let error = load(&ContentRoot::new(&root), DEFINES, Path::new("defines.lua")).unwrap_err();
+        let error = load(
+            &ContentRoot::new(&root),
+            DEFINES,
+            Path::new("defines.lua"),
+            "western",
+            NO_HISTORY,
+        )
+        .unwrap_err();
         let _ = fs::remove_dir_all(&root);
         let message = error.to_string();
         assert!(
-            message.contains("technology 0 does not enable a unit"),
+            message.contains("technology 1 does not enable a cavalry unit for western"),
+            "{message}"
+        );
+        assert!(
+            !message.contains("technology 0 does not enable a unit"),
             "{message}"
         );
         assert!(!message.contains("military_tactics"), "{message}");
         assert!(!message.contains("land_morale"), "{message}");
         assert!(!message.contains("base_values"), "{message}");
+    }
+
+    #[test]
+    fn first_enable_level_filters_by_unit_type_and_keeps_technology_zero_values() {
+        let root = temp_root("mil-group");
+        fs::write(
+            root.join("common/static_modifiers/00_static_modifiers.txt"),
+            "base_values = { land_morale = 9 }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/technologies/mil.txt"),
+            r#"
+                technology = {
+                    infantry_fire = 0.25
+                    infantry_shock = 0.20
+                    cavalry_shock = 0.8
+                    land_morale = 2.0
+                }
+                technology = {
+                    infantry_fire = 1
+                    military_tactics = 0.5
+                    enable = western_medieval_infantry
+                    enable = halberd_infantry
+                    enable = western_medieval_knights
+                    enable = chevauchee
+                    enable = eastern_medieval_infantry
+                }
+                technology = {
+                    enable = later_infantry
+                }
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/western_medieval_infantry.txt"),
+            unit_text("infantry", "western", 1),
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/halberd_infantry.txt"),
+            unit_text("infantry", "western", 3),
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/western_medieval_knights.txt"),
+            unit_text("cavalry", "western", 4),
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/chevauchee.txt"),
+            unit_text("cavalry", "western", 7),
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/eastern_medieval_infantry.txt"),
+            unit_text("infantry", "eastern", 9),
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/later_infantry.txt"),
+            unit_text("infantry", "western", 8),
+        )
+        .unwrap();
+
+        let content = ContentRoot::new(&root);
+        let rules = load(
+            &content,
+            DEFINES,
+            Path::new("defines.lua"),
+            "western",
+            &[
+                "western_medieval_knights",
+                "western_medieval_infantry",
+                "chevauchee",
+            ],
+        )
+        .unwrap();
+        assert_eq!(rules.tactics, Money::new(5, 1));
+        assert_eq!(rules.max_morale, Money::from(2));
+        assert_eq!(rules.infantry.fire_damage, Money::new(25, 2));
+        assert_eq!(rules.infantry.offensive_shock, 1);
+        assert_eq!(rules.cavalry.offensive_shock, 7);
+        assert_eq!(rules.cavalry.shock_damage, Money::new(8, 1));
+
+        let fallback = load(
+            &content,
+            DEFINES,
+            Path::new("defines.lua"),
+            "western",
+            NO_HISTORY,
+        )
+        .unwrap();
+        assert_eq!(fallback.infantry.offensive_shock, 3);
+        assert_eq!(fallback.cavalry.offensive_shock, 7);
+
+        let error = load(
+            &content,
+            DEFINES,
+            Path::new("defines.lua"),
+            "eastern",
+            NO_HISTORY,
+        )
+        .unwrap_err();
+        let _ = fs::remove_dir_all(&root);
+        let message = error.to_string();
+        assert!(
+            message.contains("technology 1 does not enable a cavalry unit for eastern"),
+            "{message}"
+        );
     }
 
     #[test]
@@ -488,10 +676,25 @@ mod tests {
         )
         .unwrap();
 
-        let rules = load(&ContentRoot::new(&root), DEFINES, Path::new("defines.lua")).unwrap();
+        let rules = load(
+            &ContentRoot::new(&root),
+            DEFINES,
+            Path::new("defines.lua"),
+            "western",
+            NO_HISTORY,
+        )
+        .unwrap();
         let _ = fs::remove_dir_all(&root);
         assert_eq!(rules.max_morale, Money::ZERO);
     }
+
+    fn unit_text(kind: &str, group: &str, shock: u32) -> String {
+        format!(
+            "type = {kind}\nunit_type = {group}\nmaneuver = 1\noffensive_morale = 0\ndefensive_morale = 0\noffensive_fire = 0\ndefensive_fire = 0\noffensive_shock = {shock}\ndefensive_shock = 0\n"
+        )
+    }
+
+    const NO_HISTORY: &[&str] = &[];
 
     const DEFINES: &str = r#"
         BASE_COMBAT_WIDTH = 15,
