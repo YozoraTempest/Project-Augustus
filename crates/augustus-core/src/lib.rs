@@ -20,7 +20,10 @@ mod world;
 
 pub use building::{BuildingDefinition, Construction, ConstructionError, ConstructionQuote};
 pub(crate) use combat::ReportedSide;
-pub use combat::{Battle, BattleOutcome, BattleReport, CombatRules, UNSET_MORALE, UnitCombat};
+pub use combat::{
+    Battle, BattleOutcome, BattleReport, CombatRules, CountryMilitary, UNSET_MORALE, UnitCombat,
+    UnitPips,
+};
 pub use country::Country;
 pub use economy::{CountryFinances, MonthlyBudget, MonthlySettlement};
 pub use manpower::{ManpowerPool, ManpowerRules, ManpowerSummary};

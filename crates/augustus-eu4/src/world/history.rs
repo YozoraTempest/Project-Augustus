@@ -11,20 +11,35 @@ use crate::{
     script,
 };
 
+pub(super) struct CountryHistory {
+    pub conflicts: BTreeSet<String>,
+    /// 开局日期及之前最后一次写出的科技组和兵种组。没有历史文件的国家不在这里。
+    pub groups: BTreeMap<String, CountryGroups>,
+}
+
+pub(super) struct CountryGroups {
+    pub technology_group: Option<String>,
+    pub unit_type: Option<String>,
+}
+
 pub(super) fn apply_countries(
     content: &ContentRoot,
     countries: &mut BTreeMap<String, Country>,
-) -> Result<BTreeSet<String>, Error> {
+) -> Result<CountryHistory, Error> {
     let files = match content.text_files("history/countries") {
         Ok(files) => files,
         // 特殊国家和自制内容可以没有国家历史，未提供的属性保留 None。
         Err(Error::Read { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(BTreeSet::new());
+            return Ok(CountryHistory {
+                conflicts: BTreeSet::new(),
+                groups: BTreeMap::new(),
+            });
         }
         Err(error) => return Err(error),
     };
     let mut loaded = BTreeSet::new();
     let mut conflicts = BTreeSet::new();
+    let mut groups = BTreeMap::new();
     let at = Date::parse(super::START_DATE).expect("固定开局日期必须有效");
     for path in files {
         let file = content.read(path)?;
@@ -36,11 +51,16 @@ pub(super) fn apply_countries(
             )
         })?;
         let mut country = Country::new(&tag);
+        let mut technology_group = None;
+        let mut unit_type = None;
         let tape = script::parse(&file)?;
         for block in script::history_blocks(&file, &tape, at)? {
             for (key, operator, value) in block.fields() {
                 let name = key.read_str();
-                if !matches!(name.as_ref(), "capital" | "primary_culture" | "religion") {
+                if !matches!(
+                    name.as_ref(),
+                    "capital" | "primary_culture" | "religion" | "technology_group" | "unit_type"
+                ) {
                     continue;
                 }
                 script::equal(&file, operator, &name)?;
@@ -58,16 +78,32 @@ pub(super) fn apply_countries(
                     match name.as_ref() {
                         "primary_culture" => country.primary_culture = text,
                         "religion" => country.religion = text,
+                        "technology_group" => technology_group = text,
+                        "unit_type" => unit_type = text,
                         _ => unreachable!(),
                     }
                 }
             }
         }
+        let origin = CountryGroups {
+            technology_group,
+            unit_type,
+        };
         if loaded.insert(tag.clone()) {
             target.capital = country.capital;
             target.primary_culture = country.primary_culture;
             target.religion = country.religion;
+            groups.insert(tag.clone(), origin);
         } else {
+            let previous = groups.get(&tag).expect("重复历史仍有第一次的科技组");
+            if previous.technology_group != origin.technology_group
+                || previous.unit_type != origin.unit_type
+            {
+                return Err(Error::invalid(
+                    &file.path,
+                    format!("conflicting technology group or unit type for {tag}"),
+                ));
+            }
             // 原版 SOF 存在两份不同历史；仅保留所有候选一致的字段，不猜测加载优先级。
             if target.capital != country.capital {
                 target.capital = None;
@@ -83,59 +119,7 @@ pub(super) fn apply_countries(
             }
         }
     }
-    Ok(conflicts)
-}
-
-/// 开局兵种组。历史写了 `unit_type` 时用它，否则用 `technology_group`。
-pub(super) fn unit_group(content: &ContentRoot, tag: &str) -> Result<String, Error> {
-    let mut group = None;
-    for path in content.text_files("history/countries")? {
-        let file = content.read(path)?;
-        if history_id(&file)? != tag {
-            continue;
-        }
-        let resolved = read_unit_group(&file)?;
-        if let Some(previous) = &group
-            && previous != &resolved
-        {
-            return Err(Error::invalid(
-                &file.path,
-                format!("conflicting unit group for {tag}"),
-            ));
-        }
-        group = Some(resolved);
-    }
-    group.ok_or_else(|| {
-        Error::invalid(
-            content.path().join("history/countries"),
-            format!("missing history for {tag}"),
-        )
-    })
-}
-
-fn read_unit_group(file: &ContentFile) -> Result<String, Error> {
-    let tape = script::parse(file)?;
-    let at = Date::parse(super::START_DATE).expect("固定开局日期必须有效");
-    let mut technology_group = None;
-    let mut unit_type = None;
-    for block in script::history_blocks(file, &tape, at)? {
-        for (key, operator, value) in block.fields() {
-            let name = key.read_str();
-            if !matches!(name.as_ref(), "technology_group" | "unit_type") {
-                continue;
-            }
-            script::equal(file, operator, &name)?;
-            let text = optional_text(&value, file)?;
-            match name.as_ref() {
-                "technology_group" => technology_group = text,
-                "unit_type" => unit_type = text,
-                _ => unreachable!(),
-            }
-        }
-    }
-    unit_type
-        .or(technology_group)
-        .ok_or_else(|| Error::invalid(&file.path, "missing unit_type or technology_group"))
+    Ok(CountryHistory { conflicts, groups })
 }
 
 pub(super) fn apply_provinces(
@@ -288,12 +272,15 @@ fn integer(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    use augustus_core::Country;
+
     use crate::content::ContentRoot;
 
-    use super::unit_group;
+    use super::apply_countries;
 
     #[test]
     fn unit_type_overrides_technology_group_until_the_start_date() {
@@ -315,8 +302,12 @@ mod tests {
             "#,
         )
         .unwrap();
-        let group = unit_group(&ContentRoot::new(&root), "FRA").unwrap();
+        let mut countries = BTreeMap::from([("FRA".to_owned(), Country::new("FRA"))]);
+        let history = apply_countries(&ContentRoot::new(&root), &mut countries).unwrap();
         let _ = fs::remove_dir_all(&root);
-        assert_eq!(group, "muslim");
+        let groups = history.groups.get("FRA").unwrap();
+        assert_eq!(groups.technology_group.as_deref(), Some("eastern"));
+        // 1444 之前最后一次 unit_type 覆盖科技组；开局之后的日期不生效。
+        assert_eq!(groups.unit_type.as_deref(), Some("muslim"));
     }
 }

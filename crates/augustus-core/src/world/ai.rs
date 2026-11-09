@@ -301,7 +301,7 @@ impl World {
     }
 
     fn order_armies(&mut self, country: &str, date: GameDate) -> Vec<ArmyChoice> {
-        let max_morale = self.military_rules.combat.morale_milli();
+        let max_morale = Some(self.country_morale_milli(country));
         let ids: Vec<u32> = self
             .armies()
             .iter()

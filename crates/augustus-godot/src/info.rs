@@ -156,6 +156,40 @@ pub(crate) fn country_info(
     number(&mut info, "development", summary.development);
     info.extend_dictionary(&country_finances(world, tag), true);
     info.set("manpower", &crate::manpower::info(world, tag));
+    if let Some(military) = &country.military {
+        info.set("has_military", true);
+        info.set("military_level", i64::from(military.level));
+        info.set("technology_group", military.technology_group.as_str());
+        info.set("unit_group", military.unit_group.as_str());
+        info.set("infantry_unit", military.infantry_unit.as_str());
+        text(
+            &mut info,
+            "cavalry_unit",
+            (!military.cavalry_unit.is_empty()).then_some(military.cavalry_unit.as_str()),
+        );
+        money(&mut info, "military_morale", Some(military.max_morale));
+        money(&mut info, "military_tactics", Some(military.tactics));
+        info.set("military_width", i64::from(military.width));
+        money(
+            &mut info,
+            "infantry_fire",
+            Some(military.infantry.fire_damage),
+        );
+        money(
+            &mut info,
+            "infantry_shock",
+            Some(military.infantry.shock_damage),
+        );
+        if let Some(cavalry) = &military.cavalry {
+            money(&mut info, "cavalry_fire", Some(cavalry.fire_damage));
+            money(&mut info, "cavalry_shock", Some(cavalry.shock_damage));
+        } else {
+            text(&mut info, "cavalry_fire", None);
+            text(&mut info, "cavalry_shock", None);
+        }
+    } else {
+        info.set("has_military", false);
+    }
     info.set("armies", &country_armies(world, tag, player));
     let mut wars: Array<VarDictionary> = Array::new();
     for war in world.state().wars_of(tag) {

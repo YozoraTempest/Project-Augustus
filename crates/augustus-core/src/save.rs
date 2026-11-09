@@ -20,6 +20,9 @@ pub struct SavedGame {
     // 旧档没有战争字段，读入后视为尚未宣战。
     #[serde(default)]
     wars: WarState,
+    /// 第 10 版之前没有分国军事配置。读入后沿用统一兵种，不按各国科技重算。
+    #[serde(default)]
+    uses_unified_military: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -68,6 +71,7 @@ impl SavedGame {
             provinces: world.provinces().clone(),
             military: world.military().clone(),
             wars: world.clone_wars(),
+            uses_unified_military: false,
         }
     }
 
@@ -77,6 +81,10 @@ impl SavedGame {
             .filter(|_| self.clock.progress_nanos < 1_000_000_000)
             .ok_or(SaveError::InvalidClock)?;
         let mut world = content.restore_state(self.countries, self.provinces, self.clock.date)?;
+        // 旧档的战斗按保存时的统一配置继续，不按各国科技重算已部署的战线。
+        if self.uses_unified_military {
+            world.apply_unified_military();
+        }
         // 行军是否合法依赖战争关系，必须先恢复战争。
         world.restore_wars(self.wars, self.clock.date)?;
         world.restore_military(self.military, self.clock.date)?;

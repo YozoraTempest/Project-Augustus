@@ -2,7 +2,7 @@
 
 //! 新开局的陆军。读档不走这里，军事状态整份来自存档。
 
-use crate::{Army, Money, ProvinceKind, REGIMENT_STRENGTH, Regiment, UnitKind};
+use crate::{Army, Money, ProvinceKind, REGIMENT_STRENGTH, UnitKind};
 
 use super::World;
 
@@ -33,17 +33,9 @@ impl World {
             let id = self.military.next_army_id;
             self.military.next_army_id += 1;
             // 骑兵比例、火炮和叛军威胁都还没有可核对的开局输入，正规团全部使用步兵。
-            let morale = self
-                .military_rules
-                .combat
-                .morale_milli()
-                .expect("陆战规则已检查");
-            let regiments = std::iter::repeat_with(|| Regiment {
-                kind: UnitKind::Infantry,
-                strength: REGIMENT_STRENGTH,
-                morale,
-                strength_pending: 0,
-                morale_pending: 0,
+            let morale = self.country_morale_milli(&tag);
+            let regiments = std::iter::repeat_with(|| {
+                self.fresh_regiment(&tag, UnitKind::Infantry, REGIMENT_STRENGTH, morale)
             })
             .take(usize::try_from(count).expect("开局团数在支持范围内"))
             .collect();
