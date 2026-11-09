@@ -37,7 +37,8 @@ pub use peace::{
     PeaceError, PeaceQuote, PeaceSheet, ProvinceCost, WarScoreView, format_warscore_milli,
 };
 pub use province::{
-    Development, OCCUPATION_PHASE_DAYS, OccupationProgress, Province, ProvinceKind,
+    Development, OCCUPATION_PHASE_DAYS, OccupationProgress, Province, ProvinceKind, SiegeProgress,
+    SiegeRoll,
 };
 pub use rust_decimal::Decimal as Money;
 pub use save::{RestoredGame, SaveError, SavedGame};

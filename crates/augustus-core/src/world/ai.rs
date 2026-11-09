@@ -344,7 +344,14 @@ impl World {
         let distances = self.land_travel_days(country, view.province, view.speed, false);
         if view.morale_ready {
             match self.battle_aim(country, &view, &distances) {
-                BattleAim::Hold => stay(id, "正在占领，留在当地"),
+                BattleAim::Hold => stay(
+                    id,
+                    if self.province_is_fortified(view.province) {
+                        "正在围城，留在当地"
+                    } else {
+                        "正在占领，留在当地"
+                    },
+                ),
                 BattleAim::AlreadyThere { rank } => ArmyChoice {
                     id,
                     action: "stay".to_owned(),
@@ -446,35 +453,39 @@ impl World {
         if can_engage {
             return Some(1);
         }
-        if hostile == 0
-            && owner != country
-            && self.at_war(country, owner)
-            && state.controller.as_deref() != Some(country)
-            && !self.province_is_fortified(province)
-            && army.strength >= u64::from(REGIMENT_STRENGTH)
-        {
+        if hostile == 0 && self.can_take_province(country, province, army.strength) {
             return Some(2);
         }
         None
     }
 
-    /// 无要塞、兵力够、省内没有更强敌军时留在当地，让占领进度继续走。
+    /// 兵力够、省内没有更强敌军时留在当地，让占领或围城进度继续走。
     fn holding_occupation(&self, country: &str, army: &ArmyView) -> bool {
-        let Some(state) = self.province(army.province) else {
+        let hostile = self.strength_at(army.province, |other| {
+            other.country != country && self.at_war(country, &other.country)
+        });
+        self.can_take_province(country, army.province, army.strength) && hostile < army.strength
+    }
+
+    /// 无要塞至少 1000 人。要塞按当前驻军的三倍，停用后驻军为 0，任何停驻兵力都够。
+    fn can_take_province(&self, country: &str, province: u32, strength: u64) -> bool {
+        let Some(state) = self.province(province) else {
             return false;
         };
         let Some(owner) = state.owner.as_deref() else {
             return false;
         };
-        let hostile = self.strength_at(army.province, |other| {
-            other.country != country && self.at_war(country, &other.country)
-        });
-        owner != country
-            && self.at_war(country, owner)
-            && state.controller.as_deref() != Some(country)
-            && !self.province_is_fortified(army.province)
-            && army.strength >= u64::from(REGIMENT_STRENGTH)
-            && hostile < army.strength
+        if owner == country
+            || !self.at_war(country, owner)
+            || state.controller.as_deref() == Some(country)
+        {
+            return false;
+        }
+        if self.province_is_fortified(province) {
+            strength >= self.siege_required_men(province).unwrap_or(u64::MAX)
+        } else {
+            strength >= u64::from(REGIMENT_STRENGTH)
+        }
     }
 
     fn recovery_province(&self, country: &str, distances: &BTreeMap<u32, u32>) -> Option<u32> {

@@ -68,10 +68,7 @@ func show_info(province: Dictionary, country: Dictionary, construction: Dictiona
 			var owner := _country_name(province, "owner") if province.owner != null else "无主"
 			province_body.text += "\n\n所属国家：%s\n控制者：%s\n\n文化：%s\n宗教：%s\n商品：%s\n\n总发展度：%s\n税收发展度：%s\n生产发展度：%s\n人力发展度：%s" % [owner, _country_name(province, "controller"), _value(province.culture), _value(province.religion), _value(province.trade_good), _value(province.development), _value(province.base_tax), _value(province.base_production), _value(province.base_manpower)]
 			province_body.text += "\n\n基础月税：%s 金币\n建筑税收加成：+%s\n当前月度税收：%s 金币" % [_value(province.base_monthly_tax), _value(province.building_tax_bonus), _value(province.monthly_tax)]
-			if province.fortified:
-				province_body.text += "\n\n要塞围城尚未实现，不能按无要塞省份占领"
-			elif province.occupation_days != null:
-				province_body.text += "\n\n占领进度：%d/%d（%s）" % [province.occupation_days, province.occupation_total, _country_name(province, "occupation_occupier")]
+			province_body.text += _fort_text(province)
 		country_button.visible = not country.is_empty()
 	province_body.visible = not province.is_empty()
 	country_color.visible = not country.is_empty()
@@ -114,6 +111,19 @@ func _army_text(country: Dictionary) -> String:
 	if lines.is_empty():
 		return "\n\n陆军：无" + access
 	return "\n\n陆军%s：\n%s" % [access, "\n".join(lines)]
+
+
+func _fort_text(province: Dictionary) -> String:
+	if not province.fortified:
+		if province.occupation_days != null:
+			return "\n\n占领进度：%d/%d（%s）" % [province.occupation_days, province.occupation_total, _country_name(province, "occupation_occupier")]
+		return ""
+	var enabled := "停用" if province.fort_mothballed else "启用"
+	var text := "\n\n要塞：%d 级（%s）\n驻军：%s / %s\n围城所需：%s" % [province.fort_level, enabled, _value(province.garrison), _value(province.garrison_cap), _value(province.siege_required_men)]
+	if province.siege_days == null:
+		return text + "\n当前没有围城"
+	var remaining: int = province.siege_total - province.siege_days
+	return text + "\n围城：%s，%s / %s 人\n本阶段：%d/%d（距下次检定 %d 天）\n要塞状态：%s\n上次检定：%s（%s）" % [_country_name(province, "siege_besieger"), _value(province.besieging_men), _value(province.siege_required_men), province.siege_days, province.siege_total, remaining, _value(province.siege_status), _value(province.siege_roll), _value(province.siege_result)]
 
 
 func _value(value: Variant) -> String:

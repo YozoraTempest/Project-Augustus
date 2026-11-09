@@ -320,6 +320,7 @@ impl World {
                 province.owner = Some(offerer.clone());
                 province.controller = Some(offerer.clone());
                 province.occupation = None;
+                province.siege = None;
                 if controller.as_deref() != Some(offerer.as_str())
                     || owner.as_deref() != Some(offerer.as_str())
                 {
@@ -338,10 +339,9 @@ impl World {
                     self.control_changed = true;
                     controllers.push((id, owner));
                 }
-                self.provinces
-                    .get_mut(&id)
-                    .expect("交战省份存在")
-                    .occupation = None;
+                let province = self.provinces.get_mut(&id).expect("交战省份存在");
+                province.occupation = None;
+                province.siege = None;
             }
         }
         for (id, controller) in controllers {

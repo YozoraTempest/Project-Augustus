@@ -15,6 +15,7 @@ mod peace;
 mod recruitment_cancellation;
 mod reinforcement;
 mod saved_state;
+mod siege;
 mod starting_army;
 mod supply;
 mod war;
@@ -63,6 +64,8 @@ pub enum WorldError {
     InvalidLandConnection(u32, u32),
     #[error("province {province} has invalid occupation progress")]
     InvalidOccupation { province: u32 },
+    #[error("province {province} has invalid siege or garrison")]
+    InvalidSiege { province: u32 },
 }
 
 #[derive(Debug)]
@@ -174,6 +177,25 @@ impl World {
             {
                 return Err(WorldError::InvalidOccupation { province: id });
             }
+            let sources = siege::fort_sources(province, id, &registry, &definitions);
+            let fort_level = sources.level;
+            if let Some(progress) = &province.siege
+                && (fort_level == 0
+                    || province.kind != ProvinceKind::Land
+                    || progress.days >= OCCUPATION_PHASE_DAYS
+                    || progress.status > siege::max_siege_status(fort_level)
+                    || !registry.contains_key(&progress.besieger))
+            {
+                return Err(WorldError::InvalidSiege { province: id });
+            }
+            if province.fort_mothballed && fort_level == 0 {
+                return Err(WorldError::InvalidSiege { province: id });
+            }
+            if province.garrison.is_some_and(|men| {
+                sources.regiments == 0 || men > siege::garrison_cap(sources.regiments)
+            }) {
+                return Err(WorldError::InvalidSiege { province: id });
+            }
         }
         for country in registry.values() {
             if let Some(capital) = country.capital
@@ -233,6 +255,7 @@ impl World {
             control_changed: false,
         };
         world.initialize_manpower()?;
+        world.ensure_garrisons();
         Ok(world)
     }
 

@@ -305,9 +305,12 @@ fn assign_opening_military(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, time::Duration};
 
-    use augustus_core::{Money, ProvinceKind, REGIMENT_STRENGTH, UnitKind};
+    use augustus_core::{
+        GameDate, GameSpeed, Money, ProvinceKind, REGIMENT_STRENGTH, SavedGame, Simulation,
+        UnitKind, World,
+    };
 
     use super::OpeningWorld;
 
@@ -421,5 +424,240 @@ mod tests {
         );
         let manpower = state.country_manpower("FRA").unwrap();
         assert_eq!(manpower.available, manpower.capacity);
+    }
+
+    struct BorderFort {
+        army: u32,
+        country: String,
+        owner: String,
+        fort: u32,
+        foreign_neighbors: usize,
+    }
+
+    /// 邻接、兵力够、省内没有军队的外国要塞。外国邻省更少的排在前面。
+    fn border_forts(state: &World) -> Vec<BorderFort> {
+        let mut found = Vec::new();
+        for army in state.armies().values() {
+            if army.movement.is_some() || army.is_retreating() || army.battle_id().is_some() {
+                continue;
+            }
+            let Some(neighbors) = state.land_neighbors(army.province) else {
+                continue;
+            };
+            let mut foreign = Vec::new();
+            for &province in neighbors.keys() {
+                let Some(owner) = state
+                    .province(province)
+                    .and_then(|province| province.owner.clone())
+                else {
+                    continue;
+                };
+                if owner != army.country {
+                    foreign.push((province, owner));
+                }
+            }
+            for (fort, owner) in &foreign {
+                if state.province_fort_level(*fort) == 0 {
+                    continue;
+                }
+                let need = state.siege_required_men(*fort).unwrap_or(u64::MAX);
+                if army.strength() < need {
+                    continue;
+                }
+                let blocked = state.armies().values().any(|other| {
+                    other.province == *fort && other.strength() > 0 && !other.is_retreating()
+                });
+                if blocked {
+                    continue;
+                }
+                found.push(BorderFort {
+                    army: army.id(),
+                    country: army.country.clone(),
+                    owner: owner.clone(),
+                    fort: *fort,
+                    foreign_neighbors: foreign.len(),
+                });
+            }
+        }
+        found
+            .sort_by_key(|candidate| (candidate.foreign_neighbors, candidate.fort, candidate.army));
+        found
+    }
+
+    fn restore_opening(opening: &mut OpeningWorld, snapshot: &serde_json::Value) {
+        let restored = serde_json::from_value::<SavedGame>(snapshot.clone())
+            .unwrap()
+            .restore(opening.state())
+            .expect("开局快照可以读回");
+        opening.state = restored.world;
+    }
+
+    fn clock(date: GameDate) -> Simulation {
+        let mut simulation = Simulation::new(date);
+        simulation.set_paused(false);
+        simulation.set_speed(GameSpeed::Normal);
+        simulation
+    }
+
+    /// 玩家用行军命令围城，白和平后进度清除、控制者回到所有者。
+    fn player_siege(opening: &mut OpeningWorld, candidate: &BorderFort, date: GameDate) -> bool {
+        let state = &mut opening.state;
+        if state
+            .declare_war(&candidate.country, &candidate.owner, date)
+            .is_err()
+        {
+            return false;
+        }
+        if state
+            .move_army(&candidate.country, candidate.army, candidate.fort, date)
+            .is_err()
+        {
+            return false;
+        }
+        let mut simulation = clock(date);
+        for _ in 0..40 {
+            simulation.advance(state, Duration::from_secs(1));
+            let started = state
+                .province_siege(candidate.fort)
+                .map(|progress| (progress.besieger.clone(), progress.days));
+            let Some((besieger, _)) = started else {
+                continue;
+            };
+            if besieger != candidate.country {
+                return false;
+            }
+            let province = state.province(candidate.fort).unwrap();
+            if province.owner.as_deref() != Some(candidate.owner.as_str())
+                || province.controller.as_deref() != Some(candidate.owner.as_str())
+            {
+                return false;
+            }
+            if state
+                .make_peace(&candidate.country, &candidate.owner, &[], date)
+                .is_err()
+            {
+                return false;
+            }
+            let province = state.province(candidate.fort).unwrap();
+            return province.siege.is_none()
+                && province.controller.as_deref() == Some(candidate.owner.as_str())
+                && province.owner.as_deref() == Some(candidate.owner.as_str());
+        }
+        false
+    }
+
+    /// 非玩家交战国自己走到要塞并留下围城，白和平后清除。
+    fn ai_siege(opening: &mut OpeningWorld, candidate: &BorderFort, date: GameDate) -> bool {
+        let state = &mut opening.state;
+        if state
+            .declare_war(&candidate.country, &candidate.owner, date)
+            .is_err()
+        {
+            return false;
+        }
+        let mut simulation = clock(date);
+        for _ in 0..40 {
+            simulation.advance_for(state, Duration::from_secs(1), Some(&candidate.owner));
+            let started = state
+                .province_siege(candidate.fort)
+                .map(|progress| progress.besieger.clone());
+            let Some(besieger) = started else {
+                continue;
+            };
+            if besieger != candidate.country {
+                return false;
+            }
+            if state
+                .make_peace(&candidate.country, &candidate.owner, &[], date)
+                .is_err()
+            {
+                return false;
+            }
+            return state.province_siege(candidate.fort).is_none()
+                && state
+                    .province(candidate.fort)
+                    .unwrap()
+                    .controller
+                    .as_deref()
+                    == Some(candidate.owner.as_str());
+        }
+        false
+    }
+
+    #[test]
+    #[ignore = "需要本机 EU4 目录，设置 AUGUSTUS_EU4_DIR"]
+    fn opening_player_and_ai_can_besiege_a_real_fort() {
+        let dir = std::env::var("AUGUSTUS_EU4_DIR").expect("设置 AUGUSTUS_EU4_DIR");
+        let mut opening = OpeningWorld::load(dir).expect("EU4 开局");
+        let capital = opening
+            .state()
+            .country("FRA")
+            .and_then(|country| country.capital)
+            .expect("法国有首都");
+        let level = opening.state().province_fort_level(capital);
+        assert!(level >= 1);
+        assert_eq!(opening.state().province_garrison(capital), Some(1_000));
+        assert_eq!(opening.state().province_garrison_cap(capital), 1_000);
+        assert!(!opening.state().province(capital).unwrap().fort_mothballed);
+
+        let plain = opening
+            .state()
+            .provinces()
+            .iter()
+            .find_map(|(&id, province)| {
+                if province.kind != ProvinceKind::Land || province.owner.is_none() {
+                    return None;
+                }
+                if province
+                    .buildings
+                    .iter()
+                    .any(|building| building.contains("fort"))
+                {
+                    return None;
+                }
+                let owner = province.owner.as_deref().unwrap();
+                if opening
+                    .state()
+                    .country(owner)
+                    .and_then(|country| country.capital)
+                    == Some(id)
+                {
+                    return None;
+                }
+                (opening.state().province_fort_level(id) == 0).then_some(id)
+            });
+        let plain = plain.expect("存在无要塞陆地");
+        assert_eq!(opening.state().province_garrison(plain), None);
+
+        let candidates = border_forts(opening.state());
+        assert!(
+            !candidates.is_empty(),
+            "1444 没有邻接空要塞且兵力足够的军队"
+        );
+        let date = opening.start_date();
+        let snapshot = serde_json::to_value(SavedGame::capture(
+            opening.state(),
+            &Simulation::new(date),
+            &candidates[0].country,
+        ))
+        .unwrap();
+
+        let mut player_done = false;
+        let mut ai_done = false;
+        for candidate in candidates.iter().take(12) {
+            if !player_done && player_siege(&mut opening, candidate, date) {
+                player_done = true;
+            }
+            restore_opening(&mut opening, &snapshot);
+            if !ai_done && ai_siege(&mut opening, candidate, date) {
+                ai_done = true;
+            }
+            restore_opening(&mut opening, &snapshot);
+            if player_done && ai_done {
+                break;
+            }
+        }
+        assert!(player_done, "玩家没能从开局军队开始一次合法围城");
+        assert!(ai_done, "AI 没能维持一次合法围城");
     }
 }

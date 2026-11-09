@@ -102,6 +102,7 @@ dependencies = [
  "csv",
  "image",
  "jomini",
+ "serde_json",
  "thiserror",
 ]
 
