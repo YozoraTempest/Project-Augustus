@@ -7,6 +7,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GODOT_VERSION: 4.7.2
+
 jobs:
   check:
     name: Check (${{ matrix.os }})
@@ -28,27 +31,39 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Clippy
         run: cargo clippy --workspace --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Cache Godot
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/godot
+          key: godot-${{ runner.os }}-${{ runner.arch }}-${{ env.GODOT_VERSION }}
       - name: Install Godot
-        env:
-          GODOT_VERSION: 4.7.2
         run: |
           python - <<'PY'
           import os
           from pathlib import Path
-          import urllib.request
+          import subprocess
           import zipfile
 
           version = os.environ["GODOT_VERSION"]
           platform = "win64.exe" if os.name == "nt" else "linux.x86_64"
           name = f"Godot_v{version}-stable_{platform}"
           directory = Path(os.environ["RUNNER_TEMP"]) / "godot"
-          archive = directory.with_suffix(".zip")
-          url = f"https://github.com/godotengine/godot/releases/download/{version}-stable/{name}.zip"
-          urllib.request.urlretrieve(url, archive)
-          with zipfile.ZipFile(archive) as package:
-              package.extractall(directory)
           filename = name.replace("win64.exe", "win64_console.exe")
           executable = directory / filename
+          if not executable.is_file():
+              archive = directory.with_suffix(".zip")
+              url = f"https://github.com/godotengine/godot/releases/download/{version}-stable/{name}.zip"
+              # curl 对临时网络错误和 5xx 重试，下载最终失败时仍让 CI 失败。
+              subprocess.run([
+                  "curl", "--fail", "--location", "--retry", "5",
+                  "--retry-delay", "3", "--retry-max-time", "300",
+                  "--connect-timeout", "30", "--max-time", "120",
+                  "--output", str(archive), url,
+              ], check=True)
+              with zipfile.ZipFile(archive) as package:
+                  package.extractall(directory)
           executable.chmod(0o755)
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
               environment.write(f"GODOT_COMMAND={executable.as_posix()}\n")
