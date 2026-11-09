@@ -159,9 +159,6 @@ fn first_technology(content: &ContentRoot) -> Result<Technology, Error> {
             "military_tactics must be positive",
         ));
     }
-    if technology.land_morale <= Money::ZERO {
-        return Err(Error::invalid(&file.path, "land_morale must be positive"));
-    }
     if technology.enabled.is_empty() {
         return Err(Error::invalid(
             &file.path,
@@ -414,7 +411,6 @@ mod tests {
                     infantry_fire = 0.25
                     infantry_shock = 0.20
                     cavalry_shock = 0.8
-                    land_morale = 2.0
                 }
                 technology = {
                     enable = western_medieval_infantry
@@ -438,7 +434,63 @@ mod tests {
             "{message}"
         );
         assert!(!message.contains("military_tactics"), "{message}");
+        assert!(!message.contains("land_morale"), "{message}");
         assert!(!message.contains("base_values"), "{message}");
+    }
+
+    #[test]
+    fn omitted_land_morale_stays_zero_when_base_values_has_another() {
+        let root = temp_root("mil-no-morale");
+        fs::write(
+            root.join("common/static_modifiers/00_static_modifiers.txt"),
+            "base_values = { land_morale = 9 }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/technologies/mil.txt"),
+            r#"
+                technology = {
+                    enable = western_medieval_infantry
+                    enable = eastern_medieval_cavalry
+                    infantry_fire = 0.25
+                    infantry_shock = 0.20
+                    cavalry_shock = 0.8
+                }
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/western_medieval_infantry.txt"),
+            r#"
+                type = infantry
+                maneuver = 1
+                offensive_morale = 0
+                defensive_morale = 1
+                offensive_fire = 0
+                defensive_fire = 1
+                offensive_shock = 1
+                defensive_shock = 1
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/units/eastern_medieval_cavalry.txt"),
+            r#"
+                type = cavalry
+                maneuver = 2
+                offensive_morale = 0
+                defensive_morale = 0
+                offensive_fire = 0
+                defensive_fire = 0
+                offensive_shock = 0
+                defensive_shock = 0
+            "#,
+        )
+        .unwrap();
+
+        let rules = load(&ContentRoot::new(&root), DEFINES, Path::new("defines.lua")).unwrap();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(rules.max_morale, Money::ZERO);
     }
 
     const DEFINES: &str = r#"

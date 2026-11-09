@@ -330,9 +330,6 @@ mod tests {
         }
     "#;
 
-    // 科技 0 不写战术和骑兵火力，士气写在科技块里。
-    // enable 只用来选中下面的兵种文件；原版科技 0 没有兵种，那个报错另测。
-    // 第二个 technology 块尚未应用。
     const MIL: &str = r#"
         technology = {
             enable = eastern_medieval_infantry
