@@ -177,7 +177,8 @@ impl World {
             {
                 return Err(WorldError::InvalidOccupation { province: id });
             }
-            let fort_level = siege::fort_level_of(province, id, &registry, &definitions);
+            let sources = siege::fort_sources(province, id, &registry, &definitions);
+            let fort_level = sources.level;
             if let Some(progress) = &province.siege
                 && (fort_level == 0
                     || province.kind != ProvinceKind::Land
@@ -190,10 +191,9 @@ impl World {
             if province.fort_mothballed && fort_level == 0 {
                 return Err(WorldError::InvalidSiege { province: id });
             }
-            if province
-                .garrison
-                .is_some_and(|men| fort_level == 0 || men > siege::garrison_cap(fort_level))
-            {
+            if province.garrison.is_some_and(|men| {
+                sources.regiments == 0 || men > siege::garrison_cap(sources.regiments)
+            }) {
                 return Err(WorldError::InvalidSiege { province: id });
             }
         }

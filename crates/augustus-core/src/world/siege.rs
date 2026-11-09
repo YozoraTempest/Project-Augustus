@@ -2,19 +2,21 @@
 
 //! 要塞围城与驻军。
 //!
-//! 等级取首都 `capital_city.fort_level = 1` 和建筑 `fort_level` 的较大值，只用来区分有没有要塞。
-//! 这个较大值不参与所需兵力。驻军上限是 `GARRISON_SIZE`（1000），defines 没有按等级相乘。
+//! `FORT_LEVEL` 取首都 `capital_city.fort_level = 1` 和建筑 `fort_level` 的较大值。
+//! 围城惩罚和状态上限用这个较大值。驻军条数是另一条规则：首都的 1 与各建筑 `fort_level` 相加，再乘 `GARRISON_SIZE`。
 //! 能推进围城需要 `SIEGE_FORCE_NEEDED_MULTIPLIER` 倍的当前驻军。不足时暂停，不退已有天数。
 //! 驻军少于 `SIEGE_GARRISON_SURRENDER` 时同样要满三倍才结束。驻军为 0 时三倍仍是 0，敌军停驻当天结束。
 //! 围攻军全部离开、撤退或继续行军时清除围城。交战当天暂停。
 //! 换一个交战方时进度作废，与无要塞占领使用同一条项目规则。
-//! 阶段长度为 `DAYS_PER_SIEGE_PHASE`。骰面 14 和分档 4/11/13/15 没有反编译出处，检定表不产生结果，不改变控制者。
-//! 炮兵、封锁、将领围城和破城保持 0。`SIEGE_WIN` 和四档加成留在接口上。
-//! 疾病按 `SIEGE_DISEASE_IMPACT` 乘团的最大兵力 `REGIMENT_STRENGTH` 扣除。没有自然 1 的出处时，日常推进不调用它。
+//! 阶段长度为 `DAYS_PER_SIEGE_PHASE`。骰子 14 面，见 1.37.5 `eu4.exe` `0x14023FCE0`。
+//! 修正后的点数按 `< 5`、`< SIEGE_WIN - 8`、`< SIEGE_WIN - 6`、`< SIEGE_WIN - 4`、`< SIEGE_WIN` 分档。
+//! 达到 `SIEGE_WIN` 投降。自然 1 造成疾病，除非修正后已经达到投降。
+//! 炮兵、封锁、将领保持 0。破墙结果留在接口，本项不实现。
+//! 疾病按 `SIEGE_DISEASE_IMPACT` 乘团的最大兵力 `REGIMENT_STRENGTH` 扣除。
 //! 停用会立刻清空驻军，但不取消攻守反转。
 //! 城市修正 `garrison_growth = 0.05` 在启用且由所有者控制时每月恢复，并消耗所有者人力。
 //! `manpower.garrison_growth = 0.01` 的注释只写人力增加，没有算法，不接入。
-//! 围城只改变控制者。状态上限仍用 `SIEGE_MEMORY` 与 `SIEGE_MEMORY_SCALED`，取整方式未证实。
+//! 围城只改变控制者。状态上限是 `SIEGE_MEMORY + trunc(等级 * SIEGE_MEMORY_SCALED)`，向零截断。
 
 use std::collections::BTreeMap;
 
@@ -51,10 +53,18 @@ const SIEGE_BONUS_DEFENDERS_DESERT: u32 = 2;
 const MAX_BREACH: u32 = 3;
 /// 城市静态修正 `garrison_growth`。
 const CITY_GARRISON_GROWTH_PERMILLE: u64 = 50;
+/// 围城骰面数。1.37.5 在 `0x14023FCE0` 对 14 取余后加 1。
+const SIEGE_DICE_SIDES: u32 = 14;
 
 struct SiegeSide {
     lead: String,
     includes_owner: bool,
+}
+
+/// 围城等级和驻军条数分开算。等级取较大值，条数相加。
+pub(super) struct FortSources {
+    pub level: u32,
+    pub regiments: u32,
 }
 
 struct PhaseOutcome {
@@ -64,35 +74,41 @@ struct PhaseOutcome {
     surrender: bool,
 }
 
-pub(super) fn fort_level_of(
+pub(super) fn fort_sources(
     province: &Province,
     id: u32,
     countries: &BTreeMap<String, Country>,
     buildings: &BTreeMap<String, BuildingDefinition>,
-) -> u32 {
+) -> FortSources {
     if province.kind != ProvinceKind::Land {
-        return 0;
+        return FortSources {
+            level: 0,
+            regiments: 0,
+        };
     }
     let mut level = 0;
+    let mut regiments: u32 = 0;
     if let Some(owner) = province.owner.as_deref()
         && countries.get(owner).and_then(|country| country.capital) == Some(id)
     {
         level = 1;
+        regiments = 1;
     }
     for building in &province.buildings {
         if let Some(definition) = buildings.get(building) {
             level = level.max(definition.fort_level);
+            regiments = regiments.saturating_add(definition.fort_level);
         }
     }
-    level
+    FortSources { level, regiments }
 }
 
-/// 有要塞时为 `GARRISON_SIZE`。等级只决定有没有要塞，不放大上限。
-pub(super) fn garrison_cap(level: u32) -> u32 {
-    if level == 0 { 0 } else { GARRISON_SIZE }
+/// `GARRISON_SIZE` 乘驻军条数。条数是首都与建筑相加，不是围城等级。
+pub(super) fn garrison_cap(regiments: u32) -> u32 {
+    GARRISON_SIZE.saturating_mul(regiments)
 }
 
-/// `SIEGE_MEMORY + trunc(SIEGE_MEMORY_SCALED * level)`。取整方式未证实，检定未接入时结算不读取它。
+/// `SIEGE_MEMORY + trunc(SIEGE_MEMORY_SCALED * level)`。向零截断，1 级是 11。
 pub(super) fn max_siege_status(level: u32) -> u32 {
     SIEGE_MEMORY.saturating_add(level.saturating_mul(SIEGE_MEMORY_SCALED_PERMILLE) / 1_000)
 }
@@ -109,17 +125,46 @@ fn breach_bonus(breach: u32) -> u32 {
     breach.min(MAX_BREACH)
 }
 
-/// 骰面和分档没有出处，所以不产生结果。defines 里的阈值和加成留在接口上。
-fn phase_table_outcome() -> Option<PhaseOutcome> {
-    let _interface = (
-        SIEGE_WIN,
-        SIEGE_BONUS_SUPPLIES_SHORTAGE,
-        SIEGE_BONUS_FOOD_SHORTAGE,
-        SIEGE_BONUS_WATER_SHORTAGE,
-        SIEGE_BONUS_DEFENDERS_DESERT,
-        reserved_siege_bonus(),
-    );
-    None
+/// 修正后的点数决定结果。分档相对 `SIEGE_WIN`，不把 4/11/13/15 写成常数。
+/// 破墙在原版里会抢走一部分高点，本项不实现，这些点数仍走下面的分档。
+fn phase_outcome(roll: u32, status: u32, fort_level: u32) -> PhaseOutcome {
+    let total = roll
+        .saturating_add(status)
+        .saturating_add(reserved_siege_bonus())
+        .saturating_sub(fort_level);
+    if total >= SIEGE_WIN {
+        return PhaseOutcome {
+            result: SiegeRoll::Surrender,
+            status_bonus: 0,
+            disease: false,
+            surrender: true,
+        };
+    }
+    if roll == 1 {
+        return PhaseOutcome {
+            result: SiegeRoll::Disease,
+            status_bonus: 0,
+            disease: true,
+            surrender: false,
+        };
+    }
+    let (result, status_bonus) = if total < 5 {
+        (SiegeRoll::StatusQuo, 0)
+    } else if total < SIEGE_WIN.saturating_sub(8) {
+        (SiegeRoll::SuppliesShortage, SIEGE_BONUS_SUPPLIES_SHORTAGE)
+    } else if total < SIEGE_WIN.saturating_sub(6) {
+        (SiegeRoll::FoodShortage, SIEGE_BONUS_FOOD_SHORTAGE)
+    } else if total < SIEGE_WIN.saturating_sub(4) {
+        (SiegeRoll::WaterShortage, SIEGE_BONUS_WATER_SHORTAGE)
+    } else {
+        (SiegeRoll::DefendersDesert, SIEGE_BONUS_DEFENDERS_DESERT)
+    };
+    PhaseOutcome {
+        result,
+        status_bonus,
+        disease: false,
+        surrender: false,
+    }
 }
 
 /// 疾病扣除的是最大兵力的百分之五，不是当前兵力。不足这一数额时扣到 0。
@@ -130,11 +175,18 @@ fn disease_loss(strength: u32) -> u32 {
 }
 
 impl World {
-    pub fn province_fort_level(&self, id: u32) -> u32 {
+    fn fort_sources_at(&self, id: u32) -> FortSources {
         let Some(province) = self.province(id) else {
-            return 0;
+            return FortSources {
+                level: 0,
+                regiments: 0,
+            };
         };
-        fort_level_of(province, id, &self.countries, &self.buildings)
+        fort_sources(province, id, &self.countries, &self.buildings)
+    }
+
+    pub fn province_fort_level(&self, id: u32) -> u32 {
+        self.fort_sources_at(id).level
     }
 
     pub fn province_garrison(&self, id: u32) -> Option<u32> {
@@ -142,7 +194,7 @@ impl World {
     }
 
     pub fn province_garrison_cap(&self, id: u32) -> u32 {
-        garrison_cap(self.province_fort_level(id))
+        garrison_cap(self.fort_sources_at(id).regiments)
     }
 
     /// 当前驻军对应的最低围城兵力。没有要塞时为空。
@@ -186,15 +238,15 @@ impl World {
     pub(super) fn ensure_garrisons(&mut self) {
         let ids: Vec<u32> = self.active_provinces.iter().copied().collect();
         for id in ids {
-            let level = self.province_fort_level(id);
-            if level == 0 {
+            let sources = self.fort_sources_at(id);
+            if sources.level == 0 {
                 continue;
             }
             let province = self.provinces.get_mut(&id).expect("要塞省份存在");
             if province.garrison.is_some() {
                 continue;
             }
-            let cap = garrison_cap(level);
+            let cap = garrison_cap(sources.regiments);
             province.garrison = Some(if province.fort_mothballed { 0 } else { cap });
         }
     }
@@ -204,8 +256,8 @@ impl World {
     pub(crate) fn reinforce_garrisons(&mut self) {
         let ids: Vec<u32> = self.active_provinces.iter().copied().collect();
         for id in ids {
-            let level = self.province_fort_level(id);
-            if level == 0 {
+            let sources = self.fort_sources_at(id);
+            if sources.level == 0 {
                 continue;
             }
             let province = &self.provinces[&id];
@@ -218,7 +270,7 @@ impl World {
             if province.controller.as_deref() != Some(owner.as_str()) {
                 continue;
             }
-            let cap = garrison_cap(level);
+            let cap = garrison_cap(sources.regiments);
             let current = province.garrison.unwrap_or(0);
             if current >= cap {
                 continue;
@@ -328,20 +380,9 @@ impl World {
     }
 
     fn resolve_siege_phase(&mut self, id: u32, side: &SiegeSide, status: u32, date: GameDate) {
-        let Some(outcome) = phase_table_outcome() else {
-            if self.besieging_men(id) == 0 {
-                self.clear_siege(id);
-                return;
-            }
-            self.provinces.get_mut(&id).expect("要塞省份存在").siege = Some(SiegeProgress {
-                besieger: side.lead.clone(),
-                days: 0,
-                status,
-                last_roll: None,
-                last_result: None,
-            });
-            return;
-        };
+        let fort_level = self.province_fort_level(id);
+        let roll = self.military.siege_random.roll_to(SIEGE_DICE_SIDES);
+        let outcome = phase_outcome(roll, status, fort_level);
         if outcome.surrender {
             self.finish_siege(id, side, date);
             return;
@@ -351,7 +392,7 @@ impl World {
         }
         let next_status = status
             .saturating_add(outcome.status_bonus)
-            .min(max_siege_status(self.province_fort_level(id)));
+            .min(max_siege_status(fort_level));
         if self.besieging_men(id) == 0 {
             self.clear_siege(id);
             return;
@@ -360,7 +401,7 @@ impl World {
             besieger: side.lead.clone(),
             days: 0,
             status: next_status,
-            last_roll: None,
+            last_roll: Some(u8::try_from(roll).unwrap_or(u8::MAX)),
             last_result: Some(outcome.result),
         });
     }
@@ -481,10 +522,10 @@ mod tests {
     use crate::{
         Army, BuildingDefinition, Country, Development, GameDate, GameSpeed, LandConnection,
         ManpowerRules, MilitaryRules, Money, Province, ProvinceKind, Regiment, SavedGame,
-        SiegeProgress, Simulation, UnitKind, World, WorldError,
+        SiegeProgress, SiegeRoll, Simulation, UnitKind, World, WorldError,
     };
 
-    use super::disease_loss;
+    use super::{SIEGE_WIN, disease_loss, max_siege_status, phase_outcome};
 
     fn date() -> GameDate {
         GameDate::new(1444, 11, 11).unwrap()
@@ -649,23 +690,67 @@ mod tests {
     }
 
     #[test]
-    fn unconnected_phase_table_does_not_change_control() {
-        assert!(super::phase_table_outcome().is_none());
+    fn phase_table_uses_win_relative_bands_and_natural_one_disease() {
+        assert_eq!(max_siege_status(1), 11);
+        assert_eq!(max_siege_status(2), 12);
+        assert_eq!(max_siege_status(3), 12);
+
+        let quiet = phase_outcome(4, 0, 0);
+        assert_eq!(quiet.result, SiegeRoll::StatusQuo);
+        assert_eq!(quiet.status_bonus, 0);
+        let supplies = phase_outcome(5, 0, 0);
+        assert_eq!(supplies.result, SiegeRoll::SuppliesShortage);
+        assert_eq!(supplies.status_bonus, 1);
+        let still_supplies = phase_outcome(SIEGE_WIN - 9, 0, 0);
+        assert_eq!(still_supplies.result, SiegeRoll::SuppliesShortage);
+        let food = phase_outcome(SIEGE_WIN - 8, 0, 0);
+        assert_eq!(food.result, SiegeRoll::FoodShortage);
+        assert_eq!(food.status_bonus, 2);
+        let water = phase_outcome(SIEGE_WIN - 6, 0, 0);
+        assert_eq!(water.result, SiegeRoll::WaterShortage);
+        assert_eq!(water.status_bonus, 3);
+        let desert = phase_outcome(SIEGE_WIN - 4, 0, 0);
+        assert_eq!(desert.result, SiegeRoll::DefendersDesert);
+        assert_eq!(desert.status_bonus, 2);
+        assert!(!desert.surrender);
+        let last_desert = phase_outcome(SIEGE_WIN - 1, 0, 0);
+        assert_eq!(last_desert.result, SiegeRoll::DefendersDesert);
+        let win = phase_outcome(SIEGE_WIN, 0, 0);
+        assert!(win.surrender);
+        assert_eq!(win.result, SiegeRoll::Surrender);
+
+        let disease = phase_outcome(1, 0, 1);
+        assert_eq!(disease.result, SiegeRoll::Disease);
+        assert!(disease.disease);
+        assert!(!disease.surrender);
+        let disease_loses_to_surrender = phase_outcome(1, SIEGE_WIN, 1);
+        assert!(disease_loses_to_surrender.surrender);
+        assert!(!disease_loses_to_surrender.disease);
+
+        // 1 级要塞把 14 点压成 13，落在食物短缺，不是写死的 13。
+        let pressed = phase_outcome(14, 0, 1);
+        assert_eq!(pressed.result, SiegeRoll::FoodShortage);
+    }
+
+    #[test]
+    fn full_garrison_siege_changes_controller_only() {
         let mut world = capital_world();
         world.declare_war("BBB", "AAA", date()).unwrap();
-        station_regiments(&mut world, 1, "BBB", 1, 4);
-        tick(&mut world, 60);
-        let progress = world.province_siege(1).unwrap();
-        assert_eq!(progress.days, 0);
-        assert_eq!(progress.status, 0);
-        assert!(progress.last_roll.is_none());
-        assert!(progress.last_result.is_none());
-        assert_eq!(
-            world.province(1).unwrap().controller.as_deref(),
-            Some("AAA")
-        );
+        // 单团避免按团数计算的补给损耗。疾病只扣满编的 5%。
+        station(&mut world, 1, "BBB", 1, 20_000);
+        let mut captured = false;
+        for _ in 0..200 {
+            tick(&mut world, 30);
+            if world.province(1).unwrap().controller.as_deref() == Some("BBB") {
+                captured = true;
+                break;
+            }
+        }
+        assert!(captured);
         assert_eq!(world.province(1).unwrap().owner.as_deref(), Some("AAA"));
-        assert_eq!(world.armies()[&1].regiments[0].strength, 1_000);
+        assert!(world.province_siege(1).is_none());
+        let war = world.war_between("BBB", "AAA").unwrap().id();
+        assert!(world.war_score("BBB", war).unwrap().occupation_milli > 0);
     }
 
     #[test]
@@ -686,9 +771,25 @@ mod tests {
             vec![],
         );
         assert_eq!(stacked.province_fort_level(1), 2);
-        assert_eq!(stacked.province_garrison(1), Some(1_000));
-        assert_eq!(stacked.province_garrison_cap(1), 1_000);
-        assert_eq!(stacked.siege_required_men(1), Some(3_000));
+        assert_eq!(stacked.province_garrison(1), Some(3_000));
+        assert_eq!(stacked.province_garrison_cap(1), 3_000);
+        assert_eq!(stacked.siege_required_men(1), Some(9_000));
+
+        let mut fort = land("AAA", 3);
+        fort.buildings.insert("fort_15th".to_owned());
+        let mut owner = Country::new("AAA");
+        owner.capital = Some(2);
+        let building_only = world_of(
+            vec![owner, Country::new("BBB")],
+            vec![(1, fort), (2, land("AAA", 3))],
+            vec![fort_building()],
+            vec![],
+        );
+        assert_eq!(building_only.province_fort_level(1), 2);
+        assert_eq!(building_only.province_garrison(1), Some(2_000));
+        assert_eq!(building_only.province_garrison_cap(1), 2_000);
+        assert_eq!(building_only.siege_required_men(1), Some(6_000));
+        assert_eq!(building_only.province_garrison(2), Some(1_000));
 
         let open = world_of(
             vec![Country::new("AAA"), Country::new("BBB")],
@@ -944,8 +1045,12 @@ mod tests {
         tick(&mut right, 30);
         let rolled = left.province_siege(1).unwrap().clone();
         assert_eq!(rolled.days, 0);
-        assert_eq!(rolled.status, 0);
-        assert!(rolled.last_roll.is_none());
+        assert!(
+            rolled
+                .last_roll
+                .is_some_and(|roll| (1..=14).contains(&roll))
+        );
+        assert!(rolled.last_result.is_some());
         assert_eq!(left.province(1).unwrap().controller.as_deref(), Some("AAA"));
         let saved = SavedGame::capture(
             &left,
