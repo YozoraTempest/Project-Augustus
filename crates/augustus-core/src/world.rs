@@ -26,6 +26,7 @@ use crate::{
     OCCUPATION_PHASE_DAYS, Province, ProvinceKind, WarState,
 };
 
+pub use ai::{ArmyChoice, PeaceChoice, RecruitChoice, WarAiDecision};
 pub use supply::SupplyForecast;
 
 #[derive(Debug, thiserror::Error)]

@@ -6,8 +6,13 @@
 //! 本仓库没有核对过原版军事 AI 的目标权重，因此优先级、半士气门槛和 -25 战争分数
 //! 是本项目的取舍，不是未核实的原版公式。条款能否成立只看已有的 `accepts_terms`。
 //! 这里不选择宣战对象。
+//!
+//! [`World::direct_war_ai`] 返回当天的决定，供调试读取。
+//! 这些记录不写入世界，也不进入存档，不改变命令结果。
 
 use std::collections::BTreeMap;
+
+use serde::Serialize;
 
 use crate::{GameDate, Money, REGIMENT_STRENGTH, UnitKind};
 
@@ -16,14 +21,55 @@ use super::World;
 /// 从本国视角低于这个战争分数时提出白和平。-25 点，单位是千分点。
 const LOSING_WARSCORE_MILLI: i64 = -25_000;
 
+/// 一个非玩家交战国在某个游戏日作出的和谈、招募和行军决定。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WarAiDecision {
+    pub date: GameDate,
+    pub country: String,
+    pub peace: Vec<PeaceChoice>,
+    pub recruit: RecruitChoice,
+    pub armies: Vec<ArmyChoice>,
+}
+
+/// 对该敌人的和谈选择。`action` 为 `cede`、`white_peace`、`skip` 或 `failed`。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PeaceChoice {
+    pub enemy: String,
+    pub action: String,
+    pub provinces: Vec<u32>,
+    pub reason: String,
+}
+
+/// 当天的招募选择。`action` 为 `order`、`skip` 或 `failed`。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RecruitChoice {
+    pub action: String,
+    pub province: Option<u32>,
+    pub reason: String,
+}
+
+/// 一支军队当天的去向。`action` 为 `move`、`stay` 或 `failed`。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ArmyChoice {
+    pub id: u32,
+    pub action: String,
+    pub destination: Option<u32>,
+    pub rank: Option<u8>,
+    pub reason: String,
+}
+
 impl World {
     /// 每个新游戏日调用一次。`player` 为空、或该国不在战争中时什么都不做。
-    pub(crate) fn direct_war_ai(&mut self, player: Option<&str>, date: GameDate) {
+    pub(crate) fn direct_war_ai(
+        &mut self,
+        player: Option<&str>,
+        date: GameDate,
+    ) -> Vec<WarAiDecision> {
         let Some(player) = player else {
-            return;
+            return Vec::new();
         };
         if self.country(player).is_none() {
-            return;
+            return Vec::new();
         }
         let tags: Vec<String> = self
             .countries
@@ -31,21 +77,41 @@ impl World {
             .filter(|tag| tag.as_str() != player)
             .cloned()
             .collect();
+        let mut decisions = Vec::new();
         for tag in tags {
             if self.wars_of(&tag).next().is_none() {
                 continue;
             }
-            self.offer_peace(&tag, date);
+            let peace = self.offer_peace(&tag, date);
             if self.wars_of(&tag).next().is_none() {
+                decisions.push(WarAiDecision {
+                    date,
+                    country: tag,
+                    peace,
+                    recruit: RecruitChoice {
+                        action: "skip".to_owned(),
+                        province: None,
+                        reason: "战争已经结束".to_owned(),
+                    },
+                    armies: Vec::new(),
+                });
                 continue;
             }
-            self.recruit_for_war(&tag, date);
-            self.order_armies(&tag, date);
+            let recruit = self.recruit_for_war(&tag, date);
+            let armies = self.order_armies(&tag, date);
+            decisions.push(WarAiDecision {
+                date,
+                country: tag,
+                peace,
+                recruit,
+                armies,
+            });
         }
+        decisions
     }
 
     /// 先按接受判定割让已控制的省份；分数明显不利时才提出白和平。
-    fn offer_peace(&mut self, country: &str, date: GameDate) {
+    fn offer_peace(&mut self, country: &str, date: GameDate) -> Vec<PeaceChoice> {
         let enemies: Vec<String> = self
             .wars_of(country)
             .map(|war| {
@@ -56,20 +122,63 @@ impl World {
                 }
             })
             .collect();
+        let mut choices = Vec::new();
         for enemy in enemies {
             if self.war_between(country, &enemy).is_none() {
+                choices.push(PeaceChoice {
+                    enemy,
+                    action: "skip".to_owned(),
+                    provinces: Vec::new(),
+                    reason: "已经不在交战".to_owned(),
+                });
                 continue;
             }
             if let Some(provinces) = self.affordable_demands(country, &enemy, date)
                 && !provinces.is_empty()
             {
-                let _ = self.make_peace(country, &enemy, &provinces, date);
+                let choice = match self.make_peace(country, &enemy, &provinces, date) {
+                    Ok(_) => PeaceChoice {
+                        enemy,
+                        action: "cede".to_owned(),
+                        provinces,
+                        reason: "已提出割让".to_owned(),
+                    },
+                    Err(error) => PeaceChoice {
+                        enemy,
+                        action: "failed".to_owned(),
+                        provinces,
+                        reason: error.to_string(),
+                    },
+                };
+                choices.push(choice);
                 continue;
             }
-            if self.should_offer_white_peace(country, &enemy, date) {
-                let _ = self.make_peace(country, &enemy, &[], date);
+            let (offer, reason) = self.white_peace_choice(country, &enemy, date);
+            if offer {
+                choices.push(match self.make_peace(country, &enemy, &[], date) {
+                    Ok(_) => PeaceChoice {
+                        enemy,
+                        action: "white_peace".to_owned(),
+                        provinces: Vec::new(),
+                        reason,
+                    },
+                    Err(error) => PeaceChoice {
+                        enemy,
+                        action: "failed".to_owned(),
+                        provinces: Vec::new(),
+                        reason: error.to_string(),
+                    },
+                });
+            } else {
+                choices.push(PeaceChoice {
+                    enemy,
+                    action: "skip".to_owned(),
+                    provinces: Vec::new(),
+                    reason,
+                });
             }
         }
+        choices
     }
 
     /// 只考虑提出方已经控制的省份，按费用从低到高装进当前战争分数。
@@ -100,15 +209,17 @@ impl World {
             .map(|_| chosen)
     }
 
-    fn should_offer_white_peace(&self, country: &str, enemy: &str, date: GameDate) -> bool {
-        let Ok(quote) = self.quote_peace(country, enemy, &[], date) else {
-            return false;
+    /// 与原先的白和平门槛相同，并带回提出或跳过的原因。
+    fn white_peace_choice(&self, country: &str, enemy: &str, date: GameDate) -> (bool, String) {
+        let quote = match self.quote_peace(country, enemy, &[], date) {
+            Ok(quote) => quote,
+            Err(error) => return (false, error.to_string()),
         };
         if quote.score_milli >= 0 {
-            return false;
+            return (false, "战争分数不低于 0".to_owned());
         }
         if quote.score_milli <= LOSING_WARSCORE_MILLI {
-            return true;
+            return (true, "战争分数不高于 -25".to_owned());
         }
         let fielded = self
             .armies()
@@ -121,13 +232,16 @@ impl World {
             .values()
             .flatten()
             .any(|order| order.country == country);
-        fielded == 0 && !recruiting
+        if fielded == 0 && !recruiting {
+            return (true, "没有可战部队，也没有招募".to_owned());
+        }
+        (false, "仍有部队或正在招募，且战争分数高于 -25".to_owned())
     }
 
     /// 战争期间在陆军上限内最多保持一笔步兵招募。维护费已经超过税收时不再下单。
-    fn recruit_for_war(&mut self, country: &str, date: GameDate) {
+    fn recruit_for_war(&mut self, country: &str, date: GameDate) -> RecruitChoice {
         let Some(limit) = self.country_land_force_limit(country) else {
-            return;
+            return skip_recruit("没有陆军上限");
         };
         let queued = self
             .recruitments()
@@ -136,7 +250,7 @@ impl World {
             .filter(|order| order.country == country)
             .count() as u64;
         if queued > 0 {
-            return;
+            return skip_recruit("已经有招募订单");
         }
         let fielded = self
             .armies()
@@ -145,13 +259,13 @@ impl World {
             .map(|army| army.regiments.len() as u64)
             .sum::<u64>();
         if fielded >= limit {
-            return;
+            return skip_recruit("已经达到陆军上限");
         }
         let Some(budget) = self.country_monthly_budget(country) else {
-            return;
+            return skip_recruit("没有月度预算");
         };
         if budget.army_maintenance > budget.tax {
-            return;
+            return skip_recruit("维护费已经超过税收");
         }
         let extra = self.military_rules.annual_maintenance(UnitKind::Infantry) / Money::from(12);
         let treasury = self
@@ -159,7 +273,7 @@ impl World {
             .map(|state| state.finances.treasury())
             .unwrap_or(Money::ZERO);
         if budget.army_maintenance + extra > budget.tax && treasury < extra * Money::from(12) {
-            return;
+            return skip_recruit("新增维护超出税收，且国库不足一年的维护");
         }
         let mut provinces: Vec<u32> = self.active_provinces.iter().copied().collect();
         provinces.sort_unstable();
@@ -170,12 +284,23 @@ impl World {
             {
                 continue;
             }
-            let _ = self.start_recruitment(country, province, UnitKind::Infantry, date);
-            return;
+            return match self.start_recruitment(country, province, UnitKind::Infantry, date) {
+                Ok(()) => RecruitChoice {
+                    action: "order".to_owned(),
+                    province: Some(province),
+                    reason: "已下令招募步兵".to_owned(),
+                },
+                Err(error) => RecruitChoice {
+                    action: "failed".to_owned(),
+                    province: Some(province),
+                    reason: error.to_string(),
+                },
+            };
         }
+        skip_recruit("没有省份能够招募步兵")
     }
 
-    fn order_armies(&mut self, country: &str, date: GameDate) {
+    fn order_armies(&mut self, country: &str, date: GameDate) -> Vec<ArmyChoice> {
         let max_morale = self.military_rules.combat.morale_milli();
         let ids: Vec<u32> = self
             .armies()
@@ -183,45 +308,109 @@ impl World {
             .filter(|(_, army)| army.country == country)
             .map(|(id, _)| *id)
             .collect();
-        for id in ids {
-            self.order_army(country, id, date, max_morale);
+        ids.into_iter()
+            .map(|id| self.order_army(country, id, date, max_morale))
+            .collect()
+    }
+
+    fn order_army(
+        &mut self,
+        country: &str,
+        id: u32,
+        date: GameDate,
+        max_morale: Option<u32>,
+    ) -> ArmyChoice {
+        let Some(view) = self.army_view(id, max_morale) else {
+            return stay(id, "军队不存在");
+        };
+        if view.country != country {
+            return stay(id, "不是该国军队");
+        }
+        if view.moving {
+            return stay(id, "正在行军");
+        }
+        if view.in_battle {
+            return stay(id, "正在交战");
+        }
+        if view.retreating {
+            return stay(id, "正在撤退");
+        }
+        if view.exiled {
+            return stay(id, "正在流放");
+        }
+        if view.strength == 0 {
+            return stay(id, "没有兵力");
+        }
+        let distances = self.land_travel_days(country, view.province, view.speed, false);
+        if view.morale_ready {
+            match self.battle_aim(country, &view, &distances) {
+                BattleAim::Hold => stay(id, "正在占领，留在当地"),
+                BattleAim::AlreadyThere { rank } => ArmyChoice {
+                    id,
+                    action: "stay".to_owned(),
+                    destination: None,
+                    rank: Some(rank),
+                    reason: "已经站在目标上".to_owned(),
+                },
+                BattleAim::None => stay(id, "没有更合适的交战或占领目标"),
+                BattleAim::Move { rank, province } => self.order_move(
+                    country,
+                    id,
+                    province,
+                    date,
+                    Some(rank),
+                    "前往交战或占领目标",
+                ),
+            }
+        } else {
+            match self
+                .recovery_province(country, &distances)
+                .filter(|province| *province != view.province)
+            {
+                Some(province) => {
+                    self.order_move(country, id, province, date, None, "士气不足，返回本国省份")
+                }
+                None => stay(id, "士气不足，留在原地恢复"),
+            }
         }
     }
 
-    fn order_army(&mut self, country: &str, id: u32, date: GameDate, max_morale: Option<u32>) {
-        let Some(view) = self.army_view(id, max_morale) else {
-            return;
-        };
-        if view.country != country
-            || view.moving
-            || view.in_battle
-            || view.retreating
-            || view.exiled
-            || view.strength == 0
-        {
-            return;
-        }
-        let distances = self.land_travel_days(country, view.province, view.speed, false);
-        let destination = if view.morale_ready {
-            self.battle_destination(country, &view, &distances)
-        } else {
-            self.recovery_province(country, &distances)
-                .filter(|province| *province != view.province)
-        };
-        if let Some(destination) = destination {
-            let _ = self.move_army(country, id, destination, date);
+    fn order_move(
+        &mut self,
+        country: &str,
+        id: u32,
+        province: u32,
+        date: GameDate,
+        rank: Option<u8>,
+        reason: &str,
+    ) -> ArmyChoice {
+        match self.move_army(country, id, province, date) {
+            Ok(()) => ArmyChoice {
+                id,
+                action: "move".to_owned(),
+                destination: Some(province),
+                rank,
+                reason: reason.to_owned(),
+            },
+            Err(error) => ArmyChoice {
+                id,
+                action: "failed".to_owned(),
+                destination: Some(province),
+                rank,
+                reason: error.to_string(),
+            },
         }
     }
 
     /// 防守优先于进攻，进攻优先于占领。已经站在目标上时留下驻扎，避免相邻省份来回走。
-    fn battle_destination(
+    fn battle_aim(
         &self,
         country: &str,
         army: &ArmyView,
         distances: &BTreeMap<u32, u32>,
-    ) -> Option<u32> {
+    ) -> BattleAim {
         if self.holding_occupation(country, army) {
-            return None;
+            return BattleAim::Hold;
         }
         let mut best: Option<(u8, u32, u32)> = None;
         for (&province, &days) in distances {
@@ -233,7 +422,11 @@ impl World {
                 best = Some(candidate);
             }
         }
-        best.and_then(|(_, days, province)| (days > 0).then_some(province))
+        match best {
+            None => BattleAim::None,
+            Some((rank, 0, _)) => BattleAim::AlreadyThere { rank },
+            Some((rank, _, province)) => BattleAim::Move { rank, province },
+        }
     }
 
     fn target_rank(&self, country: &str, army: &ArmyView, province: u32) -> Option<u8> {
@@ -332,6 +525,31 @@ impl World {
             morale_ready,
         })
     }
+}
+
+fn skip_recruit(reason: &str) -> RecruitChoice {
+    RecruitChoice {
+        action: "skip".to_owned(),
+        province: None,
+        reason: reason.to_owned(),
+    }
+}
+
+fn stay(id: u32, reason: &str) -> ArmyChoice {
+    ArmyChoice {
+        id,
+        action: "stay".to_owned(),
+        destination: None,
+        rank: None,
+        reason: reason.to_owned(),
+    }
+}
+
+enum BattleAim {
+    Hold,
+    AlreadyThere { rank: u8 },
+    Move { rank: u8, province: u32 },
+    None,
 }
 
 struct ArmyView {
@@ -671,6 +889,45 @@ mod tests {
         assert_eq!(
             losing.province(2).unwrap().controller.as_deref(),
             Some("BBB")
+        );
+    }
+
+    #[test]
+    fn calendar_advance_ignores_pause_and_records_the_order() {
+        let links = vec![link(1, 2, 10), link(2, 3, 1), link(3, 1, 30)];
+        let mut paused = sample(false, links.clone());
+        paused.declare_war("AAA", "BBB", date()).unwrap();
+        station(&mut paused, 2, "BBB", 2, 2);
+        let mut simulation = Simulation::new(date());
+        assert!(simulation.clock().is_paused());
+        let step = simulation.advance_days(&mut paused, 1, Some("AAA"));
+        assert!(simulation.clock().is_paused());
+        assert_eq!(simulation.clock().speed(), GameSpeed::Normal);
+        assert_eq!(step.days, 1);
+        assert_eq!(
+            simulation.clock().date(),
+            date().checked_add_days(1).unwrap()
+        );
+        assert_eq!(step.decisions.len(), 1);
+        let decision = &step.decisions[0];
+        assert_eq!(decision.country, "BBB");
+        assert_eq!(decision.recruit.action, "order");
+        assert_eq!(decision.recruit.province, Some(2));
+        assert_eq!(decision.armies.len(), 1);
+        assert_eq!(decision.armies[0].action, "move");
+        assert_eq!(decision.armies[0].destination, Some(1));
+        let again = simulation.advance_days(&mut paused, 0, Some("AAA"));
+        assert_eq!(again.days, 0);
+        assert!(again.decisions.is_empty());
+
+        let mut running = sample(false, links);
+        running.declare_war("AAA", "BBB", date()).unwrap();
+        station(&mut running, 2, "BBB", 2, 2);
+        advance(&mut running, 1, GameSpeed::Normal);
+        assert_eq!(paused.armies()[&2].movement, running.armies()[&2].movement);
+        assert_eq!(
+            paused.country("BBB").unwrap().finances.treasury(),
+            running.country("BBB").unwrap().finances.treasury()
         );
     }
 }

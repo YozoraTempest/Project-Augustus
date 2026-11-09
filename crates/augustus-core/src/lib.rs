@@ -30,14 +30,18 @@ pub use military::{
 };
 pub use movement::{ArmyMovement, LandConnection, MovementError, MovementLeg};
 pub use organization::{ArmyDisbandQuote, ArmyOrganizationError};
-pub use peace::{PeaceError, PeaceQuote, PeaceSheet, ProvinceCost, WarScoreView};
+pub use peace::{
+    PeaceError, PeaceQuote, PeaceSheet, ProvinceCost, WarScoreView, format_warscore_milli,
+};
 pub use province::{
     Development, OCCUPATION_PHASE_DAYS, OccupationProgress, Province, ProvinceKind,
 };
 pub use rust_decimal::Decimal as Money;
 pub use save::{RestoredGame, SaveError, SavedGame};
-pub use simulation::Simulation;
+pub use simulation::{DayAdvance, Simulation};
 pub use time::{GameClock, GameDate, GameSpeed};
 pub(crate) use war::WarState;
 pub use war::{BattleScore, Truce, War, WarError, WarStatus};
-pub use world::{SupplyForecast, World, WorldError};
+pub use world::{
+    ArmyChoice, PeaceChoice, RecruitChoice, SupplyForecast, WarAiDecision, World, WorldError,
+};

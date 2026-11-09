@@ -11,6 +11,11 @@ var startup_country := ""
 var map_projection := MapMode.ViewType.FLAT
 var _startup_requested := false
 var _last_tick_usec := 0
+# 与 augustus mcp 的 screenshot.rs 使用同一组文件：heartbeat、request.json、result.json、shot.png。
+var debug_directory := ""
+var _debug_heartbeat_usec := 0
+var _debug_shot_id := ""
+var _debug_capture_queued := false
 
 
 func _ready() -> void:
@@ -22,10 +27,14 @@ func _ready() -> void:
 	index = arguments.find("--country")
 	if index >= 0 and index + 1 < arguments.size():
 		startup_country = arguments[index + 1]
+	index = arguments.find("--debug-dir")
+	if index >= 0 and index + 1 < arguments.size():
+		debug_directory = arguments[index + 1]
 
 
 func _process(_delta: float) -> void:
 	_advance_clock()
+	_serve_debug_screenshot()
 
 
 func _notification(what: int) -> void:
@@ -241,6 +250,47 @@ func load_saved_game(path: String) -> String:
 		clock_changed.emit()
 		world_changed.emit()
 	return error
+
+
+func _serve_debug_screenshot() -> void:
+	if debug_directory.is_empty():
+		return
+	var now := Time.get_ticks_usec()
+	if now - _debug_heartbeat_usec >= 200_000:
+		_debug_heartbeat_usec = now
+		_write_debug_file("heartbeat", str(int(Time.get_unix_time_from_system())))
+	if _debug_capture_queued:
+		return
+	var request_path := debug_directory.path_join("request.json")
+	if not FileAccess.file_exists(request_path):
+		return
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(request_path))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return
+	var id := str(parsed.get("id", ""))
+	if id.is_empty() or id == _debug_shot_id:
+		return
+	_debug_shot_id = id
+	_debug_capture_queued = true
+	RenderingServer.frame_post_draw.connect(_capture_debug_viewport, CONNECT_ONE_SHOT)
+
+
+func _capture_debug_viewport() -> void:
+	_debug_capture_queued = false
+	var image := get_viewport().get_texture().get_image()
+	var error := ""
+	if image == null or image.is_empty():
+		error = "当前窗口没有可保存的画面"
+	elif image.save_png(debug_directory.path_join("shot.png")) != OK:
+		error = "无法保存截图"
+	_write_debug_file("result.json", JSON.stringify({"id": _debug_shot_id, "error": error}))
+
+
+func _write_debug_file(file_name: String, text: String) -> void:
+	var path := debug_directory.path_join(file_name)
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file:
+		file.store_string(text)
 
 
 func clear_game() -> void:

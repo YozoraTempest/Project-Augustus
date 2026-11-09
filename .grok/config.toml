@@ -1,0 +1,3 @@
+[mcp_servers.augustus]
+command = "cargo"
+args = ["run", "--quiet", "--locked", "--", "mcp"]
