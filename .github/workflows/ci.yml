@@ -54,14 +54,23 @@ jobs:
           executable = directory / filename
           if not executable.is_file():
               archive = directory.with_suffix(".zip")
-              url = f"https://github.com/godotengine/godot/releases/download/{version}-stable/{name}.zip"
-              # curl 对临时网络错误和 5xx 重试，下载最终失败时仍让 CI 失败。
-              subprocess.run([
-                  "curl", "--fail", "--location", "--retry", "5",
-                  "--retry-delay", "3", "--retry-max-time", "300",
-                  "--connect-timeout", "30", "--max-time", "120",
-                  "--output", str(archive), url,
-              ], check=True)
+              # 两处均为 Godot 官方发布，避免单个发布地址持续 504 阻断检查。
+              repositories = ("godotengine/godot-builds", "godotengine/godot")
+              for repository in repositories:
+                  url = f"https://github.com/{repository}/releases/download/{version}-stable/{name}.zip"
+                  try:
+                      # curl 对临时错误有限重试；所有官方地址失败时仍让 CI 失败。
+                      subprocess.run([
+                          "curl", "--fail", "--location", "--retry", "5",
+                          "--retry-delay", "3", "--retry-max-time", "300",
+                          "--connect-timeout", "30", "--max-time", "120",
+                          "--output", str(archive), url,
+                      ], check=True)
+                      break
+                  except subprocess.CalledProcessError:
+                      if repository == repositories[-1]:
+                          raise
+                      print("下载失败，改用另一官方发布地址", flush=True)
               with zipfile.ZipFile(archive) as package:
                   package.extractall(directory)
           executable.chmod(0o755)
