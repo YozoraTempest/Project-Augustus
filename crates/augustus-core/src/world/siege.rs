@@ -19,8 +19,10 @@
 //! 炮兵、封锁、将领保持 0。破墙结果留在接口，本项不实现。
 //! 疾病按 `SIEGE_DISEASE_IMPACT` 乘团的最大兵力 `REGIMENT_STRENGTH` 扣除。
 //! 停用会立刻清空驻军，但不取消攻守反转。
-//! 城市修正 `garrison_growth = 0.05` 在启用且由所有者控制时每月恢复，并消耗所有者人力。
-//! `manpower.garrison_growth = 0.01` 的注释只写人力增加，没有算法，不接入。
+//! 月度恢复以驻军上限为基数：上限 ×（城市 50‰ + 基础人力每点 10‰）/ 1000，向零截断后夹到上限。
+//! 满员增量为 0，不扣人力池。围城进行中本月不恢复。
+//! 启用且控制者是所有者才恢复，这是产品规则。
+//! `expanded_infrastructure`、叛乱者倍率和国家 `global_garrison_growth` 没有数据来源，不接入。
 //! 围城只改变控制者。状态上限是 `SIEGE_MEMORY + trunc(等级 * SIEGE_MEMORY_SCALED)`，向零截断。
 
 use std::collections::BTreeMap;
@@ -56,8 +58,10 @@ const SIEGE_BONUS_WATER_SHORTAGE: u32 = 3;
 const SIEGE_BONUS_DEFENDERS_DESERT: u32 = 2;
 /// `MAX_BREACH`。本阶段破城始终为 0，常量只封住以后的加成。
 const MAX_BREACH: u32 = 3;
-/// 城市静态修正 `garrison_growth`。
+/// 城市静态修正 `garrison_growth`，脚本 0.05，按千分位加一次。
 const CITY_GARRISON_GROWTH_PERMILLE: u64 = 50;
+/// 基础人力发展度每点的 `garrison_growth` 千分位。
+const MANPOWER_GARRISON_GROWTH_PERMILLE: u64 = 10;
 /// 围城骰面数。1.37.5 在 `0x14023FCE0` 对 14 取余后加 1。
 const SIEGE_DICE_SIDES: u32 = 14;
 
@@ -299,8 +303,12 @@ impl World {
         }
     }
 
-    /// 每月 1 日，由所有者控制的启用要塞按城市 `garrison_growth = 0.05` 恢复，并从所有者人力扣人。
-    /// `manpower.garrison_growth = 0.01` 未接入。
+    /// 每月 1 日恢复驻军。增量 = 上限 × 千分位 / 1000，向零截断，再夹到上限。
+    /// 千分位是城市 `garrison_growth` 50，加上基础人力发展度每点 10。人力字段缺失时不加该项。
+    /// 基数是上限，满员增量为 0，不从人力池扣人。`siege` 存在时本月不恢复。
+    /// 控制者是所有者且未停用才恢复。这是产品规则，不是已证实的原版对应关系。
+    /// 未接入：`expanded_infrastructure` 没有扩建次数，叛乱者控制没有状态，
+    /// 国家 `global_garrison_growth` 没有修正来源。
     pub(crate) fn reinforce_garrisons(&mut self) {
         let ids: Vec<u32> = self.active_provinces.iter().copied().collect();
         for id in ids {
@@ -308,51 +316,33 @@ impl World {
             if sources.level == 0 {
                 continue;
             }
-            let permille = province_garrison_permille(self, id);
+            let size_permille = province_garrison_permille(self, id);
             let province = &self.provinces[&id];
-            if province.fort_mothballed {
+            if province.fort_mothballed || province.siege.is_some() {
                 continue;
             }
-            let Some(owner) = province.owner.clone() else {
-                continue;
-            };
-            if province.controller.as_deref() != Some(owner.as_str()) {
+            if province.owner.is_none() || province.controller != province.owner {
                 continue;
             }
-            let cap = garrison_cap(sources.regiments, permille);
+            let mut modifier = CITY_GARRISON_GROWTH_PERMILLE;
+            if let Some(manpower) = province.development.manpower {
+                modifier += u64::from(manpower) * MANPOWER_GARRISON_GROWTH_PERMILLE;
+            }
+            let cap = garrison_cap(sources.regiments, size_permille);
             let current = province.garrison.unwrap_or(0);
-            if current >= cap {
+            let room = u64::from(cap.saturating_sub(current));
+            // 人力发展度是 u32，与上限相乘后可能超过 u64。
+            let gain = (u128::from(cap) * u128::from(modifier) / 1_000).min(u128::from(room));
+            if gain == 0 {
                 continue;
             }
-            let want = (u64::from(cap) * CITY_GARRISON_GROWTH_PERMILLE / 1_000)
-                .min(u64::from(cap - current));
-            if want == 0 {
-                continue;
-            }
-            let available = self
-                .countries
-                .get(&owner)
-                .and_then(|country| country.manpower.as_ref())
-                .map(|pool| pool.available)
-                .unwrap_or(0);
-            let spend = want.min(available);
-            if spend == 0 {
-                continue;
-            }
-            self.countries
-                .get_mut(&owner)
-                .expect("要塞所有者存在")
-                .manpower
-                .as_mut()
-                .expect("国家人力已初始化")
-                .available -= spend;
             let garrison = self
                 .provinces
                 .get_mut(&id)
                 .expect("要塞省份存在")
                 .garrison
                 .get_or_insert(0);
-            *garrison = garrison.saturating_add(u32::try_from(spend).unwrap_or(u32::MAX));
+            *garrison = garrison.saturating_add(u32::try_from(gain).unwrap_or(u32::MAX));
         }
     }
 
@@ -683,6 +673,24 @@ mod tests {
             vec![aaa, Country::new("BBB"), Country::new("CCC")],
             vec![(1, land("AAA", 12))],
             vec![],
+            vec![],
+        )
+    }
+
+    fn owned_capital(manpower: u32, with_fort: bool) -> World {
+        let mut aaa = Country::new("AAA");
+        aaa.capital = Some(1);
+        let mut province = land("AAA", 4);
+        province.development.manpower = Some(manpower);
+        let mut buildings = Vec::new();
+        if with_fort {
+            province.buildings.insert("fort_15th".to_owned());
+            buildings.push(fort_building());
+        }
+        world_of(
+            vec![aaa, Country::new("BBB")],
+            vec![(1, province)],
+            buildings,
             vec![],
         )
     }
@@ -1344,35 +1352,91 @@ mod tests {
     }
 
     #[test]
-    fn garrison_regrows_from_manpower_only_while_enabled() {
-        let mut world = capital_world();
-        world.provinces.get_mut(&1).unwrap().garrison = Some(900);
-        let before = world.country_manpower("AAA").unwrap().available;
-        tick(&mut world, 20);
-        assert_eq!(world.province_garrison(1), Some(950));
-        assert_eq!(
-            world.country_manpower("AAA").unwrap().available,
-            before - 50
-        );
+    fn garrison_regrows_from_cap_without_spending_manpower() {
+        // 上限 1000、基础人力 3：城市 50‰ + 人力 30‰，每月 +80。
+        let mut small = owned_capital(3, false);
+        assert_eq!(small.province_garrison_cap(1), 1_000);
+        small.provinces.get_mut(&1).unwrap().garrison = Some(200);
+        let before = small.country_manpower("AAA").unwrap().available;
+        tick(&mut small, 20);
+        assert_eq!(small.province_garrison(1), Some(280));
+        assert_eq!(small.country_manpower("AAA").unwrap().available, before);
 
-        world.set_fort_mothballed(1, true).unwrap();
-        world.set_fort_mothballed(1, false).unwrap();
-        assert_eq!(world.province_garrison(1), Some(0));
-        let capacity = world.country_manpower("AAA").unwrap().capacity;
-        world
+        small.provinces.get_mut(&1).unwrap().garrison = Some(960);
+        tick(&mut small, 20);
+        assert_eq!(small.province_garrison(1), Some(1_000));
+        assert_eq!(small.country_manpower("AAA").unwrap().available, before);
+
+        small.provinces.get_mut(&1).unwrap().garrison = Some(1_000);
+        tick(&mut small, 20);
+        assert_eq!(small.province_garrison(1), Some(1_000));
+        assert_eq!(small.country_manpower("AAA").unwrap().available, before);
+
+        // 上限 3000、基础人力 6：50‰ + 60‰，每月 +330。维也纳样本。
+        let mut vienna = owned_capital(6, true);
+        assert_eq!(vienna.province_garrison_cap(1), 3_000);
+        vienna.provinces.get_mut(&1).unwrap().garrison = Some(1_000);
+        let before = vienna.country_manpower("AAA").unwrap().available;
+        tick(&mut vienna, 20);
+        assert_eq!(vienna.province_garrison(1), Some(1_330));
+        assert_eq!(vienna.country_manpower("AAA").unwrap().available, before);
+
+        vienna.provinces.get_mut(&1).unwrap().garrison = Some(3_000);
+        tick(&mut vienna, 20);
+        assert_eq!(vienna.province_garrison(1), Some(3_000));
+        assert_eq!(vienna.country_manpower("AAA").unwrap().available, before);
+
+        // 11 月 30 日置围城，下一天月初仍不恢复。随后的围城结算可能清掉进度。
+        let mut besieged = owned_capital(3, false);
+        besieged.provinces.get_mut(&1).unwrap().garrison = Some(200);
+        besieged.provinces.get_mut(&1).unwrap().siege = Some(SiegeProgress {
+            besieger: "BBB".to_owned(),
+            days: 1,
+            status: 0,
+            last_roll: None,
+            last_result: None,
+        });
+        let before = besieged.country_manpower("AAA").unwrap().available;
+        let mut simulation = Simulation::new(GameDate::new(1444, 11, 30).unwrap());
+        assert_eq!(simulation.advance_days(&mut besieged, 1, None).days, 1);
+        assert_eq!(besieged.province_garrison(1), Some(200));
+        assert_eq!(besieged.country_manpower("AAA").unwrap().available, before);
+
+        // 停用、控制者不是所有者：产品规则，不恢复。
+        let mut mothballed = owned_capital(3, false);
+        mothballed.set_fort_mothballed(1, true).unwrap();
+        tick(&mut mothballed, 20);
+        assert_eq!(mothballed.province_garrison(1), Some(0));
+
+        let mut occupied = owned_capital(3, false);
+        occupied.provinces.get_mut(&1).unwrap().garrison = Some(200);
+        occupied.provinces.get_mut(&1).unwrap().controller = Some("BBB".to_owned());
+        let before = occupied.country_manpower("AAA").unwrap().available;
+        tick(&mut occupied, 20);
+        assert_eq!(occupied.province_garrison(1), Some(200));
+        assert_eq!(occupied.country_manpower("AAA").unwrap().available, before);
+
+        // 人力字段缺失时只留城市 50‰。人力池为空也不扣、也不挡住恢复。
+        let mut missing = owned_capital(3, false);
+        missing.provinces.get_mut(&1).unwrap().development.manpower = None;
+        missing.provinces.get_mut(&1).unwrap().garrison = Some(200);
+        missing
             .countries
             .get_mut("AAA")
             .unwrap()
             .manpower
             .as_mut()
             .unwrap()
-            .available = capacity;
-        let before = world.country_manpower("AAA").unwrap().available;
-        tick(&mut world, 31);
-        assert_eq!(world.province_garrison(1), Some(50));
+            .available = 0;
+        missing.reinforce_garrisons();
+        assert_eq!(missing.province_garrison(1), Some(250));
         assert_eq!(
-            world.country_manpower("AAA").unwrap().available,
-            before - 50
+            missing.countries["AAA"]
+                .manpower
+                .as_ref()
+                .unwrap()
+                .available,
+            0
         );
     }
 
