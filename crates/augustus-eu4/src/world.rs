@@ -7,6 +7,7 @@ mod combat;
 mod countries;
 mod forcelimit;
 mod geography;
+mod great_projects;
 mod history;
 mod localisation;
 mod manpower;
@@ -49,6 +50,7 @@ impl OpeningWorld {
         let map = ProvinceMap::load(game_dir)?;
         let mut countries = countries::load(&content)?;
         let buildings = buildings::load(&content)?;
+        let monument_garrisons = great_projects::load(&content)?;
         let mut provinces: BTreeMap<_, _> = map
             .defined_province_ids()
             .iter()
@@ -86,13 +88,14 @@ impl OpeningWorld {
             &mut countries.states,
         )?;
         let connections = navigation::connections(&map, &provinces);
-        let mut state = World::new(
+        let mut state = World::with_garrison_monuments(
             countries.states.into_values(),
             provinces,
             map.mapped_province_ids().iter().copied(),
             buildings.into_values(),
             military_rules,
             connections,
+            monument_garrisons,
         )
         .map_err(|error| Error::invalid(content.path(), error.to_string()))?;
         // 1444 的国家历史没有 army 编制。规模只读取 defines 的 STARTING_ARMY_SIZE；
@@ -659,5 +662,41 @@ mod tests {
         }
         assert!(player_done, "玩家没能从开局军队开始一次合法围城");
         assert!(ai_done, "AI 没能维持一次合法围城");
+    }
+
+    #[test]
+    #[ignore = "需要本机 EU4 目录，设置 AUGUSTUS_EU4_DIR"]
+    fn teutonic_opening_garrison_includes_the_monument_modifier() {
+        let dir = std::env::var("AUGUSTUS_EU4_DIR").expect("设置 AUGUSTUS_EU4_DIR");
+        let opening = OpeningWorld::load(dir).expect("EU4 开局");
+        let state = opening.state();
+        let capital = state
+            .country("TEU")
+            .and_then(|country| country.capital)
+            .expect("条顿有首都");
+        assert_eq!(state.province_garrison(capital), Some(1_150));
+        assert_eq!(state.province_garrison_cap(capital), 1_150);
+        assert_eq!(state.siege_required_men(capital), Some(3_450));
+
+        let france = state
+            .country("FRA")
+            .and_then(|country| country.capital)
+            .expect("法国有首都");
+        assert_eq!(state.province_garrison(france), Some(1_000));
+        assert_eq!(state.province_garrison_cap(france), 1_000);
+
+        let castle = state.provinces().iter().find_map(|(&id, province)| {
+            if id == capital || province.owner.as_deref() != Some("TEU") {
+                return None;
+            }
+            if province.buildings.len() != 1 || !province.buildings.contains("fort_15th") {
+                return None;
+            }
+            (state.province_fort_level(id) == 2).then_some(id)
+        });
+        let castle = castle.expect("条顿有非首都的 15 世纪城堡");
+        assert_eq!(state.province_garrison(castle), Some(2_300));
+        assert_eq!(state.province_garrison_cap(castle), 2_300);
+        assert_eq!(state.siege_required_men(castle), Some(6_900));
     }
 }

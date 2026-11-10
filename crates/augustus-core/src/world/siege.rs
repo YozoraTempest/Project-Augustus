@@ -3,7 +3,12 @@
 //! 要塞围城与驻军。
 //!
 //! `FORT_LEVEL` 取首都 `capital_city.fort_level = 1` 和建筑 `fort_level` 的较大值。
-//! 围城惩罚和状态上限用这个较大值。驻军条数是另一条规则：首都的 1 与各建筑 `fort_level` 相加，再乘 `GARRISON_SIZE`。
+//! 围城惩罚和状态上限用这个较大值。驻军条数是另一条规则：首都的 1 与各建筑 `fort_level` 相加。
+//! 人数 = 条数 × `GARRISON_SIZE` × (1000 + 国家 `garrison_size` 千分比) / 1000，向零截断。
+//! 千分比只来自开局奇观的 `country_modifiers`，按奇观所在省份的当前所有者相加。
+//! 同一修正名的多处来源在引擎写入时相加。1444 只有马里恩堡一处实测，加法按这条写入规则实现。
+//! 理念、政体改革、特权、事件和省份 `local_garrison_size` 不接：内容侧没有这些来源，1444 也不生效。
+//! 奇观易主后上限按新所有者重算，已经在营的人数不立刻下调，只在读档时截到当时上限。
 //! 能推进围城需要 `SIEGE_FORCE_NEEDED_MULTIPLIER` 倍的当前驻军。不足时暂停，不退已有天数。
 //! 驻军少于 `SIEGE_GARRISON_SURRENDER` 时同样要满三倍才结束。驻军为 0 时三倍仍是 0，敌军停驻当天结束。
 //! 围攻军全部离开、撤退或继续行军时清除围城。交战当天暂停。
@@ -103,9 +108,48 @@ pub(super) fn fort_sources(
     FortSources { level, regiments }
 }
 
-/// `GARRISON_SIZE` 乘驻军条数。条数是首都与建筑相加，不是围城等级。
-pub(super) fn garrison_cap(regiments: u32) -> u32 {
-    GARRISON_SIZE.saturating_mul(regiments)
+/// 人数 = 条数 × `GARRISON_SIZE` × (1000 + 千分比) / 1000，向零截断。
+/// 千分比为负且乘积小于 0 时人数为 0。
+pub(super) fn garrison_cap(regiments: u32, permille: i32) -> u32 {
+    let men =
+        i128::from(GARRISON_SIZE) * i128::from(regiments) * (1_000 + i128::from(permille)) / 1_000;
+    if men <= 0 {
+        0
+    } else {
+        u32::try_from(men).unwrap_or(u32::MAX)
+    }
+}
+
+/// 同一所有者名下的奇观千分比相加。奇观省份没有所有者时不计入。
+pub(super) fn garrison_permille_by_owner(
+    provinces: &BTreeMap<u32, Province>,
+    monuments: &BTreeMap<u32, i32>,
+) -> BTreeMap<String, i32> {
+    let mut totals: BTreeMap<String, i32> = BTreeMap::new();
+    for (province_id, permille) in monuments {
+        let Some(owner) = provinces
+            .get(province_id)
+            .and_then(|province| province.owner.clone())
+        else {
+            continue;
+        };
+        let total = totals.entry(owner).or_insert(0);
+        *total = total.saturating_add(*permille);
+    }
+    totals
+}
+
+fn province_garrison_permille(world: &World, id: u32) -> i32 {
+    let Some(owner) = world
+        .province(id)
+        .and_then(|province| province.owner.as_deref())
+    else {
+        return 0;
+    };
+    garrison_permille_by_owner(&world.provinces, &world.monument_garrison_permille)
+        .get(owner)
+        .copied()
+        .unwrap_or(0)
 }
 
 /// `SIEGE_MEMORY + trunc(SIEGE_MEMORY_SCALED * level)`。向零截断，1 级是 11。
@@ -194,7 +238,10 @@ impl World {
     }
 
     pub fn province_garrison_cap(&self, id: u32) -> u32 {
-        garrison_cap(self.fort_sources_at(id).regiments)
+        garrison_cap(
+            self.fort_sources_at(id).regiments,
+            province_garrison_permille(self, id),
+        )
     }
 
     /// 当前驻军对应的最低围城兵力。没有要塞时为空。
@@ -242,11 +289,12 @@ impl World {
             if sources.level == 0 {
                 continue;
             }
+            let permille = province_garrison_permille(self, id);
             let province = self.provinces.get_mut(&id).expect("要塞省份存在");
             if province.garrison.is_some() {
                 continue;
             }
-            let cap = garrison_cap(sources.regiments);
+            let cap = garrison_cap(sources.regiments, permille);
             province.garrison = Some(if province.fort_mothballed { 0 } else { cap });
         }
     }
@@ -260,6 +308,7 @@ impl World {
             if sources.level == 0 {
                 continue;
             }
+            let permille = province_garrison_permille(self, id);
             let province = &self.provinces[&id];
             if province.fort_mothballed {
                 continue;
@@ -270,7 +319,7 @@ impl World {
             if province.controller.as_deref() != Some(owner.as_str()) {
                 continue;
             }
-            let cap = garrison_cap(sources.regiments);
+            let cap = garrison_cap(sources.regiments, permille);
             let current = province.garrison.unwrap_or(0);
             if current >= cap {
                 continue;
@@ -525,7 +574,7 @@ mod tests {
         SiegeProgress, SiegeRoll, Simulation, UnitKind, World, WorldError,
     };
 
-    use super::{SIEGE_WIN, disease_loss, max_siege_status, phase_outcome};
+    use super::{SIEGE_WIN, disease_loss, garrison_cap, max_siege_status, phase_outcome};
 
     fn date() -> GameDate {
         GameDate::new(1444, 11, 11).unwrap()
@@ -604,6 +653,25 @@ mod tests {
             buildings,
             rules(),
             links,
+        )
+        .unwrap()
+    }
+
+    fn world_with_monuments(
+        countries: Vec<Country>,
+        provinces: Vec<(u32, Province)>,
+        buildings: Vec<BuildingDefinition>,
+        monuments: BTreeMap<u32, i32>,
+    ) -> World {
+        let ids: Vec<_> = provinces.iter().map(|(id, _)| *id).collect();
+        World::with_garrison_monuments(
+            countries,
+            provinces.into_iter().collect(),
+            ids,
+            buildings,
+            rules(),
+            Vec::<LandConnection>::new(),
+            monuments,
         )
         .unwrap()
     }
@@ -800,6 +868,169 @@ mod tests {
         assert_eq!(open.province_fort_level(1), 0);
         assert_eq!(open.province_garrison(1), None);
         assert_eq!(open.siege_required_men(1), None);
+    }
+
+    #[test]
+    fn garrison_cap_uses_thousandths_and_truncates_toward_zero() {
+        assert_eq!(garrison_cap(1, 0), 1_000);
+        assert_eq!(garrison_cap(1, 150), 1_150);
+        assert_eq!(garrison_cap(2, 150), 2_300);
+        assert_eq!(garrison_cap(1, -1), 999);
+        assert_eq!(garrison_cap(1, -1_000), 0);
+        assert_eq!(garrison_cap(1, -1_001), 0);
+        assert_eq!(garrison_cap(0, 150), 0);
+        assert_eq!(garrison_cap(u32::MAX, i32::MAX), u32::MAX);
+    }
+
+    #[test]
+    fn monument_country_garrison_scales_every_owned_fort() {
+        let mut aaa = Country::new("AAA");
+        aaa.capital = Some(1);
+        let mut bbb = Country::new("BBB");
+        bbb.capital = Some(3);
+        let mut fort = land("AAA", 3);
+        fort.buildings.insert("fort_15th".to_owned());
+        let mut other_fort = land("BBB", 3);
+        other_fort.buildings.insert("fort_15th".to_owned());
+        let world = world_with_monuments(
+            vec![aaa, bbb],
+            vec![
+                (1, land("AAA", 4)),
+                (2, fort),
+                (3, land("BBB", 4)),
+                (4, other_fort),
+                (10, land("AAA", 1)),
+            ],
+            vec![fort_building()],
+            BTreeMap::from([(10, 150)]),
+        );
+        assert_eq!(world.province_garrison(1), Some(1_150));
+        assert_eq!(world.province_garrison_cap(1), 1_150);
+        assert_eq!(world.siege_required_men(1), Some(3_450));
+        assert_eq!(world.province_garrison(2), Some(2_300));
+        assert_eq!(world.province_garrison_cap(2), 2_300);
+        assert_eq!(world.siege_required_men(2), Some(6_900));
+        assert_eq!(world.province_garrison(3), Some(1_000));
+        assert_eq!(world.siege_required_men(3), Some(3_000));
+        assert_eq!(world.province_garrison(4), Some(2_000));
+        assert_eq!(world.siege_required_men(4), Some(6_000));
+        assert_eq!(world.province_garrison(10), None);
+    }
+
+    #[test]
+    fn monuments_of_one_owner_add_and_an_ownerless_one_does_not() {
+        let mut aaa = Country::new("AAA");
+        aaa.capital = Some(1);
+        let mut empty = Province::new(ProvinceKind::Land);
+        empty.development.tax = Some(1);
+        let world = world_with_monuments(
+            vec![aaa],
+            vec![
+                (1, land("AAA", 4)),
+                (10, land("AAA", 1)),
+                (11, land("AAA", 1)),
+                (12, empty),
+            ],
+            vec![],
+            BTreeMap::from([(10, 150), (11, 100), (12, 80), (99, 500)]),
+        );
+        assert_eq!(world.province_garrison(1), Some(1_250));
+        assert_eq!(world.province_garrison_cap(1), 1_250);
+        assert_eq!(world.siege_required_men(1), Some(3_750));
+    }
+
+    #[test]
+    fn garrison_above_the_modified_cap_is_clamped_when_the_world_is_built() {
+        let mut aaa = Country::new("AAA");
+        aaa.capital = Some(1);
+        let mut capital = land("AAA", 4);
+        capital.garrison = Some(5_000);
+        let mut bare = land("AAA", 1);
+        bare.garrison = Some(10);
+        let content = world_with_monuments(
+            vec![aaa],
+            vec![(1, capital), (10, land("AAA", 1))],
+            vec![],
+            BTreeMap::from([(10, 150)]),
+        );
+        assert_eq!(content.province_garrison(1), Some(1_150));
+
+        let error = World::with_garrison_monuments(
+            [Country::new("AAA")],
+            BTreeMap::from([(1, bare)]),
+            [1],
+            [],
+            rules(),
+            Vec::<LandConnection>::new(),
+            BTreeMap::from([(10, 150)]),
+        );
+        assert!(matches!(
+            error,
+            Err(WorldError::InvalidSiege { province: 1 })
+        ));
+
+        let saved = SavedGame::capture(&content, &Simulation::new(date()), "AAA");
+        let mut over = serde_json::to_value(&saved).unwrap();
+        over["provinces"]["1"]["garrison"] = serde_json::json!(5_000);
+        let loaded = serde_json::from_value::<SavedGame>(over)
+            .unwrap()
+            .restore(&content)
+            .unwrap();
+        assert_eq!(loaded.world.province_garrison(1), Some(1_150));
+
+        let mut missing = serde_json::to_value(&saved).unwrap();
+        missing["provinces"]["1"]
+            .as_object_mut()
+            .unwrap()
+            .remove("garrison");
+        let loaded = serde_json::from_value::<SavedGame>(missing)
+            .unwrap()
+            .restore(&content)
+            .unwrap();
+        assert_eq!(loaded.world.province_garrison(1), Some(1_150));
+    }
+
+    #[test]
+    fn negative_modifier_floors_men_at_zero() {
+        let mut aaa = Country::new("AAA");
+        aaa.capital = Some(1);
+        let world = world_with_monuments(
+            vec![aaa],
+            vec![(1, land("AAA", 4)), (10, land("AAA", 1))],
+            vec![],
+            BTreeMap::from([(10, -1_500)]),
+        );
+        assert_eq!(world.province_garrison(1), Some(0));
+        assert_eq!(world.province_garrison_cap(1), 0);
+        assert_eq!(world.siege_required_men(1), Some(0));
+    }
+
+    #[test]
+    fn garrison_bonus_follows_the_monument_owner_without_shrinking_men() {
+        let mut aaa = Country::new("AAA");
+        aaa.capital = Some(1);
+        let mut bbb = Country::new("BBB");
+        bbb.capital = Some(2);
+        let mut world = world_with_monuments(
+            vec![aaa, bbb],
+            vec![
+                (1, land("AAA", 4)),
+                (2, land("BBB", 4)),
+                (10, land("AAA", 1)),
+            ],
+            vec![],
+            BTreeMap::from([(10, 150)]),
+        );
+        assert_eq!(world.province_garrison_cap(1), 1_150);
+        assert_eq!(world.province_garrison_cap(2), 1_000);
+
+        world.provinces.get_mut(&10).unwrap().owner = Some("BBB".to_owned());
+        assert_eq!(world.province_garrison_cap(1), 1_000);
+        assert_eq!(world.province_garrison(1), Some(1_150));
+        assert_eq!(world.siege_required_men(1), Some(3_450));
+        assert_eq!(world.province_garrison_cap(2), 1_150);
+        assert_eq!(world.province_garrison(2), Some(1_000));
+        assert_eq!(world.siege_required_men(2), Some(3_000));
     }
 
     #[test]
