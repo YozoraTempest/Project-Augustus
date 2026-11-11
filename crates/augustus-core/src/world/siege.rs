@@ -23,7 +23,7 @@
 //! 破墙分 = 骰子 + 过时要塞项 / 2 + 炮兵加成 / 2。两项都再向零截断。次数未满 `MAX_BREACH` 且总点数未到投降才破墙。
 //! 过时要塞项在攻方为空或要塞停用时为 0。国家 `fort_level` 还没有来源，调用处传 0，所以这项目前是 0。
 //! 炮兵加成按当前兵力计算。本项没有炮兵单位，兵力合计传 0，加成是 0。封锁和将领保持 0。
-//! 破墙：次数 +1，状态 +2，驻军人数 × 50 / 1000。不改控制者，不改要塞等级。旧档位不扣驻军。
+//! 破墙：次数 +1，状态 +2，驻军先降到整千人再乘 50。不改控制者，不改要塞等级。旧档位不扣驻军。
 //! 疾病按 `SIEGE_DISEASE_IMPACT` 乘团的最大兵力 `REGIMENT_STRENGTH` 扣除。
 //! 停用会立刻清空驻军，但不取消攻守反转。
 //! 月度恢复以驻军上限为基数：上限 ×（城市 50‰ + 基础人力每点 10‰）/ 1000，向零截断后夹到上限。
@@ -69,7 +69,7 @@ const MAX_BREACH: u32 = 3;
 const BREACH_SCORE: i64 = 14;
 /// 破墙状态加成。千分槽里的字面量 2000，显示值是 2。
 const BREACH_STATUS_BONUS: u32 = 2;
-/// 破墙扣掉的驻军千分比。人数 × 50 / 1000，向零截断。
+/// 破墙对每个整千人扣掉的人数。先做 `人数 / 1000`，再乘这个数。
 const BREACH_GARRISON_PERMILLE: u64 = 50;
 /// 炮兵可用等级的缺省底数。修正为 0 时上限就是它。
 const ARTILLERY_LEVEL_CAP: i64 = 5;
@@ -312,9 +312,10 @@ fn phase_outcome(
     }
 }
 
-/// 破墙扣减。人数 × 50 / 1000，向零截断，不超过当前人数。
+/// 破墙扣减。先把人数降到整千人，再乘 50。不足一千人不扣。
 fn breach_garrison_loss(men: u32) -> u32 {
-    let loss = u64::from(men) * BREACH_GARRISON_PERMILLE / 1_000;
+    let thousands = u64::from(men) / 1_000;
+    let loss = thousands * BREACH_GARRISON_PERMILLE;
     u32::try_from(loss).unwrap_or(men)
 }
 
@@ -1006,6 +1007,8 @@ mod tests {
         assert_eq!(helped.result, SiegeRoll::Breach);
         assert_eq!(next_status(10, helped.status_bonus, 1), 11);
         assert_eq!(breach_garrison_loss(1_000), 50);
+        assert_eq!(breach_garrison_loss(1_150), 50);
+        assert_eq!(breach_garrison_loss(1_500), 50);
         assert_eq!(breach_garrison_loss(19), 0);
     }
 
@@ -1113,7 +1116,7 @@ mod tests {
             if progress.breaches != breaches {
                 assert_eq!(progress.breaches, breaches + 1);
                 assert_eq!(progress.last_result, Some(SiegeRoll::Breach));
-                garrison -= u32::try_from(u64::from(garrison) * 50 / 1_000).unwrap();
+                garrison -= garrison / 1_000 * 50;
                 assert_eq!(world.province_garrison(1), Some(garrison));
                 assert_eq!(
                     progress.status,
@@ -1127,7 +1130,7 @@ mod tests {
             }
         }
         assert_eq!(breaches, 3);
-        assert_eq!(garrison, 17_148);
+        assert_eq!(garrison, 17_150);
         let frozen = garrison;
         for _ in 0..40 {
             for _ in 0..30 {
