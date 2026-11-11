@@ -123,7 +123,7 @@ func _fort_text(province: Dictionary) -> String:
 	if province.siege_days == null:
 		return text + "\n当前没有围城"
 	var remaining: int = province.siege_total - province.siege_days
-	return text + "\n围城：%s，%s / %s 人\n本阶段：%d/%d（距下次检定 %d 天）\n要塞状态：%s\n上次检定：%s（%s）" % [_country_name(province, "siege_besieger"), _value(province.besieging_men), _value(province.siege_required_men), province.siege_days, province.siege_total, remaining, _value(province.siege_status), _value(province.siege_roll), _value(province.siege_result)]
+	return text + "\n围城：%s，%s / %s 人\n本阶段：%d/%d（距下次检定 %d 天）\n要塞状态：%s\n破墙次数：%s\n上次检定：%s（%s）" % [_country_name(province, "siege_besieger"), _value(province.besieging_men), _value(province.siege_required_men), province.siege_days, province.siege_total, remaining, _value(province.siege_status), _value(province.siege_breaches), _value(province.siege_roll), _value(province.siege_result)]
 
 
 func _value(value: Variant) -> String:

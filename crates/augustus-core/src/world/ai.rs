@@ -467,7 +467,7 @@ impl World {
         self.can_take_province(country, army.province, army.strength) && hostile < army.strength
     }
 
-    /// 无要塞至少 1000 人。要塞按当前驻军的三倍，停用后驻军为 0，任何停驻兵力都够。
+    /// 无要塞至少 1000 人。要塞按等级换算的满员团数，驻军为 0 时是 1 个团。
     fn can_take_province(&self, country: &str, province: u32, strength: u64) -> bool {
         let Some(state) = self.province(province) else {
             return false;
