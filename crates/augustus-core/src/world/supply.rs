@@ -113,6 +113,10 @@ impl World {
         Some(result)
     }
 
+    pub(crate) fn province_supply_limit(&self, province: u32) -> Option<u32> {
+        self.land_supply_limit(province)
+    }
+
     fn land_supply_limit(&self, province: u32) -> Option<u32> {
         let province = self.province(province)?;
         (province.kind == ProvinceKind::Land).then(|| {
