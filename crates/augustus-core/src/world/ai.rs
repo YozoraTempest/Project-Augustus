@@ -712,7 +712,7 @@ impl World {
     }
 
     /// 先按补给挑最少的军队。放不进上限时仍留下满足人数的一组，并在原因里说明。
-    /// 来援加上现场敌军不低于围城战力时，只再补一支；补不上就放弃。
+    /// 来援战力已经超过围城军时，只再补一支；补不上就放弃。相等时不撤。
     fn choose_siege(&self, plan: &Plan, target: u32) -> Option<SiegePick> {
         if value_at(&plan.picture.hostile_power, target) > 0 {
             return None;
@@ -740,7 +740,7 @@ impl World {
             .map(|id| snap(plan.snaps, *id).power)
             .fold(0, u64::saturating_add);
         let mut threat_added = false;
-        if threat > 0 && stack <= threat {
+        if threat > stack {
             let mut extras: Vec<&OwnArmy> = candidates
                 .iter()
                 .copied()
@@ -773,7 +773,12 @@ impl World {
             .map(|(&province, _)| province)
             .collect();
         order_targets(&mut targets, plan.snaps, plan.old, ROLE_ASSEMBLE);
-        let musters = self.owned_provinces(plan.country);
+        // 敌军已经站着的本国省不能当集合点，否则先到的一军会单独接战。没有安全集合点就不出发。
+        let musters: Vec<u32> = self
+            .owned_provinces(plan.country)
+            .into_iter()
+            .filter(|&province| value_at(&plan.picture.hostile_power, province) == 0)
+            .collect();
         for target in targets {
             let enemy = value_at(&plan.picture.hostile_power, target);
             let solo = {
@@ -1076,8 +1081,20 @@ impl World {
         }
     }
 
-    /// 没有任务、却正走向打不赢的省份，或围城已经放弃时，改回本国控制的省份。
+    /// 没有任务、却正走向打不赢或打平的省份，围城已经放弃，或定额之外仍停在围城、占领目标上时，改回本国控制的省份。
     fn assign_withdrawal(&self, plan: &mut Plan, abandoned: &BTreeSet<u32>) {
+        let crowded_siege: BTreeSet<u32> = plan
+            .assignments
+            .values()
+            .filter(|task| task.role == ROLE_SIEGE)
+            .map(|task| task.target)
+            .collect();
+        let crowded_occupy: BTreeSet<u32> = plan
+            .assignments
+            .values()
+            .filter(|task| task.role == ROLE_OCCUPY)
+            .map(|task| task.target)
+            .collect();
         for army in plan.snaps {
             if army.locked() || !army.morale_ready || plan.assignments.contains_key(&army.id) {
                 continue;
@@ -1090,10 +1107,13 @@ impl World {
             let Some(province) = heading else {
                 continue;
             };
+            // 持平不算超过。已经在走的单军不能继续进入。
             let into_lost =
-                army.moving && value_at(&plan.picture.hostile_power, province) > army.power;
+                army.moving && value_at(&plan.picture.hostile_power, province) >= army.power;
             let leave_siege = abandoned.contains(&province);
-            if !into_lost && !leave_siege {
+            let spare_siege = crowded_siege.contains(&province);
+            let spare_occupy = crowded_occupy.contains(&province);
+            if !into_lost && !leave_siege && !spare_siege && !spare_occupy {
                 continue;
             }
             let Some(home) = self.nearest_home(plan.country, &army.travel) else {
@@ -1102,7 +1122,11 @@ impl World {
             if !army.moving && home == army.province {
                 continue;
             }
-            let reason = if leave_siege {
+            let reason = if spare_siege {
+                format!("围攻省份 {province} 的兵力已经够，撤回")
+            } else if spare_occupy {
+                format!("占领省份 {province} 的兵力已经够，撤回")
+            } else if leave_siege {
                 format!("无法守住省份 {province} 的围城，撤回")
             } else {
                 format!("兵力不足，从省份 {province} 撤回")
@@ -1547,7 +1571,7 @@ mod tests {
     use crate::{
         Army, CombatRules, Country, Development, GameDate, GameSpeed, LandConnection,
         ManpowerRules, MilitaryRules, Money, Province, ProvinceKind, Regiment, SavedGame,
-        Simulation, UnitKind,
+        Simulation, UnitKind, military::ArmyPlan,
     };
 
     use super::World;
@@ -2175,5 +2199,140 @@ mod tests {
         world.direct_war_ai(Some("AAA"), date());
         assert_eq!(world.military.random.count(), random);
         assert_eq!(world.military.siege_random.count(), siege);
+    }
+
+    #[test]
+    fn assembly_does_not_muster_where_an_enemy_already_stands() {
+        let mut world = build(
+            &[(1, "BBB"), (2, "BBB"), (4, "BBB"), (6, "BBB")],
+            vec![link(2, 1, 1), link(4, 1, 1), link(2, 6, 3), link(4, 6, 3)],
+        );
+        world.declare_war("AAA", "BBB", date()).unwrap();
+        station(&mut world, 1, "AAA", 1, 3);
+        station(&mut world, 10, "BBB", 2, 2);
+        station(&mut world, 11, "BBB", 4, 2);
+        let stuck = ArmyPlan {
+            role: "assemble".to_owned(),
+            target: 1,
+            muster: Some(1),
+            since: date(),
+        };
+        world.military.war_plans.insert(10, stuck.clone());
+        world.military.war_plans.insert(11, stuck);
+        world.direct_war_ai(Some("AAA"), date());
+        assert!(world.armies()[&10].movement.is_none());
+        assert_eq!(
+            world.armies()[&11].movement.as_ref().unwrap().destination(),
+            2
+        );
+        assert_eq!(world.military.war_plans[&10].muster, Some(2));
+        assert_eq!(world.military.war_plans[&11].muster, Some(2));
+        assert_eq!(world.military.war_plans[&10].target, 1);
+
+        let mut nowhere = build(&[(1, "BBB"), (2, "BBB")], vec![link(1, 2, 1)]);
+        nowhere.declare_war("AAA", "BBB", date()).unwrap();
+        station(&mut nowhere, 1, "AAA", 1, 3);
+        station(&mut nowhere, 8, "AAA", 2, 3);
+        station(&mut nowhere, 10, "BBB", 2, 2);
+        station(&mut nowhere, 11, "BBB", 2, 2);
+        nowhere.direct_war_ai(Some("AAA"), date());
+        assert!(nowhere.armies()[&10].movement.is_none());
+        assert!(nowhere.armies()[&11].movement.is_none());
+        assert!(nowhere.military.war_plans.is_empty());
+    }
+
+    #[test]
+    fn spare_armies_leave_a_filled_siege_or_occupation() {
+        let mut siege = build(&[(1, "AAA"), (2, "BBB")], vec![link(1, 2, 1)]);
+        siege.countries.get_mut("AAA").unwrap().capital = Some(1);
+        siege.provinces.get_mut(&1).unwrap().garrison = Some(1_000);
+        siege.declare_war("AAA", "BBB", date()).unwrap();
+        station(&mut siege, 2, "BBB", 1, 3);
+        station(&mut siege, 4, "BBB", 1, 1);
+        siege.direct_war_ai(Some("AAA"), date());
+        assert!(siege.armies()[&2].movement.is_none());
+        assert_eq!(siege.military.war_plans[&2].role, "siege");
+        assert_eq!(
+            siege.armies()[&4].movement.as_ref().unwrap().destination(),
+            2
+        );
+        assert_eq!(siege.military.war_plans[&4].role, "recover");
+
+        let mut occupation = build(&[(1, "AAA"), (2, "BBB")], vec![link(1, 2, 1)]);
+        occupation.declare_war("AAA", "BBB", date()).unwrap();
+        station(&mut occupation, 2, "BBB", 1, 1);
+        station(&mut occupation, 4, "BBB", 1, 1);
+        occupation.direct_war_ai(Some("AAA"), date());
+        assert!(occupation.armies()[&2].movement.is_none());
+        assert_eq!(occupation.military.war_plans[&2].role, "occupy");
+        assert_eq!(
+            occupation.armies()[&4]
+                .movement
+                .as_ref()
+                .unwrap()
+                .destination(),
+            2
+        );
+        assert_eq!(occupation.military.war_plans[&4].role, "recover");
+    }
+
+    #[test]
+    fn equal_power_does_not_abandon_a_siege_or_keep_marching_in() {
+        let mut world = build(
+            &[(1, "AAA"), (2, "BBB"), (3, "AAA")],
+            vec![link(1, 2, 1), link(1, 3, 5)],
+        );
+        world.countries.get_mut("AAA").unwrap().capital = Some(1);
+        world.provinces.get_mut(&1).unwrap().garrison = Some(1_000);
+        world.declare_war("AAA", "BBB", date()).unwrap();
+        station(&mut world, 2, "BBB", 1, 3);
+        station(&mut world, 4, "BBB", 2, 1);
+        station(&mut world, 8, "AAA", 3, 3);
+        world.move_army("AAA", 8, 1, date()).unwrap();
+        world.direct_war_ai(Some("AAA"), date());
+        assert!(world.armies()[&2].movement.is_none());
+        assert_eq!(world.military.war_plans[&2].role, "siege");
+        assert!(world.armies()[&4].movement.is_none());
+
+        world
+            .military
+            .armies
+            .get_mut(&8)
+            .unwrap()
+            .regiments
+            .push(Regiment::fresh(UnitKind::Infantry, 1_000));
+        world.direct_war_ai(Some("AAA"), date());
+        assert_eq!(
+            world.armies()[&2].movement.as_ref().unwrap().destination(),
+            2
+        );
+        assert_eq!(world.military.war_plans[&2].role, "recover");
+
+        let mut marching = build(
+            &[(1, "AAA"), (2, "BBB"), (4, "BBB")],
+            vec![link(2, 4, 1), link(4, 1, 5)],
+        );
+        marching.declare_war("AAA", "BBB", date()).unwrap();
+        station(&mut marching, 1, "AAA", 1, 2);
+        station(&mut marching, 2, "BBB", 2, 2);
+        marching.move_army("BBB", 2, 1, date()).unwrap();
+        assert_eq!(
+            marching.armies()[&2]
+                .movement
+                .as_ref()
+                .unwrap()
+                .destination(),
+            1
+        );
+        marching.direct_war_ai(Some("AAA"), date());
+        assert_eq!(
+            marching.armies()[&2]
+                .movement
+                .as_ref()
+                .unwrap()
+                .destination(),
+            2
+        );
+        assert_eq!(marching.military.war_plans[&2].role, "recover");
     }
 }
