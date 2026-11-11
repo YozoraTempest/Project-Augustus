@@ -343,6 +343,7 @@ impl World {
         let picture = self.war_picture(country, player, &powers);
         let relieve = self.relieve_provinces(country, &picture);
         let relieve_at: BTreeSet<u32> = relieve.iter().copied().collect();
+        let blocked = standing_hostiles(&picture);
         let mut assignments = BTreeMap::new();
         {
             let mut plan = Plan {
@@ -356,12 +357,12 @@ impl World {
             let reserved = self.reserve_sieges(&plan);
             self.assign_reinforce(&mut plan, &powers, &reserved);
             let abandoned = self.assign_sieges(&mut plan);
-            self.assign_assembly(&mut plan, &relieve_at);
+            self.assign_assembly(&mut plan, &relieve_at, &blocked);
             self.assign_occupation(&mut plan);
             self.assign_recovery(&mut plan);
             self.assign_withdrawal(&mut plan, &abandoned);
         }
-        self.apply_orders(country, date, &snaps, &assignments)
+        self.apply_orders(country, date, &snaps, &assignments, &blocked)
     }
 
     /// 军队消失、属于玩家，或国家已经不在战争中时，计划不再保留。
@@ -433,7 +434,7 @@ impl World {
             let travel = if army.is_exiled() || zero || speed <= Money::ZERO {
                 BTreeMap::new()
             } else {
-                self.land_travel_days(country, army.province, speed, false)
+                self.land_travel_days(country, army.province, speed, false, &BTreeSet::new())
             };
             let morale_ready =
                 !zero && u64::from(army.average_morale(max)).saturating_mul(2) >= u64::from(max);
@@ -537,6 +538,7 @@ impl World {
                         target,
                         muster: None,
                         destination: target,
+                        avoid_hostile: false,
                         reason: format!("解围省份 {target}"),
                     },
                 );
@@ -627,6 +629,7 @@ impl World {
                         target,
                         muster: None,
                         destination: target,
+                        avoid_hostile: false,
                         reason: format!("增援省份 {target} 的战斗"),
                     },
                 );
@@ -663,6 +666,7 @@ impl World {
                         target,
                         muster: None,
                         destination: target,
+                        avoid_hostile: false,
                         reason: reason.clone(),
                     },
                 );
@@ -760,7 +764,7 @@ impl World {
         })
     }
 
-    fn assign_assembly(&self, plan: &mut Plan, relieve: &BTreeSet<u32>) {
+    fn assign_assembly(&self, plan: &mut Plan, relieve: &BTreeSet<u32>, blocked: &BTreeSet<u32>) {
         let mut targets: Vec<u32> = plan
             .picture
             .hostile_power
@@ -773,12 +777,17 @@ impl World {
             .map(|(&province, _)| province)
             .collect();
         order_targets(&mut targets, plan.snaps, plan.old, ROLE_ASSEMBLE);
+        if targets.is_empty() {
+            return;
+        }
         // 敌军已经站着的本国省不能当集合点，否则先到的一军会单独接战。没有安全集合点就不出发。
         let musters: Vec<u32> = self
             .owned_provinces(plan.country)
             .into_iter()
             .filter(|&province| value_at(&plan.picture.hostile_power, province) == 0)
             .collect();
+        // 到齐前的天数也要避开这些省。普通最短路会抄近路穿过敌军，先到的一军会单独接战。
+        let safe = self.safe_assembly_days(plan.country, plan.snaps, blocked);
         for target in targets {
             let enemy = value_at(&plan.picture.hostile_power, target);
             let solo = {
@@ -799,6 +808,7 @@ impl World {
                         target,
                         muster: None,
                         destination: target,
+                        avoid_hostile: false,
                         reason: format!("单独超过敌军，进攻省份 {target}"),
                     },
                 );
@@ -806,7 +816,7 @@ impl World {
             }
             let Some(group) = ({
                 let candidates = reachable(plan, P_ASSEMBLE, target, &BTreeSet::new());
-                self.pick_group(plan, target, &candidates, &musters, enemy)
+                self.pick_group(plan, target, &candidates, &musters, enemy, &safe)
             }) else {
                 continue;
             };
@@ -815,6 +825,8 @@ impl World {
             } else {
                 format!("在省份 {} 集结，准备进攻省份 {target}", group.muster)
             };
+            // 全员到齐后目的地改成目标省，这时必须进入敌军所在省，不再绕开。
+            let avoid_hostile = group.destination != target;
             for id in group.ids {
                 put(
                     plan.assignments,
@@ -825,11 +837,33 @@ impl World {
                         target,
                         muster: Some(group.muster),
                         destination: group.destination,
+                        avoid_hostile,
                         reason: reason.clone(),
                     },
                 );
             }
         }
+    }
+
+    /// 每支还能出动的军队，到齐前不进入 `blocked` 的最短天数。起点本身仍算 0 天。
+    fn safe_assembly_days(
+        &self,
+        country: &str,
+        snaps: &[OwnArmy],
+        blocked: &BTreeSet<u32>,
+    ) -> BTreeMap<u32, BTreeMap<u32, u32>> {
+        snaps
+            .iter()
+            .filter(|army| army.morale_ready && !army.locked() && army.men > 0)
+            .filter_map(|army| {
+                let unit = self.military.armies.get(&army.id)?;
+                let speed = unit.march_speed(&self.military_rules);
+                Some((
+                    army.id,
+                    self.land_travel_days(country, army.province, speed, false, blocked),
+                ))
+            })
+            .collect()
     }
 
     fn pick_solo(
@@ -863,17 +897,19 @@ impl World {
         candidates: &[&OwnArmy],
         musters: &[u32],
         enemy: u64,
+        safe: &BTreeMap<u32, BTreeMap<u32, u32>>,
     ) -> Option<GroupPick> {
         let mut selected: Option<GroupAt> = None;
         if let Some(muster) = common_muster(candidates, plan.old, target)
             && musters.contains(&muster)
-            && let Some(group) = self.group_at(plan, target, muster, candidates, enemy)
+            && let Some(group) = self.group_at(plan, target, muster, candidates, enemy, safe)
         {
             selected = Some(group);
         }
         if selected.is_none() {
             for &muster in musters {
-                let Some(group) = self.group_at(plan, target, muster, candidates, enemy) else {
+                let Some(group) = self.group_at(plan, target, muster, candidates, enemy, safe)
+                else {
                     continue;
                 };
                 let better = selected.as_ref().is_none_or(|current| {
@@ -900,11 +936,13 @@ impl World {
         muster: u32,
         candidates: &[&OwnArmy],
         enemy: u64,
+        safe: &BTreeMap<u32, BTreeMap<u32, u32>>,
     ) -> Option<GroupAt> {
+        let days_of = |army: &OwnArmy| safe_days(safe, army.id, muster);
         let mut pool: Vec<&OwnArmy> = candidates
             .iter()
             .copied()
-            .filter(|army| army.travel.contains_key(&muster))
+            .filter(|army| days_of(army).is_some())
             .collect();
         pool.sort_by_key(|army| {
             let sticky = u8::from(!plan.old.get(&army.id).is_some_and(|saved| {
@@ -912,7 +950,7 @@ impl World {
                     && saved.target == target
                     && saved.muster == Some(muster)
             }));
-            (sticky, army.travel[&muster], army.id)
+            (sticky, days_of(army).unwrap_or(u32::MAX), army.id)
         });
         let mut ids = Vec::new();
         let mut power = present_battle_power(plan.snaps, target);
@@ -928,7 +966,7 @@ impl World {
             ids.push(army.id);
             power = power.saturating_add(army.power);
             men = men.saturating_add(army.men);
-            max_days = max_days.max(army.travel[&muster]);
+            max_days = max_days.max(days_of(army).unwrap_or(u32::MAX));
         }
         if power > enemy && self.retreat_allows(plan.country, target, men, plan.picture) {
             Some(GroupAt {
@@ -1027,6 +1065,7 @@ impl World {
                         target,
                         muster: None,
                         destination: target,
+                        avoid_hostile: false,
                         reason: format!("占领无要塞省份 {target}"),
                     },
                 );
@@ -1075,6 +1114,7 @@ impl World {
                     target: destination,
                     muster: None,
                     destination,
+                    avoid_hostile: false,
                     reason: format!("士气不足，返回省份 {destination}"),
                 },
             );
@@ -1140,6 +1180,7 @@ impl World {
                     target: home,
                     muster: None,
                     destination: home,
+                    avoid_hostile: false,
                     reason,
                 },
             );
@@ -1172,6 +1213,7 @@ impl World {
         date: GameDate,
         snaps: &[OwnArmy],
         assignments: &BTreeMap<u32, Assignment>,
+        blocked: &BTreeSet<u32>,
     ) -> Vec<ArmyChoice> {
         let mut choices = Vec::new();
         for army in snaps {
@@ -1199,7 +1241,7 @@ impl World {
                 choices.push(stay(army.id, reason));
                 continue;
             };
-            let choice = self.issue_order(country, army, task, date);
+            let choice = self.issue_order(country, army, task, date, blocked);
             self.store_plan(army.id, task, date);
             choices.push(choice);
         }
@@ -1212,16 +1254,25 @@ impl World {
         army: &OwnArmy,
         task: &Assignment,
         date: GameDate,
+        blocked: &BTreeSet<u32>,
     ) -> ArmyChoice {
         let same = if army.moving {
             army.dest == Some(task.destination)
         } else {
             army.province == task.destination
         };
-        if same {
+        // 目的地没变、且剩下的路段不再进入敌军省时，不重复下令。
+        // 已经在走的当前路段会保留；只重算后面的路。
+        let crosses = task.avoid_hostile && self.remaining_legs_enter(army.id, blocked);
+        if same && !crosses {
             return task_choice(army.id, "stay", task);
         }
-        match self.move_army(country, army.id, task.destination, date) {
+        let moved = if task.avoid_hostile {
+            self.move_army_avoiding(country, army.id, task.destination, date, blocked)
+        } else {
+            self.move_army(country, army.id, task.destination, date)
+        };
+        match moved {
             Ok(()) => task_choice(army.id, "move", task),
             Err(error) => ArmyChoice {
                 id: army.id,
@@ -1232,6 +1283,17 @@ impl World {
                 reason: error.to_string(),
             },
         }
+    }
+
+    /// 从当前路段起，是否还会进入已经有敌军的省。
+    fn remaining_legs_enter(&self, id: u32, blocked: &BTreeSet<u32>) -> bool {
+        self.military.armies.get(&id).is_some_and(|army| {
+            army.movement.as_ref().is_some_and(|movement| {
+                movement.legs()[movement.leg_index()..]
+                    .iter()
+                    .any(|leg| blocked.contains(&leg.to))
+            })
+        })
     }
 
     fn store_plan(&mut self, id: u32, task: &Assignment, date: GameDate) {
@@ -1330,6 +1392,19 @@ fn task_choice(id: u32, action: &str, task: &Assignment) -> ArmyChoice {
 
 fn value_at(map: &BTreeMap<u32, u64>, province: u32) -> u64 {
     map.get(&province).copied().unwrap_or(0)
+}
+
+fn standing_hostiles(picture: &WarPicture) -> BTreeSet<u32> {
+    picture
+        .hostile_power
+        .iter()
+        .filter(|&(_, &power)| power > 0)
+        .map(|(&province, _)| province)
+        .collect()
+}
+
+fn safe_days(safe: &BTreeMap<u32, BTreeMap<u32, u32>>, id: u32, province: u32) -> Option<u32> {
+    safe.get(&id).and_then(|days| days.get(&province).copied())
 }
 
 fn present_battle_power(snaps: &[OwnArmy], province: u32) -> u64 {
@@ -1534,6 +1609,8 @@ struct Assignment {
     target: u32,
     muster: Option<u32>,
     destination: u32,
+    /// 集结还没到齐时，去集合点的路不能进入已经有敌军的省。
+    avoid_hostile: bool,
     reason: String,
 }
 
@@ -2203,9 +2280,16 @@ mod tests {
 
     #[test]
     fn assembly_does_not_muster_where_an_enemy_already_stands() {
+        // 省 1 有敌军。经省 1 到省 6 只有 2 天，直达要 3 天。到齐前不能抄这条近路。
         let mut world = build(
             &[(1, "BBB"), (2, "BBB"), (4, "BBB"), (6, "BBB")],
-            vec![link(2, 1, 1), link(4, 1, 1), link(2, 6, 3), link(4, 6, 3)],
+            vec![
+                link(2, 1, 1),
+                link(4, 1, 1),
+                link(2, 6, 3),
+                link(4, 6, 3),
+                link(1, 6, 1),
+            ],
         );
         world.declare_war("AAA", "BBB", date()).unwrap();
         station(&mut world, 1, "AAA", 1, 3);
@@ -2220,14 +2304,18 @@ mod tests {
         world.military.war_plans.insert(10, stuck.clone());
         world.military.war_plans.insert(11, stuck);
         world.direct_war_ai(Some("AAA"), date());
-        assert!(world.armies()[&10].movement.is_none());
-        assert_eq!(
-            world.armies()[&11].movement.as_ref().unwrap().destination(),
-            2
-        );
-        assert_eq!(world.military.war_plans[&10].muster, Some(2));
-        assert_eq!(world.military.war_plans[&11].muster, Some(2));
-        assert_eq!(world.military.war_plans[&10].target, 1);
+        for id in [10, 11] {
+            let movement = world.armies()[&id].movement.as_ref().unwrap();
+            assert_eq!(movement.destination(), 6);
+            assert!(
+                movement
+                    .legs()
+                    .iter()
+                    .all(|leg| leg.to != 1 && leg.from != 1)
+            );
+            assert_eq!(world.military.war_plans[&id].muster, Some(6));
+            assert_eq!(world.military.war_plans[&id].target, 1);
+        }
 
         let mut nowhere = build(&[(1, "BBB"), (2, "BBB")], vec![link(1, 2, 1)]);
         nowhere.declare_war("AAA", "BBB", date()).unwrap();
