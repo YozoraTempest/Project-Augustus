@@ -676,7 +676,7 @@ mod tests {
             .expect("条顿有首都");
         assert_eq!(state.province_garrison(capital), Some(1_150));
         assert_eq!(state.province_garrison_cap(capital), 1_150);
-        assert_eq!(state.siege_required_men(capital), Some(3_450));
+        assert_eq!(state.siege_required_men(capital), Some(3_000));
 
         let france = state
             .country("FRA")
@@ -697,6 +697,6 @@ mod tests {
         let castle = castle.expect("条顿有非首都的 15 世纪城堡");
         assert_eq!(state.province_garrison(castle), Some(2_300));
         assert_eq!(state.province_garrison_cap(castle), 2_300);
-        assert_eq!(state.siege_required_men(castle), Some(6_900));
+        assert_eq!(state.siege_required_men(castle), Some(6_000));
     }
 }

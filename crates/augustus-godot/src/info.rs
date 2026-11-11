@@ -99,8 +99,13 @@ pub(crate) fn province_info(world: &OpeningWorld, id: u32) -> VarDictionary {
     match province.siege.as_ref() {
         Some(progress) => {
             info.set("siege_days", i64::from(progress.days));
-            info.set("siege_total", i64::from(OCCUPATION_PHASE_DAYS));
+            info.set("siege_total", i64::from(world.state().siege_phase_days()));
             info.set("siege_status", i64::from(progress.status));
+            number(
+                &mut info,
+                "siege_breaches",
+                Some(u64::from(progress.breaches)),
+            );
             text(
                 &mut info,
                 "siege_besieger",
@@ -122,6 +127,7 @@ pub(crate) fn province_info(world: &OpeningWorld, id: u32) -> VarDictionary {
             info.set("siege_days", &Variant::nil());
             info.set("siege_total", &Variant::nil());
             info.set("siege_status", &Variant::nil());
+            number(&mut info, "siege_breaches", None);
             text(&mut info, "siege_besieger", None);
             text(&mut info, "siege_besieger_name", None);
             number(&mut info, "siege_roll", None);

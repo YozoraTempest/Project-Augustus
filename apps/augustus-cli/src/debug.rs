@@ -3,8 +3,8 @@
 //! 把核心世界整理成调试服务使用的 JSON。命令仍调用玩家使用的接口。
 
 use augustus_core::{
-    Army, DayAdvance, GameDate, Money, MonthlyBudget, OCCUPATION_PHASE_DAYS, PeaceSheet, Province,
-    Simulation, UnitKind, War, World, format_warscore_milli,
+    Army, DayAdvance, GameDate, Money, MonthlyBudget, PeaceSheet, Province, Simulation, UnitKind,
+    War, World, format_warscore_milli,
 };
 use serde_json::{Value, json};
 
@@ -98,8 +98,9 @@ pub fn province_report(
         "siege": province.siege.as_ref().map(|progress| json!({
             "besieger": progress.besieger,
             "days": progress.days,
-            "phase_days": OCCUPATION_PHASE_DAYS,
+            "phase_days": world.siege_phase_days(),
             "status": progress.status,
+            "breaches": progress.breaches,
             "last_roll": progress.last_roll,
             "last_result": progress.last_result.map(|result| result.label()),
         })),

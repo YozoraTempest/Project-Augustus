@@ -208,6 +208,7 @@ impl World {
                     || province.kind != ProvinceKind::Land
                     || progress.days >= OCCUPATION_PHASE_DAYS
                     || progress.status > siege::max_siege_status(fort_level)
+                    || !siege::breach_count_allowed(progress.breaches)
                     || !registry.contains_key(&progress.besieger))
             {
                 return Err(WorldError::InvalidSiege { province: id });

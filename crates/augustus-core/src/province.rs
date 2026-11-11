@@ -43,7 +43,8 @@ pub struct Province {
     pub terrain_supply: u32,
 }
 
-/// 中性围城阶段长度。围城能力、封锁、火炮和领袖围城未实现，固定为原版 `DAYS_PER_SIEGE_PHASE`。
+/// 无要塞占领的阶段长度，也是围城已累计天数的存档上限。
+/// 围城阶段长度的公式在围城模块；防御、围城能力和战术差都是 0 时同样是 30。
 pub const OCCUPATION_PHASE_DAYS: u32 = 30;
 
 /// 无要塞占领已累计的天数。满一个阶段后立即改变控制者并清除，因此存档中的天数小于阶段长度。
@@ -60,6 +61,9 @@ pub struct SiegeProgress {
     pub days: u32,
     /// 加到下一次检定上的要塞状态。
     pub status: u32,
+    /// 已经打开的破口。达到 3 次后不再破墙。旧档没有该字段时是 0。
+    #[serde(default)]
+    pub breaches: u32,
     #[serde(default)]
     pub last_roll: Option<u8>,
     #[serde(default)]
@@ -77,6 +81,7 @@ pub enum SiegeRoll {
     DefendersDesert,
     Disease,
     Surrender,
+    Breach,
 }
 
 impl SiegeRoll {
@@ -89,6 +94,7 @@ impl SiegeRoll {
             Self::DefendersDesert => "守军逃亡",
             Self::Disease => "疾病爆发",
             Self::Surrender => "投降",
+            Self::Breach => "破墙",
         }
     }
 }
