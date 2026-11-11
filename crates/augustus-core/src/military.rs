@@ -340,6 +340,16 @@ fn default_next_battle_id() -> u32 {
     1
 }
 
+/// 一支军队跨日保留的战争任务。旧档没有该字段时为空。
+/// 角色和每天重算一次是项目取舍；战力数值另见 `world::ai`。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ArmyPlan {
+    pub role: String,
+    pub target: u32,
+    pub muster: Option<u32>,
+    pub since: GameDate,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MilitaryState {
     pub(crate) armies: BTreeMap<u32, Army>,
@@ -361,6 +371,9 @@ pub struct MilitaryState {
     /// 围城检定单独取数，避免打乱野战骰序。
     #[serde(default)]
     pub(crate) siege_random: RandomStream,
+    /// 非玩家交战国的跨日任务。决策日志本身不进存档。
+    #[serde(default)]
+    pub(crate) war_plans: BTreeMap<u32, ArmyPlan>,
 }
 
 impl Default for MilitaryState {
@@ -374,6 +387,7 @@ impl Default for MilitaryState {
             next_battle_id: default_next_battle_id(),
             random: RandomStream::default(),
             siege_random: RandomStream::default(),
+            war_plans: BTreeMap::new(),
         }
     }
 }

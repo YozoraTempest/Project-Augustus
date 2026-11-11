@@ -1813,7 +1813,7 @@ mod tests {
             .first()
             .unwrap();
         assert_eq!(army.action, "stay");
-        assert_eq!(army.reason, "正在围城，留在当地");
+        assert_eq!(army.reason, "围攻省份 1");
 
         world.military.armies.get_mut(&1).unwrap().regiments[0].strength = 2_000;
         let decision = world.direct_war_ai(Some("AAA"), date());
@@ -1824,7 +1824,7 @@ mod tests {
             .armies
             .first()
             .unwrap();
-        assert_ne!(army.reason, "正在围城，留在当地");
+        assert_ne!(army.reason, "围攻省份 1");
     }
 
     #[test]
