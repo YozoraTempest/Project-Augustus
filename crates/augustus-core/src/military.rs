@@ -358,6 +358,9 @@ pub struct MilitaryState {
     /// 骰子和退路加分共用一条可续算的序列。旧档从固定起点重新开始，不重掷已经保存的骰子。
     #[serde(default)]
     pub(crate) random: RandomStream,
+    /// 围城检定单独取数，避免打乱野战骰序。
+    #[serde(default)]
+    pub(crate) siege_random: RandomStream,
 }
 
 impl Default for MilitaryState {
@@ -370,6 +373,7 @@ impl Default for MilitaryState {
             battle_reports: BTreeMap::new(),
             next_battle_id: default_next_battle_id(),
             random: RandomStream::default(),
+            siege_random: RandomStream::default(),
         }
     }
 }

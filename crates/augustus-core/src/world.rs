@@ -15,6 +15,7 @@ mod peace;
 mod recruitment_cancellation;
 mod reinforcement;
 mod saved_state;
+mod siege;
 mod starting_army;
 mod supply;
 mod war;
@@ -63,6 +64,8 @@ pub enum WorldError {
     InvalidLandConnection(u32, u32),
     #[error("province {province} has invalid occupation progress")]
     InvalidOccupation { province: u32 },
+    #[error("province {province} has invalid siege or garrison")]
+    InvalidSiege { province: u32 },
 }
 
 #[derive(Debug)]
@@ -76,6 +79,8 @@ pub struct World {
     military: MilitaryState,
     war_state: WarState,
     land_routes: BTreeMap<u32, BTreeMap<u32, u32>>,
+    /// 奇观所在省份的国家 `garrison_size`，千分比。上限由它和当前所有者现算，不写入存档。
+    monument_garrison_permille: BTreeMap<u32, i32>,
     /// 控制者发生变化后由界面刷新政治地图。运行时标记，不写入存档。
     control_changed: bool,
 }
@@ -84,11 +89,33 @@ impl World {
     /// 索引使用实体自身的标识，避免调用者提供不一致的键和值。
     pub fn new(
         countries: impl IntoIterator<Item = Country>,
+        provinces: BTreeMap<u32, Province>,
+        active_provinces: impl IntoIterator<Item = u32>,
+        buildings: impl IntoIterator<Item = BuildingDefinition>,
+        military_rules: MilitaryRules,
+        connections: impl IntoIterator<Item = LandConnection>,
+    ) -> Result<Self, WorldError> {
+        Self::with_garrison_monuments(
+            countries,
+            provinces,
+            active_provinces,
+            buildings,
+            military_rules,
+            connections,
+            BTreeMap::new(),
+        )
+    }
+
+    /// 与 [`World::new`] 相同，并带上开局奇观的国家驻军修正。
+    /// 键是奇观所在省份，值是 `garrison_size` 千分比。同一所有者的多处在计算时相加。
+    pub fn with_garrison_monuments(
+        countries: impl IntoIterator<Item = Country>,
         mut provinces: BTreeMap<u32, Province>,
         active_provinces: impl IntoIterator<Item = u32>,
         buildings: impl IntoIterator<Item = BuildingDefinition>,
         military_rules: MilitaryRules,
         connections: impl IntoIterator<Item = LandConnection>,
+        monument_garrison_permille: BTreeMap<u32, i32>,
     ) -> Result<Self, WorldError> {
         if military_rules.infantry_cost < Money::ZERO
             || military_rules.cavalry_cost < Money::ZERO
@@ -174,6 +201,43 @@ impl World {
             {
                 return Err(WorldError::InvalidOccupation { province: id });
             }
+            let sources = siege::fort_sources(province, id, &registry, &definitions);
+            let fort_level = sources.level;
+            if let Some(progress) = &province.siege
+                && (fort_level == 0
+                    || province.kind != ProvinceKind::Land
+                    || progress.days >= OCCUPATION_PHASE_DAYS
+                    || progress.status > siege::max_siege_status(fort_level)
+                    || !siege::breach_count_allowed(progress.breaches)
+                    || !registry.contains_key(&progress.besieger))
+            {
+                return Err(WorldError::InvalidSiege { province: id });
+            }
+            if province.fort_mothballed && fort_level == 0 {
+                return Err(WorldError::InvalidSiege { province: id });
+            }
+            if province.garrison.is_some() && sources.regiments == 0 {
+                return Err(WorldError::InvalidSiege { province: id });
+            }
+        }
+        // 国家修正会随奇观省份易主变化。读档时把超上限的驻军截到上限，避免误报。
+        // 对局中易主不立刻改人数。每月恢复只向上补，不把已有人数下调。
+        let owner_permille =
+            siege::garrison_permille_by_owner(&provinces, &monument_garrison_permille);
+        for (&id, province) in &mut provinces {
+            let sources = siege::fort_sources(province, id, &registry, &definitions);
+            if sources.regiments == 0 {
+                continue;
+            }
+            let permille = province
+                .owner
+                .as_ref()
+                .and_then(|owner| owner_permille.get(owner).copied())
+                .unwrap_or(0);
+            let cap = siege::garrison_cap(sources.regiments, permille);
+            if province.garrison.is_some_and(|men| men > cap) {
+                province.garrison = Some(cap);
+            }
         }
         for country in registry.values() {
             if let Some(capital) = country.capital
@@ -230,9 +294,11 @@ impl World {
             military: MilitaryState::default(),
             war_state: WarState::default(),
             land_routes,
+            monument_garrison_permille,
             control_changed: false,
         };
         world.initialize_manpower()?;
+        world.ensure_garrisons();
         Ok(world)
     }
 

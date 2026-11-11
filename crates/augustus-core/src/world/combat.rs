@@ -545,10 +545,10 @@ impl World {
         strength_weighted_morale(&pairs)
     }
 
-    /// 野战仍不按堡垒反转攻守。无要塞占领另行判断首都和建筑要塞。
+    /// 围攻要塞的军队算进攻方。停用不取消这个反转。
+    /// 要塞区域的通行阻挡仍未实现。
     fn effective_fort_level(&self, province: u32) -> u32 {
-        let _ = self.province(province);
-        0
+        self.province_fort_level(province)
     }
 
     fn engage(&mut self, province: u32, date: GameDate, arriver: Option<u32>, defer: bool) {

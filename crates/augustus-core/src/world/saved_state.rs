@@ -27,13 +27,14 @@ impl World {
             // 地形是地图内容。旧档没有该字段，也不能让存档里的副本覆盖当前内容。
             province.terrain_supply = self.provinces[id].terrain_supply;
         }
-        let restored = Self::new(
+        let restored = Self::with_garrison_monuments(
             countries,
             provinces,
             self.active_provinces.iter().copied(),
             self.buildings.values().cloned(),
             self.military_rules.clone(),
             self.land_connections(),
+            self.monument_garrison_permille.clone(),
         )?;
         for (&id, province) in &restored.provinces {
             if let Some(project) = &province.construction {

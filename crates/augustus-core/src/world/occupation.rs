@@ -35,28 +35,7 @@ impl World {
     }
 
     fn occupation_fort_level(&self, id: u32) -> u32 {
-        let Some(province) = self.province(id) else {
-            return 0;
-        };
-        if province.kind != ProvinceKind::Land {
-            return 0;
-        }
-        let mut level = 0;
-        if let Some(owner) = province.owner.as_deref()
-            && self
-                .countries
-                .get(owner)
-                .and_then(|country| country.capital)
-                == Some(id)
-        {
-            level = 1;
-        }
-        for building in &province.buildings {
-            if let Some(definition) = self.buildings.get(building) {
-                level = level.max(definition.fort_level);
-            }
-        }
-        level
+        self.province_fort_level(id)
     }
 
     fn tick_province_occupation(&mut self, id: u32, date: GameDate) {
@@ -122,7 +101,11 @@ impl World {
     }
 
     /// 停下、不在撤退、不在战斗中，且与当前控制者交战的军队。人数按国家合计。
-    fn hostile_stopped_men(&self, province: u32, controller: &str) -> BTreeMap<String, u64> {
+    pub(super) fn hostile_stopped_men(
+        &self,
+        province: u32,
+        controller: &str,
+    ) -> BTreeMap<String, u64> {
         let mut men = BTreeMap::new();
         for army in self.military.armies.values() {
             if army.province != province
