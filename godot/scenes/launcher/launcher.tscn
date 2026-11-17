@@ -1,0 +1,171 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scenes/launcher/launcher.gd" id="1_script"]
+[ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
+
+[sub_resource type="StyleBoxFlat" id="Style_side"]
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+bg_color = Color(0.02, 0.028, 0.04, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="Style_art"]
+content_margin_left = 28.0
+content_margin_top = 28.0
+content_margin_right = 28.0
+content_margin_bottom = 28.0
+bg_color = Color(0.025, 0.034, 0.047, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.72, 0.58, 0.28, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[node name="Launcher" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_script")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 24
+
+[node name="Body" type="HBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="Sidebar" type="PanelContainer" parent="Margin/Body"]
+custom_minimum_size = Vector2(260, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("Style_side")
+
+[node name="Side" type="VBoxContainer" parent="Margin/Body/Sidebar"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Margin/Body/Sidebar/Side"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Project Augustus"
+
+[node name="ListLabel" type="Label" parent="Margin/Body/Sidebar/Side"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.72, 0.78, 0.84, 1)
+text = "游戏"
+
+[node name="GameList" type="VBoxContainer" parent="Margin/Body/Sidebar/Side"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="EuropaUniversalis" type="Button" parent="Margin/Body/Sidebar/Side/GameList"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+toggle_mode = true
+button_pressed = true
+text = "欧陆风云 IV"
+alignment = 0
+
+[node name="SideSpace" type="Control" parent="Margin/Body/Sidebar/Side"]
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2
+
+[node name="Settings" type="Button" parent="Margin/Body/Sidebar/Side"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+theme_override_constants/icon_max_width = 22
+text = "设置"
+alignment = 0
+
+[node name="Center" type="VBoxContainer" parent="Margin/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="Art" type="PanelContainer" parent="Margin/Body/Center"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("Style_art")
+
+[node name="ArtCenter" type="CenterContainer" parent="Margin/Body/Center/Art"]
+layout_mode = 2
+
+[node name="ArtText" type="VBoxContainer" parent="Margin/Body/Center/Art/ArtCenter"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="GameTitle" type="Label" parent="Margin/Body/Center/Art/ArtCenter/ArtText"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.84, 0.43, 1)
+theme_override_font_sizes/font_size = 42
+text = "欧陆风云 IV"
+horizontal_alignment = 1
+
+[node name="Rule" type="ColorRect" parent="Margin/Body/Center/Art/ArtCenter/ArtText"]
+custom_minimum_size = Vector2(96, 2)
+layout_mode = 2
+size_flags_horizontal = 4
+color = Color(0.93, 0.76, 0.38, 1)
+
+[node name="GameSubtitle" type="Label" parent="Margin/Body/Center/Art/ArtCenter/ArtText"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.82, 0.86, 1)
+theme_override_font_sizes/font_size = 18
+text = "开局 1444.11.11"
+horizontal_alignment = 1
+
+[node name="PlayRow" type="HBoxContainer" parent="Margin/Body/Center"]
+layout_mode = 2
+alignment = 2
+
+[node name="Play" type="Button" parent="Margin/Body/Center/PlayRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 52)
+layout_mode = 2
+text = "游玩"
+
+[node name="Directory" type="Label" parent="Margin/Body/Center"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.8, 0.86, 1)
+text = "尚未设置安装目录"
+horizontal_alignment = 2
+autowrap_mode = 1
+
+[node name="Status" type="Label" parent="Margin/Body/Center"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+horizontal_alignment = 2
+autowrap_mode = 1
+
+[node name="DirectoryDialog" type="FileDialog" parent="."]
+title = "选择 EU4 安装目录"
+size = Vector2i(900, 600)
+file_mode = 2
+access = 2
+use_native_dialog = true

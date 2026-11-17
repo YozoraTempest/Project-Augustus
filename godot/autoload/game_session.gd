@@ -24,6 +24,9 @@ func _ready() -> void:
 	if index >= 0 and index + 1 < arguments.size():
 		game_directory = arguments[index + 1]
 		_startup_requested = true
+	elif game_directory.is_empty():
+		# 命令行优先。没有 --game-dir 时，开局页沿用启动器保存的安装目录。
+		game_directory = AppSettings.eu4_directory
 	index = arguments.find("--country")
 	if index >= 0 and index + 1 < arguments.size():
 		startup_country = arguments[index + 1]

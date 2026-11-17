@@ -1,0 +1,96 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/launcher/eu4_directory_dialog.gd" id="1_script"]
+[ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
+
+[node name="Eu4DirectoryDialog" type="Window"]
+title = "欧陆风云 IV 目录"
+size = Vector2i(680, 520)
+min_size = Vector2i(680, 520)
+visible = false
+unresizable = true
+transient = true
+exclusive = true
+theme = ExtResource("2_theme")
+script = ExtResource("1_script")
+
+[node name="Margin" type="MarginContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
+
+[node name="Form" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Margin/Form"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "安装目录"
+
+[node name="PathRow" type="HBoxContainer" parent="Margin/Form"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Directory" type="LineEdit" parent="Margin/Form/PathRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "选择本地 EU4 安装目录"
+
+[node name="Browse" type="Button" parent="Margin/Form/PathRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "选择目录…"
+
+[node name="Scan" type="Button" parent="Margin/Form"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "扫描本机"
+
+[node name="Status" type="Label" parent="Margin/Form"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2
+
+[node name="ResultLabel" type="Label" parent="Margin/Form"]
+layout_mode = 2
+text = "扫描结果"
+
+[node name="Candidates" type="ItemList" parent="Margin/Form"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 160)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Actions" type="HBoxContainer" parent="Margin/Form"]
+layout_mode = 2
+theme_override_constants/separation = 12
+alignment = 2
+
+[node name="Cancel" type="Button" parent="Margin/Form/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(100, 40)
+layout_mode = 2
+text = "取消"
+
+[node name="Save" type="Button" parent="Margin/Form/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 40)
+layout_mode = 2
+text = "保存并关闭"
+
+[node name="DirectoryDialog" type="FileDialog" parent="."]
+title = "选择 EU4 安装目录"
+size = Vector2i(900, 600)
+file_mode = 2
+access = 2
+use_native_dialog = true
