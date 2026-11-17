@@ -4,6 +4,7 @@
 
 mod construction;
 mod info;
+mod interface;
 mod manpower;
 mod map_session;
 mod military;

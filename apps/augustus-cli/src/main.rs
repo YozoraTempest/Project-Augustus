@@ -5,6 +5,7 @@ use std::{path::PathBuf, process::ExitCode};
 mod debug;
 mod mcp;
 mod screenshot;
+mod ui;
 
 use augustus_eu4::map::ProvinceMap;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -31,6 +32,11 @@ enum Commands {
         #[arg(long, num_args = 2, value_names = ["X", "Y"], help = "查询像素坐标；左上角为 (0, 0)，向右、向下递增")]
         at: Option<Vec<u32>>,
     },
+    /// 检查 EU4 界面定义。
+    Ui {
+        #[command(subcommand)]
+        command: ui::UiCommand,
+    },
 }
 
 fn main() -> ExitCode {
@@ -47,6 +53,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         None => Cli::command().print_help()?,
         Some(Commands::Mcp) => mcp::serve()?,
+        Some(Commands::Ui { command }) => ui::run(command)?,
         Some(Commands::Map { game_dir, at }) => {
             let map = ProvinceMap::load(game_dir)?;
             // 先完成可选的坐标查询，成功后统一输出，避免失败时留下部分摘要。

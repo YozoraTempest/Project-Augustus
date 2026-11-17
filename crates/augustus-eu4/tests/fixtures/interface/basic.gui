@@ -1,0 +1,61 @@
+guiTypes = {
+    windowType = {
+        name = "province_window"
+        position = { x = 10 y = -4 }
+        size = { x = 200 y = 30.5 }
+        Orientation = "UPPER_LEFT"
+        orientation = "LOWER_RIGHT"
+        moveable = 0
+        dontRender = ""
+        alwaystransparent = yes
+        custom_flag = preserved
+        limit < 2
+        containerWindowType = {
+            name = "body"
+            Orientation = "CENTER"
+            instantTextBoxType = {
+                name = "title"
+                text = PROVINCE_NAME
+                font = "vic_18"
+                maxWidth = 120
+                maxHeight = 18
+                format = left
+            }
+            textBoxType = {
+                name = "entry"
+                text = "literal"
+            }
+            iconType = {
+                name = "coin"
+                spriteType = "GFX_coin"
+                quadTextureSprite = "GFX_coin_quad"
+                position = { x = 1 y = 2 }
+            }
+            iconType = {
+                name = "coin_copy"
+                spriteType = GFX_coin
+                position = { x = @macro_x y = -1.25 }
+            }
+            guiButtonType = {
+                name = "build_tax"
+                buttonText = BUILD_TAX
+                buttonFont = "vic_18"
+                clicksound = click
+                tooltip = BUILD_TIP
+            }
+            gridBoxType = {
+                name = "grid"
+            }
+            listboxType = {
+                name = "list"
+            }
+            overlappingElementsBoxType = {
+                name = "stack"
+            }
+            checkboxType = {
+                name = "mystery"
+                foo = bar
+            }
+        }
+    }
+}

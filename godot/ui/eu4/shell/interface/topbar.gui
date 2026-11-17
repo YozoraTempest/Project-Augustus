@@ -1,0 +1,143 @@
+guiTypes = {
+	windowType = {
+		name = "augustus_topbar"
+		position = { x = 0 y = 0 }
+		size = { x = 748 y = 108 }
+		Orientation = "UPPER_LEFT"
+		moveable = no
+		custom_flag = preserved
+		iconType = {
+			name = "treasury_icon"
+			spriteType = "GFX_augustus_coin"
+			position = { x = 12 y = 10 }
+			size = { x = 24 y = 24 }
+		}
+		instantTextBoxType = {
+			name = "topbar_title"
+			position = { x = 560 y = 4 }
+			size = { x = 176 y = 22 }
+			font = "vic_18"
+			text = "TOPBAR_TITLE"
+			format = right
+			maxWidth = 200
+			maxHeight = 24
+		}
+		instantTextBoxType = {
+			name = "treasury"
+			position = { x = 40 y = 4 }
+			size = { x = 170 y = 22 }
+			font = "vic_18"
+			text = "TREASURY"
+			format = left
+		}
+		instantTextBoxType = {
+			name = "monthly_tax"
+			position = { x = 214 y = 4 }
+			size = { x = 170 y = 22 }
+			font = "vic_18"
+			text = "MONTHLY_TAX"
+			format = left
+		}
+		instantTextBoxType = {
+			name = "army_maintenance"
+			position = { x = 8 y = 30 }
+			size = { x = 730 y = 22 }
+			font = "vic_18"
+			text = "ARMY_MAINTENANCE"
+			format = left
+		}
+		instantTextBoxType = {
+			name = "monthly_balance"
+			position = { x = 390 y = 4 }
+			size = { x = 170 y = 22 }
+			font = "vic_18"
+			text = "MONTHLY_BALANCE"
+			format = left
+		}
+		instantTextBoxType = {
+			name = "manpower"
+			position = { x = 8 y = 56 }
+			size = { x = 250 y = 22 }
+			font = "vic_18"
+			text = "MANPOWER"
+			format = left
+		}
+		instantTextBoxType = {
+			name = "date"
+			position = { x = 262 y = 56 }
+			size = { x = 150 y = 22 }
+			font = "vic_18"
+			text = "DATE"
+			format = left
+		}
+		instantTextBoxType = {
+			name = "speed_state"
+			position = { x = 416 y = 56 }
+			size = { x = 64 y = 22 }
+			font = "vic_18"
+			text = "SPEED"
+			format = left
+		}
+		guiButtonType = {
+			name = "pause"
+			position = { x = 484 y = 52 }
+			size = { x = 64 y = 28 }
+			buttonText = "PAUSE"
+			buttonFont = "vic_18"
+			clicksound = click
+		}
+		guiButtonType = {
+			name = "speed_1"
+			position = { x = 552 y = 52 }
+			size = { x = 40 y = 28 }
+			buttonText = "SPEED_1"
+			buttonFont = "vic_18"
+		}
+		guiButtonType = {
+			name = "speed_2"
+			position = { x = 596 y = 52 }
+			size = { x = 40 y = 28 }
+			buttonText = "SPEED_2"
+			buttonFont = "vic_18"
+		}
+		guiButtonType = {
+			name = "speed_4"
+			position = { x = 640 y = 52 }
+			size = { x = 40 y = 28 }
+			buttonText = "SPEED_4"
+			buttonFont = "vic_18"
+		}
+		guiButtonType = {
+			name = "speed_8"
+			position = { x = 684 y = 52 }
+			size = { x = 40 y = 28 }
+			buttonText = "SPEED_8"
+			buttonFont = "vic_18"
+		}
+		instantTextBoxType = {
+			name = "admin_power"
+			position = { x = 900 y = 40 }
+			size = { x = 70 y = 24 }
+			text = "UNIMPLEMENTED"
+			dontRender = yes
+		}
+		instantTextBoxType = {
+			name = "diplomatic_power"
+			position = { x = 970 y = 40 }
+			size = { x = 70 y = 24 }
+			text = "UNIMPLEMENTED"
+			dontRender = yes
+		}
+		instantTextBoxType = {
+			name = "military_power"
+			position = { x = 1040 y = 40 }
+			size = { x = 70 y = 24 }
+			text = "UNIMPLEMENTED"
+			dontRender = yes
+		}
+		checkboxType = {
+			name = "mystery"
+			foo = bar
+		}
+	}
+}

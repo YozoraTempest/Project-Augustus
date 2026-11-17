@@ -26,6 +26,7 @@ struct AugustusMap {
     player_country: Option<String>,
     simulation: Option<Simulation>,
     game_directory: String,
+    ui_sessions: Vec<crate::interface::UiSession>,
 }
 
 #[godot_api]
@@ -652,6 +653,33 @@ impl AugustusMap {
             Ok(None) => 0,
             Err(_) => -1,
         }
+    }
+
+    /// 从玩家目录读取一个界面文件。成功时 `json` 是文档，失败时 `error` 带来源路径。
+    #[func]
+    fn load_eu4_ui_document(&mut self, root: GString, relative: GString) -> VarDictionary {
+        crate::interface::load_document(
+            &mut self.ui_sessions,
+            root.to_string().as_str(),
+            relative.to_string().as_str(),
+        )
+    }
+
+    #[func]
+    fn get_eu4_ui_window(&self, index: i64, name: GString) -> GString {
+        crate::interface::window_document(&self.ui_sessions, index, name.to_string().as_str())
+    }
+
+    #[func]
+    fn resolve_eu4_sprite(&self, name: GString) -> VarDictionary {
+        crate::interface::resolve_sprite(&self.ui_sessions, name.to_string().as_str())
+    }
+
+    #[func]
+    fn localise_eu4(&self, key: GString) -> GString {
+        crate::interface::localise(&self.ui_sessions, key.to_string().as_str())
+            .as_str()
+            .into()
     }
 }
 

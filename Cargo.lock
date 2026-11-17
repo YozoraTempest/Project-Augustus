@@ -103,6 +103,7 @@ dependencies = [
  "image",
  "jomini",
  "serde_json",
+ "tempfile",
  "thiserror",
 ]
 

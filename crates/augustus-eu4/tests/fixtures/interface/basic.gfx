@@ -1,0 +1,21 @@
+spriteTypes = {
+    spriteType = {
+        name = "GFX_coin"
+        texturefile = "gfx\interface\coin.dds"
+        noOfFrames = 4
+        alwaystransparent = yes
+        animation = {
+            animationtime = 1.5
+            unknown_anim = scrolling
+        }
+    }
+    spriteType = {
+        name = "GFX_coin"
+        texturefile = "gfx/interface/coin_override.tga"
+        noOfFrames = 2
+    }
+    textSpriteType = {
+        name = "GFX_text"
+        texturefile = "gfx/interface/text.dds"
+    }
+}

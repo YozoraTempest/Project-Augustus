@@ -3,6 +3,7 @@
 //! 读取 EU4 内容并提供查询接口，文件格式处理与游戏模拟核心分离。
 
 mod content;
+pub mod interface;
 pub mod map;
 mod script;
 pub mod world;

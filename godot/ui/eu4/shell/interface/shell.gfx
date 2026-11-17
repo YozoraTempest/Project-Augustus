@@ -1,0 +1,8 @@
+spriteTypes = {
+	spriteType = {
+		name = "GFX_augustus_coin"
+		texturefile = "gfx/interface/coin.bmp"
+		noOfFrames = 1
+		alwaystransparent = no
+	}
+}

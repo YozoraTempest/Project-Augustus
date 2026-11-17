@@ -1,0 +1,132 @@
+guiTypes = {
+	windowType = {
+		name = "augustus_province"
+		position = { x = 760 y = 86 }
+		size = { x = 424 y = 520 }
+		Orientation = "UPPER_LEFT"
+		moveable = no
+		instantTextBoxType = {
+			name = "province_heading"
+			position = { x = 16 y = 10 }
+			size = { x = 392 y = 24 }
+			font = "vic_18"
+			text = "PROVINCE_HEADING"
+			format = left
+		}
+		instantTextBoxType = {
+			name = "province_title"
+			position = { x = 16 y = 36 }
+			size = { x = 392 y = 22 }
+			font = "vic_18"
+			text = "PROVINCE_NAME"
+		}
+		instantTextBoxType = {
+			name = "province_id"
+			position = { x = 16 y = 60 }
+			size = { x = 392 y = 20 }
+			font = "vic_18"
+			text = "PROVINCE_ID"
+		}
+		instantTextBoxType = {
+			name = "owner"
+			position = { x = 16 y = 82 }
+			size = { x = 392 y = 20 }
+			font = "vic_18"
+			text = "OWNER"
+		}
+		instantTextBoxType = {
+			name = "controller"
+			position = { x = 16 y = 104 }
+			size = { x = 392 y = 20 }
+			font = "vic_18"
+			text = "CONTROLLER"
+		}
+		instantTextBoxType = {
+			name = "culture"
+			position = { x = 16 y = 126 }
+			size = { x = 392 y = 20 }
+			font = "vic_18"
+			text = "CULTURE"
+		}
+		instantTextBoxType = {
+			name = "religion"
+			position = { x = 16 y = 148 }
+			size = { x = 392 y = 20 }
+			font = "vic_18"
+			text = "RELIGION"
+		}
+		instantTextBoxType = {
+			name = "trade_good"
+			position = { x = 16 y = 170 }
+			size = { x = 392 y = 20 }
+			font = "vic_18"
+			text = "TRADE_GOOD"
+		}
+		instantTextBoxType = {
+			name = "development"
+			position = { x = 16 y = 192 }
+			size = { x = 392 y = 20 }
+			font = "vic_18"
+			text = "DEVELOPMENT"
+		}
+		instantTextBoxType = {
+			name = "base_tax"
+			position = { x = 16 y = 214 }
+			size = { x = 130 y = 20 }
+			font = "vic_18"
+			text = "BASE_TAX"
+		}
+		instantTextBoxType = {
+			name = "base_production"
+			position = { x = 150 y = 214 }
+			size = { x = 130 y = 20 }
+			font = "vic_18"
+			text = "BASE_PRODUCTION"
+		}
+		instantTextBoxType = {
+			name = "base_manpower"
+			position = { x = 284 y = 214 }
+			size = { x = 124 y = 20 }
+			font = "vic_18"
+			text = "BASE_MANPOWER"
+		}
+		instantTextBoxType = {
+			name = "province_monthly_tax"
+			position = { x = 16 y = 236 }
+			size = { x = 392 y = 20 }
+			font = "vic_18"
+			text = "PROVINCE_TAX"
+		}
+		instantTextBoxType = {
+			name = "construction"
+			position = { x = 16 y = 258 }
+			size = { x = 392 y = 36 }
+			font = "vic_18"
+			text = "CONSTRUCTION"
+		}
+		listboxType = {
+			name = "buildings"
+			position = { x = 16 y = 298 }
+			size = { x = 392 y = 48 }
+		}
+		listboxType = {
+			name = "recruitment"
+			position = { x = 16 y = 350 }
+			size = { x = 392 y = 48 }
+		}
+		listboxType = {
+			name = "armies"
+			position = { x = 16 y = 402 }
+			size = { x = 392 y = 48 }
+		}
+		guiButtonType = {
+			name = "build_tax"
+			position = { x = 16 y = 458 }
+			size = { x = 180 y = 32 }
+			buttonText = "BUILD_TAX"
+			buttonFont = "vic_18"
+			tooltip = "BUILD_TAX_TIP"
+			clicksound = click
+		}
+	}
+}
