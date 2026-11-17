@@ -60,7 +60,8 @@ pub(super) fn read_root_fields(
     let root = tape.windows1252_reader();
     let mut fields = Vec::new();
     let mut iter = root.fields();
-    while let Some((key, operator, child)) = iter.next() {
+    // 循环结束后还要读 remainder，所以只借用迭代器。
+    for (key, operator, child) in iter.by_ref() {
         let key = key.read_string();
         context.push(&key);
         let child_value = read_keyed_value(&key, &child, context)?;
@@ -92,19 +93,19 @@ fn read_keyed_value(
     context: &mut Context<'_>,
 ) -> Result<UiValue, Error> {
     // jomini 的 Windows-1252 解码会删掉反斜杠，路径要在解码前改成 `/`。
-    if key == "texturefile" {
-        if let Ok(scalar) = value.read_scalar() {
-            let bytes: Vec<u8> = scalar
-                .as_bytes()
-                .iter()
-                .map(|byte| if *byte == b'\\' { b'/' } else { *byte })
-                .collect();
-            let text = Windows1252Encoding::decode(&bytes).into_owned();
-            return Ok(match value.token() {
-                TextToken::Quoted(_) => UiValue::String(text),
-                _ => classify_unquoted(&text),
-            });
-        }
+    if key == "texturefile"
+        && let Ok(scalar) = value.read_scalar()
+    {
+        let bytes: Vec<u8> = scalar
+            .as_bytes()
+            .iter()
+            .map(|byte| if *byte == b'\\' { b'/' } else { *byte })
+            .collect();
+        let text = Windows1252Encoding::decode(&bytes).into_owned();
+        return Ok(match value.token() {
+            TextToken::Quoted(_) => UiValue::String(text),
+            _ => classify_unquoted(&text),
+        });
     }
     read_value_inner(value, context, false)
 }
@@ -166,7 +167,8 @@ fn read_fields(
         .map_err(|error| context.error(error.to_string()))?;
     let mut fields = Vec::new();
     let mut iter = object.fields();
-    while let Some((key, operator, child)) = iter.next() {
+    // 循环结束后还要读 remainder，所以只借用迭代器。
+    for (key, operator, child) in iter.by_ref() {
         let key = key.read_string();
         context.push(&key);
         let child_value = read_keyed_value(&key, &child, context)?;
@@ -199,10 +201,10 @@ pub(super) fn classify_unquoted(text: &str) -> UiValue {
         "no" => return UiValue::Bool(false),
         _ => {}
     }
-    if is_integer(text) {
-        if let Ok(value) = text.parse::<i64>() {
-            return UiValue::Integer(value);
-        }
+    if is_integer(text)
+        && let Ok(value) = text.parse::<i64>()
+    {
+        return UiValue::Integer(value);
     }
     if is_decimal(text) {
         return UiValue::Decimal(text.to_owned());
