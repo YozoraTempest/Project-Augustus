@@ -7,7 +7,7 @@ const GAME_SCENE := "res://scenes/game/game.tscn"
 
 @onready var country_color: ColorRect = %CountryColor
 @onready var country_name: Label = %CountryName
-@onready var country_tag: Label = %CountryTag
+@onready var country_hint: Label = %Hint
 @onready var error_label: Label = %Error
 @onready var back_button: Button = %Back
 @onready var start_button: Button = %StartGame
@@ -56,7 +56,7 @@ func _refresh_selection() -> void:
 	country_color.show()
 	country_color.color = info.color
 	country_name.text = str(info.name)
-	country_tag.text = str(info.tag)
+	country_hint.hide()
 	error_label.hide()
 	if int(info.province_count) == 0:
 		_chosen_country = ""
@@ -73,7 +73,8 @@ func _clear_country() -> void:
 	start_button.disabled = true
 	country_color.hide()
 	country_name.text = "未选择国家"
-	country_tag.text = "在地图上点选一个国家"
+	country_hint.text = "在地图上点选一个国家"
+	country_hint.show()
 	error_label.hide()
 
 

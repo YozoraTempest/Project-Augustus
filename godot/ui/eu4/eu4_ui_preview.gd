@@ -451,9 +451,10 @@ func _find_in(node: Node, node_name: String) -> Control:
 func _country_name(province: Dictionary, field: String) -> String:
 	if province.get(field) == null:
 		return "—"
-	var tag := str(province[field])
 	var display_name := str(province.get(field + "_name", ""))
-	return tag if display_name.is_empty() or display_name == tag else "%s (%s)" % [display_name, tag]
+	if not display_name.is_empty():
+		return display_name
+	return str(province[field])
 
 
 func _value(value: Variant) -> String:

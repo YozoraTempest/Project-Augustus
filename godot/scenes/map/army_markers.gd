@@ -46,7 +46,10 @@ func show_armies(armies: Array[Dictionary]) -> void:
 			prefix = "战 "
 		elif bool(army.get("retreating", false)):
 			prefix = "撤 "
-		button.text = "%s%s%s %s · %d" % [prefix, mark, "→" if army.movement != null else "军", army.country, army.strength]
+		var country_label := str(army.get("country_name", ""))
+		if country_label.is_empty():
+			country_label = str(army.country)
+		button.text = "%s%s%s %s · %d" % [prefix, mark, "→" if army.movement != null else "军", country_label, army.strength]
 		var units := PackedStringArray()
 		for unit: Dictionary in army.composition:
 			units.append("%s %d 团" % [unit.kind, unit.regiment_count])

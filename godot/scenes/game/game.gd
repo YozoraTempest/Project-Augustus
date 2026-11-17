@@ -65,7 +65,7 @@ func _ready() -> void:
 	map_view.set_projection(GameSession.map_projection)
 	_refresh_projection()
 	var player_info := backend.get_country_info(GameSession.get_player_country())
-	player_country_label.text = "玩家国家：%s (%s)" % [player_info.name, player_info.tag]
+	player_country_label.text = "玩家国家：" + str(player_info.name)
 	player_country_label.tooltip_text = player_country_label.text
 
 
@@ -154,12 +154,13 @@ func _refresh_selection(select_tab: bool = true) -> void:
 				relation = "敌方 · "
 		selection_label.text = "%s%s · %d 人 · %s" % [relation, army.name, army.strength, location]
 	elif map_view.mode == MapMode.Type.COUNTRY:
-		selection_label.text = "未选择国家" if country_info.is_empty() else "国家：%s (%s)" % [country_info.name, country_info.tag]
+		selection_label.text = "未选择国家" if country_info.is_empty() else "国家：" + str(country_info.name)
 	elif province_id == 0:
 		selection_label.text = "未选择省份"
 	else:
 		var owner := backend.get_province_owner(province_id)
-		var ownership := "所属国家：" + owner
+		var owner_name := str(province_info.get("owner_name", ""))
+		var ownership := "所属国家：" + owner_name if not owner_name.is_empty() else "所属国家"
 		if owner.is_empty():
 			match backend.get_province_kind(province_id):
 				"sea": ownership = "海洋"

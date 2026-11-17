@@ -24,7 +24,7 @@ func open_for_country(backend: AugustusMap, tag: String) -> String:
 	# 固定本次确认的国家，避免界面刷新后向另一个国家宣战。
 	_tag = tag
 	var date: String = backend.get_clock_state().date
-	dialog_text = "向 %s（%s）宣战？\n开始日期：%s\n此后可以进入对方领土，不能穿过未参战国家。" % [info.name, info.tag, date]
+	dialog_text = "向 %s 宣战？\n开始日期：%s\n此后可以进入对方领土，不能穿过未参战国家。" % [info.name, date]
 	_was_paused = get_tree().paused
 	_opened = true
 	get_tree().paused = true

@@ -136,7 +136,7 @@ func show_province(province_id: int, info: Dictionary, selected_army: int, organ
 				disband_button.tooltip_text = "请先让军队驻扎"
 			else:
 				disband_button.tooltip_text = ""
-			army_details.text = "%s\n编号：#%d\n所属国家：%s (%s) · %s\n驻扎：%s (#%d)\n部队：%d 团 · 总兵力 %d 人\n%s" % [army.name, id, army.country_name, army.country, relation, army.province_name, army.province, army.regiment_count, army.strength, _composition_text(army)]
+			army_details.text = "%s\n编号：#%d\n所属国家：%s · %s\n驻扎：%s (#%d)\n部队：%d 团 · 总兵力 %d 人\n%s" % [army.name, id, army.country_name, relation, army.province_name, army.province, army.regiment_count, army.strength, _composition_text(army)]
 			if army.military_level != null:
 				army_details.text += "\n军事科技：%d · 兵种组：%s" % [army.military_level, army.unit_group]
 			if army.movement != null:
