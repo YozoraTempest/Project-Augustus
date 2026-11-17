@@ -16,6 +16,7 @@ var _loading := false
 
 
 func _ready() -> void:
+	AppSettings.apply_launcher_window()
 	eu4_button.set_pressed_no_signal(true)
 	eu4_button.toggled.connect(func(_pressed: bool) -> void:
 		eu4_button.set_pressed_no_signal(true))

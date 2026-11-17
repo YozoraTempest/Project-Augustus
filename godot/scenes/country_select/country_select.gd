@@ -22,6 +22,7 @@ func _ready() -> void:
 		var target := GAME_SCENE if GameSession.is_started() else LAUNCHER
 		get_tree().change_scene_to_file.call_deferred(target)
 		return
+	AppSettings.apply_game_window()
 	_backend = GameSession.backend
 	back_button.pressed.connect(_return_to_menu)
 	start_button.pressed.connect(_enter_game)

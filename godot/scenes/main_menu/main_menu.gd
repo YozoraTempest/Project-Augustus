@@ -18,6 +18,7 @@ var _loading := false
 
 
 func _ready() -> void:
+	AppSettings.apply_game_window()
 	settings_button.icon = _gear_icon()
 	new_game_button.pressed.connect(_start_game)
 	quit_button.pressed.connect(func(): get_tree().quit())

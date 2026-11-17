@@ -6,8 +6,8 @@
 [node name="SettingsDialog" type="Window"]
 process_mode = 3
 title = "设置"
-size = Vector2i(520, 300)
-min_size = Vector2i(520, 300)
+size = Vector2i(560, 380)
+min_size = Vector2i(560, 380)
 visible = false
 unresizable = true
 transient = true
@@ -45,6 +45,19 @@ size_flags_horizontal = 3
 text = "窗口模式"
 
 [node name="WindowMode" type="OptionButton" parent="Margin/Form/ModeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(240, 0)
+layout_mode = 2
+
+[node name="ResolutionRow" type="HBoxContainer" parent="Margin/Form"]
+layout_mode = 2
+
+[node name="ResolutionLabel" type="Label" parent="Margin/Form/ResolutionRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "分辨率"
+
+[node name="Resolution" type="OptionButton" parent="Margin/Form/ResolutionRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(240, 0)
 layout_mode = 2

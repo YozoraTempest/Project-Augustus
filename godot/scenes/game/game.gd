@@ -32,6 +32,7 @@ func _ready() -> void:
 		var target := COUNTRY_SELECT if GameSession.has_game() else LAUNCHER
 		get_tree().change_scene_to_file.call_deferred(target)
 		return
+	AppSettings.apply_game_window()
 	backend = GameSession.backend
 	map_view.selection_changed.connect(_refresh_selection)
 	map_view.movement_requested.connect(_move_army)
