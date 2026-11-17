@@ -22,6 +22,7 @@ const MAX_ZOOM := 32.0
 var zoom_level := 1.0
 var mode := MapMode.Type.COUNTRY
 var projection := MapMode.ViewType.FLAT
+var _draw_armies := true
 var selected_province := 0
 var selected_country := ""
 var selected_army := 0
@@ -62,6 +63,28 @@ func texture_pixel_at(local_position: Vector2) -> Vector2i:
 	if not Rect2(Vector2.ZERO, map_sprite.texture.get_size()).has_point(pixel):
 		return Vector2i(-1, -1)
 	return Vector2i(pixel.floor())
+
+
+func present_for_country_pick() -> void:
+	# 选国家只留平面国家地图，不画军队，也不提供模式切换。
+	_draw_armies = false
+	mode = MapMode.Type.COUNTRY
+	projection = MapMode.ViewType.FLAT
+	flat_view.show()
+	globe_view.hide()
+	$ModeToolbar.hide()
+	army_markers.hide()
+	army_markers.show_armies([])
+
+
+func select_country(tag: String) -> void:
+	if _backend == null:
+		return
+	mode = MapMode.Type.COUNTRY
+	selected_army = 0
+	selected_province = 0
+	selected_country = tag
+	_update_selection()
 
 
 func show_map(backend: AugustusMap) -> void:
@@ -187,6 +210,10 @@ func select_army(id: int) -> void:
 
 func refresh_armies() -> void:
 	if _backend == null:
+		return
+	if not _draw_armies:
+		army_markers.show_armies([])
+		army_markers.hide()
 		return
 	army_markers.show_armies(_backend.get_army_markers())
 	# 月初损耗可能删掉整支军队。只清除选择，不发出 selection_changed，避免和信息面板循环刷新。
