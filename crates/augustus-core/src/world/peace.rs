@@ -492,6 +492,7 @@ impl World {
             super::movement::RouteRequest {
                 kept: None,
                 exiled: true,
+                blocked: &BTreeSet::new(),
             },
         ) {
             Ok(movement) => {

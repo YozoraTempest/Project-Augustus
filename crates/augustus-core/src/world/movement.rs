@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pathfinding::prelude::{dijkstra, dijkstra_all};
 
@@ -12,9 +12,11 @@ use crate::{
 use super::World;
 
 /// 行军报价沿用的已走路段，以及是否按流放返回计算可通行省份。
+/// `blocked` 中的省不能进入。集结在到齐前用它避开已经有敌军的省。
 pub(crate) struct RouteRequest<'a> {
     pub kept: Option<&'a ArmyMovement>,
     pub exiled: bool,
+    pub blocked: &'a BTreeSet<u32>,
 }
 
 impl World {
@@ -37,6 +39,17 @@ impl World {
         id: u32,
         destination: u32,
         date: GameDate,
+    ) -> Result<ArmyMovement, MovementError> {
+        self.quote_movement_avoiding(country, id, destination, date, &BTreeSet::new())
+    }
+
+    pub(crate) fn quote_movement_avoiding(
+        &self,
+        country: &str,
+        id: u32,
+        destination: u32,
+        date: GameDate,
+        blocked: &BTreeSet<u32>,
     ) -> Result<ArmyMovement, MovementError> {
         let army = self.commanded_army(country, id)?;
         if army.battle_id().is_some() {
@@ -68,6 +81,7 @@ impl World {
             RouteRequest {
                 kept: army.movement.as_ref(),
                 exiled: army.exiled,
+                blocked,
             },
         )
     }
@@ -103,7 +117,10 @@ impl World {
                 self.land_neighbors(*id)
                     .into_iter()
                     .flatten()
-                    .filter(|(next, _)| self.may_transit(country, **next, request.exiled))
+                    .filter(|(next, _)| {
+                        !request.blocked.contains(*next)
+                            && self.may_transit(country, **next, request.exiled)
+                    })
                     .map(|(&next, &distance)| {
                         (next, u64::from(MilitaryRules::travel_days(distance, speed)))
                     })
@@ -142,7 +159,19 @@ impl World {
         destination: u32,
         date: GameDate,
     ) -> Result<(), MovementError> {
-        let movement = self.quote_movement(country, id, destination, date)?;
+        self.move_army_avoiding(country, id, destination, date, &BTreeSet::new())
+    }
+
+    /// 与 `move_army` 相同，但路线不进入 `blocked`。目的地本身若在其中，则没有路。
+    pub(crate) fn move_army_avoiding(
+        &mut self,
+        country: &str,
+        id: u32,
+        destination: u32,
+        date: GameDate,
+        blocked: &BTreeSet<u32>,
+    ) -> Result<(), MovementError> {
+        let movement = self.quote_movement_avoiding(country, id, destination, date, blocked)?;
         self.military
             .armies
             .get_mut(&id)
@@ -322,6 +351,7 @@ impl World {
         from: u32,
         speed: Money,
         exiled: bool,
+        blocked: &BTreeSet<u32>,
     ) -> BTreeMap<u32, u32> {
         if !self.is_active_land(from) || speed <= Money::ZERO {
             return BTreeMap::new();
@@ -331,7 +361,9 @@ impl World {
             self.land_neighbors(*id)
                 .into_iter()
                 .flatten()
-                .filter(|(next, _)| self.may_transit(country, **next, exiled))
+                .filter(|(next, _)| {
+                    !blocked.contains(*next) && self.may_transit(country, **next, exiled)
+                })
                 .map(|(&next, &distance)| (next, MilitaryRules::travel_days(distance, speed)))
         }) {
             days.insert(province, cost);

@@ -2255,6 +2255,7 @@ impl World {
             super::movement::RouteRequest {
                 kept: None,
                 exiled: false,
+                blocked: &BTreeSet::new(),
             },
         )
     }
@@ -3165,6 +3166,7 @@ mod tests {
                 crate::world::movement::RouteRequest {
                     kept: None,
                     exiled: false,
+                    blocked: &std::collections::BTreeSet::new(),
                 },
             )
             .unwrap();
