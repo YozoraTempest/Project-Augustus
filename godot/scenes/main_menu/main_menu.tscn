@@ -1,8 +1,35 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scenes/main_menu/main_menu.gd" id="1_script"]
 [ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
 [ext_resource type="PackedScene" path="res://scenes/save/save_dialog.tscn" id="3_save"]
+
+[sub_resource type="StyleBoxFlat" id="Style_side"]
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+bg_color = Color(0.02, 0.028, 0.04, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="Style_art"]
+content_margin_left = 28.0
+content_margin_top = 28.0
+content_margin_right = 28.0
+content_margin_bottom = 28.0
+bg_color = Color(0.025, 0.034, 0.047, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.72, 0.58, 0.28, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -26,54 +53,109 @@ theme_override_constants/margin_top = 24
 theme_override_constants/margin_right = 24
 theme_override_constants/margin_bottom = 24
 
-[node name="Center" type="CenterContainer" parent="Margin"]
-layout_mode = 2
-
-[node name="Menu" type="VBoxContainer" parent="Margin/Center"]
-custom_minimum_size = Vector2(440, 0)
+[node name="Body" type="HBoxContainer" parent="Margin"]
 layout_mode = 2
 theme_override_constants/separation = 18
 
-[node name="Title" type="Label" parent="Margin/Center/Menu"]
+[node name="Sidebar" type="PanelContainer" parent="Margin/Body"]
+custom_minimum_size = Vector2(260, 0)
 layout_mode = 2
-theme_override_font_sizes/font_size = 38
+theme_override_styles/panel = SubResource("Style_side")
+
+[node name="Side" type="VBoxContainer" parent="Margin/Body/Sidebar"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Margin/Body/Sidebar/Side"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
 text = "Project Augustus"
-horizontal_alignment = 1
 
-[node name="Space" type="Control" parent="Margin/Center/Menu"]
-custom_minimum_size = Vector2(0, 14)
+[node name="ListLabel" type="Label" parent="Margin/Body/Sidebar/Side"]
 layout_mode = 2
-mouse_filter = 2
+theme_override_colors/font_color = Color(0.72, 0.78, 0.84, 1)
+text = "菜单"
 
-[node name="NewGame" type="Button" parent="Margin/Center/Menu"]
+[node name="Actions" type="VBoxContainer" parent="Margin/Body/Sidebar/Side"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="NewGame" type="Button" parent="Margin/Body/Sidebar/Side/Actions"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "新游戏"
+alignment = 0
 
-[node name="LoadGame" type="Button" parent="Margin/Center/Menu"]
+[node name="LoadGame" type="Button" parent="Margin/Body/Sidebar/Side/Actions"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "读取存档"
+alignment = 0
 
-[node name="Settings" type="Button" parent="Margin/Center/Menu"]
+[node name="Settings" type="Button" parent="Margin/Body/Sidebar/Side/Actions"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
+theme_override_constants/icon_max_width = 22
 text = "设置"
+alignment = 0
 
-[node name="Quit" type="Button" parent="Margin/Center/Menu"]
+[node name="SideSpace" type="Control" parent="Margin/Body/Sidebar/Side"]
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2
+
+[node name="Quit" type="Button" parent="Margin/Body/Sidebar/Side"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
-text = "退出游戏"
+text = "退出"
+alignment = 0
 
-[node name="Status" type="Label" parent="Margin/Center/Menu"]
+[node name="Center" type="VBoxContainer" parent="Margin/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="Art" type="PanelContainer" parent="Margin/Body/Center"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("Style_art")
+
+[node name="ArtCenter" type="CenterContainer" parent="Margin/Body/Center/Art"]
+layout_mode = 2
+
+[node name="ArtText" type="VBoxContainer" parent="Margin/Body/Center/Art/ArtCenter"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="GameTitle" type="Label" parent="Margin/Body/Center/Art/ArtCenter/ArtText"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.84, 0.43, 1)
+theme_override_font_sizes/font_size = 42
+text = "欧陆风云 IV"
+horizontal_alignment = 1
+
+[node name="Rule" type="ColorRect" parent="Margin/Body/Center/Art/ArtCenter/ArtText"]
+custom_minimum_size = Vector2(96, 2)
+layout_mode = 2
+size_flags_horizontal = 4
+color = Color(0.93, 0.76, 0.38, 1)
+
+[node name="GameSubtitle" type="Label" parent="Margin/Body/Center/Art/ArtCenter/ArtText"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.82, 0.86, 1)
+theme_override_font_sizes/font_size = 18
+text = "对局菜单"
+horizontal_alignment = 1
+
+[node name="Status" type="Label" parent="Margin/Body/Center"]
 unique_name_in_owner = true
 visible = false
-custom_minimum_size = Vector2(440, 0)
 layout_mode = 2
-autowrap_mode = 2
+horizontal_alignment = 2
+autowrap_mode = 1
 
 [node name="SaveDialog" parent="." instance=ExtResource("3_save")]

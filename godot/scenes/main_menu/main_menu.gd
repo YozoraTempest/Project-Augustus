@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 extends Control
 
+# 局内欧陆菜单。安装目录和扫描留在启动器，这里只负责新游戏、读取、显示设置和退出。
+
 const NEW_GAME_SCENE := preload("res://scenes/new_game/new_game.tscn")
 const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 const GAME_SCENE := "res://scenes/game/game.tscn"
@@ -16,6 +18,7 @@ var _loading := false
 
 
 func _ready() -> void:
+	settings_button.icon = _gear_icon()
 	new_game_button.pressed.connect(_open_new_game)
 	quit_button.pressed.connect(func(): get_tree().quit())
 	settings_button.pressed.connect(_open_settings)
@@ -71,3 +74,21 @@ func _show_error(message: String) -> void:
 	status_label.text = message
 	status_label.modulate = Color(1.0, 0.55, 0.48)
 	status_label.show()
+
+
+func _gear_icon() -> Texture2D:
+	var size := 32
+	var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0, 0, 0, 0))
+	var center := (size - 1) / 2.0
+	var color := Color(0.96, 0.93, 0.86)
+	for y in size:
+		for x in size:
+			var dx := x - center
+			var dy := y - center
+			var distance := sqrt(dx * dx + dy * dy)
+			var tooth := cos(atan2(dy, dx) * 8.0) > 0.12
+			var radius := 15.0 if tooth else 11.0
+			if distance <= radius and distance >= 5.0:
+				image.set_pixel(x, y, color)
+	return ImageTexture.create_from_image(image)
