@@ -2,7 +2,8 @@
 extends Control
 
 const MAIN_MENU := "res://scenes/main_menu/main_menu.tscn"
-const NEW_GAME := "res://scenes/new_game/new_game.tscn"
+const LAUNCHER := "res://scenes/launcher/launcher.tscn"
+const COUNTRY_SELECT := "res://scenes/country_select/country_select.tscn"
 const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 
 @onready var map_view: ProvinceMapView = %MapView
@@ -26,9 +27,10 @@ var backend: AugustusMap
 
 
 func _ready() -> void:
-	# 从编辑器单独运行游戏场景时，也通过正常开局流程取得会话。
+	# 从编辑器单独运行游戏场景时，回到启动器或选国家，不再打开旧载入页。
 	if not GameSession.is_started():
-		get_tree().change_scene_to_file.call_deferred(NEW_GAME)
+		var target := COUNTRY_SELECT if GameSession.has_game() else LAUNCHER
+		get_tree().change_scene_to_file.call_deferred(target)
 		return
 	backend = GameSession.backend
 	map_view.selection_changed.connect(_refresh_selection)

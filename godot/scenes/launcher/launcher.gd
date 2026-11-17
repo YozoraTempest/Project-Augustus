@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 extends Control
 
-const NEW_GAME_SCENE := preload("res://scenes/new_game/new_game.tscn")
+const MAIN_MENU := "res://scenes/main_menu/main_menu.tscn"
+const LOAD_SCENE := preload("res://scenes/launcher/opening_load.tscn")
 const DIRECTORY_SCENE := preload("res://scenes/launcher/eu4_directory_dialog.tscn")
 
 # 左侧目前只有欧陆风云 IV。以后可以在同一列加上原生奥古斯都对局，这里不实现。
@@ -10,7 +11,8 @@ const DIRECTORY_SCENE := preload("res://scenes/launcher/eu4_directory_dialog.tsc
 @onready var settings_button: Button = %Settings
 @onready var directory_label: Label = %Directory
 @onready var status_label: Label = %Status
-@onready var directory_dialog: FileDialog = $DirectoryDialog
+
+var _loading := false
 
 
 func _ready() -> void:
@@ -20,44 +22,51 @@ func _ready() -> void:
 	settings_button.icon = _gear_icon()
 	play_button.pressed.connect(_on_play)
 	settings_button.pressed.connect(_open_directory_settings)
-	directory_dialog.dir_selected.connect(_on_play_directory_selected)
 	_refresh_directory()
 	play_button.grab_focus()
-	# --game-dir 仍走原来的开局。主场景换成启动器之后，由这里消费启动请求。
+	# 命令行目录也在启动器里载入，完成后再进入主菜单。
 	if GameSession.consume_startup_request():
-		_enter_new_game.call_deferred(GameSession.game_directory)
+		_begin_game.call_deferred(GameSession.game_directory)
 
 
 func _on_play() -> void:
-	var saved := AppSettings.eu4_directory.strip_edges()
-	if saved.is_empty():
-		directory_dialog.popup_centered_ratio(0.7)
-		return
-	_enter_new_game(saved)
+	_begin_game(AppSettings.eu4_directory)
 
 
-func _on_play_directory_selected(path: String) -> void:
-	var error := AppSettings.set_eu4_directory(path)
-	if error != OK:
-		_show_error("无法保存目录：" + error_string(error))
+func _begin_game(directory: String) -> void:
+	if _loading:
 		return
-	_refresh_directory()
-	_enter_new_game(AppSettings.eu4_directory)
+	var path := directory.strip_edges()
+	if path.is_empty():
+		_open_directory_settings()
+		_show_error("请先选择或扫描安装目录，再开始游戏。")
+		return
+	_loading = true
+	play_button.disabled = true
+	settings_button.disabled = true
+	status_label.hide()
+	var loader := LOAD_SCENE.instantiate()
+	add_child(loader)
+	var error: String = await loader.run(path)
+	if not is_inside_tree():
+		return
+	loader.queue_free()
+	_loading = false
+	play_button.disabled = false
+	settings_button.disabled = false
+	if not error.is_empty():
+		_show_error(error)
+		return
+	get_tree().change_scene_to_file(MAIN_MENU)
 
 
 func _open_directory_settings() -> void:
+	if _loading:
+		return
 	var dialog := DIRECTORY_SCENE.instantiate()
 	add_child(dialog)
 	dialog.directory_changed.connect(_refresh_directory)
 	dialog.popup_centered()
-
-
-func _enter_new_game(directory: String) -> void:
-	# 与命令行 --game-dir 相同：把目录交给会话，并自动载入现有的新游戏流程。
-	GameSession.game_directory = directory
-	var screen := NEW_GAME_SCENE.instantiate()
-	screen.auto_start = true
-	get_tree().change_scene_to_node(screen)
 
 
 func _refresh_directory() -> void:

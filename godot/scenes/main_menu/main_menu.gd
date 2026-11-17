@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 extends Control
 
-# 局内欧陆菜单。安装目录和扫描留在启动器，这里只负责新游戏、读取、显示设置和退出。
-
-const NEW_GAME_SCENE := preload("res://scenes/new_game/new_game.tscn")
+# 局内欧陆菜单。安装目录和扫描留在启动器。这里的开始游戏进入选国家。
+const COUNTRY_SELECT := "res://scenes/country_select/country_select.tscn"
+const LOAD_SCENE := preload("res://scenes/launcher/opening_load.tscn")
 const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 const GAME_SCENE := "res://scenes/game/game.tscn"
 
@@ -19,21 +19,43 @@ var _loading := false
 
 func _ready() -> void:
 	settings_button.icon = _gear_icon()
-	new_game_button.pressed.connect(_open_new_game)
+	new_game_button.pressed.connect(_start_game)
 	quit_button.pressed.connect(func(): get_tree().quit())
 	settings_button.pressed.connect(_open_settings)
 	load_button.pressed.connect(_open_load_dialog)
 	save_dialog.file_selected.connect(_load_saved_game)
 	new_game_button.grab_focus()
-	if GameSession.consume_startup_request():
-		_open_new_game.call_deferred(true)
 
 
-func _open_new_game(auto_start := false) -> void:
-	var screen := NEW_GAME_SCENE.instantiate()
-	screen.auto_start = auto_start
-	# 在加入节点树之前传入启动参数，普通菜单操作与命令行共用同一载入流程。
-	get_tree().change_scene_to_node(screen)
+func _start_game() -> void:
+	if _loading:
+		return
+	if GameSession.has_game() and not GameSession.is_started():
+		get_tree().change_scene_to_file(COUNTRY_SELECT)
+		return
+	var directory := GameSession.game_directory.strip_edges()
+	if directory.is_empty():
+		directory = AppSettings.eu4_directory.strip_edges()
+	if directory.is_empty():
+		_show_error("请先在启动器选择安装目录。")
+		return
+	_loading = true
+	for button in [new_game_button, load_button, settings_button, quit_button]:
+		button.disabled = true
+	status_label.hide()
+	var loader := LOAD_SCENE.instantiate()
+	add_child(loader)
+	var error: String = await loader.run(directory)
+	if not is_inside_tree():
+		return
+	loader.queue_free()
+	_loading = false
+	for button in [new_game_button, load_button, settings_button, quit_button]:
+		button.disabled = false
+	if not error.is_empty():
+		_show_error(error)
+		return
+	get_tree().change_scene_to_file(COUNTRY_SELECT)
 
 
 func _open_settings() -> void:

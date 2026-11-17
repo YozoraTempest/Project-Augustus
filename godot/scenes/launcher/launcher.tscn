@@ -146,7 +146,7 @@ alignment = 2
 unique_name_in_owner = true
 custom_minimum_size = Vector2(220, 52)
 layout_mode = 2
-text = "游玩"
+text = "开始游戏"
 
 [node name="Directory" type="Label" parent="Margin/Body/Center"]
 unique_name_in_owner = true
@@ -162,10 +162,3 @@ visible = false
 layout_mode = 2
 horizontal_alignment = 2
 autowrap_mode = 1
-
-[node name="DirectoryDialog" type="FileDialog" parent="."]
-title = "选择 EU4 安装目录"
-size = Vector2i(900, 600)
-file_mode = 2
-access = 2
-use_native_dialog = true

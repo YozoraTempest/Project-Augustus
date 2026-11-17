@@ -1,0 +1,125 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scenes/launcher/opening_load.gd" id="1_script"]
+[ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
+
+[sub_resource type="StyleBoxFlat" id="Style_panel"]
+content_margin_left = 28.0
+content_margin_top = 28.0
+content_margin_right = 28.0
+content_margin_bottom = 28.0
+bg_color = Color(0.025, 0.034, 0.047, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.72, 0.58, 0.28, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="Style_fill"]
+bg_color = Color(0.93, 0.76, 0.38, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="Style_track"]
+bg_color = Color(0.08, 0.1, 0.13, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[node name="OpeningLoad" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_script")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.035, 0.047, 0.063, 1)
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="Center"]
+custom_minimum_size = Vector2(560, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("Style_panel")
+
+[node name="Body" type="VBoxContainer" parent="Center/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="Center/Panel/Body"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.84, 0.43, 1)
+theme_override_font_sizes/font_size = 28
+text = "正在载入"
+horizontal_alignment = 1
+
+[node name="Rule" type="ColorRect" parent="Center/Panel/Body"]
+custom_minimum_size = Vector2(96, 2)
+layout_mode = 2
+size_flags_horizontal = 4
+color = Color(0.93, 0.76, 0.38, 1)
+
+[node name="Step" type="Label" parent="Center/Panel/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "准备载入"
+horizontal_alignment = 1
+
+[node name="Progress" type="ProgressBar" parent="Center/Panel/Body"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 16)
+layout_mode = 2
+theme_override_styles/background = SubResource("Style_track")
+theme_override_styles/fill = SubResource("Style_fill")
+max_value = 100.0
+show_percentage = false
+
+[node name="Percent" type="Label" parent="Center/Panel/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.82, 0.86, 1)
+text = "0%"
+horizontal_alignment = 2
+
+[node name="Steps" type="VBoxContainer" parent="Center/Panel/Body"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="StepCheck" type="Label" parent="Center/Panel/Body/Steps"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "核对安装目录"
+
+[node name="StepRead" type="Label" parent="Center/Panel/Body/Steps"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "读取开局"
+
+[node name="StepReady" type="Label" parent="Center/Panel/Body/Steps"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "完成载入"
