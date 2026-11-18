@@ -400,7 +400,7 @@ func _apply_frontend_camera() -> void:
 	var viewport_size := Vector2(map_viewport.size)
 	if viewport_size.y < 2.0:
 		viewport_size = size
-	var fit_scale := minf(viewport_size.x / image_size.x, viewport_size.y / image_size.y)
+	var fit_scale := _cover_scale(viewport_size, image_size)
 	if fit_scale <= 0.0 or visible_height <= 1.0:
 		return
 	zoom_level = clampf(viewport_size.y / (fit_scale * visible_height), 1.0, MAX_ZOOM)
@@ -436,16 +436,22 @@ func zoom_at(local_position: Vector2, factor: float) -> void:
 	_update_camera()
 
 
+func _cover_scale(viewport_size: Vector2, image_size: Vector2) -> float:
+	if image_size.x <= 0.0 or image_size.y <= 0.0:
+		return 0.0
+	return maxf(viewport_size.x / image_size.x, viewport_size.y / image_size.y)
+
+
 func _update_camera() -> void:
 	if map_sprite.texture == null or size.x <= 0.0 or size.y <= 0.0:
 		return
 	var image_size := map_sprite.texture.get_size()
 	var viewport_size := Vector2(map_viewport.size)
-	var fit_scale := minf(viewport_size.x / image_size.x, viewport_size.y / image_size.y)
+	var fit_scale := _cover_scale(viewport_size, image_size)
 	camera.zoom = Vector2.ONE * fit_scale * zoom_level
 	var half_view := viewport_size / camera.zoom * 0.5
 	var opposite_edge := image_size - half_view
-	# 地图大于视口时不露底，小于视口时保持完整可见，并允许利用留白维持缩放锚点。
+	# 铺满窗口：宽和高都至少盖住视口，多出来的一边裁掉，不留黑边。
 	var minimum := Vector2(minf(half_view.x, opposite_edge.x), minf(half_view.y, opposite_edge.y))
 	var maximum := Vector2(maxf(half_view.x, opposite_edge.x), maxf(half_view.y, opposite_edge.y))
 	camera.position = camera.position.clamp(minimum, maximum)

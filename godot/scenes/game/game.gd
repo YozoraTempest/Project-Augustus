@@ -5,6 +5,7 @@ const MAIN_MENU := "res://scenes/main_menu/main_menu.tscn"
 const LAUNCHER := "res://scenes/launcher/launcher.tscn"
 const COUNTRY_SELECT := "res://scenes/country_select/country_select.tscn"
 const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
+const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
 
 @onready var map_view: ProvinceMapView = %MapView
 @onready var info_panel: ProvinceInfoPanel = %InfoPanel
@@ -24,6 +25,18 @@ const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 @onready var peace_dialog: Window = $PeaceDialog
 
 var backend: AugustusMap
+
+
+func _paint_match_type(node: Node) -> void:
+	if node.name == "MapView":
+		return
+	if node is Button and node.icon == null:
+		Eu4Type.paint_button(node, Eu4Type.VIC_18, Eu4Type.STANDARD_BUTTON)
+	elif node is Label:
+		var size := Eu4Type.VIC_22 if node.get_theme_font_size("font_size") >= Eu4Type.VIC_22 else Eu4Type.VIC_18
+		Eu4Type.paint_label(node, size)
+	for child in node.get_children():
+		_paint_match_type(child)
 
 
 func _ready() -> void:
@@ -65,6 +78,7 @@ func _ready() -> void:
 	map_view.show_map(backend)
 	map_view.set_projection(GameSession.map_projection)
 	var modes := ProvinceMapView.add_surface_modes($TopBar/Top/Header, str(backend.get_game_directory()), map_view)
+	_paint_match_type(self)
 	modes.alignment = BoxContainer.ALIGNMENT_CENTER
 	_refresh_projection()
 	var player_info := backend.get_country_info(GameSession.get_player_country())

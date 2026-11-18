@@ -11,6 +11,7 @@ const GAME_SCENE := "res://scenes/game/game.tscn"
 const MAP_SCENE := preload("res://scenes/map/province_map_view.tscn")
 # frontend.gui 的底栏按 1920×1080 落在屏幕底边。再按当前窗口同比放大。
 const MENU_REFERENCE := Vector2(1920, 1080)
+const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
 # common/defines.lua 的 NFrontend。Y 是高度，视线落在地面。
 const FRONTEND_POS := Vector3(2958.0, 900.0, 1500.0)
 const FRONTEND_LOOK := Vector3(2958.0, 0.0, 1519.0)
@@ -173,7 +174,7 @@ func _place_label(eu4_name: String, caption: String, x: float, y: float, width: 
 		node.clip_text = false
 		node.alignment = HORIZONTAL_ALIGNMENT_CENTER
 		node.add_theme_color_override("font_color", Color(0.96, 0.91, 0.78))
-		node.add_theme_font_size_override("font_size", 22)
+		Eu4Type.paint_button(node, Eu4Type.VIC_22, node.custom_minimum_size)
 		return
 	if node is RichTextLabel:
 		node.text = caption
@@ -183,7 +184,7 @@ func _place_label(eu4_name: String, caption: String, x: float, y: float, width: 
 		node.fit_content = false
 		node.clip_contents = false
 		node.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		node.add_theme_font_size_override("normal_font_size", 22)
+		Eu4Type.paint_rich_text(node, Eu4Type.VIC_22)
 		node.add_theme_color_override("default_color", Color(0.96, 0.91, 0.78))
 		node.add_theme_constant_override("line_separation", 0)
 		node.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
