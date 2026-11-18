@@ -64,6 +64,8 @@ func _ready() -> void:
 	# 复用开局页已生成的纹理，进入游戏无需再次读取游戏文件。
 	map_view.show_map(backend)
 	map_view.set_projection(GameSession.map_projection)
+	var modes := ProvinceMapView.add_surface_modes($TopBar/Top/Header, str(backend.get_game_directory()), map_view)
+	modes.alignment = BoxContainer.ALIGNMENT_CENTER
 	_refresh_projection()
 	var player_info := backend.get_country_info(GameSession.get_player_country())
 	player_country_label.text = "玩家国家：" + str(player_info.name)

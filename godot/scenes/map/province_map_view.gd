@@ -31,6 +31,9 @@ var _dragging := false
 var _frontend_look := Vector3.ZERO
 var _frontend_eye := Vector3.ZERO
 var _frontend_framed := false
+var _terrain_available := false
+var _water_available := false
+var surface_terrain := true
 
 
 func _ready() -> void:
@@ -107,7 +110,7 @@ static func apply_terrain(material: ShaderMaterial, backend: AugustusMap) -> voi
 	var sea: Texture2D = backend.get_water_color_texture()
 	var bed: Texture2D = backend.get_water_detail_texture()
 	var water := sea != null and bed != null
-	material.set_shader_parameter("use_water", water)
+	material.set_shader_parameter("use_water", water and material.get_shader_parameter("use_terrain"))
 	if water:
 		material.set_shader_parameter("water_color", sea)
 		material.set_shader_parameter("water_detail", bed)
@@ -120,10 +123,90 @@ func show_map(backend: AugustusMap) -> void:
 	map_sprite.material.set_shader_parameter("owner_ids", backend.get_owner_texture())
 	map_sprite.material.set_shader_parameter("political_colors", backend.get_political_texture())
 	apply_terrain(map_sprite.material, backend)
+	_terrain_available = map_sprite.material.get_shader_parameter("use_terrain")
+	_water_available = map_sprite.material.get_shader_parameter("use_water")
 	globe_view.show_map(backend)
+	set_surface_terrain(surface_terrain)
 	refresh_armies()
 	clear_selection()
 	reset_view()
+
+
+func set_surface_terrain(enabled: bool) -> void:
+	surface_terrain = enabled
+	if map_sprite == null or map_sprite.material == null:
+		return
+	var show_terrain := enabled and _terrain_available
+	for material: ShaderMaterial in [map_sprite.material, globe_view.surface_material]:
+		material.set_shader_parameter("use_terrain", show_terrain)
+		material.set_shader_parameter("use_water", show_terrain and _water_available)
+
+
+static func add_surface_modes(parent: Node, directory: String, map_view: ProvinceMapView) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 6)
+	var group := ButtonGroup.new()
+	row.set_meta("surface_group", group)
+	var terrain := _surface_button(directory, "gfx/interface/mapmode_terrain.dds", "地形", group)
+	var political := _surface_button(directory, "gfx/interface/mapmode_political.dds", "政治", group)
+	row.add_child(terrain)
+	row.add_child(political)
+	parent.add_child(row)
+	terrain.button_pressed = map_view.surface_terrain
+	political.button_pressed = not map_view.surface_terrain
+	terrain.toggled.connect(func(pressed: bool) -> void:
+		if pressed:
+			map_view.set_surface_terrain(true)
+		_mark_surface(terrain, political)
+	)
+	political.toggled.connect(func(pressed: bool) -> void:
+		if pressed:
+			map_view.set_surface_terrain(false)
+		_mark_surface(terrain, political)
+	)
+	_mark_surface(terrain, political)
+	return row
+
+
+static func _surface_button(directory: String, relative: String, tip: String, group: ButtonGroup) -> Button:
+	var button := Button.new()
+	button.toggle_mode = true
+	button.button_group = group
+	button.focus_mode = Control.FOCUS_NONE
+	button.tooltip_text = tip
+	button.flat = true
+	var assets = preload("res://ui/eu4/eu4_ui_assets.gd").new()
+	var texture: Texture2D = assets.texture_from_file(directory.path_join(relative))
+	if texture:
+		var shown := texture
+		if texture.get_width() >= texture.get_height() * 2:
+			var half := texture.get_width() * 0.5
+			var idle := AtlasTexture.new()
+			idle.atlas = texture
+			idle.region = Rect2(0, 0, half, texture.get_height())
+			var active := AtlasTexture.new()
+			active.atlas = texture
+			active.region = Rect2(half, 0, half, texture.get_height())
+			button.set_meta("idle_icon", idle)
+			button.set_meta("active_icon", active)
+			shown = idle
+			button.custom_minimum_size = Vector2(half, texture.get_height())
+		else:
+			button.custom_minimum_size = texture.get_size()
+		button.icon = shown
+		button.expand_icon = true
+	else:
+		button.text = tip
+	return button
+
+
+static func _mark_surface(terrain: Button, political: Button) -> void:
+	for button in [terrain, political]:
+		var idle: Texture2D = button.get_meta("idle_icon", null)
+		var active: Texture2D = button.get_meta("active_icon", null)
+		if idle and active:
+			button.icon = active if button.button_pressed else idle
 
 
 func set_mode(next_mode: MapMode.Type) -> void:
