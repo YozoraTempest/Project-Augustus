@@ -35,17 +35,18 @@ static func paint_rich_text(label: RichTextLabel, size: int) -> void:
 	label.add_theme_font_size_override("normal_font_size", size)
 
 
-static func paint_button(button: Button, size: int, minimum: Vector2) -> void:
+static func paint_button(button: Button, size: int, minimum: Vector2, margins: Vector4 = Vector4(8, 0, 8, 0)) -> void:
 	button.add_theme_font_override("font", font())
 	button.add_theme_font_size_override("font_size", size)
 	button.custom_minimum_size = minimum
+	button.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
 		var style := button.get_theme_stylebox(state)
 		if style == null:
 			continue
 		var copy := style.duplicate()
-		copy.content_margin_left = 8
-		copy.content_margin_right = 8
-		copy.content_margin_top = 0
-		copy.content_margin_bottom = 0
+		copy.content_margin_left = margins.x
+		copy.content_margin_top = margins.y
+		copy.content_margin_right = margins.z
+		copy.content_margin_bottom = margins.w
 		button.add_theme_stylebox_override(state, copy)

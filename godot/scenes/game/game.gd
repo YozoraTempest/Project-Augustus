@@ -31,12 +31,30 @@ func _paint_match_type(node: Node) -> void:
 	if node.name == "MapView":
 		return
 	if node is Button and node.icon == null:
-		Eu4Type.paint_button(node, Eu4Type.VIC_18, Eu4Type.STANDARD_BUTTON)
+		_paint_match_button(node)
 	elif node is Label:
 		var size := Eu4Type.VIC_22 if node.get_theme_font_size("font_size") >= Eu4Type.VIC_22 else Eu4Type.VIC_18
 		Eu4Type.paint_label(node, size)
 	for child in node.get_children():
 		_paint_match_type(child)
+
+
+func _paint_match_button(button: Button) -> void:
+	var directory := ""
+	if GameSession.backend != null:
+		directory = str(GameSession.backend.get_game_directory())
+	var assets = preload("res://ui/eu4/eu4_ui_assets.gd").new()
+	var texture: Texture2D = assets.texture_from_file(directory.path_join("gfx/interface/standard_button_88.dds"))
+	if texture != null:
+		var style := StyleBoxTexture.new()
+		style.texture = texture
+		for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+			button.add_theme_stylebox_override(state, style)
+	# standard_button_88 是 88×32，蓝底比金边窄一圈。文字在这块蓝底里居中。
+	Eu4Type.paint_button(button, Eu4Type.VIC_18, Eu4Type.STANDARD_BUTTON, Vector4(8, 7, 8, 7))
+	button.add_theme_color_override("font_color", Color(0.96, 0.91, 0.78))
+	button.add_theme_color_override("font_hover_color", Color(1, 0.95, 0.8))
+	button.add_theme_color_override("font_disabled_color", Color(0.55, 0.52, 0.46))
 
 
 func _ready() -> void:
