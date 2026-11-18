@@ -15,6 +15,8 @@ pub struct TerrainTextures {
     pub indices: Gd<ImageTexture>,
     pub water_color: Gd<ImageTexture>,
     pub water_detail: Gd<ImageTexture>,
+    pub country_border: Option<Gd<ImageTexture>>,
+    pub province_border: Option<Gd<ImageTexture>>,
 }
 
 /// 欧陆地形着色用的三张图：季节色、图集、地形序号。
@@ -26,12 +28,29 @@ pub fn load(game_directory: &str) -> Result<TerrainTextures, String> {
     // 水面着色：水色铺满海面，海底贴图按地图尺寸重复。
     let water_color = texture_from_dds(&root.join("map/terrain/colormap_water.dds"), true)?;
     let water_detail = texture_from_dds(&root.join("map/terrain/underwater_terrain.dds"), true)?;
+    // 政治地图的国界和省界。缺了不影响地形。
+    let country_border = match texture_from_dds(&root.join("map/terrain/border0.dds"), true) {
+        Ok(texture) => Some(texture),
+        Err(error) => {
+            godot_print!("国界纹理未载入：{error}");
+            None
+        }
+    };
+    let province_border = match texture_from_dds(&root.join("map/terrain/border1.dds"), true) {
+        Ok(texture) => Some(texture),
+        Err(error) => {
+            godot_print!("省界纹理未载入：{error}");
+            None
+        }
+    };
     Ok(TerrainTextures {
         color,
         atlas,
         indices,
         water_color,
         water_detail,
+        country_border,
+        province_border,
     })
 }
 

@@ -25,6 +25,8 @@ struct AugustusMap {
     terrain_index: Option<Gd<ImageTexture>>,
     water_color: Option<Gd<ImageTexture>>,
     water_detail: Option<Gd<ImageTexture>>,
+    country_border: Option<Gd<ImageTexture>>,
+    province_border: Option<Gd<ImageTexture>>,
     // 渲染编号只在本次载入内使用；核心国家身份仍然是标签。
     country_render_ids: BTreeMap<String, u32>,
     // 玩家身份只在正式开局时确定，与地图上的浏览选择分开保存。
@@ -490,6 +492,16 @@ impl AugustusMap {
         self.water_detail.clone()
     }
 
+    #[func]
+    fn get_country_border_texture(&self) -> Option<Gd<ImageTexture>> {
+        self.country_border.clone()
+    }
+
+    #[func]
+    fn get_province_border_texture(&self) -> Option<Gd<ImageTexture>> {
+        self.province_border.clone()
+    }
+
     /// 编号 0 表示无国家，与归属纹理的空白、海洋和无主区域一致。
     #[func]
     fn get_country_render_id(&self, tag: GString) -> i64 {
@@ -792,6 +804,12 @@ impl AugustusMap {
         self.terrain_index = terrain.as_ref().map(|item| item.indices.clone());
         self.water_color = terrain.as_ref().map(|item| item.water_color.clone());
         self.water_detail = terrain.as_ref().map(|item| item.water_detail.clone());
+        self.country_border = terrain
+            .as_ref()
+            .and_then(|item| item.country_border.clone());
+        self.province_border = terrain
+            .as_ref()
+            .and_then(|item| item.province_border.clone());
         self.country_render_ids = country_render_ids;
         self.game_directory = game_directory;
         self.player_country = None;

@@ -57,8 +57,14 @@ func _build_chrome() -> void:
 	_plate(_chrome, assets, directory, "gfx/interface/lobby_left_bg.dds", Vector2(12, 36))
 	_plate(_chrome, assets, directory, "gfx/interface/lobby_date_bg.dds", Vector2(18, 470))
 	_plate(_chrome, assets, directory, "gfx/interface/lobby_top_bg.dds", Vector2(725, 8))
-	var modes := ProvinceMapView.add_surface_modes(_chrome, directory, map_view)
-	modes.position = Vector2(875, 108)
+	var modes := ProvinceMapView.add_surface_modes(self, directory, map_view)
+	modes.layout_mode = 1
+	modes.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	modes.offset_left = -90.0
+	modes.offset_top = 188.0
+	modes.offset_right = 90.0
+	modes.offset_bottom = 236.0
+	modes.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	var right := _plate(_chrome, assets, directory, "gfx/interface/lobby_right_bg.dds", Vector2(1636, 48))
 	_label(_chrome, "选择国家", Vector2(725, 18), Vector2(470, 32), 22, HORIZONTAL_ALIGNMENT_CENTER)
 	_label(_chrome, "世界 %s" % _backend.get_start_date(), Vector2(725, 48), Vector2(470, 28), 18, HORIZONTAL_ALIGNMENT_CENTER)

@@ -9,8 +9,13 @@ uniform sampler2D terrain_atlas : source_color, filter_linear, repeat_enable;
 uniform sampler2D terrain_ids : filter_nearest, repeat_disable;
 uniform sampler2D water_color : source_color, filter_linear, repeat_disable;
 uniform sampler2D water_detail : source_color, filter_linear, repeat_enable;
+uniform sampler2D country_border : source_color, filter_linear, repeat_enable;
+uniform sampler2D province_border : source_color, filter_linear, repeat_enable;
 uniform bool use_terrain = false;
 uniform bool use_water = false;
+uniform bool terrain_ready = false;
+uniform bool water_ready = false;
+uniform bool use_borders = false;
 uniform vec2 terrain_map_size = vec2(5632.0, 2048.0);
 uniform uint selected_province = 0u;
 uniform uint selected_country = 0u;
@@ -21,11 +26,21 @@ vec2 map_uv(vec2 uv) {
     return vec2(wrap_horizontal ? fract(uv.x) : clamp(uv.x, 0.0, 1.0), clamp(uv.y, 0.0, 1.0));
 }
 
-uint region_id(vec2 uv) {
-    uv = map_uv(uv);
-    vec4 encoded = country_mode ? texture(owner_ids, uv) : texture(province_ids, uv);
+uint unpack_id(vec4 encoded) {
     uvec4 bytes = uvec4(round(encoded * 255.0));
     return bytes.r | (bytes.g << 8u) | (bytes.b << 16u) | (bytes.a << 24u);
+}
+
+uint owner_at(vec2 uv) {
+    return unpack_id(texture(owner_ids, map_uv(uv)));
+}
+
+uint province_at(vec2 uv) {
+    return unpack_id(texture(province_ids, map_uv(uv)));
+}
+
+uint region_id(vec2 uv) {
+    return country_mode ? owner_at(uv) : province_at(uv);
 }
 
 float overlay_channel(float base, float over) {
@@ -36,7 +51,7 @@ float overlay_channel(float base, float over) {
 }
 
 // gfx/FX/pdxmap.shader：图集 4×4，序号来自 terrain.bmp，颜色来自季节色图。
-vec3 terrain_rgb(vec2 uv) {
+vec3 terrain_surface(vec2 uv, float overlay_amount, bool water) {
     uv = map_uv(uv);
     float id = texture(terrain_ids, uv).r * 255.0;
     float index_v = floor((id + 0.5) / 4.0);
@@ -50,9 +65,9 @@ vec3 terrain_rgb(vec2 uv) {
     vec2 atlas_uv = (vec2(index_u, index_v) + repeated) / 4.0 + vec2(0.5 / 2048.0);
     vec3 detail = texture(terrain_atlas, atlas_uv).rgb;
     vec3 tint = texture(terrain_color, uv).rgb;
-    vec3 land = mix(detail, vec3(overlay_channel(detail.r, tint.r), overlay_channel(detail.g, tint.g), overlay_channel(detail.b, tint.b)), 0.75);
+    vec3 land = mix(detail, vec3(overlay_channel(detail.r, tint.r), overlay_channel(detail.g, tint.g), overlay_channel(detail.b, tint.b)), overlay_amount);
     // terrain.txt：ocean 是 15，inland_ocean 是 17。水下着色把贴图按地图尺寸 / 32 重复。
-    if (use_water && (abs(id - 15.0) < 0.5 || abs(id - 17.0) < 0.5)) {
+    if (water && (abs(id - 15.0) < 0.5 || abs(id - 17.0) < 0.5)) {
         vec3 bed = texture(water_detail, uv * terrain_map_size / 32.0).rgb;
         vec3 sea = texture(water_color, uv).rgb;
         return mix(bed, sea, 0.65);
@@ -60,10 +75,70 @@ vec3 terrain_rgb(vec2 uv) {
     return land;
 }
 
+vec3 terrain_rgb(vec2 uv) {
+    return terrain_surface(uv, 0.75, use_water);
+}
+
+// pdxmap.shader 的政治着色：地形按 0.5 叠季节色，灰度乘 0.4 再加国家色乘 0.45。
+// 1.35 补上这里没有的地图光照，避免纸面比未照亮的地形模式暗一截。
+// border.shader 用贴图的 V 当线宽截面、U 沿线重复。国界是 border0，省界是 border1。
+vec3 political_rgb(vec2 uv, vec2 step_uv) {
+    uv = map_uv(uv);
+    vec3 country = texture(political_colors, uv).rgb;
+    vec3 color = country;
+    if (terrain_ready) {
+        vec3 paper = terrain_surface(uv, 0.5, water_ready);
+        float grey = dot(paper, vec3(0.212671, 0.715160, 0.072169));
+        color = (grey * 0.4 + country * 0.45) * 1.35;
+    }
+    if (!use_borders) {
+        return color;
+    }
+    uint owner = owner_at(uv);
+    uint province = province_at(uv);
+    bool sea = false;
+    if (terrain_ready) {
+        float terrain_id = texture(terrain_ids, uv).r * 255.0;
+        sea = abs(terrain_id - 15.0) < 0.5 || abs(terrain_id - 17.0) < 0.5;
+    }
+    vec2 pixel = max(step_uv * 0.5, vec2(1.0) / max(terrain_map_size, vec2(1.0)));
+    vec2 axis[4] = vec2[](vec2(1.0, 0.0), vec2(-1.0, 0.0), vec2(0.0, 1.0), vec2(0.0, -1.0));
+    float country_dist = 5.0;
+    float province_dist = 5.0;
+    for (int step = 1; step <= 4; step++) {
+        for (int direction = 0; direction < 4; direction++) {
+            vec2 at = uv + axis[direction] * pixel * float(step);
+            if (country_dist > float(step) && owner_at(at) != owner) {
+                country_dist = float(step);
+            }
+            if (province_dist > float(step) && province_at(at) != province && owner_at(at) == owner) {
+                province_dist = float(step);
+            }
+        }
+    }
+    if (country_dist <= 4.0) {
+        float stroke_v = 0.66;
+        if (country_dist < 1.5) {
+            stroke_v = 0.31;
+        } else if (country_dist < 2.5) {
+            stroke_v = 0.50;
+        } else if (country_dist < 3.5) {
+            stroke_v = 0.58;
+        }
+        vec4 ink = texture(country_border, vec2(0.5, stroke_v));
+        return mix(color, ink.rgb, ink.a);
+    }
+    if (!sea && province_dist <= 2.0) {
+        vec4 ink = texture(province_border, vec2(0.5, 0.5));
+        return mix(color, ink.rgb, ink.a);
+    }
+    return color;
+}
+
 vec3 map_color(vec2 uv, vec2 step_uv) {
     uint id = region_id(uv);
     uint selected = country_mode ? selected_country : selected_province;
-    vec3 color = use_terrain ? terrain_rgb(uv) : texture(political_colors, map_uv(uv)).rgb;
+    vec3 color = use_terrain ? terrain_rgb(uv) : political_rgb(uv, step_uv);
     if (id != 0u && id == selected) {
         color = mix(color, vec3(1.0, 0.78, 0.24), 0.7);
         // 球面经线首尾相连；轮廓按选择单位计算，国家内部不绘制省界。
