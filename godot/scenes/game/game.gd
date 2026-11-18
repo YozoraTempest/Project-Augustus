@@ -6,6 +6,7 @@ const LAUNCHER := "res://scenes/launcher/launcher.tscn"
 const COUNTRY_SELECT := "res://scenes/country_select/country_select.tscn"
 const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
+const SESSION_TOPBAR := preload("res://scenes/game/session_topbar.gd")
 
 @onready var map_view: ProvinceMapView = %MapView
 @onready var info_panel: ProvinceInfoPanel = %InfoPanel
@@ -25,6 +26,7 @@ const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
 @onready var peace_dialog: Window = $PeaceDialog
 
 var backend: AugustusMap
+var _session_topbar: Control
 
 
 func _paint_match_type(node: Node) -> void:
@@ -95,6 +97,11 @@ func _ready() -> void:
 	# 复用开局页已生成的纹理，进入游戏无需再次读取游戏文件。
 	map_view.show_map(backend)
 	map_view.set_projection(GameSession.map_projection)
+	_session_topbar = SESSION_TOPBAR.new()
+	add_child(_session_topbar)
+	_session_topbar.setup(str(backend.get_game_directory()))
+	resized.connect(_layout_session_topbar)
+	_layout_session_topbar()
 	var modes := ProvinceMapView.add_surface_modes($TopBar/Top/Header, str(backend.get_game_directory()), map_view)
 	_paint_match_type(self)
 	modes.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -102,6 +109,18 @@ func _ready() -> void:
 	var player_info := backend.get_country_info(GameSession.get_player_country())
 	player_country_label.text = "玩家国家：" + str(player_info.name)
 	player_country_label.tooltip_text = player_country_label.text
+
+
+func _layout_session_topbar() -> void:
+	if _session_topbar == null or size.x < 1.0:
+		return
+	var factor := size.x / 1920.0
+	_session_topbar.scale = Vector2(factor, factor)
+	_session_topbar.position = Vector2.ZERO
+	var bar_height := 160.0 * factor
+	var panel_height := 232.0
+	$TopBar.offset_top = bar_height + 8.0
+	$TopBar.offset_bottom = bar_height + 8.0 + panel_height
 
 
 func _return_to_menu() -> void:
