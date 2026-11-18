@@ -178,22 +178,29 @@ func _set_caption(eu4_name: String, caption: String) -> void:
 
 
 func _menu_background(directory: String, assets) -> Texture2D:
+	# eu4.exe 枚举 gfx/loadingscreens 下全部 .dds。启动（dl=0）用第一张，就是标志图。
+	# 主菜单和载入（dl=1）用 1 + rand % (张数-1)，不会再落到第一张。
 	var folder := directory.path_join("gfx/loadingscreens")
 	var listing := DirAccess.open(folder)
 	if listing == null:
 		return null
 	var paths: PackedStringArray = PackedStringArray()
 	for file_name in listing.get_files():
-		var lower := file_name.to_lower()
-		if not lower.begins_with("load_") or not lower.ends_with(".dds"):
+		if not file_name.to_lower().ends_with(".dds"):
 			continue
-		var path := folder.path_join(file_name)
-		if _readable_background(path):
-			paths.append(path)
-	if paths.is_empty():
+		paths.append(folder.path_join(file_name))
+	if paths.size() < 2:
 		return null
 	paths.sort()
-	return assets.texture_from_file(paths[0])
+	var choices: PackedStringArray = PackedStringArray()
+	for index in range(1, paths.size()):
+		if _readable_background(paths[index]):
+			choices.append(paths[index])
+	if choices.is_empty():
+		return null
+	var path := choices[randi() % choices.size()]
+	print("主菜单背景 ", path.get_file())
+	return assets.texture_from_file(path)
 
 
 func _readable_background(path: String) -> bool:
@@ -208,7 +215,7 @@ func _readable_background(path: String) -> bool:
 	var fourcc := header.slice(84, 88).get_string_from_ascii()
 	if fourcc.contains("DXT"):
 		return false
-	return width > 0 and height > 0 and width <= 2560 and height <= 1600
+	return width > 0 and height > 0
 
 
 func _find_named(node: Node, eu4_name: String) -> Node:
