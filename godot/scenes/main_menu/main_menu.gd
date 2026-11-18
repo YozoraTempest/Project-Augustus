@@ -9,8 +9,7 @@ const ASSETS_SCRIPT := preload("res://ui/eu4/eu4_ui_assets.gd")
 const BUILDER_SCRIPT := preload("res://ui/eu4/eu4_ui_builder.gd")
 const GAME_SCENE := "res://scenes/game/game.tscn"
 const MAP_SCENE := preload("res://scenes/map/province_map_view.tscn")
-# frontend.gui 的底栏按 1920×1080 落在屏幕底边。再按当前窗口同比放大。
-const MENU_REFERENCE := Vector2(1920, 1080)
+# frontend.gui 的坐标和贴图都是界面像素。面板按原始方向钉在窗口上，不随窗口放大。
 const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
 # common/defines.lua 的 NFrontend。Y 是高度，视线落在地面。
 const FRONTEND_POS := Vector3(2958.0, 900.0, 1500.0)
@@ -27,7 +26,6 @@ var _layout: Control
 func _ready() -> void:
 	AppSettings.apply_game_window()
 	save_dialog.file_selected.connect(_load_saved_game)
-	resized.connect(_apply_menu_scale)
 	_show_menu_map()
 	_dress_from_eu4()
 
@@ -119,38 +117,16 @@ func _dress_from_eu4() -> void:
 	assets.backend = session
 	_layout = Control.new()
 	_layout.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_layout.position = Vector2.ZERO
-	_layout.size = MENU_REFERENCE
+	_layout.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_layout.scale = Vector2.ONE
 	host.add_child(_layout)
 	var builder = BUILDER_SCRIPT.new()
 	builder.assets = assets
 	builder.plain_windows = true
 	for panel_name in ["mainmenu_panel_upperleft", "mainmenu_panel_upperright", "mainmenu_panel_bottom"]:
 		builder.build_named(document, panel_name, _layout)
-	_span_upper_right()
 	_use_our_actions()
 	_wire_menu(_layout)
-	_apply_menu_scale()
-
-
-func _apply_menu_scale() -> void:
-	if _layout == null:
-		return
-	var target := size
-	if target.x < 1.0 or target.y < 1.0:
-		return
-	_layout.scale = target / MENU_REFERENCE
-
-
-func _span_upper_right() -> void:
-	var panel := _find_named(_layout, "mainmenu_panel_upperright")
-	if panel == null:
-		return
-	# 原面板只有 1024 宽，右上标志要对齐屏幕右缘。
-	panel.offset_left = 0.0
-	panel.offset_top = -1.0
-	panel.offset_right = MENU_REFERENCE.x
-	panel.offset_bottom = 767.0
 
 
 func _use_our_actions() -> void:

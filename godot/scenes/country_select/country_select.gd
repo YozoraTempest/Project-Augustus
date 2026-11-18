@@ -6,8 +6,8 @@ const LAUNCHER := "res://scenes/launcher/launcher.tscn"
 const MAIN_MENU := "res://scenes/main_menu/main_menu.tscn"
 const GAME_SCENE := "res://scenes/game/game.tscn"
 const ASSETS_SCRIPT := preload("res://ui/eu4/eu4_ui_assets.gd")
-const MENU_REFERENCE := Vector2(1920, 1080)
 const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
+const CREAM := Color(0.96, 0.91, 0.78)
 
 @onready var map_view: ProvinceMapView = %MapView
 
@@ -29,7 +29,6 @@ func _ready() -> void:
 		return
 	AppSettings.apply_game_window()
 	_backend = GameSession.backend
-	resized.connect(_apply_chrome_scale)
 	_build_chrome()
 	map_view.selection_changed.connect(_refresh_selection)
 	_clear_country()
@@ -52,87 +51,110 @@ func _build_chrome() -> void:
 	var assets = ASSETS_SCRIPT.new()
 	_chrome = Control.new()
 	_chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_chrome.position = Vector2.ZERO
-	_chrome.size = MENU_REFERENCE
+	_chrome.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_chrome.scale = Vector2.ONE
 	add_child(_chrome)
-	_plate(_chrome, assets, directory, "gfx/interface/lobby_left_bg.dds", Vector2(12, 36))
-	var top := _plate(_chrome, assets, directory, "gfx/interface/lobby_top_bg.dds", Vector2(725, 8))
-	_centered_lines(top, Rect2(24, 14, 422, 60), [
-		["选择国家", Eu4Type.VIC_22],
-		["世界 %s" % _backend.get_start_date(), Eu4Type.VIC_18],
-	])
-	var modes := ProvinceMapView.add_surface_modes(self, directory, map_view)
-	modes.layout_mode = 1
-	modes.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	modes.offset_left = -90.0
-	modes.offset_top = 188.0
-	modes.offset_right = 90.0
-	modes.offset_bottom = 236.0
-	modes.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	var right := _plate(_chrome, assets, directory, "gfx/interface/lobby_right_bg.dds", Vector2(1636, 48))
-	var date := _plate(_chrome, assets, directory, "gfx/interface/lobby_date_bg.dds", Vector2(18, 470))
-	_centered_lines(date, Rect2(22, 18, 236, 96), [
-		["开局日期", Eu4Type.VIC_18],
-		[str(_backend.get_start_date()), Eu4Type.VIC_22],
-	])
-	var back := _text_button(_chrome, assets, directory, "gfx/interface/big_button_232.dds", "返回主菜单", Vector2(42, 980))
+	# frontend.gui：left / left_sidepanel，贴图用自身像素。
+	_plate(_chrome, assets, directory, "gfx/interface/lobby_left_bg.dds", Vector2(4, 31), "UPPER_LEFT")
+	var date := _plate(_chrome, assets, directory, "gfx/interface/lobby_date_bg.dds", Vector2(10, 401), "UPPER_LEFT")
+	_label(date, "开局日期", Vector2(6, 9), Vector2(260, 30), Eu4Type.VIC_18, HORIZONTAL_ALIGNMENT_CENTER)
+	var year := ""
+	var daymonth := ""
+	var parts := str(_backend.get_start_date()).split(".")
+	if parts.size() >= 3:
+		year = parts[0]
+		daymonth = "%s.%s" % [parts[1], parts[2]]
+	else:
+		year = str(_backend.get_start_date())
+	_label(date, year, Vector2(120, 57), Vector2(80, 30), Eu4Type.VIC_22, HORIZONTAL_ALIGNMENT_CENTER)
+	_label(date, daymonth, Vector2(82, 113), Vector2(110, 20), Eu4Type.VIC_18, HORIZONTAL_ALIGNMENT_CENTER)
+	var back := _text_button(_chrome, assets, directory, "gfx/interface/button_type_4.dds", "返回主菜单", Vector2(18, -12), "LOWER_LEFT", Eu4Type.VIC_18, Vector4(12, 7, 12, 7))
 	back.pressed.connect(_return_to_menu)
-	_start = _text_button(right, assets, directory, "gfx/interface/big_button_232.dds", "开始游戏", Vector2(20, 528))
-	_start.pressed.connect(_enter_game)
-	_start.disabled = true
+	# top 窗口钉在屏幕上沿中点，横幅和文字用 gui 里的相对坐标。
+	var top := Control.new()
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_chrome.add_child(top)
+	_pin(top, Vector2.ZERO, "CENTER_UP", Vector2(420, 500))
+	_plate(top, assets, directory, "gfx/interface/lobby_top_bg.dds", Vector2(-235, 6), "UPPER_LEFT")
+	_label(top, "世界 %s" % _backend.get_start_date(), Vector2(-150, 18), Vector2(300, 30), Eu4Type.VIC_22, HORIZONTAL_ALIGNMENT_CENTER)
+	var select_label := _label(top, "选择国家", Vector2(-375, 92), Vector2(300, 60), Eu4Type.VIC_18, HORIZONTAL_ALIGNMENT_CENTER)
+	_pin(select_label, Vector2(-375, 92), "CENTER_UP", Vector2(300, 60))
+	var modes := ProvinceMapView.add_surface_modes(top, directory, map_view)
+	modes.position = Vector2(-194, 51)
+	modes.add_theme_constant_override("separation", -3)
+	# right / right_sidepanel，以及右下角的开始按钮。
+	_plate(_chrome, assets, directory, "gfx/interface/lobby_right_bg.dds", Vector2(-266, 16), "UPPER_RIGHT")
+	var card := Control.new()
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_chrome.add_child(card)
+	_pin(card, Vector2(-236, 40), "UPPER_RIGHT", Vector2(200, 340))
 	_flag = TextureRect.new()
-	_flag.position = Vector2(86, 36)
-	_flag.size = Vector2(96, 96)
+	_flag.position = Vector2(60, 32)
+	_flag.size = Vector2(92, 92)
 	_flag.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_flag.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_flag.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	right.add_child(_flag)
+	card.add_child(_flag)
 	_color = ColorRect.new()
-	_color.position = Vector2(36, 140)
-	_color.size = Vector2(200, 8)
+	_color.position = Vector2(24, 122)
+	_color.size = Vector2(160, 4)
 	_color.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_color.hide()
-	right.add_child(_color)
-	_name = _label(right, "未选择国家", Vector2(36, 146), Vector2(200, 36), Eu4Type.VIC_22, HORIZONTAL_ALIGNMENT_CENTER)
-	_body = _label(right, "在地图上点选一个国家", Vector2(24, 214), Vector2(224, 280), Eu4Type.VIC_18, HORIZONTAL_ALIGNMENT_CENTER)
+	card.add_child(_color)
+	_name = _label(card, "未选择国家", Vector2(24, 130), Vector2(160, 24), Eu4Type.VIC_22, HORIZONTAL_ALIGNMENT_CENTER)
+	_body = _label(card, "在地图上点选一个国家", Vector2(20, 160), Vector2(175, 150), Eu4Type.VIC_18, HORIZONTAL_ALIGNMENT_CENTER)
 	_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_error = _label(right, "", Vector2(20, 470), Vector2(232, 44), Eu4Type.VIC_18, HORIZONTAL_ALIGNMENT_CENTER)
+	_error = _label(card, "", Vector2(12, 300), Vector2(176, 36), Eu4Type.VIC_18, HORIZONTAL_ALIGNMENT_CENTER)
 	_error.add_theme_color_override("font_color", Color(1, 0.55, 0.48))
 	_error.hide()
-	_apply_chrome_scale()
+	_start = _text_button(_chrome, assets, directory, "gfx/interface/big_button_232.dds", "开始游戏", Vector2(-246, -40), "LOWER_RIGHT", Eu4Type.VIC_22, Vector4(18, 13, 18, 12))
+	_start.pressed.connect(_enter_game)
+	_start.disabled = true
 
 
-func _plate(parent: Control, assets, directory: String, relative: String, at: Vector2) -> TextureRect:
+func _plate(parent: Control, assets, directory: String, relative: String, at: Vector2, orientation: String) -> TextureRect:
 	var plate := TextureRect.new()
 	plate.texture = assets.texture_from_file(directory.path_join(relative))
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	plate.position = at
-	if plate.texture:
-		plate.size = plate.texture.get_size()
+	var plate_size := plate.texture.get_size() if plate.texture else Vector2.ZERO
 	parent.add_child(plate)
+	_pin(plate, at, orientation, plate_size)
 	return plate
 
 
-func _centered_lines(parent: Control, area: Rect2, lines: Array) -> void:
-	var host := CenterContainer.new()
-	host.position = area.position
-	host.size = area.size
-	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var column := VBoxContainer.new()
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", 2)
-	for line in lines:
-		var label := Label.new()
-		label.text = str(line[0])
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		Eu4Type.paint_label(label, int(line[1]))
-		label.add_theme_color_override("font_color", Color(0.96, 0.91, 0.78))
-		column.add_child(label)
-	host.add_child(column)
-	parent.add_child(host)
+func _pin(control: Control, at: Vector2, orientation: String, plate_size: Vector2) -> void:
+	# gui 的 position 是控件左上角相对该方向锚点的像素，尺寸用贴图原大。
+	var x := at.x
+	var y := at.y
+	match orientation:
+		"UPPER_RIGHT":
+			control.anchor_left = 1.0
+			control.anchor_right = 1.0
+			control.anchor_top = 0.0
+			control.anchor_bottom = 0.0
+		"LOWER_LEFT":
+			control.anchor_left = 0.0
+			control.anchor_right = 0.0
+			control.anchor_top = 1.0
+			control.anchor_bottom = 1.0
+			y -= plate_size.y
+		"LOWER_RIGHT":
+			control.anchor_left = 1.0
+			control.anchor_right = 1.0
+			control.anchor_top = 1.0
+			control.anchor_bottom = 1.0
+			y -= plate_size.y
+		"CENTER_UP":
+			control.anchor_left = 0.5
+			control.anchor_right = 0.5
+			control.anchor_top = 0.0
+			control.anchor_bottom = 0.0
+		_:
+			control.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	control.offset_left = x
+	control.offset_top = y
+	control.offset_right = x + plate_size.x
+	control.offset_bottom = y + plate_size.y
 
 
 func _label(parent: Control, text: String, at: Vector2, box: Vector2, font_size: int, align: HorizontalAlignment) -> Label:
@@ -149,37 +171,24 @@ func _label(parent: Control, text: String, at: Vector2, box: Vector2, font_size:
 	return label
 
 
-func _text_button(parent: Control, assets, directory: String, relative: String, caption: String, at: Vector2) -> Button:
+func _text_button(parent: Control, assets, directory: String, relative: String, caption: String, at: Vector2, orientation: String, font_size: int, margins: Vector4) -> Button:
 	var button := Button.new()
 	button.text = caption
-	button.position = at
 	button.focus_mode = Control.FOCUS_NONE
-	button.add_theme_color_override("font_color", Color(0.96, 0.91, 0.78))
+	button.add_theme_color_override("font_color", CREAM)
 	button.add_theme_color_override("font_hover_color", Color(1, 0.95, 0.8))
 	button.add_theme_color_override("font_disabled_color", Color(0.55, 0.52, 0.46))
 	var texture: Texture2D = assets.texture_from_file(directory.path_join(relative))
+	var plate_size := texture.get_size() if texture else Vector2(88, 32)
 	if texture:
 		var style := StyleBoxTexture.new()
 		style.texture = texture
-		style.content_margin_left = 0
-		style.content_margin_right = 0
-		style.content_margin_top = 0
-		style.content_margin_bottom = 0
 		for state in ["normal", "hover", "pressed", "disabled", "focus"]:
 			button.add_theme_stylebox_override(state, style)
-	# 大厅按钮蓝底四周是金边和花角。文字盒收进这块蓝底后再居中。
-	Eu4Type.paint_button(button, Eu4Type.VIC_22, Eu4Type.BIG_BUTTON, Vector4(18, 13, 18, 12))
-	button.size = Eu4Type.BIG_BUTTON
 	parent.add_child(button)
+	_pin(button, at, orientation, plate_size)
+	Eu4Type.paint_button(button, font_size, plate_size, margins)
 	return button
-
-
-func _apply_chrome_scale() -> void:
-	if _chrome == null:
-		return
-	if size.x < 1.0 or size.y < 1.0:
-		return
-	_chrome.scale = size / MENU_REFERENCE
 
 
 func _refresh_selection() -> void:
