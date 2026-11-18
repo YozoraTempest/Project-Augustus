@@ -28,6 +28,9 @@ var selected_country := ""
 var selected_army := 0
 var _backend: AugustusMap
 var _dragging := false
+var _frontend_look := Vector3.ZERO
+var _frontend_eye := Vector3.ZERO
+var _frontend_framed := false
 
 
 func _ready() -> void:
@@ -36,7 +39,7 @@ func _ready() -> void:
 	army_markers.army_selected.connect(select_army)
 	army_markers.province_targeted.connect(move_selected_to)
 	# 容器调整尺寸后再更新相机，确保使用子视口的新尺寸。
-	resized.connect(func(): _update_camera.call_deferred())
+	resized.connect(func(): _apply_frontend_camera.call_deferred())
 	get_window().focus_exited.connect(_end_drag)
 	mode_option.add_item("国家模式", MapMode.Type.COUNTRY)
 	mode_option.add_item("省份模式", MapMode.Type.PROVINCE)
@@ -256,6 +259,36 @@ func request_move_at(pixel: Vector2i) -> void:
 	var destination := _backend.province_at(pixel)
 	if destination >= 0:
 		move_selected_to(destination)
+
+
+# 欧陆主菜单摄像机在地图平面上：X 向东，Z 向北，Y 是高度。图像行从上往下数，所以像素行是地图高度减 Z。
+# defines.lua 没有菜单视场角，按 45 度垂直视场把 FRONTEND_POS 的高度换成能看到的地面范围。
+func frame_frontend_camera(look: Vector3, eye: Vector3) -> void:
+	_frontend_look = look
+	_frontend_eye = eye
+	_frontend_framed = true
+	_apply_frontend_camera()
+
+
+func _apply_frontend_camera() -> void:
+	if not _frontend_framed:
+		_update_camera()
+		return
+	if map_sprite.texture == null or size.x < 2.0 or size.y < 2.0:
+		return
+	var image_size := map_sprite.texture.get_size()
+	var pixel := Vector2(_frontend_look.x, image_size.y - _frontend_look.z)
+	var height := maxf(_frontend_eye.y - _frontend_look.y, 1.0)
+	var visible_height := 2.0 * height * tan(deg_to_rad(45.0) * 0.5)
+	var viewport_size := Vector2(map_viewport.size)
+	if viewport_size.y < 2.0:
+		viewport_size = size
+	var fit_scale := minf(viewport_size.x / image_size.x, viewport_size.y / image_size.y)
+	if fit_scale <= 0.0 or visible_height <= 1.0:
+		return
+	zoom_level = clampf(viewport_size.y / (fit_scale * visible_height), 1.0, MAX_ZOOM)
+	camera.position = pixel
+	_update_camera()
 
 
 func reset_view() -> void:

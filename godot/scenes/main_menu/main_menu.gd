@@ -8,8 +8,12 @@ const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
 const ASSETS_SCRIPT := preload("res://ui/eu4/eu4_ui_assets.gd")
 const BUILDER_SCRIPT := preload("res://ui/eu4/eu4_ui_builder.gd")
 const GAME_SCENE := "res://scenes/game/game.tscn"
+const MAP_SCENE := preload("res://scenes/map/province_map_view.tscn")
 # frontend.gui 的底栏按 1920×1080 落在屏幕底边。再按当前窗口同比放大。
 const MENU_REFERENCE := Vector2(1920, 1080)
+# common/defines.lua 的 NFrontend。Y 是高度，视线落在地面。
+const FRONTEND_POS := Vector3(2958.0, 900.0, 1500.0)
+const FRONTEND_LOOK := Vector3(2958.0, 0.0, 1519.0)
 
 @onready var host: Control = %Host
 @onready var status_label: Label = %Status
@@ -23,6 +27,7 @@ func _ready() -> void:
 	AppSettings.apply_game_window()
 	save_dialog.file_selected.connect(_load_saved_game)
 	resized.connect(_apply_menu_scale)
+	_show_menu_map()
 	_dress_from_eu4()
 
 
@@ -111,13 +116,6 @@ func _dress_from_eu4() -> void:
 		return
 	var assets = ASSETS_SCRIPT.new()
 	assets.backend = session
-	var backdrop := TextureRect.new()
-	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
-	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	backdrop.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	backdrop.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	backdrop.texture = _menu_background(directory, assets)
-	host.add_child(backdrop)
 	_layout = Control.new()
 	_layout.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_layout.position = Vector2.ZERO
@@ -195,45 +193,17 @@ func _place_label(eu4_name: String, caption: String, x: float, y: float, width: 
 		node.offset_bottom = y + height
 
 
-func _menu_background(directory: String, assets) -> Texture2D:
-	# eu4.exe 枚举 gfx/loadingscreens 下全部 .dds。启动（dl=0）用第一张，就是标志图。
-	# 主菜单和载入（dl=1）用 1 + rand % (张数-1)，不会再落到第一张。
-	var folder := directory.path_join("gfx/loadingscreens")
-	var listing := DirAccess.open(folder)
-	if listing == null:
-		return null
-	var paths: PackedStringArray = PackedStringArray()
-	for file_name in listing.get_files():
-		if not file_name.to_lower().ends_with(".dds"):
-			continue
-		paths.append(folder.path_join(file_name))
-	if paths.size() < 2:
-		return null
-	paths.sort()
-	var choices: PackedStringArray = PackedStringArray()
-	for index in range(1, paths.size()):
-		if _readable_background(paths[index]):
-			choices.append(paths[index])
-	if choices.is_empty():
-		return null
-	var path := choices[randi() % choices.size()]
-	print("主菜单背景 ", path.get_file())
-	return assets.texture_from_file(path)
-
-
-func _readable_background(path: String) -> bool:
-	var file := FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return false
-	var header := file.get_buffer(128)
-	if header.size() < 128:
-		return false
-	var height := header.decode_u32(12)
-	var width := header.decode_u32(16)
-	var fourcc := header.slice(84, 88).get_string_from_ascii()
-	if fourcc.contains("DXT"):
-		return false
-	return width > 0 and height > 0
+func _show_menu_map() -> void:
+	if not GameSession.has_game():
+		return
+	var map_view: ProvinceMapView = MAP_SCENE.instantiate()
+	map_view.set_anchors_preset(Control.PRESET_FULL_RECT)
+	map_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(map_view)
+	move_child(map_view, 0)
+	map_view.show_map(GameSession.backend)
+	map_view.present_for_country_pick()
+	map_view.frame_frontend_camera.call_deferred(FRONTEND_LOOK, FRONTEND_POS)
 
 
 func _find_named(node: Node, eu4_name: String) -> Node:
