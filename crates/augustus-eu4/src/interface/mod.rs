@@ -6,6 +6,7 @@ mod assets;
 mod gfx;
 mod gui;
 mod localisation;
+mod mock;
 mod model;
 mod report;
 mod value;
@@ -14,6 +15,7 @@ pub use assets::{InterfaceLoad, InterfaceSource, resolve_texture_path};
 pub use gfx::parse_gfx_bytes;
 pub use gui::parse_gui_bytes;
 pub use localisation::{LocalisationCatalog, format_eu4_text, parse_localisation_bytes};
+pub use mock::{gui_placeholder, gui_placeholders};
 pub use model::{
     ContentMount, ContentSource, ContentStack, GfxCatalog, GuiDocument, GuiNode, GuiNodeKind,
     SpriteDefinition, UiField, UiOperator, UiOrientation, UiScalar, UiValue, UiVec2,

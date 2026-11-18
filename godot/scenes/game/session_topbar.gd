@@ -11,18 +11,17 @@ const NODE_NAMES := [
 	"topbar_upper_left_bg",
 	"icon_gold",
 	"text_gold",
+	"text_manpower",
 	"icon_ADM",
-	"text_ADM",
 	"icon_DIP",
-	"text_DIP",
 	"icon_MIL",
-	"text_MIL",
 ]
 
+var _placeholders: Dictionary = {}
+
+var _manpower: RichTextLabel
+
 var _gold: RichTextLabel
-var _adm: RichTextLabel
-var _dip: RichTextLabel
-var _mil: RichTextLabel
 
 
 func setup(directory: String) -> void:
@@ -41,23 +40,26 @@ func setup(directory: String) -> void:
 	var builder = BUILDER_SCRIPT.new()
 	builder.assets = assets
 	builder.plain_windows = true
+	_placeholders = GameSession.backend.gui_placeholders()
 	var host := Control.new()
 	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var window := _find_json(document, "topbar")
 	var origin := _vec(window.get("position", {}) if window is Dictionary else {})
 	host.position = origin
 	add_child(host)
-	for node_name in NODE_NAMES:
-		builder.build_named(document, node_name, host)
+	var node_names: Array = NODE_NAMES.duplicate()
+	for node_name: String in _placeholders:
+		if node_name not in node_names:
+			node_names.append(node_name)
+	for node_name in node_names:
+		builder.build_named(document, str(node_name), host)
 	_paint_loaded_text(host)
 	var background := _find_named(host, "topbar_upper_left_bg") as Control
 	if background:
 		custom_minimum_size = background.size
 		size = background.size
 	_gold = _find_named(host, "text_gold") as RichTextLabel
-	_adm = _find_named(host, "text_ADM") as RichTextLabel
-	_dip = _find_named(host, "text_DIP") as RichTextLabel
-	_mil = _find_named(host, "text_MIL") as RichTextLabel
+	_manpower = _find_named(host, "text_manpower") as RichTextLabel
 	if not GameSession.clock_changed.is_connected(_refresh):
 		GameSession.clock_changed.connect(_refresh)
 	if not GameSession.world_changed.is_connected(_refresh):
@@ -141,6 +143,13 @@ func _show_gold_frame(frame_number: int) -> void:
 	icon.size = region.region.size
 
 
+func _apply_placeholders() -> void:
+	for node_name: String in _placeholders:
+		var label := _find_named(self, node_name) as RichTextLabel
+		if label:
+			label.text = str(_placeholders[node_name])
+
+
 func _refresh() -> void:
 	if _gold == null:
 		return
@@ -152,12 +161,9 @@ func _refresh() -> void:
 	_gold.text = str(finances.get("treasury", "0"))
 	_gold.add_theme_color_override("default_color", DEBT if negative else CREAM)
 	# 帧号从 1 起算。差额小于 0 用第 2 帧，否则第 1 帧。减 1 后超出 noOfFrames 则用第 0 帧。
-	# 顶栏虚函数到绘制函数没有单步核对，这里按 Kaiser 笔记的规则选帧。
+	# 差额暂用国库正负，见 gui_mock_list.md。虚函数到绘制函数没有单步核对。
 	_show_gold_frame(2 if negative else 1)
-	# 君主点数还没有进入模拟，库存按开局 0 显示，不把国家代码写出来。
-	if _adm:
-		_adm.text = "0"
-	if _dip:
-		_dip.text = "0"
-	if _mil:
-		_mil.text = "0"
+	if _manpower:
+		var manpower: Dictionary = GameSession.backend.get_country_manpower(country)
+		_manpower.text = str(manpower.get("available", 0))
+	_apply_placeholders()

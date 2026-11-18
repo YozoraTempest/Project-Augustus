@@ -746,6 +746,16 @@ impl AugustusMap {
         }
     }
 
+    /// 界面占位文本。键是 gui 控件名，值是占位字符串。没有的控件不在表里。
+    #[func]
+    fn gui_placeholders(&self) -> VarDictionary {
+        let mut values = VarDictionary::new();
+        for &(name, value) in augustus_eu4::interface::gui_placeholders() {
+            values.set(name, value);
+        }
+        values
+    }
+
     /// 从玩家目录读取一个界面文件。成功时 `json` 是文档，失败时 `error` 带来源路径。
     #[func]
     fn load_eu4_ui_document(&mut self, root: GString, relative: GString) -> VarDictionary {
