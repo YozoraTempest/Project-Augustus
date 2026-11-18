@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use augustus_core::{GameSpeed, SavedGame, Simulation};
+use augustus_core::{GameSpeed, ProvinceKind, SavedGame, Simulation};
 use augustus_eu4::world::{OpeningWorld, START_DATE};
 use godot::{
     classes::{Image, ImageTexture, image::Format},
@@ -911,7 +911,12 @@ fn political_colors(world: &OpeningWorld) -> Vec<u8> {
         .chain(std::iter::once(&0))
         .map(|&id| {
             let [r, g, b] = world.province_color(id);
-            (id, [r, g, b, 255])
+            // pdxmap.shader 在颜色 alpha 低于 0.82 时不叠政治纸面。海和湖走海面着色。
+            let alpha = match world.state().province(id).map(|province| province.kind) {
+                Some(ProvinceKind::Sea | ProvinceKind::Lake) => 0,
+                _ => 255,
+            };
+            (id, [r, g, b, alpha])
         })
         .collect();
     world

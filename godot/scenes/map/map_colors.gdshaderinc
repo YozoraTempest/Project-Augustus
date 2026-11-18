@@ -79,17 +79,23 @@ vec3 terrain_rgb(vec2 uv) {
     return terrain_surface(uv, 0.75, use_water);
 }
 
-// pdxmap.shader 的政治着色：地形按 0.5 叠季节色，灰度乘 0.4 再加国家色乘 0.45。
-// 1.35 补上这里没有的地图光照，避免纸面比未照亮的地形模式暗一截。
+// pdxmap.shader 的 COLOR_SHADER：季节色叠 0.5，灰度乘 0.4，国家色乘 0.45。
+// 颜色 alpha 低于 0.82 时不进这道混合，改用海面的水色图和海底贴图。
 // defines.lua 的 BORDER_WIDTH 是 1.5 个地图单位。国界取 border0 线芯，省界取 border1，放大后才画省界。
 vec3 political_rgb(vec2 uv, vec2 step_uv) {
     uv = map_uv(uv);
-    vec3 country = texture(political_colors, uv).rgb;
-    vec3 color = country;
-    if (terrain_ready) {
-        vec3 paper = terrain_surface(uv, 0.5, water_ready);
+    vec4 country_sample = texture(political_colors, uv);
+    vec3 color = country_sample.rgb;
+    if (country_sample.a < 0.82) {
+        if (water_ready) {
+            vec3 bed = texture(water_detail, uv * terrain_map_size / 32.0).rgb;
+            vec3 sea = texture(water_color, uv).rgb;
+            color = mix(bed, sea, 0.65);
+        }
+    } else if (terrain_ready) {
+        vec3 paper = terrain_surface(uv, 0.5, false);
         float grey = dot(paper, vec3(0.212671, 0.715160, 0.072169));
-        color = (grey * 0.4 + country * 0.45) * 1.35;
+        color = grey * 0.4 + country_sample.rgb * 0.45;
     }
     if (!use_borders) {
         return color;
