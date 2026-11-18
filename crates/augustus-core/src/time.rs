@@ -200,6 +200,35 @@ impl GameClock {
         days
     }
 
+    /// 和 [`Self::advance_with`] 相同，但一次最多进入一天。多余的整秒留在进度里，下一帧再结算。
+    pub(crate) fn advance_at_most_one_day(
+        &mut self,
+        elapsed: Duration,
+        mut on_day: impl FnMut(GameDate),
+    ) -> u32 {
+        if self.paused {
+            return 0;
+        }
+        self.progress += elapsed * self.speed.multiplier();
+        let remaining = self.date.0.days_until(&Self::last_date()) as u64;
+        if remaining == 0 {
+            self.paused = true;
+            self.progress = Duration::ZERO;
+            return 0;
+        }
+        if self.progress.as_secs() == 0 {
+            return 0;
+        }
+        self.date = self.date.add_days(1);
+        on_day(self.date);
+        self.progress = self.progress.saturating_sub(Duration::from_secs(1));
+        if remaining == 1 {
+            self.paused = true;
+            self.progress = Duration::ZERO;
+        }
+        1
+    }
+
     fn last_date() -> Date {
         Date::from_ymd(i16::MAX, 12, 31)
     }

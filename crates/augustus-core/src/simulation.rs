@@ -58,6 +58,18 @@ impl Simulation {
         })
     }
 
+    /// 界面每一帧最多结算一个游戏日，避免卡顿时在主线程上连跨多天。
+    pub fn advance_one_day_for(
+        &mut self,
+        world: &mut World,
+        elapsed: Duration,
+        player: Option<&str>,
+    ) -> u32 {
+        self.clock.advance_at_most_one_day(elapsed, |date| {
+            run_day(world, date, player);
+        })
+    }
+
     /// 连续推进指定数量的游戏日。暂停、倍速和日内进度都保持原样。
     /// 每日结算顺序与 [`Self::advance_for`] 相同。
     pub fn advance_days(

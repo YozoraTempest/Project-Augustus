@@ -314,17 +314,49 @@ pub(crate) fn markers(
 ) -> Array<VarDictionary> {
     let mut markers = Array::new();
     for army in world.state().armies().values() {
-        let mut marker = army_info(world, army, date, player);
-        let [r, g, b] = world.country_color(&army.country).expect("军队国家已注册");
-        marker.set(
-            "color",
-            Color::from_rgb(
-                f32::from(r) / 255.0,
-                f32::from(g) / 255.0,
-                f32::from(b) / 255.0,
-            ),
-        );
-        markers.push(&marker);
+        markers.push(&one_marker(world, army, date, player));
     }
     markers
+}
+
+/// 地图标签是否要重画。不含省份名和邻省列表，避免为没变化的军队建字典。
+pub(crate) fn marker_fingerprint(army: &Army, date: GameDate) -> u64 {
+    let mut fingerprint = u64::from(army.province);
+    fingerprint = fingerprint
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        .wrapping_add(army.strength());
+    fingerprint = fingerprint
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        .wrapping_add(u64::from(army.battle_id().unwrap_or(0)));
+    fingerprint = fingerprint
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        .wrapping_add(u64::from(army.is_retreating()))
+        .wrapping_add(u64::from(army.is_exiled()) << 1);
+    if let Some(movement) = &army.movement {
+        fingerprint = fingerprint
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            .wrapping_add(movement.leg_index() as u64)
+            .wrapping_add(u64::from(movement.destination()))
+            .wrapping_add(u64::from(movement.days_remaining(date)));
+    }
+    fingerprint
+}
+
+pub(crate) fn one_marker(
+    world: &OpeningWorld,
+    army: &Army,
+    date: GameDate,
+    player: Option<&str>,
+) -> VarDictionary {
+    let mut marker = army_info(world, army, date, player);
+    let [r, g, b] = world.country_color(&army.country).expect("军队国家已注册");
+    marker.set(
+        "color",
+        Color::from_rgb(
+            f32::from(r) / 255.0,
+            f32::from(g) / 255.0,
+            f32::from(b) / 255.0,
+        ),
+    );
+    marker
 }

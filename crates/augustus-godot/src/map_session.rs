@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     path::Path,
     time::Duration,
 };
@@ -34,6 +34,8 @@ struct AugustusMap {
     simulation: Option<Simulation>,
     game_directory: String,
     ui_sessions: Vec<crate::interface::UiSession>,
+    // 军队标签的上次指纹。跨日只为变了的军队重建字典。
+    army_marker_fp: HashMap<u32, u64>,
 }
 
 #[godot_api]
@@ -148,7 +150,7 @@ impl AugustusMap {
                 return false;
             };
             // 玩家标签只用来排除本人。敌国命令仍走核心里的招募、行军与和谈接口。
-            let advanced = simulation.advance_for(
+            let advanced = simulation.advance_one_day_for(
                 world.state_mut(),
                 Duration::from_micros(elapsed),
                 player.as_deref(),
@@ -316,6 +318,53 @@ impl AugustusMap {
             );
             crate::military::markers(world, date, self.player_country.as_deref())
         })
+    }
+
+    /// 只为指纹变了或调用方标明在屏幕内的军队建字典。其余军队不进入返回值。
+    #[func]
+    fn changed_army_markers(&mut self, visible: Array<i64>) -> VarDictionary {
+        let Some(world) = &self.world else {
+            return VarDictionary::new();
+        };
+        let date = self.simulation.as_ref().map_or_else(
+            || world.start_date(),
+            |simulation| simulation.clock().date(),
+        );
+        let player = self.player_country.clone();
+        let on_screen: HashSet<u32> = visible
+            .iter_shared()
+            .filter_map(|id| u32::try_from(id).ok())
+            .collect();
+        let mut markers: Array<VarDictionary> = Array::new();
+        let mut seen = HashSet::new();
+        for army in world.state().armies().values() {
+            let id = army.id();
+            seen.insert(id);
+            let fingerprint = crate::military::marker_fingerprint(army, date);
+            let changed = self.army_marker_fp.get(&id).copied() != Some(fingerprint);
+            if !changed && !on_screen.contains(&id) {
+                continue;
+            }
+            self.army_marker_fp.insert(id, fingerprint);
+            markers.push(&crate::military::one_marker(
+                world,
+                army,
+                date,
+                player.as_deref(),
+            ));
+        }
+        let mut removed = PackedInt64Array::new();
+        self.army_marker_fp.retain(|id, _| {
+            let keep = seen.contains(id);
+            if !keep {
+                removed.push(i64::from(*id));
+            }
+            keep
+        });
+        let mut result = VarDictionary::new();
+        result.set("markers", &markers);
+        result.set("removed", &removed);
+        result
     }
 
     #[func]
@@ -814,6 +863,7 @@ impl AugustusMap {
         self.game_directory = game_directory;
         self.player_country = None;
         self.simulation = None;
+        self.army_marker_fp.clear();
         GString::new()
     }
 

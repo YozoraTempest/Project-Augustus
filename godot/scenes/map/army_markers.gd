@@ -10,6 +10,8 @@ var project_path: Callable
 var _armies: Array[Dictionary] = []
 var _buttons: Dictionary[int, Button] = {}
 var _selected := 0
+var _armies_dirty := true
+var _camera_stamp := Vector4(INF, INF, INF, INF)
 
 
 func show_armies(armies: Array[Dictionary]) -> void:
@@ -67,34 +69,157 @@ func show_armies(armies: Array[Dictionary]) -> void:
 		if not present.has(id):
 			_buttons[id].queue_free()
 			_buttons.erase(id)
+	_armies_dirty = true
 	_update_positions()
+
+
+func visible_ids() -> PackedInt64Array:
+	var ids := PackedInt64Array()
+	for army_id: int in _buttons:
+		if _buttons[army_id].visible:
+			ids.append(army_id)
+	return ids
+
+
+func apply_changes(changed: Array, removed_ids: PackedInt64Array) -> void:
+	for raw_id in removed_ids:
+		_forget(int(raw_id))
+	for army in changed:
+		if army is not Dictionary:
+			continue
+		var id := int(army.id)
+		var replaced := false
+		for index in _armies.size():
+			if int(_armies[index].id) == id:
+				_armies[index] = army
+				replaced = true
+				break
+		if not replaced:
+			_armies.append(army)
+		_ensure_button(army)
+	_armies_dirty = true
+	_update_positions()
+
+
+func _forget(id: int) -> void:
+	for index in range(_armies.size() - 1, -1, -1):
+		if int(_armies[index].id) == id:
+			_armies.remove_at(index)
+	if _buttons.has(id):
+		_buttons[id].queue_free()
+		_buttons.erase(id)
+	if _selected == id:
+		_selected = 0
+
+
+func _ensure_button(army: Dictionary) -> void:
+	var id: int = army.id
+	if not _buttons.has(id):
+		var button := Button.new()
+		button.toggle_mode = true
+		button.focus_mode = Control.FOCUS_NONE
+		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		button.pressed.connect(func(): army_selected.emit(id))
+		button.gui_input.connect(func(event: InputEvent):
+			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+				province_targeted.emit(int(button.get_meta("province")))
+				button.accept_event())
+		add_child(button)
+		_buttons[id] = button
+	var button: Button = _buttons[id]
+	button.set_meta("province", army.province)
+	var relation := "中立"
+	var mark := ""
+	match str(army.get("stance", "neutral")):
+		"own":
+			relation = "我方"
+			mark = "我 "
+		"enemy":
+			relation = "敌方 · 只可查看"
+			mark = "敌 "
+	var prefix := ""
+	if bool(army.get("in_battle", false)):
+		prefix = "战 "
+	elif bool(army.get("retreating", false)):
+		prefix = "撤 "
+	var country_label := str(army.get("country_name", ""))
+	if country_label.is_empty():
+		country_label = str(army.country)
+	button.text = "%s%s%s %s · %d" % [prefix, mark, "→" if army.movement != null else "军", country_label, army.strength]
+	var units := PackedStringArray()
+	for unit: Dictionary in army.composition:
+		units.append("%s %d 团" % [unit.kind, unit.regiment_count])
+	var morale := str(army.get("morale", ""))
+	var status := str(army.get("combat_status", ""))
+	button.tooltip_text = "%s\n%s\n%s · %s · %d 人" % [relation, army.name, army.province_name, "、".join(units), army.strength]
+	if not morale.is_empty():
+		button.tooltip_text += "\n士气 " + morale
+	if not status.is_empty():
+		button.tooltip_text += "\n" + status
+	button.add_theme_color_override("font_color", Color.WHITE.lerp(army.color, 0.35))
+	button.set_pressed_no_signal(id == _selected)
+	button.reset_size()
 
 
 func select_army(id: int) -> void:
 	_selected = id
 	for army_id: int in _buttons:
 		_buttons[army_id].set_pressed_no_signal(army_id == id)
+	queue_redraw()
 
 
 func _process(_delta: float) -> void:
+	if not project_point.is_valid():
+		return
+	var stamp := _read_camera_stamp()
+	if _same_stamp(stamp, _camera_stamp) and not _armies_dirty:
+		return
+	var camera_moved := not _same_stamp(stamp, _camera_stamp)
+	var route_before := _selected_route()
+	_camera_stamp = stamp
+	_armies_dirty = false
 	_update_positions()
+	if camera_moved or route_before != _selected_route():
+		queue_redraw()
+
+
+func _read_camera_stamp() -> Vector4:
+	var origin: Vector2 = project_point.call(Vector2.ZERO)
+	var far: Vector2 = project_point.call(Vector2(1024, 1024))
+	return Vector4(origin.x, origin.y, far.x, far.y)
+
+
+func _same_stamp(current: Vector4, previous: Vector4) -> bool:
+	return is_equal_approx(current.x, previous.x) and is_equal_approx(current.y, previous.y) and is_equal_approx(current.z, previous.z) and is_equal_approx(current.w, previous.w)
+
+
+func _selected_route() -> bool:
+	for army in _armies:
+		if int(army.id) == _selected and army.movement != null:
+			return true
+	return false
 
 
 func _update_positions() -> void:
 	if not project_point.is_valid():
 		return
 	var stacks: Dictionary[Vector2i, int] = {}
+	var view := Rect2(Vector2.ZERO, size)
 	for army in _armies:
 		var button: Button = _buttons[army.id]
 		var point: Vector2 = project_point.call(army.position) if army.movement == null else project_path.call(army.position, army.destination_position, army.movement.leg_progress / 100.0)
-		button.visible = Rect2(Vector2.ZERO, size).has_point(point)
-		if button.visible:
-			var stack := Vector2i(point.round())
-			var index: int = stacks.get(stack, 0)
-			stacks[stack] = index + 1
-			# 多支军队抵达同一省份时分别显示，保持每支军队都能选中。
-			button.position = point - button.size * 0.5 + Vector2(0, index * (button.size.y + 2))
-	queue_redraw()
+		if not point.is_finite() or not view.has_point(point):
+			if button.visible:
+				button.visible = false
+			continue
+		var stack := Vector2i(point.round())
+		var index: int = stacks.get(stack, 0)
+		stacks[stack] = index + 1
+		# 多支军队抵达同一省份时分别显示，保持每支军队都能选中。
+		var place := point - button.size * 0.5 + Vector2(0, index * (button.size.y + 2))
+		if not button.visible or button.position != place:
+			button.visible = true
+			button.position = place
 
 
 func _draw() -> void:

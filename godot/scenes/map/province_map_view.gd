@@ -335,7 +335,8 @@ func refresh_armies() -> void:
 		army_markers.show_armies([])
 		army_markers.hide()
 		return
-	army_markers.show_armies(_backend.get_army_markers())
+	var update: Dictionary = _backend.changed_army_markers(army_markers.visible_ids())
+	army_markers.apply_changes(update.get("markers", []), update.get("removed", PackedInt64Array()))
 	# 月初损耗可能删掉整支军队。只清除选择，不发出 selection_changed，避免和信息面板循环刷新。
 	if selected_army != 0 and _backend.get_army_info(selected_army).is_empty():
 		selected_army = 0
