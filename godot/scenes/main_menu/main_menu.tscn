@@ -14,7 +14,7 @@ grow_vertical = 2
 theme = ExtResource("2_theme")
 script = ExtResource("1_script")
 
-[node name="Background" type="TextureRect" parent="."]
+[node name="Host" type="Control" parent="."]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
@@ -23,83 +23,6 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-expand_mode = 1
-stretch_mode = 6
-
-[node name="Logo" type="TextureRect" parent="."]
-unique_name_in_owner = true
-layout_mode = 0
-offset_left = 36.0
-offset_top = 28.0
-offset_right = 356.0
-offset_bottom = 118.0
-mouse_filter = 2
-expand_mode = 1
-stretch_mode = 5
-
-[node name="StudioLogo" type="TextureRect" parent="."]
-unique_name_in_owner = true
-layout_mode = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -280.0
-offset_top = 24.0
-offset_right = -28.0
-offset_bottom = 120.0
-mouse_filter = 2
-expand_mode = 1
-stretch_mode = 5
-
-[node name="Bottom" type="CenterContainer" parent="."]
-layout_mode = 1
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_top = -250.0
-mouse_filter = 2
-
-[node name="Stack" type="VBoxContainer" parent="Bottom"]
-layout_mode = 2
-theme_override_constants/separation = 8
-alignment = 2
-
-[node name="NewGame" type="Button" parent="Bottom/Stack"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(204, 60)
-layout_mode = 2
-size_flags_horizontal = 4
-text = "开始游戏"
-
-[node name="Bar" type="TextureRect" parent="Bottom/Stack"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(683, 72)
-layout_mode = 2
-mouse_filter = 2
-expand_mode = 1
-stretch_mode = 5
-
-[node name="Actions" type="HBoxContainer" parent="Bottom/Stack"]
-layout_mode = 2
-theme_override_constants/separation = 8
-alignment = 1
-
-[node name="LoadGame" type="Button" parent="Bottom/Stack/Actions"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(140, 48)
-layout_mode = 2
-text = "读取存档"
-
-[node name="Settings" type="Button" parent="Bottom/Stack/Actions"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(140, 48)
-layout_mode = 2
-text = "设置"
-
-[node name="Quit" type="Button" parent="Bottom/Stack/Actions"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(140, 48)
-layout_mode = 2
-text = "退出"
 
 [node name="Status" type="Label" parent="."]
 unique_name_in_owner = true
@@ -109,7 +32,7 @@ anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = 24.0
-offset_top = -36.0
+offset_top = -40.0
 offset_right = -24.0
 offset_bottom = -8.0
 horizontal_alignment = 1

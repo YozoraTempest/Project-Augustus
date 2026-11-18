@@ -5,6 +5,8 @@ signal action_requested(eu4_name: String, properties: Dictionary)
 
 var assets
 var diagnostics: PackedStringArray = PackedStringArray()
+# 主菜单的窗口本身没有底图，不能再铺一层占位色块。
+var plain_windows := false
 
 
 func build_document(document: Dictionary, parent: Control) -> Array:
@@ -80,7 +82,11 @@ func _build_node(data: Dictionary, parent: Control) -> Control:
 	return control
 
 
-func _window() -> Panel:
+func _window() -> Control:
+	if plain_windows:
+		var box := Control.new()
+		box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return box
 	var panel := Panel.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.16, 0.12, 0.09, 0.94)
@@ -128,8 +134,13 @@ func _button(data: Dictionary) -> Button:
 	if assets != null and assets.has_method("texture_for") and not sprite.is_empty():
 		var texture: Texture2D = assets.texture_for(sprite)
 		if texture:
-			button.icon = texture
-			button.expand_icon = true
+			var style := StyleBoxTexture.new()
+			style.texture = texture
+			for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+				button.add_theme_stylebox_override(state, style)
+			button.flat = true
+			if not (data.get("size") is Dictionary):
+				button.custom_minimum_size = texture.get_size()
 	var properties := _property_map(data.get("properties", []))
 	var eu4_name := _string(data.get("name"))
 	button.pressed.connect(func() -> void: action_requested.emit(eu4_name, properties))
@@ -151,7 +162,7 @@ func _apply_meta(control: Control, data: Dictionary) -> void:
 	control.set_meta("eu4_kind", str(data.get("kind", "")))
 	control.set_meta("eu4_type", str(data.get("type_key", "")))
 	var orientation := _string(data.get("orientation"))
-	if not orientation.is_empty() and orientation not in ["UPPER_LEFT", "CENTER", "LOWER_LEFT", "UPPER_RIGHT", "LOWER_RIGHT"]:
+	if not orientation.is_empty() and orientation not in ["UPPER_LEFT", "CENTER", "CENTER_UP", "CENTER_DOWN", "LOWER_LEFT", "UPPER_RIGHT", "LOWER_RIGHT"]:
 		control.set_meta("eu4_orientation_unsupported", orientation)
 		diagnostics.append("%s 的方向 %s 尚未支持" % [_string(data.get("name")), orientation])
 
@@ -167,33 +178,58 @@ func _apply_geometry(control: Control, data: Dictionary) -> void:
 	var width := _number(size.get("x")) if size is Dictionary else 0.0
 	var height := _number(size.get("y")) if size is Dictionary else 0.0
 	if width <= 0.0:
+		width = _texture_width(control)
+	if height <= 0.0:
+		height = _texture_height(control)
+	if width <= 0.0:
+		width = _scalar(data.get("max_width"))
+	if height <= 0.0:
+		height = _scalar(data.get("max_height"))
+	if width <= 0.0:
 		width = _default_width(str(data.get("kind", "")))
 	if height <= 0.0:
 		height = _default_height(str(data.get("kind", "")))
 	var orientation := _string(data.get("orientation"))
 	if orientation.is_empty():
 		orientation = "UPPER_LEFT"
+	# 位置相对父控件的锚点。CENTER_DOWN 把底栏钉在屏幕底边中点。
 	match orientation:
 		"UPPER_RIGHT":
 			control.anchor_left = 1.0
 			control.anchor_right = 1.0
 			control.anchor_top = 0.0
 			control.anchor_bottom = 0.0
+			x -= width
 		"LOWER_LEFT":
 			control.anchor_left = 0.0
 			control.anchor_right = 0.0
 			control.anchor_top = 1.0
 			control.anchor_bottom = 1.0
+			y -= height
 		"LOWER_RIGHT":
 			control.anchor_left = 1.0
 			control.anchor_right = 1.0
 			control.anchor_top = 1.0
 			control.anchor_bottom = 1.0
+			x -= width
+			y -= height
 		"CENTER":
 			control.anchor_left = 0.5
 			control.anchor_right = 0.5
 			control.anchor_top = 0.5
 			control.anchor_bottom = 0.5
+			x -= width * 0.5
+			y -= height * 0.5
+		"CENTER_UP":
+			control.anchor_left = 0.5
+			control.anchor_right = 0.5
+			control.anchor_top = 0.0
+			control.anchor_bottom = 0.0
+		"CENTER_DOWN":
+			control.anchor_left = 0.5
+			control.anchor_right = 0.5
+			control.anchor_top = 1.0
+			control.anchor_bottom = 1.0
 		_:
 			control.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	control.offset_left = x
@@ -285,6 +321,32 @@ func _default_height(kind: String) -> float:
 			return 64.0
 		_:
 			return 22.0
+
+
+func _texture_width(control: Control) -> float:
+	if control is TextureRect and control.texture:
+		return control.texture.get_width()
+	if control is Button:
+		var style := control.get_theme_stylebox("normal")
+		if style is StyleBoxTexture and style.texture:
+			return style.texture.get_width()
+	return 0.0
+
+
+func _texture_height(control: Control) -> float:
+	if control is TextureRect and control.texture:
+		return control.texture.get_height()
+	if control is Button:
+		var style := control.get_theme_stylebox("normal")
+		if style is StyleBoxTexture and style.texture:
+			return style.texture.get_height()
+	return 0.0
+
+
+func _scalar(value: Variant) -> float:
+	if value is Dictionary:
+		return _number(value.get("value", value.get("x")))
+	return _number(value)
 
 
 func _number(value: Variant) -> float:
