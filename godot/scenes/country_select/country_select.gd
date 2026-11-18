@@ -74,9 +74,13 @@ func _build_chrome() -> void:
 		back.text = "返回主菜单"
 	_nation_labels = _collect_named(_chrome, "selected_nation_label")
 	_detail_labels = _collect_named(_chrome, "selected_fog")
+	var parts := str(_backend.get_start_date()).split(".")
+	var year_box := _find_named(_chrome, "year")
+	if year_box is LineEdit and not parts.is_empty():
+		year_box.text = parts[0]
 	var date_label := _find_named(_chrome, "daymonth")
-	if date_label is RichTextLabel:
-		date_label.text = str(_backend.get_start_date())
+	if date_label is RichTextLabel and parts.size() >= 3:
+		date_label.text = "%s.%s" % [parts[1], parts[2]]
 	_attach_flag()
 	_paint_loaded_text(_chrome)
 
@@ -113,6 +117,10 @@ func _paint_loaded_text(node: Node) -> void:
 	if node is RichTextLabel:
 		var size := node.get_theme_font_size("normal_font_size")
 		Eu4Type.paint_rich_text(node, size)
+	elif node is LineEdit:
+		var size := node.get_theme_font_size("font_size")
+		node.add_theme_font_override("font", Eu4Type.font())
+		node.add_theme_font_size_override("font_size", size)
 	elif node is Button:
 		var size := node.get_theme_font_size("font_size")
 		node.add_theme_font_override("font", Eu4Type.font())
@@ -189,7 +197,52 @@ func _flag_texture(tag: String) -> Texture2D:
 	var image := Image.new()
 	if image.load(path) != OK:
 		return null
+	return _compose_shield(image)
+
+
+func _compose_shield(flag: Image) -> Texture2D:
+	var info: Dictionary = _backend.resolve_eu4_sprite("GFX_shield_thin")
+	var assets = ASSETS_SCRIPT.new()
+	var mask: Image
+	var overlay: Image
+	for key in ["absolute_path", "absolute_path_1", "absolute_path_2", "absolute_path_3"]:
+		var texture_path := str(info.get(key, ""))
+		if texture_path.is_empty():
+			continue
+		var loaded := _load_interface_image(assets, texture_path)
+		if loaded == null:
+			continue
+		var file_name := texture_path.get_file().to_lower()
+		if file_name.contains("mask"):
+			mask = loaded
+		elif file_name.contains("overlay") or file_name.contains("frame"):
+			overlay = loaded
+	if mask == null:
+		return ImageTexture.create_from_image(flag)
+	var width := mask.get_width()
+	var height := mask.get_height()
+	var source := flag.duplicate()
+	source.resize(width, height, Image.INTERPOLATE_NEAREST)
+	var image := Image.create(width, height, false, Image.FORMAT_RGBA8)
+	for y in height:
+		for x in width:
+			var pixel := source.get_pixel(x, y)
+			var cover := mask.get_pixel(x, y)
+			image.set_pixel(x, y, Color(pixel.r, pixel.g, pixel.b, pixel.a * cover.a))
+	if overlay != null:
+		var frame := overlay
+		if frame.get_width() != width or frame.get_height() != height:
+			frame = overlay.duplicate()
+			frame.resize(width, height, Image.INTERPOLATE_NEAREST)
+		image.blend_rect(frame, Rect2i(0, 0, width, height), Vector2i.ZERO)
 	return ImageTexture.create_from_image(image)
+
+
+func _load_interface_image(assets, path: String) -> Image:
+	var texture: Texture2D = assets.texture_from_file(path)
+	if texture == null:
+		return null
+	return texture.get_image()
 
 
 func _clear_country() -> void:

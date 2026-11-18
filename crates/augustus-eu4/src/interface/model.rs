@@ -122,18 +122,27 @@ pub enum UiOrientation {
     LowerLeft,
     UpperRight,
     LowerRight,
+    CenterUp,
+    CenterDown,
+    CenterLeft,
+    CenterRight,
     Unknown(String),
 }
 
 impl UiOrientation {
+    /// 关键字比较前会转成小写，`UPPER_LEFT` 和 `upper_left` 是同一个方向。
     pub fn parse(text: &str) -> Self {
-        match text {
-            "UPPER_LEFT" => Self::UpperLeft,
-            "CENTER" => Self::Center,
-            "LOWER_LEFT" => Self::LowerLeft,
-            "UPPER_RIGHT" => Self::UpperRight,
-            "LOWER_RIGHT" => Self::LowerRight,
-            other => Self::Unknown(other.to_owned()),
+        match text.to_ascii_lowercase().as_str() {
+            "upper_left" => Self::UpperLeft,
+            "center" => Self::Center,
+            "lower_left" => Self::LowerLeft,
+            "upper_right" => Self::UpperRight,
+            "lower_right" => Self::LowerRight,
+            "center_up" => Self::CenterUp,
+            "center_down" => Self::CenterDown,
+            "center_left" => Self::CenterLeft,
+            "center_right" => Self::CenterRight,
+            _ => Self::Unknown(text.to_owned()),
         }
     }
 
@@ -144,6 +153,10 @@ impl UiOrientation {
             Self::LowerLeft => "LOWER_LEFT",
             Self::UpperRight => "UPPER_RIGHT",
             Self::LowerRight => "LOWER_RIGHT",
+            Self::CenterUp => "CENTER_UP",
+            Self::CenterDown => "CENTER_DOWN",
+            Self::CenterLeft => "CENTER_LEFT",
+            Self::CenterRight => "CENTER_RIGHT",
             Self::Unknown(text) => text,
         }
     }
@@ -160,6 +173,7 @@ pub enum GuiNodeKind {
     GridBox,
     ListBox,
     OverlappingElementsBox,
+    EditBox,
     Unknown(String),
 }
 
@@ -175,6 +189,7 @@ impl GuiNodeKind {
             "gridBoxType" => Self::GridBox,
             "listboxType" => Self::ListBox,
             "overlappingElementsBoxType" => Self::OverlappingElementsBox,
+            "editBoxType" => Self::EditBox,
             other => Self::Unknown(other.to_owned()),
         }
     }
@@ -190,6 +205,7 @@ impl GuiNodeKind {
             Self::GridBox => "grid_box",
             Self::ListBox => "list_box",
             Self::OverlappingElementsBox => "overlapping_elements_box",
+            Self::EditBox => "edit_box",
             Self::Unknown(_) => "unknown",
         }
     }
@@ -201,7 +217,11 @@ pub struct GuiNode {
     pub type_key: String,
     pub name: Option<String>,
     pub position: Option<UiVec2>,
+    /// `windowType` 不从 position 复制。`containerWindowType` 读到 position 时才先抄过来。
+    pub show_position: Option<UiVec2>,
+    pub hide_position: Option<UiVec2>,
     pub size: Option<UiVec2>,
+    pub fullscreen: Option<bool>,
     pub orientation: Option<UiOrientation>,
     pub sprite: Option<String>,
     pub quad_texture_sprite: Option<String>,
@@ -289,6 +309,9 @@ pub struct SpriteDefinition {
     pub kind: String,
     pub name: String,
     pub texture_file: Option<String>,
+    pub texture_file_1: Option<String>,
+    pub texture_file_2: Option<String>,
+    pub texture_file_3: Option<String>,
     pub frames: Option<u32>,
     pub frame_duration: Option<String>,
     pub always_transparent: Option<bool>,

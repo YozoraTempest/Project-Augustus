@@ -60,6 +60,8 @@ func _build_node(data: Dictionary, parent: Control) -> Control:
 			control = grid
 		"list_box":
 			control = _list()
+		"edit_box":
+			control = _edit_box(data)
 		"unknown":
 			diagnostics.append("已跳过未知控件：%s %s" % [str(data.get("type_key", "")), str(data.get("name", ""))])
 			return null
@@ -67,7 +69,7 @@ func _build_node(data: Dictionary, parent: Control) -> Control:
 			diagnostics.append("已跳过控件：" + kind)
 			return null
 	_apply_meta(control, data)
-	_apply_geometry(control, data)
+	_apply_geometry(control, data, parent)
 	if data.get("dont_render") == true:
 		control.visible = false
 	if data.get("always_transparent") == true:
@@ -107,6 +109,7 @@ func _icon(data: Dictionary) -> TextureRect:
 		var texture: Texture2D = assets.texture_for(sprite)
 		if texture:
 			rect.texture = texture
+	rect.set_meta("eu4_sprite", sprite)
 	return rect
 
 
@@ -143,8 +146,18 @@ func _button(data: Dictionary) -> Button:
 				button.custom_minimum_size = texture.get_size()
 	var properties := _property_map(data.get("properties", []))
 	var eu4_name := _string(data.get("name"))
+	button.set_meta("eu4_sprite", sprite)
 	button.pressed.connect(func() -> void: action_requested.emit(eu4_name, properties))
 	return button
+
+
+func _edit_box(data: Dictionary) -> LineEdit:
+	var edit := LineEdit.new()
+	edit.text = _display_text(data, false)
+	edit.focus_mode = Control.FOCUS_ALL
+	edit.add_theme_font_size_override("font_size", _font_size(str(data.get("font", ""))))
+	edit.add_theme_color_override("font_color", Color(0.96, 0.91, 0.78))
+	return edit
 
 
 func _list() -> ScrollContainer:
@@ -162,13 +175,16 @@ func _apply_meta(control: Control, data: Dictionary) -> void:
 	control.set_meta("eu4_kind", str(data.get("kind", "")))
 	control.set_meta("eu4_type", str(data.get("type_key", "")))
 	var orientation := _string(data.get("orientation"))
-	if not orientation.is_empty() and orientation not in ["UPPER_LEFT", "CENTER", "CENTER_UP", "CENTER_DOWN", "LOWER_LEFT", "UPPER_RIGHT", "LOWER_RIGHT"]:
+	if not orientation.is_empty() and orientation.to_upper() not in ["UPPER_LEFT", "CENTER", "CENTER_UP", "CENTER_DOWN", "CENTER_LEFT", "CENTER_RIGHT", "LOWER_LEFT", "UPPER_RIGHT", "LOWER_RIGHT"]:
 		control.set_meta("eu4_orientation_unsupported", orientation)
 		diagnostics.append("%s 的方向 %s 尚未支持" % [_string(data.get("name")), orientation])
 
 
-func _apply_geometry(control: Control, data: Dictionary) -> void:
-	var position: Variant = data.get("position")
+func _apply_geometry(control: Control, data: Dictionary, parent: Node) -> void:
+	# 已经显示的窗口用 show_position。没有这个字段的控件仍用 position。
+	var position: Variant = data.get("show_position")
+	if not position is Dictionary:
+		position = data.get("position")
 	var size: Variant = data.get("size")
 	var x := 0.0
 	var y := 0.0
@@ -177,6 +193,11 @@ func _apply_geometry(control: Control, data: Dictionary) -> void:
 		y = _number(position.get("y"))
 	var width := _number(size.get("x")) if size is Dictionary else 0.0
 	var height := _number(size.get("y")) if size is Dictionary else 0.0
+	if data.get("fullscreen") == true and parent is Control:
+		var screen: Vector2 = parent.get_viewport().get_visible_rect().size
+		if screen.x > 1.0 and screen.y > 1.0:
+			width = screen.x
+			height = screen.y
 	if width <= 0.0:
 		width = _texture_width(control)
 	if height <= 0.0:
@@ -189,7 +210,7 @@ func _apply_geometry(control: Control, data: Dictionary) -> void:
 		width = _default_width(str(data.get("kind", "")))
 	if height <= 0.0:
 		height = _default_height(str(data.get("kind", "")))
-	var orientation := _string(data.get("orientation"))
+	var orientation := _string(data.get("orientation")).to_upper()
 	if orientation.is_empty():
 		orientation = "UPPER_LEFT"
 	# 位置相对父控件的锚点。CENTER_DOWN 把底栏钉在屏幕底边中点。
@@ -230,6 +251,19 @@ func _apply_geometry(control: Control, data: Dictionary) -> void:
 			control.anchor_right = 0.5
 			control.anchor_top = 1.0
 			control.anchor_bottom = 1.0
+		"CENTER_LEFT":
+			control.anchor_left = 0.0
+			control.anchor_right = 0.0
+			control.anchor_top = 0.5
+			control.anchor_bottom = 0.5
+			y -= height * 0.5
+		"CENTER_RIGHT":
+			control.anchor_left = 1.0
+			control.anchor_right = 1.0
+			control.anchor_top = 0.5
+			control.anchor_bottom = 0.5
+			x -= width
+			y -= height * 0.5
 		_:
 			control.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	control.offset_left = x
@@ -288,6 +322,9 @@ func _apply_format(label: RichTextLabel, format: String) -> void:
 
 
 func _font_size(font_name: String) -> int:
+	var from_file := _bitmap_line_height(font_name)
+	if from_file > 0:
+		return from_file
 	var digits := ""
 	for character: String in font_name:
 		if character.is_valid_int():
@@ -295,6 +332,33 @@ func _font_size(font_name: String) -> int:
 		elif not digits.is_empty():
 			break
 	return clampi(int(digits) if not digits.is_empty() else 17, 12, 28)
+
+
+func _bitmap_line_height(font_name: String) -> int:
+	if font_name.is_empty() or assets == null or assets.backend == null:
+		return 0
+	if not assets.backend.has_method("resolve_eu4_sprite"):
+		return 0
+	var info: Dictionary = assets.backend.resolve_eu4_sprite(font_name)
+	var path := str(info.get("absolute_path", ""))
+	if path.is_empty() or not path.to_lower().ends_with(".fnt"):
+		return 0
+	if not FileAccess.file_exists(path):
+		return 0
+	for raw_line in FileAccess.get_file_as_string(path).split("\n"):
+		var line := raw_line.strip_edges()
+		if not line.begins_with("common "):
+			continue
+		var token := "lineHeight="
+		var start := line.find(token)
+		if start < 0:
+			return 0
+		start += token.length()
+		var end := start
+		while end < line.length() and line[end] != " ":
+			end += 1
+		return int(line.substr(start, end - start))
+	return 0
 
 
 func _default_width(kind: String) -> float:

@@ -80,6 +80,9 @@ pub(crate) fn resolve_sprite(sessions: &[UiSession], name: &str) -> VarDictionar
             Some(frames) => info.set("frames", i64::from(frames)),
             None => info.set("frames", &Variant::nil()),
         }
+        set_texture_slot(&mut info, &session.root, "1", sprite.texture_file_1.as_deref());
+        set_texture_slot(&mut info, &session.root, "2", sprite.texture_file_2.as_deref());
+        set_texture_slot(&mut info, &session.root, "3", sprite.texture_file_3.as_deref());
         return info;
     }
     info
@@ -121,6 +124,20 @@ fn session_mut<'a>(
 }
 
 /// 声明的扩展名经常和磁盘上的文件不一致，例如 `.tga` 实际是 `.dds`。
+fn set_texture_slot(info: &mut VarDictionary, root: &std::path::Path, slot: &str, texture: Option<&str>) {
+    let Some(texture) = texture.filter(|text| !text.is_empty()) else {
+        return;
+    };
+    info.set(format!("texture_file_{slot}").as_str(), texture);
+    match resolve_texture_path(root, texture) {
+        Ok(path) => info.set(
+            format!("absolute_path_{slot}").as_str(),
+            existing_texture(path).display().to_string().as_str(),
+        ),
+        Err(error) => info.set("error", error.to_string().as_str()),
+    }
+}
+
 fn existing_texture(path: PathBuf) -> PathBuf {
     if path.is_file() {
         return path;

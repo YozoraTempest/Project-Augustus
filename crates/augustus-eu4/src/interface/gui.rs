@@ -77,7 +77,10 @@ fn normalize_widget(type_key: &str, fields: Vec<UiField>, source: &ContentSource
         type_key: type_key.to_owned(),
         name: None,
         position: None,
+        show_position: None,
+        hide_position: None,
         size: None,
+        fullscreen: None,
         orientation: None,
         sprite: None,
         quad_texture_sprite: None,
@@ -123,23 +126,35 @@ fn is_widget_object(field: &UiField) -> bool {
 }
 
 fn apply_known(node: &mut GuiNode, field: &UiField) -> bool {
-    match field.key.as_str() {
+    // 关键字表按小写查找，`fullScreen` 和 `fullscreen` 是同一个 token。
+    match field.key.to_ascii_lowercase().as_str() {
         "name" => take_text(&mut node.name, &field.value),
-        "position" => take_vec2(&mut node.position, &field.value),
+        "position" => {
+            let stored = take_vec2(&mut node.position, &field.value);
+            if stored && matches!(node.kind, GuiNodeKind::ContainerWindow) {
+                if let Some(position) = node.position.clone() {
+                    node.show_position = Some(position.clone());
+                    node.hide_position = Some(position);
+                }
+            }
+            stored
+        }
+        "show_position" => put_vec2(&mut node.show_position, &field.value),
+        "hide_position" => put_vec2(&mut node.hide_position, &field.value),
         "size" => take_vec2(&mut node.size, &field.value),
-        // 只认大写 `Orientation`。小写 `orientation` 是另一个字段。
-        "Orientation" => take_orientation(&mut node.orientation, &field.value),
-        "spriteType" => take_text(&mut node.sprite, &field.value),
-        "quadTextureSprite" => take_text(&mut node.quad_texture_sprite, &field.value),
+        "fullscreen" => take_flag(&mut node.fullscreen, &field.value, false),
+        "orientation" => take_orientation(&mut node.orientation, &field.value),
+        "spritetype" => take_text(&mut node.sprite, &field.value),
+        "quadtexturesprite" => take_text(&mut node.quad_texture_sprite, &field.value),
         "text" => take_text(&mut node.text, &field.value),
         "font" => take_text(&mut node.font, &field.value),
-        "buttonText" => take_text(&mut node.button_text, &field.value),
-        "buttonFont" => take_text(&mut node.button_font, &field.value),
-        "maxWidth" => take_scalar(&mut node.max_width, &field.value),
-        "maxHeight" => take_scalar(&mut node.max_height, &field.value),
+        "buttontext" => take_text(&mut node.button_text, &field.value),
+        "buttonfont" => take_text(&mut node.button_font, &field.value),
+        "maxwidth" => take_scalar(&mut node.max_width, &field.value),
+        "maxheight" => take_scalar(&mut node.max_height, &field.value),
         "format" => take_text(&mut node.format, &field.value),
         "moveable" => take_flag(&mut node.moveable, &field.value, false),
-        "dontRender" => take_flag(&mut node.dont_render, &field.value, true),
+        "dontrender" => take_flag(&mut node.dont_render, &field.value, true),
         "alwaystransparent" => take_flag(&mut node.always_transparent, &field.value, false),
         "tooltip" => take_text(&mut node.tooltip, &field.value),
         "clicksound" => take_text(&mut node.click_sound, &field.value),
@@ -197,15 +212,25 @@ fn take_orientation(slot: &mut Option<UiOrientation>, value: &UiValue) -> bool {
     true
 }
 
+fn put_vec2(slot: &mut Option<UiVec2>, value: &UiValue) -> bool {
+    match vec2_from(value) {
+        Some(parsed) => {
+            *slot = Some(parsed);
+            true
+        }
+        None => false,
+    }
+}
+
 fn take_vec2(slot: &mut Option<UiVec2>, value: &UiValue) -> bool {
     if slot.is_some() {
         return false;
     }
-    let Some(vec2) = parse_vec2(value) else {
-        return false;
-    };
-    *slot = Some(vec2);
-    true
+    put_vec2(slot, value)
+}
+
+fn vec2_from(value: &UiValue) -> Option<UiVec2> {
+    parse_vec2(value)
 }
 
 fn parse_vec2(value: &UiValue) -> Option<UiVec2> {

@@ -117,6 +117,30 @@ func _find_named(node: Node, eu4_name: String) -> Node:
 	return null
 
 
+func _show_gold_frame(frame_number: int) -> void:
+	var icon := _find_named(self, "icon_gold") as TextureRect
+	if icon == null or icon.texture == null or GameSession.backend == null:
+		return
+	var full: Texture2D = icon.get_meta("eu4_gold_sheet", icon.texture)
+	if not icon.has_meta("eu4_gold_sheet"):
+		icon.set_meta("eu4_gold_sheet", icon.texture)
+		full = icon.texture
+	var sprite := str(icon.get_meta("eu4_sprite", "GFX_icon_gold_strip"))
+	var info: Dictionary = GameSession.backend.resolve_eu4_sprite(sprite)
+	var frames := int(info.get("frames", 1))
+	if frames < 1:
+		frames = 1
+	var index := frame_number - 1
+	if index < 0 or index >= frames:
+		index = 0
+	var frame_width := full.get_width() / float(frames)
+	var region := AtlasTexture.new()
+	region.atlas = full
+	region.region = Rect2(index * frame_width, 0.0, frame_width, full.get_height())
+	icon.texture = region
+	icon.size = region.region.size
+
+
 func _refresh() -> void:
 	if _gold == null:
 		return
@@ -124,8 +148,12 @@ func _refresh() -> void:
 	if country.is_empty() or GameSession.backend == null:
 		return
 	var finances: Dictionary = GameSession.backend.get_country_finances(country)
+	var negative := bool(finances.get("treasury_negative", false))
 	_gold.text = str(finances.get("treasury", "0"))
-	_gold.add_theme_color_override("default_color", DEBT if finances.get("treasury_negative", false) else CREAM)
+	_gold.add_theme_color_override("default_color", DEBT if negative else CREAM)
+	# 帧号从 1 起算。差额小于 0 用第 2 帧，否则第 1 帧。减 1 后超出 noOfFrames 则用第 0 帧。
+	# 顶栏虚函数到绘制函数没有单步核对，这里按 Kaiser 笔记的规则选帧。
+	_show_gold_frame(2 if negative else 1)
 	# 君主点数还没有进入模拟，库存按开局 0 显示，不把国家代码写出来。
 	if _adm:
 		_adm.text = "0"

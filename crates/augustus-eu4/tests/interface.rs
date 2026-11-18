@@ -305,4 +305,70 @@ fn installed_interface_files_parse() {
     );
     assert!(loaded.sprites.resolve("GFX_topbar_bg").is_some());
     assert!(loaded.sprites.resolve("GFX_lobby_left_bg").is_some());
+    let font = loaded.sprites.resolve("vic_18").expect("vic_18");
+    assert_eq!(
+        font.texture_file.as_deref(),
+        Some("gfx/fonts/vic_18.fnt")
+    );
+    let shield = loaded.sprites.resolve("GFX_shield_thin").expect("shield");
+    assert!(shield.texture_file_2.as_deref().unwrap_or("").contains("mask"));
+    assert!(shield.texture_file_1.as_deref().unwrap_or("").contains("frame"));
+    assert!(shield.texture_file_3.is_some());
+}
+
+#[test]
+fn window_positions_stay_separate_and_container_copies_position() {
+    let bytes = br#"
+        guiTypes = {
+            windowType = {
+                name = "panel"
+                fullScreen = yes
+                position = { x = 1 y = 2 }
+                show_position = { x = 3 y = 4 }
+                hide_position = { x = 5 y = 6 }
+                editBoxType = {
+                    name = "year"
+                    size = { x = 80 y = 30 }
+                    position = { x = 120 y = 57 }
+                }
+            }
+            containerWindowType = {
+                name = "copied"
+                position = { x = 7 y = 8 }
+                show_position = { x = 9 y = 10 }
+            }
+        }
+    "#;
+    let document = parse_gui_bytes(Path::new("interface/positions.gui"), bytes).expect("gui");
+    let panel = document.find("panel").expect("panel");
+    assert_eq!(panel.fullscreen, Some(true));
+    assert_eq!(panel.position.as_ref().unwrap().x, UiScalar::Integer(1));
+    assert_eq!(panel.show_position.as_ref().unwrap().x, UiScalar::Integer(3));
+    assert_eq!(panel.hide_position.as_ref().unwrap().x, UiScalar::Integer(5));
+    let year = document.find("year").expect("year");
+    assert_eq!(year.kind, GuiNodeKind::EditBox);
+    assert!(year.fullscreen.is_none());
+    assert!(year.show_position.is_none());
+    let copied = document.find("copied").expect("copied");
+    assert_eq!(copied.position.as_ref().unwrap().x, UiScalar::Integer(7));
+    assert_eq!(copied.hide_position.as_ref().unwrap().x, UiScalar::Integer(7));
+    assert_eq!(copied.show_position.as_ref().unwrap().x, UiScalar::Integer(9));
+}
+
+#[test]
+fn bitmap_font_path_is_not_taken_from_the_deprecated_name() {
+    let bytes = br#"
+        bitmapfonts = {
+            bitmapfont = {
+                name = "vic_18"
+                fontName = "Garamond"
+                path = "gfx/fonts/vic_18"
+            }
+        }
+    "#;
+    let catalog = parse_gfx_bytes(Path::new("interface/core.gfx"), bytes).expect("gfx");
+    let font = catalog.resolve("vic_18").expect("font");
+    assert_eq!(font.texture_file.as_deref(), Some("gfx/fonts/vic_18.fnt"));
+    assert!(catalog.resolve("Vic_18").is_none());
+    assert!(catalog.resolve("Garamond").is_none());
 }

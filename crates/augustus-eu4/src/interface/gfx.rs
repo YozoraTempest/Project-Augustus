@@ -28,7 +28,9 @@ fn collect_sprites(field: UiField, source: &ContentSource, catalog: &mut GfxCata
     let UiValue::Object(fields) = field.value else {
         return;
     };
-    if field.key == "spriteTypes" {
+    if field.key.eq_ignore_ascii_case("spriteTypes")
+        || field.key.eq_ignore_ascii_case("bitmapfonts")
+    {
         for child in fields {
             if let UiValue::Object(body) = child.value {
                 catalog
@@ -48,21 +50,43 @@ fn collect_sprites(field: UiField, source: &ContentSource, catalog: &mut GfxCata
 fn normalize_sprite(kind: &str, fields: Vec<UiField>, source: &ContentSource) -> SpriteDefinition {
     let mut name = None;
     let mut texture_file = None;
+    let mut texture_file_1 = None;
+    let mut texture_file_2 = None;
+    let mut texture_file_3 = None;
     let mut frames = None;
     let mut frame_duration = None;
     let mut always_transparent = None;
     let mut properties = Vec::new();
     for field in fields {
-        match field.key.as_str() {
+        let key = field.key.to_ascii_lowercase();
+        match key.as_str() {
+            // bitmapfont 的 fontName 已废弃，不拿来当路径。
+            "fontname" => {}
             "name" if name.is_none() => match value::scalar_text(&field.value) {
                 Some(text) => name = Some(text),
+                None => properties.push(field),
+            },
+            "path" if texture_file.is_none() => match value::scalar_text(&field.value) {
+                Some(text) => texture_file = Some(font_file(&text)),
                 None => properties.push(field),
             },
             "texturefile" if texture_file.is_none() => match value::scalar_text(&field.value) {
                 Some(text) => texture_file = Some(normalize_slashes(&text)),
                 None => properties.push(field),
             },
-            "noOfFrames" if frames.is_none() => match &field.value {
+            "texturefile1" if texture_file_1.is_none() => match value::scalar_text(&field.value) {
+                Some(text) => texture_file_1 = Some(normalize_slashes(&text)),
+                None => properties.push(field),
+            },
+            "texturefile2" if texture_file_2.is_none() => match value::scalar_text(&field.value) {
+                Some(text) => texture_file_2 = Some(normalize_slashes(&text)),
+                None => properties.push(field),
+            },
+            "texturefile3" if texture_file_3.is_none() => match value::scalar_text(&field.value) {
+                Some(text) => texture_file_3 = Some(normalize_slashes(&text)),
+                None => properties.push(field),
+            },
+            "noofframes" if frames.is_none() => match &field.value {
                 UiValue::Integer(value) => match u32::try_from(*value) {
                     Ok(value) => frames = Some(value),
                     Err(_) => properties.push(field),
@@ -75,7 +99,7 @@ fn normalize_sprite(kind: &str, fields: Vec<UiField>, source: &ContentSource) ->
                     None => properties.push(field),
                 }
             }
-            "animationtime" | "frameDuration" if frame_duration.is_none() => {
+            "animationtime" | "frameduration" if frame_duration.is_none() => {
                 match decimal_text(&field.value) {
                     Some(text) => frame_duration = Some(text),
                     None => properties.push(field),
@@ -94,6 +118,9 @@ fn normalize_sprite(kind: &str, fields: Vec<UiField>, source: &ContentSource) ->
         kind: kind.to_owned(),
         name: name.unwrap_or_default(),
         texture_file,
+        texture_file_1,
+        texture_file_2,
+        texture_file_3,
         frames,
         frame_duration,
         always_transparent,
@@ -121,6 +148,15 @@ fn decimal_text(value: &UiValue) -> Option<String> {
     }
 }
 
-pub(super) fn normalize_slashes(path: &str) -> String {
+pub(super) fn font_file(path: &str) -> String {
+    let normalized = normalize_slashes(path);
+    if normalized.to_ascii_lowercase().ends_with(".fnt") {
+        normalized
+    } else {
+        format!("{normalized}.fnt")
+    }
+}
+
+fn normalize_slashes(path: &str) -> String {
     path.replace('\\', "/")
 }
