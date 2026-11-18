@@ -130,51 +130,31 @@ func _dress_from_eu4() -> void:
 
 
 func _use_our_actions() -> void:
-	# 字落在按钮贴图的蓝底里，避开上下金边和左右花角。边距来自贴图像素和 frontend.gui 的文字盒。
-	_seat_on_button("single_player_button_text", "single_player_button", "开始游戏", 31.0, 16.0, 13.0, 16.0)
-	_seat_on_button("multi_player_button_text", "multi_player_button", "读取游戏", 10.0, 16.0, 34.0, 16.0)
-	_seat_on_button("settings_button", "settings_button", "设置", 8.0, 13.0, 8.0, 12.0)
-	_seat_on_button("exit_button_text", "exit_button", "退出", 14.0, 12.0, 16.0, 12.0)
+	# 位置和字号留在 frontend.gui 里。这里只换这四个动作的中文，不挪文字盒。
+	_caption("single_player_button_text", "开始游戏")
+	_caption("multi_player_button_text", "读取游戏")
+	_caption("settings_button", "设置")
+	_caption("exit_button_text", "退出")
 	for name in ["tutorial_button", "tutorial_button_text", "credits_button", "nudge_button", "version_label", "version_background", "ironman_icon", "continue_container"]:
 		var node := _find_named(_layout, name)
 		if node:
 			node.hide()
 
 
-func _seat_on_button(text_name: String, button_name: String, caption: String, left: float, top: float, right: float, bottom: float) -> void:
-	var button := _find_named(_layout, button_name) as Control
-	var node := _find_named(_layout, text_name)
-	if button == null or node == null:
-		return
-	var inner := Rect2(
-		button.offset_left + left,
-		button.offset_top + top,
-		maxf(button.offset_right - button.offset_left - left - right, 1.0),
-		maxf(button.offset_bottom - button.offset_top - top - bottom, 1.0)
-	)
-	if node is Button:
-		node.text = caption
-		node.clip_text = false
-		node.add_theme_color_override("font_color", Color(0.96, 0.91, 0.78))
-		Eu4Type.paint_button(node, Eu4Type.VIC_22, Vector2(button.offset_right - button.offset_left, button.offset_bottom - button.offset_top), Vector4(left, top, right, bottom))
-		return
+func _caption(eu4_name: String, caption: String) -> void:
+	var node := _find_named(_layout, eu4_name)
 	if node is RichTextLabel:
+		var size := node.get_theme_font_size("normal_font_size")
 		node.text = caption
 		node.bbcode_enabled = false
-		node.scroll_active = false
-		node.autowrap_mode = TextServer.AUTOWRAP_OFF
-		node.fit_content = false
-		node.clip_contents = false
-		node.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		node.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		Eu4Type.paint_rich_text(node, Eu4Type.VIC_22)
+		Eu4Type.paint_rich_text(node, size)
 		node.add_theme_color_override("default_color", Color(0.96, 0.91, 0.78))
-		node.add_theme_constant_override("line_separation", 0)
-		node.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
-		node.offset_left = inner.position.x
-		node.offset_top = inner.position.y
-		node.offset_right = inner.end.x
-		node.offset_bottom = inner.end.y
+	elif node is Button:
+		var size := node.get_theme_font_size("font_size")
+		node.text = caption
+		node.add_theme_font_override("font", Eu4Type.font())
+		node.add_theme_font_size_override("font_size", size)
+		node.add_theme_color_override("font_color", Color(0.96, 0.91, 0.78))
 
 
 func _show_menu_map() -> void:

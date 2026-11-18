@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! 把 jomini 的借用读取器转换成拥有数据的值。注释不进入 IR。
+//! 按 jomini 的明文磁带读欧陆 gui 和脚本。
+//! `TextTape` 吃 Windows-1252，字段、操作符和重复键都留在磁带上，注释不进结果。
 
 use std::path::Path;
 

@@ -10,7 +10,7 @@ mod model;
 mod report;
 mod value;
 
-pub use assets::{InterfaceSource, resolve_texture_path};
+pub use assets::{InterfaceLoad, InterfaceSource, resolve_texture_path};
 pub use gfx::parse_gfx_bytes;
 pub use gui::parse_gui_bytes;
 pub use localisation::{LocalisationCatalog, format_eu4_text, parse_localisation_bytes};

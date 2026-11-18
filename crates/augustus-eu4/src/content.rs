@@ -79,4 +79,52 @@ impl ContentRoot {
         files.sort();
         Ok(files)
     }
+
+    /// 包含子目录。界面文件不都在 `interface` 根上，`assets` 和 `government_mechanics` 里也有。
+    pub fn files_under(&self, relative: &str, extension: &str) -> Result<Vec<PathBuf>, Error> {
+        let mut files = Vec::new();
+        self.collect_files(
+            &self.root.join(relative),
+            Path::new(relative),
+            extension,
+            &mut files,
+        )?;
+        files.sort();
+        Ok(files)
+    }
+
+    fn collect_files(
+        &self,
+        directory: &Path,
+        relative: &Path,
+        extension: &str,
+        files: &mut Vec<PathBuf>,
+    ) -> Result<(), Error> {
+        let entries = std::fs::read_dir(directory).map_err(|source| Error::Read {
+            path: directory.to_path_buf(),
+            source,
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|source| Error::Read {
+                path: directory.to_path_buf(),
+                source,
+            })?;
+            let file_type = entry.file_type().map_err(|source| Error::Read {
+                path: entry.path(),
+                source,
+            })?;
+            let next = relative.join(entry.file_name());
+            if file_type.is_dir() {
+                self.collect_files(&entry.path(), &next, extension, files)?;
+            } else if file_type.is_file()
+                && entry
+                    .path()
+                    .extension()
+                    .is_some_and(|candidate| candidate.eq_ignore_ascii_case(extension))
+            {
+                files.push(next);
+            }
+        }
+        Ok(())
+    }
 }

@@ -260,3 +260,49 @@ fn shell_content_root_parses_topbar_province_and_coin() {
     assert!(title.contains("[color=#d4af37]"));
     assert_eq!(text.get("UNIMPLEMENTED"), Some("尚未实现"));
 }
+
+#[test]
+fn nested_interface_files_are_loaded() {
+    let temp = tempfile::tempdir().expect("temp");
+    let nested = temp.path().join("interface").join("assets");
+    std::fs::create_dir_all(&nested).expect("dir");
+    std::fs::write(
+        nested.join("nested.gui"),
+        "guiTypes = { windowType = { name = \"nested_window\" } }\n",
+    )
+    .expect("gui");
+    std::fs::write(
+        nested.join("nested.gfx"),
+        "spriteTypes = { spriteType = { name = \"GFX_nested\" texturefile = \"gfx/interface/nested.dds\" } }\n",
+    )
+    .expect("gfx");
+    let loaded = InterfaceSource::open(temp.path())
+        .load_interface()
+        .expect("interface");
+    assert_eq!(loaded.gui_files.len(), 1);
+    assert_eq!(loaded.gfx_files.len(), 1);
+    assert!(loaded.failures.is_empty(), "{:?}", loaded.failures);
+    assert!(loaded.documents[0].find("nested_window").is_some());
+    assert!(loaded.sprites.resolve("GFX_nested").is_some());
+}
+
+#[test]
+fn installed_interface_files_parse() {
+    let root = PathBuf::from(r"D:\SteamLibrary\steamapps\common\Europa Universalis IV");
+    if !root.join("interface").is_dir() {
+        return;
+    }
+    let loaded = InterfaceSource::open(&root)
+        .load_interface()
+        .expect("interface");
+    assert!(loaded.gui_files.len() >= 129, "{}", loaded.gui_files.len());
+    assert!(loaded.gfx_files.len() >= 132, "{}", loaded.gfx_files.len());
+    assert!(
+        loaded.failures.is_empty(),
+        "{} failures\n{}",
+        loaded.failures.len(),
+        loaded.failures.join("\n")
+    );
+    assert!(loaded.sprites.resolve("GFX_topbar_bg").is_some());
+    assert!(loaded.sprites.resolve("GFX_lobby_left_bg").is_some());
+}

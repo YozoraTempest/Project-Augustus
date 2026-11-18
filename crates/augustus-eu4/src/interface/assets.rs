@@ -11,6 +11,17 @@ use super::gui::parse_gui_bytes;
 use super::localisation::{self, LocalisationCatalog};
 use super::model::{ContentStack, GfxCatalog, GuiDocument};
 
+/// 一次读完安装目录里的界面定义。纹理仍留在原处。
+pub struct InterfaceLoad {
+    pub documents: Vec<GuiDocument>,
+    pub sprites: GfxCatalog,
+    pub localisation: LocalisationCatalog,
+    pub gui_files: Vec<std::path::PathBuf>,
+    pub gfx_files: Vec<std::path::PathBuf>,
+    /// 单个文件解析失败时保留路径和原因，其余文件继续读。
+    pub failures: Vec<String>,
+}
+
 pub struct InterfaceSource {
     content: ContentRoot,
 }
@@ -42,7 +53,7 @@ impl InterfaceSource {
 
     pub fn load_gfx_catalog(&self) -> Result<GfxCatalog, Error> {
         let mut catalog = GfxCatalog::new();
-        let files = match self.content.files("interface", "gfx") {
+        let files = match self.content.files_under("interface", "gfx") {
             Ok(files) => files,
             Err(Error::Read { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(catalog);
@@ -63,6 +74,44 @@ impl InterfaceSource {
             }
         }
         Ok(catalog)
+    }
+
+    /// 读取 `interface` 下全部 `.gui` 和 `.gfx`，再读英文界面文本。
+    pub fn load_interface(&self) -> Result<InterfaceLoad, Error> {
+        let gui_files = match self.content.files_under("interface", "gui") {
+            Ok(files) => files,
+            Err(Error::Read { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+                Vec::new()
+            }
+            Err(error) => return Err(error),
+        };
+        let gfx_files = match self.content.files_under("interface", "gfx") {
+            Ok(files) => files,
+            Err(Error::Read { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+                Vec::new()
+            }
+            Err(error) => return Err(error),
+        };
+        let mut failures = Vec::new();
+        let mut documents = Vec::new();
+        for relative in &gui_files {
+            match self.load_gui(relative) {
+                Ok(document) => documents.push(document),
+                Err(error) => failures.push(error.to_string()),
+            }
+        }
+        let sprites = self.load_gfx_catalog()?;
+        failures.extend(sprites.errors.iter().cloned());
+        let localisation = self.load_localisation()?;
+        failures.extend(localisation.errors.iter().cloned());
+        Ok(InterfaceLoad {
+            documents,
+            sprites,
+            localisation,
+            gui_files,
+            gfx_files,
+            failures,
+        })
     }
 
     pub fn load_localisation(&self) -> Result<LocalisationCatalog, Error> {

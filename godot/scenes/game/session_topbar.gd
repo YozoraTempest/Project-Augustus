@@ -1,44 +1,63 @@
 # SPDX-License-Identifier: GPL-3.0-only
 extends Control
 
-# interface/topbar.gui 的坐标就是贴图像素。顶栏、金币、点数图标和数字按原尺寸摆在窗口左上，不随窗口放大。
+# 顶栏的底图、金币和三项点数从 topbar.gui 加载。坐标和字号用文件里的值，不随窗口放大。
 const ASSETS_SCRIPT := preload("res://ui/eu4/eu4_ui_assets.gd")
+const BUILDER_SCRIPT := preload("res://ui/eu4/eu4_ui_builder.gd")
 const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
-const BAR_SIZE := Vector2(927, 160)
 const CREAM := Color(0.96, 0.91, 0.78)
 const DEBT := Color(0.86, 0.28, 0.24)
+const NODE_NAMES := [
+	"topbar_upper_left_bg",
+	"icon_gold",
+	"text_gold",
+	"icon_ADM",
+	"text_ADM",
+	"icon_DIP",
+	"text_DIP",
+	"icon_MIL",
+	"text_MIL",
+]
 
-var _gold: Label
-var _adm: Label
-var _dip: Label
-var _mil: Label
+var _gold: RichTextLabel
+var _adm: RichTextLabel
+var _dip: RichTextLabel
+var _mil: RichTextLabel
 
 
 func setup(directory: String) -> void:
 	scale = Vector2.ONE
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	custom_minimum_size = BAR_SIZE
-	size = BAR_SIZE
+	if GameSession.backend == null:
+		return
+	var loaded: Dictionary = GameSession.backend.load_eu4_ui_document(directory, "interface/topbar.gui")
+	if loaded.get("ok", false) != true:
+		return
+	var document: Variant = JSON.parse_string(str(loaded.get("json", "")))
+	if typeof(document) != TYPE_DICTIONARY:
+		return
 	var assets = ASSETS_SCRIPT.new()
-	var background := _plate(assets, directory, "gfx/interface/topbar_UL.dds", Vector2.ZERO, BAR_SIZE)
-	if background.texture:
-		background.size = background.texture.get_size()
+	assets.backend = GameSession.backend
+	var builder = BUILDER_SCRIPT.new()
+	builder.assets = assets
+	builder.plain_windows = true
+	var host := Control.new()
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var window := _find_json(document, "topbar")
+	var origin := _vec(window.get("position", {}) if window is Dictionary else {})
+	host.position = origin
+	add_child(host)
+	for node_name in NODE_NAMES:
+		builder.build_named(document, node_name, host)
+	_paint_loaded_text(host)
+	var background := _find_named(host, "topbar_upper_left_bg") as Control
+	if background:
 		custom_minimum_size = background.size
 		size = background.size
-	var gold := _icon(assets, directory, "gfx/interface/icon_gold_strip.dds", Vector2(146, 10))
-	if gold != null and gold.texture != null and gold.texture.get_width() >= gold.texture.get_height() * 2:
-		var frame := AtlasTexture.new()
-		frame.atlas = gold.texture
-		frame.region = Rect2(0, 0, gold.texture.get_width() * 0.5, gold.texture.get_height())
-		gold.texture = frame
-		gold.size = frame.region.size
-	_icon(assets, directory, "gfx/interface/icon_powers_administrative.dds", Vector2(498, 49))
-	_icon(assets, directory, "gfx/interface/icon_powers_diplomatic.dds", Vector2(558, 49))
-	_icon(assets, directory, "gfx/interface/icon_powers_military.dds", Vector2(616, 49))
-	_gold = _value("0", Vector2(152, 13), Vector2(60, 32), HORIZONTAL_ALIGNMENT_RIGHT, "金钱")
-	_adm = _value("0", Vector2(520, 52), Vector2(36, 32), HORIZONTAL_ALIGNMENT_LEFT, "行政")
-	_dip = _value("0", Vector2(581, 52), Vector2(36, 32), HORIZONTAL_ALIGNMENT_LEFT, "外交")
-	_mil = _value("0", Vector2(639, 52), Vector2(36, 32), HORIZONTAL_ALIGNMENT_LEFT, "军事")
+	_gold = _find_named(host, "text_gold") as RichTextLabel
+	_adm = _find_named(host, "text_ADM") as RichTextLabel
+	_dip = _find_named(host, "text_DIP") as RichTextLabel
+	_mil = _find_named(host, "text_MIL") as RichTextLabel
 	if not GameSession.clock_changed.is_connected(_refresh):
 		GameSession.clock_changed.connect(_refresh)
 	if not GameSession.world_changed.is_connected(_refresh):
@@ -46,50 +65,71 @@ func setup(directory: String) -> void:
 	_refresh()
 
 
-func _plate(assets, directory: String, relative: String, at: Vector2, plate_size: Vector2) -> TextureRect:
-	var rect := TextureRect.new()
-	rect.texture = assets.texture_from_file(directory.path_join(relative))
-	rect.position = at
-	rect.size = plate_size
-	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	rect.stretch_mode = TextureRect.STRETCH_SCALE
-	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(rect)
-	return rect
+func _paint_loaded_text(node: Node) -> void:
+	if node is RichTextLabel:
+		var size := node.get_theme_font_size("normal_font_size")
+		Eu4Type.paint_rich_text(node, size)
+		node.add_theme_color_override("default_color", CREAM)
+	for child in node.get_children():
+		_paint_loaded_text(child)
 
 
-func _icon(assets, directory: String, relative: String, at: Vector2) -> TextureRect:
-	var rect := _plate(assets, directory, relative, at, Vector2.ZERO)
-	if rect.texture:
-		rect.size = rect.texture.get_size()
-		rect.expand_mode = TextureRect.EXPAND_KEEP_SIZE
-		rect.stretch_mode = TextureRect.STRETCH_KEEP
-	return rect
+func _find_json(node: Variant, wanted: String) -> Variant:
+	if node is Dictionary:
+		if str(node.get("name", "")) == wanted:
+			return node
+		for child: Variant in node.get("children", []):
+			var found := _find_json(child, wanted)
+			if found != null:
+				return found
+		for root: Variant in node.get("roots", []):
+			var found := _find_json(root, wanted)
+			if found != null:
+				return found
+	return null
 
 
-func _value(text: String, at: Vector2, box: Vector2, align: HorizontalAlignment, tip: String) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.position = at
-	label.size = box
-	label.horizontal_alignment = align
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.tooltip_text = tip
-	Eu4Type.paint_label(label, Eu4Type.VIC_18)
-	label.add_theme_color_override("font_color", CREAM)
-	add_child(label)
-	return label
+func _vec(value: Variant) -> Vector2:
+	if value is Dictionary:
+		return Vector2(_number(value.get("x", 0)), _number(value.get("y", 0)))
+	return Vector2.ZERO
+
+
+func _number(value: Variant) -> float:
+	match typeof(value):
+		TYPE_FLOAT, TYPE_INT:
+			return float(value)
+		TYPE_STRING:
+			return float(value) if value.is_valid_float() or value.is_valid_int() else 0.0
+		_:
+			return 0.0
+
+
+func _find_named(node: Node, eu4_name: String) -> Node:
+	if node != null and str(node.get_meta("eu4_name", "")) == eu4_name:
+		return node
+	if node == null:
+		return null
+	for child in node.get_children():
+		var found := _find_named(child, eu4_name)
+		if found:
+			return found
+	return null
 
 
 func _refresh() -> void:
+	if _gold == null:
+		return
 	var country := GameSession.get_player_country()
 	if country.is_empty() or GameSession.backend == null:
 		return
 	var finances: Dictionary = GameSession.backend.get_country_finances(country)
 	_gold.text = str(finances.get("treasury", "0"))
-	_gold.add_theme_color_override("font_color", DEBT if finances.get("treasury_negative", false) else CREAM)
+	_gold.add_theme_color_override("default_color", DEBT if finances.get("treasury_negative", false) else CREAM)
 	# 君主点数还没有进入模拟，库存按开局 0 显示，不把国家代码写出来。
-	_adm.text = "0"
-	_dip.text = "0"
-	_mil.text = "0"
+	if _adm:
+		_adm.text = "0"
+	if _dip:
+		_dip.text = "0"
+	if _mil:
+		_mil.text = "0"
