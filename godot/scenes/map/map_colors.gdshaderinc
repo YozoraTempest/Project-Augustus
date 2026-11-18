@@ -7,7 +7,10 @@ uniform sampler2D political_colors : source_color, filter_nearest, repeat_disabl
 uniform sampler2D terrain_color : source_color, filter_linear, repeat_disable;
 uniform sampler2D terrain_atlas : source_color, filter_linear, repeat_enable;
 uniform sampler2D terrain_ids : filter_nearest, repeat_disable;
+uniform sampler2D water_color : source_color, filter_linear, repeat_disable;
+uniform sampler2D water_detail : source_color, filter_linear, repeat_enable;
 uniform bool use_terrain = false;
+uniform bool use_water = false;
 uniform vec2 terrain_map_size = vec2(5632.0, 2048.0);
 uniform uint selected_province = 0u;
 uniform uint selected_country = 0u;
@@ -47,7 +50,14 @@ vec3 terrain_rgb(vec2 uv) {
     vec2 atlas_uv = (vec2(index_u, index_v) + repeated) / 4.0 + vec2(0.5 / 2048.0);
     vec3 detail = texture(terrain_atlas, atlas_uv).rgb;
     vec3 tint = texture(terrain_color, uv).rgb;
-    return mix(detail, vec3(overlay_channel(detail.r, tint.r), overlay_channel(detail.g, tint.g), overlay_channel(detail.b, tint.b)), 0.75);
+    vec3 land = mix(detail, vec3(overlay_channel(detail.r, tint.r), overlay_channel(detail.g, tint.g), overlay_channel(detail.b, tint.b)), 0.75);
+    // terrain.txt：ocean 是 15，inland_ocean 是 17。水下着色把贴图按地图尺寸 / 32 重复。
+    if (use_water && (abs(id - 15.0) < 0.5 || abs(id - 17.0) < 0.5)) {
+        vec3 bed = texture(water_detail, uv * terrain_map_size / 32.0).rgb;
+        vec3 sea = texture(water_color, uv).rgb;
+        return mix(bed, sea, 0.65);
+    }
+    return land;
 }
 
 vec3 map_color(vec2 uv, vec2 step_uv) {

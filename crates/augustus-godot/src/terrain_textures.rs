@@ -13,6 +13,8 @@ pub struct TerrainTextures {
     pub color: Gd<ImageTexture>,
     pub atlas: Gd<ImageTexture>,
     pub indices: Gd<ImageTexture>,
+    pub water_color: Gd<ImageTexture>,
+    pub water_detail: Gd<ImageTexture>,
 }
 
 /// 欧陆地形着色用的三张图：季节色、图集、地形序号。
@@ -21,10 +23,15 @@ pub fn load(game_directory: &str) -> Result<TerrainTextures, String> {
     let color = texture_from_dds(&root.join("map/terrain/colormap_summer.dds"), true)?;
     let atlas = texture_from_dds(&root.join("map/terrain/atlas0.dds"), true)?;
     let indices = index_texture(&root.join("map/terrain.bmp"))?;
+    // 水面着色：水色铺满海面，海底贴图按地图尺寸重复。
+    let water_color = texture_from_dds(&root.join("map/terrain/colormap_water.dds"), true)?;
+    let water_detail = texture_from_dds(&root.join("map/terrain/underwater_terrain.dds"), true)?;
     Ok(TerrainTextures {
         color,
         atlas,
         indices,
+        water_color,
+        water_detail,
     })
 }
 

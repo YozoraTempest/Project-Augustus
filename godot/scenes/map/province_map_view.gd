@@ -96,6 +96,7 @@ static func apply_terrain(material: ShaderMaterial, backend: AugustusMap) -> voi
 	var indices: Texture2D = backend.get_terrain_index_texture()
 	var ready := color != null and atlas != null and indices != null
 	material.set_shader_parameter("use_terrain", ready)
+	material.set_shader_parameter("use_water", false)
 	if not ready:
 		return
 	material.set_shader_parameter("terrain_color", color)
@@ -103,6 +104,13 @@ static func apply_terrain(material: ShaderMaterial, backend: AugustusMap) -> voi
 	material.set_shader_parameter("terrain_ids", indices)
 	var map_size: Vector2i = backend.get_map_size()
 	material.set_shader_parameter("terrain_map_size", Vector2(map_size))
+	var sea: Texture2D = backend.get_water_color_texture()
+	var bed: Texture2D = backend.get_water_detail_texture()
+	var water := sea != null and bed != null
+	material.set_shader_parameter("use_water", water)
+	if water:
+		material.set_shader_parameter("water_color", sea)
+		material.set_shader_parameter("water_detail", bed)
 
 
 func show_map(backend: AugustusMap) -> void:
