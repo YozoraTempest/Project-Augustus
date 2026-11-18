@@ -81,7 +81,7 @@ vec3 terrain_rgb(vec2 uv) {
 
 // pdxmap.shader 的政治着色：地形按 0.5 叠季节色，灰度乘 0.4 再加国家色乘 0.45。
 // 1.35 补上这里没有的地图光照，避免纸面比未照亮的地形模式暗一截。
-// border.shader 用贴图的 V 当线宽截面、U 沿线重复。国界是 border0，省界是 border1。
+// defines.lua 的 BORDER_WIDTH 是 1.5 个地图单位。国界取 border0 线芯，省界取 border1，放大后才画省界。
 vec3 political_rgb(vec2 uv, vec2 step_uv) {
     uv = map_uv(uv);
     vec3 country = texture(political_colors, uv).rgb;
@@ -101,34 +101,25 @@ vec3 political_rgb(vec2 uv, vec2 step_uv) {
         float terrain_id = texture(terrain_ids, uv).r * 255.0;
         sea = abs(terrain_id - 15.0) < 0.5 || abs(terrain_id - 17.0) < 0.5;
     }
-    vec2 pixel = max(step_uv * 0.5, vec2(1.0) / max(terrain_map_size, vec2(1.0)));
+    vec2 texel = vec2(1.0) / max(terrain_map_size, vec2(1.0));
+    float pixels_per_texel = length(texel) / max(length(step_uv * 0.5), 0.00001);
     vec2 axis[4] = vec2[](vec2(1.0, 0.0), vec2(-1.0, 0.0), vec2(0.0, 1.0), vec2(0.0, -1.0));
-    float country_dist = 5.0;
-    float province_dist = 5.0;
-    for (int step = 1; step <= 4; step++) {
-        for (int direction = 0; direction < 4; direction++) {
-            vec2 at = uv + axis[direction] * pixel * float(step);
-            if (country_dist > float(step) && owner_at(at) != owner) {
-                country_dist = float(step);
-            }
-            if (province_dist > float(step) && province_at(at) != province && owner_at(at) == owner) {
-                province_dist = float(step);
-            }
+    bool country_edge = false;
+    bool province_edge = false;
+    for (int direction = 0; direction < 4; direction++) {
+        vec2 at = uv + axis[direction] * texel * 1.5;
+        if (owner_at(at) != owner) {
+            country_edge = true;
+        } else if (province_at(at) != province) {
+            province_edge = true;
         }
     }
-    if (country_dist <= 4.0) {
-        float stroke_v = 0.66;
-        if (country_dist < 1.5) {
-            stroke_v = 0.31;
-        } else if (country_dist < 2.5) {
-            stroke_v = 0.50;
-        } else if (country_dist < 3.5) {
-            stroke_v = 0.58;
-        }
-        vec4 ink = texture(country_border, vec2(0.5, stroke_v));
+    if (country_edge) {
+        vec4 ink = texture(country_border, vec2(0.5, 0.5));
         return mix(color, ink.rgb, ink.a);
     }
-    if (!sea && province_dist <= 2.0) {
+    // 缩到全国时一个省往往不到两个像素，省界会把国家涂成格子。
+    if (!sea && province_edge && pixels_per_texel > 1.6) {
         vec4 ink = texture(province_border, vec2(0.5, 0.5));
         return mix(color, ink.rgb, ink.a);
     }
