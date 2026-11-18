@@ -152,7 +152,7 @@ func _caption(eu4_name: String, caption: String) -> void:
 	elif node is Button:
 		var size := node.get_theme_font_size("font_size")
 		node.text = caption
-		node.add_theme_font_override("font", Eu4Type.font())
+		node.add_theme_font_override("font", Eu4Type.face_of(node))
 		node.add_theme_font_size_override("font_size", size)
 		node.add_theme_color_override("font_color", Color(0.96, 0.91, 0.78))
 

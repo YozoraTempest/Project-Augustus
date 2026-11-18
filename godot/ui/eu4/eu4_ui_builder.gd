@@ -121,6 +121,7 @@ func _text(data: Dictionary) -> RichTextLabel:
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.add_theme_font_size_override("normal_font_size", _font_size(str(data.get("font", ""))))
+	_attach_bitmap_font(label, str(data.get("font", "")))
 	label.add_theme_color_override("default_color", Color(0.95, 0.91, 0.82))
 	label.text = _display_text(data, false)
 	_apply_format(label, str(data.get("format", "")))
@@ -132,7 +133,9 @@ func _button(data: Dictionary) -> Button:
 	button.text = _display_text(data, true)
 	button.clip_text = true
 	button.tooltip_text = _localise(_string(data.get("tooltip")))
-	button.add_theme_font_size_override("font_size", _font_size(str(data.get("button_font", data.get("font", "")))))
+	var button_font := str(data.get("button_font", data.get("font", "")))
+	button.add_theme_font_size_override("font_size", _font_size(button_font))
+	_attach_bitmap_font(button, button_font)
 	var sprite := _sprite_name(data)
 	if assets != null and assets.has_method("texture_for") and not sprite.is_empty():
 		var texture: Texture2D = assets.texture_for(sprite)
@@ -155,7 +158,9 @@ func _edit_box(data: Dictionary) -> LineEdit:
 	var edit := LineEdit.new()
 	edit.text = _display_text(data, false)
 	edit.focus_mode = Control.FOCUS_ALL
-	edit.add_theme_font_size_override("font_size", _font_size(str(data.get("font", ""))))
+	var edit_font := str(data.get("font", ""))
+	edit.add_theme_font_size_override("font_size", _font_size(edit_font))
+	_attach_bitmap_font(edit, edit_font)
 	edit.add_theme_color_override("font_color", Color(0.96, 0.91, 0.78))
 	return edit
 
@@ -332,6 +337,22 @@ func _font_size(font_name: String) -> int:
 		elif not digits.is_empty():
 			break
 	return clampi(int(digits) if not digits.is_empty() else 17, 12, 28)
+
+
+func _attach_bitmap_font(control: Control, font_name: String) -> void:
+	if font_name.is_empty() or assets == null or assets.backend == null:
+		return
+	if not assets.backend.has_method("resolve_eu4_sprite"):
+		return
+	var info: Dictionary = assets.backend.resolve_eu4_sprite(font_name)
+	var fnt_path := str(info.get("absolute_path", ""))
+	var tga_path := str(info.get("absolute_path_1", ""))
+	if not fnt_path.to_lower().ends_with(".fnt") or not tga_path.to_lower().ends_with(".tga"):
+		return
+	var bitmap := preload("res://ui/eu4/eu4_bitmap_font.gd").atlas_font(fnt_path, tga_path)
+	if bitmap == null:
+		return
+	control.set_meta("eu4_bitmap_font", bitmap)
 
 
 func _bitmap_line_height(font_name: String) -> int:

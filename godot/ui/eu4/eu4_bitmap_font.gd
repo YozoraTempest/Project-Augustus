@@ -1,10 +1,64 @@
 # SPDX-License-Identifier: GPL-3.0-only
 extends RefCounted
 
-# EU4 的 vic_22 是 Garamond 点阵字，只有拉丁字符。缺字时调用方继续用界面主题字体。
+# EU4 的点阵字只有拉丁字符。path 同时对应 .fnt、.tga 和图集，.fnt 里没有页文件名。
+static var _fonts: Dictionary = {}
 var _glyphs: Dictionary = {}
 var _line_height := 22
 var _page: Image
+
+
+static func atlas_font(fnt_path: String, tga_path: String) -> Font:
+	if fnt_path.is_empty() or tga_path.is_empty():
+		return null
+	if _fonts.has(fnt_path):
+		return _fonts[fnt_path]
+	if not FileAccess.file_exists(fnt_path) or not FileAccess.file_exists(tga_path):
+		return null
+	var page := Image.load_from_file(tga_path)
+	if page == null or page.is_empty():
+		return null
+	if page.get_format() != Image.FORMAT_RGBA8:
+		page.convert(Image.FORMAT_RGBA8)
+	var face_size := 0
+	var line_height := 0
+	var base_line := 0
+	var glyphs: Array[Dictionary] = []
+	for raw_line in FileAccess.get_file_as_string(fnt_path).split("\n"):
+		var line := raw_line.strip_edges()
+		if line.begins_with("info "):
+			face_size = maxi(_field(line, "size"), face_size)
+		elif line.begins_with("common "):
+			line_height = maxi(_field(line, "lineHeight"), line_height)
+			base_line = _field(line, "base")
+		elif line.begins_with("char "):
+			glyphs.append({
+				"id": _field(line, "id"),
+				"x": _field(line, "x"),
+				"y": _field(line, "y"),
+				"width": _field(line, "width"),
+				"height": _field(line, "height"),
+				"xoffset": _field(line, "xoffset"),
+				"yoffset": _field(line, "yoffset"),
+				"xadvance": _field(line, "xadvance"),
+			})
+	if glyphs.is_empty():
+		return null
+	var cache_size := Vector2i(face_size if face_size > 0 else line_height, 0)
+	var font := FontFile.new()
+	font.set_texture_image(0, cache_size, 0, page)
+	if line_height > 0:
+		font.set_cache_ascent(0, cache_size, float(base_line if base_line > 0 else line_height))
+		font.set_cache_descent(0, cache_size, float(maxi(line_height - base_line, 0)))
+	for glyph: Dictionary in glyphs:
+		var id := int(glyph.id)
+		font.set_glyph_texture_idx(0, cache_size, id, 0)
+		font.set_glyph_uv_rect(0, cache_size, id, Rect2(glyph.x, glyph.y, glyph.width, glyph.height))
+		font.set_glyph_size(0, cache_size, id, Vector2(glyph.width, glyph.height))
+		font.set_glyph_offset(0, cache_size, id, Vector2(glyph.xoffset, glyph.yoffset))
+		font.set_glyph_advance(0, cache_size, id, Vector2(glyph.xadvance, 0))
+	_fonts[fnt_path] = font
+	return font
 
 
 func load_vic22(directory: String) -> bool:
@@ -70,7 +124,7 @@ func render(text: String) -> Texture2D:
 	return ImageTexture.create_from_image(image)
 
 
-func _field(line: String, key: String) -> int:
+static func _field(line: String, key: String) -> int:
 	var token := key + "="
 	var start := line.find(token)
 	if start < 0:

@@ -310,6 +310,10 @@ fn installed_interface_files_parse() {
         font.texture_file.as_deref(),
         Some("gfx/fonts/vic_18.fnt")
     );
+    assert_eq!(
+        font.texture_file_1.as_deref(),
+        Some("gfx/fonts/vic_18.tga")
+    );
     let shield = loaded.sprites.resolve("GFX_shield_thin").expect("shield");
     assert!(shield.texture_file_2.as_deref().unwrap_or("").contains("mask"));
     assert!(shield.texture_file_1.as_deref().unwrap_or("").contains("frame"));
@@ -369,6 +373,10 @@ fn bitmap_font_path_is_not_taken_from_the_deprecated_name() {
     let catalog = parse_gfx_bytes(Path::new("interface/core.gfx"), bytes).expect("gfx");
     let font = catalog.resolve("vic_18").expect("font");
     assert_eq!(font.texture_file.as_deref(), Some("gfx/fonts/vic_18.fnt"));
+    assert_eq!(
+        font.texture_file_1.as_deref(),
+        Some("gfx/fonts/vic_18.tga")
+    );
     assert!(catalog.resolve("Vic_18").is_none());
     assert!(catalog.resolve("Garamond").is_none());
 }

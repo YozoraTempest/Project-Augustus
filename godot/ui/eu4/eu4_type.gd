@@ -26,17 +26,26 @@ static func font() -> Font:
 
 
 static func paint_label(label: Label, size: int) -> void:
-	label.add_theme_font_override("font", font())
+	label.add_theme_font_override("font", face_of(label))
 	label.add_theme_font_size_override("font_size", size)
 
 
 static func paint_rich_text(label: RichTextLabel, size: int) -> void:
-	label.add_theme_font_override("normal_font", font())
+	label.add_theme_font_override("normal_font", face_of(label))
 	label.add_theme_font_size_override("normal_font_size", size)
 
 
+static func face_of(control: Control) -> Font:
+	var bitmap: Variant = control.get_meta("eu4_bitmap_font", null)
+	if bitmap is Font:
+		if bitmap.fallbacks.is_empty():
+			bitmap.fallbacks = [font()]
+		return bitmap
+	return font()
+
+
 static func paint_button(button: Button, size: int, minimum: Vector2, margins: Vector4 = Vector4(8, 0, 8, 0)) -> void:
-	button.add_theme_font_override("font", font())
+	button.add_theme_font_override("font", face_of(button))
 	button.add_theme_font_size_override("font_size", size)
 	button.custom_minimum_size = minimum
 	button.alignment = HORIZONTAL_ALIGNMENT_CENTER

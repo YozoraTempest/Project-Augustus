@@ -64,6 +64,7 @@ func setup(directory: String) -> void:
 		GameSession.clock_changed.connect(_refresh)
 	if not GameSession.world_changed.is_connected(_refresh):
 		GameSession.world_changed.connect(_refresh)
+	_show_gold_frame(1)
 	_refresh()
 
 
@@ -132,14 +133,16 @@ func _show_gold_frame(frame_number: int) -> void:
 	var frames := int(info.get("frames", 1))
 	if frames < 1:
 		frames = 1
-	var index := frame_number - 1
-	if index < 0 or index >= frames:
-		index = 0
-	var frame_width := full.get_width() / float(frames)
+	# 1 基帧号先夹进 1…noOfFrames，再减 1。默认按宽度水平切开，不画整条。
+	var clamped := clampi(frame_number, 1, frames)
+	var index := clamped - 1
+	var frame_width := int(full.get_width() / frames)
+	var frame_height := full.get_height()
 	var region := AtlasTexture.new()
 	region.atlas = full
-	region.region = Rect2(index * frame_width, 0.0, frame_width, full.get_height())
+	region.region = Rect2(index * frame_width, 0, frame_width, frame_height)
 	icon.texture = region
+	icon.custom_minimum_size = region.region.size
 	icon.size = region.region.size
 
 
@@ -160,8 +163,7 @@ func _refresh() -> void:
 	var negative := bool(finances.get("treasury_negative", false))
 	_gold.text = str(finances.get("treasury", "0"))
 	_gold.add_theme_color_override("default_color", DEBT if negative else CREAM)
-	# 帧号从 1 起算。差额小于 0 用第 2 帧，否则第 1 帧。减 1 后超出 noOfFrames 则用第 0 帧。
-	# 差额暂用国库正负，见 gui_mock_list.md。虚函数到绘制函数没有单步核对。
+	# 非负画第 1 帧（左半），为负画第 2 帧（右半）。差额暂用国库正负，见 gui_mock_list.md。
 	_show_gold_frame(2 if negative else 1)
 	if _manpower:
 		var manpower: Dictionary = GameSession.backend.get_country_manpower(country)

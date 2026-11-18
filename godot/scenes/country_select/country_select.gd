@@ -119,11 +119,11 @@ func _paint_loaded_text(node: Node) -> void:
 		Eu4Type.paint_rich_text(node, size)
 	elif node is LineEdit:
 		var size := node.get_theme_font_size("font_size")
-		node.add_theme_font_override("font", Eu4Type.font())
+		node.add_theme_font_override("font", Eu4Type.face_of(node))
 		node.add_theme_font_size_override("font_size", size)
 	elif node is Button:
 		var size := node.get_theme_font_size("font_size")
-		node.add_theme_font_override("font", Eu4Type.font())
+		node.add_theme_font_override("font", Eu4Type.face_of(node))
 		node.add_theme_font_size_override("font_size", size)
 	for child in node.get_children():
 		_paint_loaded_text(child)

@@ -67,7 +67,13 @@ fn normalize_sprite(kind: &str, fields: Vec<UiField>, source: &ContentSource) ->
                 None => properties.push(field),
             },
             "path" if texture_file.is_none() => match value::scalar_text(&field.value) {
-                Some(text) => texture_file = Some(font_file(&text)),
+                Some(text) => {
+                    let files = font_files(&text);
+                    texture_file = Some(files.0);
+                    if texture_file_1.is_none() {
+                        texture_file_1 = Some(files.1);
+                    }
+                }
                 None => properties.push(field),
             },
             "texturefile" if texture_file.is_none() => match value::scalar_text(&field.value) {
@@ -148,13 +154,17 @@ fn decimal_text(value: &UiValue) -> Option<String> {
     }
 }
 
-pub(super) fn font_file(path: &str) -> String {
-    let normalized = normalize_slashes(path);
-    if normalized.to_ascii_lowercase().ends_with(".fnt") {
-        normalized
-    } else {
-        format!("{normalized}.fnt")
+/// `path` 是字干。`.fnt` 里没有页文件名，页图集用同一条路径的 `.tga`。
+pub(super) fn font_files(path: &str) -> (String, String) {
+    let mut stem = normalize_slashes(path);
+    let lower = stem.to_ascii_lowercase();
+    for suffix in [".fnt", ".tga"] {
+        if lower.ends_with(suffix) {
+            stem.truncate(stem.len() - suffix.len());
+            break;
+        }
     }
+    (format!("{stem}.fnt"), format!("{stem}.tga"))
 }
 
 fn normalize_slashes(path: &str) -> String {
