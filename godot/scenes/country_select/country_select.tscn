@@ -1,19 +1,8 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scenes/country_select/country_select.gd" id="1_script"]
 [ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
 [ext_resource type="PackedScene" path="res://scenes/map/province_map_view.tscn" id="3_map"]
-
-[sub_resource type="StyleBoxFlat" id="Style_card"]
-content_margin_left = 16.0
-content_margin_top = 16.0
-content_margin_right = 16.0
-content_margin_bottom = 16.0
-bg_color = Color(0.02, 0.028, 0.04, 0.94)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
 
 [node name="CountrySelect" type="Control"]
 layout_mode = 3
@@ -33,73 +22,3 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-
-[node name="CountryCard" type="PanelContainer" parent="."]
-custom_minimum_size = Vector2(280, 0)
-layout_mode = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -304.0
-offset_top = 24.0
-offset_right = -24.0
-offset_bottom = 196.0
-mouse_filter = 0
-theme_override_styles/panel = SubResource("Style_card")
-
-[node name="Card" type="VBoxContainer" parent="CountryCard"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="CountryColor" type="ColorRect" parent="CountryCard/Card"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 8)
-layout_mode = 2
-mouse_filter = 2
-
-[node name="CountryName" type="Label" parent="CountryCard/Card"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.84, 0.43, 1)
-theme_override_font_sizes/font_size = 22
-text = "未选择国家"
-autowrap_mode = 2
-
-[node name="Hint" type="Label" parent="CountryCard/Card"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_colors/font_color = Color(0.78, 0.82, 0.86, 1)
-text = "在地图上点选一个国家"
-autowrap_mode = 2
-
-[node name="Error" type="Label" parent="CountryCard/Card"]
-unique_name_in_owner = true
-visible = false
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.55, 0.48, 1)
-autowrap_mode = 2
-
-[node name="Actions" type="VBoxContainer" parent="."]
-layout_mode = 1
-anchor_left = 1.0
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -204.0
-offset_top = -128.0
-offset_right = -24.0
-offset_bottom = -24.0
-mouse_filter = 0
-theme_override_constants/separation = 8
-
-[node name="Back" type="Button" parent="Actions"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
-layout_mode = 2
-text = "返回主菜单"
-
-[node name="StartGame" type="Button" parent="Actions"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
-layout_mode = 2
-disabled = true
-text = "开始游戏"
