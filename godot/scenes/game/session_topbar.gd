@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 extends Control
 
-# interface/topbar.gui 里金钱和君主点数那一段。素材运行时从欧陆目录读取。
+# interface/topbar.gui 的坐标就是贴图像素。顶栏、金币、点数图标和数字按原尺寸摆在窗口左上，不随窗口放大。
 const ASSETS_SCRIPT := preload("res://ui/eu4/eu4_ui_assets.gd")
 const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
 const BAR_SIZE := Vector2(927, 160)
@@ -15,11 +15,16 @@ var _mil: Label
 
 
 func setup(directory: String) -> void:
+	scale = Vector2.ONE
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	custom_minimum_size = BAR_SIZE
 	size = BAR_SIZE
 	var assets = ASSETS_SCRIPT.new()
-	_plate(assets, directory, "gfx/interface/topbar_UL.dds", Vector2.ZERO, BAR_SIZE)
+	var background := _plate(assets, directory, "gfx/interface/topbar_UL.dds", Vector2.ZERO, BAR_SIZE)
+	if background.texture:
+		background.size = background.texture.get_size()
+		custom_minimum_size = background.size
+		size = background.size
 	var gold := _icon(assets, directory, "gfx/interface/icon_gold_strip.dds", Vector2(146, 10))
 	if gold != null and gold.texture != null and gold.texture.get_width() >= gold.texture.get_height() * 2:
 		var frame := AtlasTexture.new()

@@ -112,12 +112,14 @@ func _ready() -> void:
 
 
 func _layout_session_topbar() -> void:
-	if _session_topbar == null or size.x < 1.0:
+	if _session_topbar == null:
 		return
-	var factor := size.x / 1920.0
-	_session_topbar.scale = Vector2(factor, factor)
+	# 顶栏保持 topbar.gui 的原始像素，不按窗口宽度放大。
+	_session_topbar.scale = Vector2.ONE
 	_session_topbar.position = Vector2.ZERO
-	var bar_height := 160.0 * factor
+	var bar_height := _session_topbar.size.y
+	if bar_height < 1.0:
+		bar_height = 160.0
 	var panel_height := 232.0
 	$TopBar.offset_top = bar_height + 8.0
 	$TopBar.offset_bottom = bar_height + 8.0 + panel_height
