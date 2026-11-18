@@ -20,6 +20,9 @@ struct AugustusMap {
     texture: Option<Gd<ImageTexture>>,
     political_texture: Option<Gd<ImageTexture>>,
     owner_texture: Option<Gd<ImageTexture>>,
+    terrain_color: Option<Gd<ImageTexture>>,
+    terrain_atlas: Option<Gd<ImageTexture>>,
+    terrain_index: Option<Gd<ImageTexture>>,
     // 渲染编号只在本次载入内使用；核心国家身份仍然是标签。
     country_render_ids: BTreeMap<String, u32>,
     // 玩家身份只在正式开局时确定，与地图上的浏览选择分开保存。
@@ -460,6 +463,21 @@ impl AugustusMap {
         self.owner_texture.clone()
     }
 
+    #[func]
+    fn get_terrain_color_texture(&self) -> Option<Gd<ImageTexture>> {
+        self.terrain_color.clone()
+    }
+
+    #[func]
+    fn get_terrain_atlas_texture(&self) -> Option<Gd<ImageTexture>> {
+        self.terrain_atlas.clone()
+    }
+
+    #[func]
+    fn get_terrain_index_texture(&self) -> Option<Gd<ImageTexture>> {
+        self.terrain_index.clone()
+    }
+
     /// 编号 0 表示无国家，与归属纹理的空白、海洋和无主区域一致。
     #[func]
     fn get_country_render_id(&self, tag: GString) -> i64 {
@@ -745,11 +763,21 @@ impl AugustusMap {
         let Some(owner_texture) = ImageTexture::create_from_image(&image) else {
             return "无法创建省份归属纹理".into();
         };
+        let terrain = match crate::terrain_textures::load(&game_directory) {
+            Ok(terrain) => Some(terrain),
+            Err(error) => {
+                godot_print!("地形纹理未载入：{error}");
+                None
+            }
+        };
         // 全部完成后再替换，读取失败时保留当前会话。
         self.world = Some(world);
         self.texture = Some(texture);
         self.political_texture = Some(political_texture);
         self.owner_texture = Some(owner_texture);
+        self.terrain_color = terrain.as_ref().map(|item| item.color.clone());
+        self.terrain_atlas = terrain.as_ref().map(|item| item.atlas.clone());
+        self.terrain_index = terrain.as_ref().map(|item| item.indices.clone());
         self.country_render_ids = country_render_ids;
         self.game_directory = game_directory;
         self.player_country = None;

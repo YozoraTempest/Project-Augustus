@@ -125,3 +125,9 @@ impl ProvinceMap {
         Ok((id != 0).then_some(id))
     }
 }
+
+/// 读取地形图的调色板序号。左上角为第一行，和省份位图的方向一致。
+pub fn palette_indices(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
+    let image = indexed::read_indexed(bytes)?;
+    Ok((image.width, image.height, image.indices))
+}

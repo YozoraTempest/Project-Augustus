@@ -12,6 +12,7 @@ mod military_overview;
 mod movement;
 mod organization;
 mod save;
+mod terrain_textures;
 
 use godot::prelude::*;
 

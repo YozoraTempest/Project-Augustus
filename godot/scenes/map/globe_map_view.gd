@@ -30,6 +30,7 @@ func show_map(backend: AugustusMap) -> void:
 	surface_material.set_shader_parameter("province_ids", backend.get_map_texture())
 	surface_material.set_shader_parameter("owner_ids", backend.get_owner_texture())
 	surface_material.set_shader_parameter("political_colors", backend.get_political_texture())
+	ProvinceMapView.apply_terrain(surface_material, backend)
 	reset_view()
 
 

@@ -90,12 +90,28 @@ func select_country(tag: String) -> void:
 	_update_selection()
 
 
+static func apply_terrain(material: ShaderMaterial, backend: AugustusMap) -> void:
+	var color: Texture2D = backend.get_terrain_color_texture()
+	var atlas: Texture2D = backend.get_terrain_atlas_texture()
+	var indices: Texture2D = backend.get_terrain_index_texture()
+	var ready := color != null and atlas != null and indices != null
+	material.set_shader_parameter("use_terrain", ready)
+	if not ready:
+		return
+	material.set_shader_parameter("terrain_color", color)
+	material.set_shader_parameter("terrain_atlas", atlas)
+	material.set_shader_parameter("terrain_ids", indices)
+	var map_size: Vector2i = backend.get_map_size()
+	material.set_shader_parameter("terrain_map_size", Vector2(map_size))
+
+
 func show_map(backend: AugustusMap) -> void:
 	_backend = backend
 	map_sprite.texture = backend.get_map_texture()
 	map_sprite.material.set_shader_parameter("province_ids", backend.get_map_texture())
 	map_sprite.material.set_shader_parameter("owner_ids", backend.get_owner_texture())
 	map_sprite.material.set_shader_parameter("political_colors", backend.get_political_texture())
+	apply_terrain(map_sprite.material, backend)
 	globe_view.show_map(backend)
 	refresh_armies()
 	clear_selection()
