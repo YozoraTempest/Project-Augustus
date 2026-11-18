@@ -6,6 +6,16 @@ var failures: PackedStringArray = PackedStringArray()
 var _cache: Dictionary = {}
 
 
+func texture_from_file(path: String) -> Texture2D:
+	if path.is_empty() or not FileAccess.file_exists(path):
+		return null
+	var image: Image = _uncompressed_dds(path) if path.to_lower().ends_with(".dds") else Image.load_from_file(path)
+	if image == null or image.is_empty():
+		failures.append("无法读取纹理：" + path)
+		return null
+	return ImageTexture.create_from_image(image)
+
+
 func texture_for(sprite_name: String) -> Texture2D:
 	if sprite_name.is_empty() or backend == null:
 		return null
@@ -18,18 +28,12 @@ func texture_for(sprite_name: String) -> Texture2D:
 		if not sprite_name.is_empty():
 			failures.append("没有精灵：" + sprite_name)
 	else:
-		var image := Image.load_from_file(path)
-		if image == null or image.is_empty():
-			image = _uncompressed_dds(path)
-		if image == null or image.is_empty():
-			failures.append("无法读取纹理：" + path)
-		else:
-			texture = ImageTexture.create_from_image(image)
+		texture = texture_from_file(path)
 	_cache[sprite_name] = texture
 	return texture
 
 
-# Godot 读不了 EU4 的未压缩 DDS。这里只解 32 位 RGB，DXT 仍记为失败。
+# Godot 读不了 DXT。未压缩的 24 位和 32 位 DDS 在这里解开。
 func _uncompressed_dds(path: String) -> Image:
 	if not path.to_lower().ends_with(".dds"):
 		return null
@@ -43,22 +47,30 @@ func _uncompressed_dds(path: String) -> Image:
 	var width := bytes.decode_u32(16)
 	var format_flags := bytes.decode_u32(80)
 	var bits := bytes.decode_u32(88)
-	if width == 0 or height == 0 or bits != 32 or (format_flags & 0x40) == 0:
+	if width == 0 or height == 0 or (format_flags & 0x40) == 0:
 		return null
-	var row_stride := int(width) * 4
-	var needed := 128 + row_stride * int(height)
+	if bits == 32:
+		return _dds_pixels(bytes, int(width), int(height), 4)
+	if bits == 24:
+		return _dds_pixels(bytes, int(width), int(height), 3)
+	return null
+
+
+func _dds_pixels(bytes: PackedByteArray, width: int, height: int, source_stride: int) -> Image:
+	var row_stride := width * source_stride
+	var needed := 128 + row_stride * height
 	if bytes.size() < needed:
 		return null
 	var pixels := PackedByteArray()
-	pixels.resize(row_stride * int(height))
-	for y: int in int(height):
+	pixels.resize(width * height * 4)
+	for y: int in height:
 		var source := 128 + y * row_stride
-		var target := y * row_stride
-		for x: int in int(width):
-			var input := source + x * 4
+		var target := y * width * 4
+		for x: int in width:
+			var input := source + x * source_stride
 			var output := target + x * 4
 			pixels[output] = bytes[input + 2]
 			pixels[output + 1] = bytes[input + 1]
 			pixels[output + 2] = bytes[input]
-			pixels[output + 3] = bytes[input + 3]
-	return Image.create_from_data(int(width), int(height), false, Image.FORMAT_RGBA8, pixels)
+			pixels[output + 3] = 255 if source_stride == 3 else bytes[input + 3]
+	return Image.create_from_data(width, height, false, Image.FORMAT_RGBA8, pixels)

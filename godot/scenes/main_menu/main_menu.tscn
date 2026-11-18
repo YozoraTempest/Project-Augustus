@@ -1,35 +1,8 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scenes/main_menu/main_menu.gd" id="1_script"]
 [ext_resource type="Theme" path="res://ui/main_theme.tres" id="2_theme"]
 [ext_resource type="PackedScene" path="res://scenes/save/save_dialog.tscn" id="3_save"]
-
-[sub_resource type="StyleBoxFlat" id="Style_side"]
-content_margin_left = 16.0
-content_margin_top = 16.0
-content_margin_right = 16.0
-content_margin_bottom = 16.0
-bg_color = Color(0.02, 0.028, 0.04, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-
-[sub_resource type="StyleBoxFlat" id="Style_art"]
-content_margin_left = 28.0
-content_margin_top = 28.0
-content_margin_right = 28.0
-content_margin_bottom = 28.0
-bg_color = Color(0.025, 0.034, 0.047, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.72, 0.58, 0.28, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -41,121 +14,105 @@ grow_vertical = 2
 theme = ExtResource("2_theme")
 script = ExtResource("1_script")
 
-[node name="Margin" type="MarginContainer" parent="."]
+[node name="Background" type="TextureRect" parent="."]
+unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/margin_left = 24
-theme_override_constants/margin_top = 24
-theme_override_constants/margin_right = 24
-theme_override_constants/margin_bottom = 24
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 6
 
-[node name="Body" type="HBoxContainer" parent="Margin"]
-layout_mode = 2
-theme_override_constants/separation = 18
-
-[node name="Sidebar" type="PanelContainer" parent="Margin/Body"]
-custom_minimum_size = Vector2(260, 0)
-layout_mode = 2
-theme_override_styles/panel = SubResource("Style_side")
-
-[node name="Side" type="VBoxContainer" parent="Margin/Body/Sidebar"]
-layout_mode = 2
-theme_override_constants/separation = 12
-
-[node name="Title" type="Label" parent="Margin/Body/Sidebar/Side"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 22
-text = "Project Augustus"
-
-[node name="ListLabel" type="Label" parent="Margin/Body/Sidebar/Side"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.72, 0.78, 0.84, 1)
-text = "菜单"
-
-[node name="Actions" type="VBoxContainer" parent="Margin/Body/Sidebar/Side"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="NewGame" type="Button" parent="Margin/Body/Sidebar/Side/Actions"]
+[node name="Logo" type="TextureRect" parent="."]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
-layout_mode = 2
-text = "开始游戏"
-alignment = 0
+layout_mode = 0
+offset_left = 36.0
+offset_top = 28.0
+offset_right = 356.0
+offset_bottom = 118.0
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
 
-[node name="LoadGame" type="Button" parent="Margin/Body/Sidebar/Side/Actions"]
+[node name="StudioLogo" type="TextureRect" parent="."]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
-layout_mode = 2
-text = "读取存档"
-alignment = 0
+layout_mode = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -280.0
+offset_top = 24.0
+offset_right = -28.0
+offset_bottom = 120.0
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
 
-[node name="Settings" type="Button" parent="Margin/Body/Sidebar/Side/Actions"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
-layout_mode = 2
-theme_override_constants/icon_max_width = 22
-text = "设置"
-alignment = 0
-
-[node name="SideSpace" type="Control" parent="Margin/Body/Sidebar/Side"]
-layout_mode = 2
-size_flags_vertical = 3
+[node name="Bottom" type="CenterContainer" parent="."]
+layout_mode = 1
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -250.0
 mouse_filter = 2
 
-[node name="Quit" type="Button" parent="Margin/Body/Sidebar/Side"]
+[node name="Stack" type="VBoxContainer" parent="Bottom"]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 2
+
+[node name="NewGame" type="Button" parent="Bottom/Stack"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
-layout_mode = 2
-text = "退出"
-alignment = 0
-
-[node name="Center" type="VBoxContainer" parent="Margin/Body"]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 12
-
-[node name="Art" type="PanelContainer" parent="Margin/Body/Center"]
-layout_mode = 2
-size_flags_vertical = 3
-theme_override_styles/panel = SubResource("Style_art")
-
-[node name="ArtCenter" type="CenterContainer" parent="Margin/Body/Center/Art"]
-layout_mode = 2
-
-[node name="ArtText" type="VBoxContainer" parent="Margin/Body/Center/Art/ArtCenter"]
-layout_mode = 2
-theme_override_constants/separation = 14
-
-[node name="GameTitle" type="Label" parent="Margin/Body/Center/Art/ArtCenter/ArtText"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.84, 0.43, 1)
-theme_override_font_sizes/font_size = 42
-text = "欧陆风云 IV"
-horizontal_alignment = 1
-
-[node name="Rule" type="ColorRect" parent="Margin/Body/Center/Art/ArtCenter/ArtText"]
-custom_minimum_size = Vector2(96, 2)
+custom_minimum_size = Vector2(204, 60)
 layout_mode = 2
 size_flags_horizontal = 4
-color = Color(0.93, 0.76, 0.38, 1)
+text = "开始游戏"
 
-[node name="GameSubtitle" type="Label" parent="Margin/Body/Center/Art/ArtCenter/ArtText"]
+[node name="Bar" type="TextureRect" parent="Bottom/Stack"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(683, 72)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.78, 0.82, 0.86, 1)
-theme_override_font_sizes/font_size = 18
-text = "对局菜单"
-horizontal_alignment = 1
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
 
-[node name="Status" type="Label" parent="Margin/Body/Center"]
+[node name="Actions" type="HBoxContainer" parent="Bottom/Stack"]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="LoadGame" type="Button" parent="Bottom/Stack/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 48)
+layout_mode = 2
+text = "读取存档"
+
+[node name="Settings" type="Button" parent="Bottom/Stack/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 48)
+layout_mode = 2
+text = "设置"
+
+[node name="Quit" type="Button" parent="Bottom/Stack/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 48)
+layout_mode = 2
+text = "退出"
+
+[node name="Status" type="Label" parent="."]
 unique_name_in_owner = true
 visible = false
-layout_mode = 2
-horizontal_alignment = 2
-autowrap_mode = 1
+layout_mode = 1
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -36.0
+offset_right = -24.0
+offset_bottom = -8.0
+horizontal_alignment = 1
+autowrap_mode = 2
 
 [node name="SaveDialog" parent="." instance=ExtResource("3_save")]
