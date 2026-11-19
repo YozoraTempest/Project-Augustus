@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 extends Control
 
-# 选国家的面板、按钮和文字从 frontend.gui 加载，不再手写坐标。
+# 选国家挂 frontend.gui 这一个组件。lobby 里的控件按父子坐标留在组件内，不再逐个摆。
 const LAUNCHER := "res://scenes/launcher/launcher.tscn"
 const MAIN_MENU := "res://scenes/main_menu/main_menu.tscn"
 const GAME_SCENE := "res://scenes/game/game.tscn"
 const ASSETS_SCRIPT := preload("res://ui/eu4/eu4_ui_assets.gd")
-const BUILDER_SCRIPT := preload("res://ui/eu4/eu4_ui_builder.gd")
+const GUI_FILE := preload("res://ui/eu4/eu4_gui_file.gd")
 const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
 
 @onready var map_view: ProvinceMapView = %MapView
@@ -46,25 +46,15 @@ func _ready() -> void:
 
 func _build_chrome() -> void:
 	var directory := str(_backend.get_game_directory())
-	var loaded: Dictionary = _backend.load_eu4_ui_document(directory, "interface/frontend.gui")
-	if loaded.get("ok", false) != true:
+	var gui = GUI_FILE.new()
+	add_child(gui)
+	if not gui.open(directory, "interface/frontend.gui", _backend):
 		return
-	var document: Variant = JSON.parse_string(str(loaded.get("json", "")))
-	if typeof(document) != TYPE_DICTIONARY:
+	gui.show_window("lobby")
+	gui.action_requested.connect(_on_gui_action)
+	_chrome = gui.focus as Control
+	if _chrome == null:
 		return
-	var assets = ASSETS_SCRIPT.new()
-	assets.backend = _backend
-	_chrome = Control.new()
-	_chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_chrome.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_chrome.scale = Vector2.ONE
-	add_child(_chrome)
-	var builder = BUILDER_SCRIPT.new()
-	builder.assets = assets
-	builder.plain_windows = true
-	builder.action_requested.connect(_on_gui_action)
-	for window_name in ["left", "top", "right"]:
-		builder.build_named(document, window_name, _chrome)
 	_start = _find_named(_chrome, "play_button") as Button
 	if _start:
 		_start.text = "开始游戏"

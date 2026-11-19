@@ -5,11 +5,10 @@ extends Control
 const COUNTRY_SELECT := "res://scenes/country_select/country_select.tscn"
 const LOAD_SCENE := preload("res://scenes/launcher/opening_load.tscn")
 const SETTINGS_SCENE := preload("res://scenes/settings/settings_dialog.tscn")
-const ASSETS_SCRIPT := preload("res://ui/eu4/eu4_ui_assets.gd")
-const BUILDER_SCRIPT := preload("res://ui/eu4/eu4_ui_builder.gd")
+const GUI_FILE := preload("res://ui/eu4/eu4_gui_file.gd")
 const GAME_SCENE := "res://scenes/game/game.tscn"
 const MAP_SCENE := preload("res://scenes/map/province_map_view.tscn")
-# frontend.gui 的坐标和贴图都是界面像素。面板按原始方向钉在窗口上，不随窗口放大。
+# frontend.gui 整份挂成一个组件。控件留在组件内部，按父子坐标摆，不随窗口放大。
 const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
 # common/defines.lua 的 NFrontend。Y 是高度，视线落在地面。
 const FRONTEND_POS := Vector3(2958.0, 900.0, 1500.0)
@@ -107,24 +106,14 @@ func _dress_from_eu4() -> void:
 	if directory.is_empty() or not DirAccess.dir_exists_absolute(directory):
 		return
 	var session := AugustusMap.new()
-	var loaded: Dictionary = session.load_eu4_ui_document(directory, "interface/frontend.gui")
-	if loaded.get("ok", false) != true:
+	var gui = GUI_FILE.new()
+	host.add_child(gui)
+	if not gui.open(directory, "interface/frontend.gui", session):
 		return
-	var document: Variant = JSON.parse_string(str(loaded.get("json", "")))
-	if typeof(document) != TYPE_DICTIONARY:
+	gui.show_window("mainmenu")
+	_layout = gui.focus as Control
+	if _layout == null:
 		return
-	var assets = ASSETS_SCRIPT.new()
-	assets.backend = session
-	_layout = Control.new()
-	_layout.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_layout.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_layout.scale = Vector2.ONE
-	host.add_child(_layout)
-	var builder = BUILDER_SCRIPT.new()
-	builder.assets = assets
-	builder.plain_windows = true
-	for panel_name in ["mainmenu_panel_upperleft", "mainmenu_panel_upperright", "mainmenu_panel_bottom"]:
-		builder.build_named(document, panel_name, _layout)
 	_use_our_actions()
 	_wire_menu(_layout)
 
