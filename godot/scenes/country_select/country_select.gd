@@ -348,9 +348,11 @@ func _english_date(date: String) -> String:
 	var parts := date.split(".")
 	if parts.size() < 3:
 		return date
-	var months := ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+	var months: PackedStringArray = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 	var month := int(parts[1])
-	var month_name := months[month - 1] if month >= 1 and month <= 12 else parts[1]
+	var month_name := parts[1]
+	if month >= 1 and month <= 12:
+		month_name = months[month - 1]
 	var localised := str(_backend.localise_eu4(month_name))
 	if not localised.is_empty():
 		month_name = localised
