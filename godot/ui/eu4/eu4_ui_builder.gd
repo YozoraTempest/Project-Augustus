@@ -389,12 +389,8 @@ func _placed_texture(sprite: String, frame_number: int) -> Texture2D:
 	var full := _full_texture(sprite)
 	if full == null:
 		return null
-	var frames := 1
-	if assets.backend != null and assets.backend.has_method("resolve_eu4_sprite"):
-		frames = int(assets.backend.resolve_eu4_sprite(sprite).get("frames", 1))
-	if frames < 1:
-		frames = 1
-	if frames == 1:
+	var frames := _sprite_frames(sprite)
+	if frames <= 1:
 		return full
 	var index := clampi(frame_number, 1, frames) - 1
 	var frame_width := full.get_width() / frames
@@ -402,6 +398,19 @@ func _placed_texture(sprite: String, frame_number: int) -> Texture2D:
 	region.atlas = full
 	region.region = Rect2(index * frame_width, 0, frame_width, full.get_height())
 	return region
+
+
+func _sprite_frames(sprite: String) -> int:
+	if assets == null or assets.backend == null or not assets.backend.has_method("resolve_eu4_sprite"):
+		return 1
+	var info: Variant = assets.backend.resolve_eu4_sprite(sprite)
+	if not info is Dictionary:
+		return 1
+	# 没写 noOfFrames 时绑定给出的是空值，键仍在，不能当成缺省 1 以外的类型去转。
+	var raw: Variant = (info as Dictionary).get("frames")
+	if raw is int or raw is float:
+		return maxi(int(raw), 1)
+	return 1
 
 
 func _frame_size(control: Control) -> Vector2:
