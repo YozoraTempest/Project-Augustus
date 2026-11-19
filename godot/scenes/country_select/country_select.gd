@@ -392,8 +392,8 @@ func _apply_bookmark_scrollbar(list: ScrollContainer) -> void:
 func _sync_bookmark_scrollbar(list: ScrollContainer, overlay: Control) -> void:
 	if list.size.x < 1.0 or list.size.y < 1.0:
 		return
-	# 16 像素列贴在列表框右内沿，不伸出列表，也就不探出金框。
-	overlay.position = list.position + Vector2(list.size.x - BookmarkScrollbar.BUTTON, 0.0)
+	# 欧陆这列右缘在金框内侧，比列表框右缘再往右 16 像素。尺寸不变。
+	overlay.position = list.position + Vector2(list.size.x - BookmarkScrollbar.BUTTON + 16.0, 0.0)
 	overlay.size = Vector2(BookmarkScrollbar.BUTTON, list.size.y)
 	overlay.queue_redraw()
 
