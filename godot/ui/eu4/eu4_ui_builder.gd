@@ -155,11 +155,12 @@ func _button(data: Dictionary) -> Button:
 		style.texture = texture
 		for state in ["normal", "hover", "pressed", "disabled", "focus"]:
 			button.add_theme_stylebox_override(state, style)
-		button.flat = true
+		# flat 会跳过样式盒，按钮自己的底图就画不出来。归位的三块要看见这张图。
+		button.flat = not baseline_layout
 		if not (data.get("size") is Dictionary):
 			button.custom_minimum_size = texture.get_size()
 	elif baseline_layout:
-		button.flat = true
+		button.flat = false
 		var empty := StyleBoxEmpty.new()
 		for state in ["normal", "hover", "pressed", "disabled", "focus"]:
 			button.add_theme_stylebox_override(state, empty)
