@@ -102,8 +102,8 @@ func _seat_year(edit: LineEdit) -> void:
 	var box_h := edit.size.y
 	if box_h < 1.0:
 		box_h = 30.0
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.05, 0.05, 0.06, 0.95)
+	# 编辑框没有欧陆底图，不铺纯黑。边距只用来把字行留在框的上沿。
+	var style := StyleBoxEmpty.new()
 	style.content_margin_left = 0.0
 	style.content_margin_top = 0.0
 	style.content_margin_right = 0.0
