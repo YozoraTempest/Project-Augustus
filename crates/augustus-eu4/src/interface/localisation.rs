@@ -29,9 +29,21 @@ impl LocalisationCatalog {
     pub fn format_key(&self, key: &str) -> Option<String> {
         self.get(key).map(format_eu4_text)
     }
+
+    pub fn format_key_with(&self, key: &str, colors: &super::colors::InterfaceColors) -> Option<String> {
+        self.get(key)
+            .map(|text| format_eu4_text_with(text, |code| colors.resolve(&code.to_string())))
+    }
 }
 
 pub fn format_eu4_text(text: &str) -> String {
+    format_eu4_text_with(text, |_| None)
+}
+
+pub fn format_eu4_text_with(
+    text: &str,
+    named: impl Fn(char) -> Option<super::colors::Rgb>,
+) -> String {
     let mut formatted = String::with_capacity(text.len());
     let mut characters = text.chars().peekable();
     let mut open_colors = 0;
@@ -48,9 +60,11 @@ pub fn format_eu4_text(text: &str) -> String {
                 }
             }
             Some(code) => {
-                if let Some(color) = color_code(code) {
+                let from_name = named(code).map(|color| color.hex());
+                let color = from_name.or_else(|| color_code(code).map(str::to_owned));
+                if let Some(color) = color {
                     formatted.push_str("[color=");
-                    formatted.push_str(color);
+                    formatted.push_str(&color);
                     formatted.push(']');
                     open_colors += 1;
                 }

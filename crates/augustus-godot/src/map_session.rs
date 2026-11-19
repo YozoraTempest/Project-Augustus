@@ -746,6 +746,18 @@ impl AugustusMap {
         }
     }
 
+    /// 按颜色名取界面颜色。`colors.txt` 用十进制下标，文字颜色名来自 `textcolors`。
+    #[func]
+    fn resolve_interface_color(&self, name: GString) -> VarDictionary {
+        let mut color = VarDictionary::new();
+        if let Some(rgb) = crate::interface::resolve_color(&self.ui_sessions, name.to_string().as_str()) {
+            color.set("r", i64::from(rgb.r));
+            color.set("g", i64::from(rgb.g));
+            color.set("b", i64::from(rgb.b));
+        }
+        color
+    }
+
     /// 界面占位文本。键是 gui 控件名，值是占位字符串。没有的控件不在表里。
     #[func]
     fn gui_placeholders(&self) -> VarDictionary {

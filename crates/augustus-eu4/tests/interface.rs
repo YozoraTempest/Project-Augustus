@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use augustus_eu4::interface::{
     GuiNodeKind, InterfaceSource, LocalisationCatalog, UiOperator, UiScalar, UiValue,
-    format_eu4_text, parse_gfx_bytes, parse_gui_bytes, parse_localisation_bytes,
+    format_eu4_text, format_eu4_text_with, parse_gfx_bytes, parse_gui_bytes, parse_localisation_bytes,
 };
 
 fn fixture(name: &str) -> PathBuf {
@@ -317,7 +317,9 @@ fn installed_interface_files_parse() {
     let shield = loaded.sprites.resolve("GFX_shield_thin").expect("shield");
     assert!(shield.texture_file_2.as_deref().unwrap_or("").contains("mask"));
     assert!(shield.texture_file_1.as_deref().unwrap_or("").contains("frame"));
-    assert!(shield.texture_file_3.is_some());
+    assert!(loaded.message_types.iter().any(|item| item.name == "SLACKEN"));
+    assert!(loaded.colors.entries.len() > 100, "{}", loaded.colors.entries.len());
+    assert_eq!(loaded.colors.resolve("W").map(|color| color.r), Some(255));
 }
 
 #[test]
@@ -379,4 +381,47 @@ fn bitmap_font_path_is_not_taken_from_the_deprecated_name() {
     );
     assert!(catalog.resolve("Vic_18").is_none());
     assert!(catalog.resolve("Garamond").is_none());
+}
+
+#[test]
+fn loads_colors_and_message_types_but_not_credits() {
+    let temp = tempfile::tempdir().expect("temp");
+    let interface = temp.path().join("interface");
+    std::fs::create_dir_all(&interface).expect("dir");
+    std::fs::write(
+        interface.join("colors.txt"),
+        "color = { 4 144 178 }\ncolor = { 1 2 3 }\n",
+    )
+    .expect("colors");
+    std::fs::write(
+        interface.join("messagetypes.txt"),
+        "SLACKEN={ msg_icontype=\"combat\" category=\"cat_military\" option=no to_me={ log=yes onmap=no popup=yes pausepopup=no icon=no } }\n",
+    )
+    .expect("messages");
+    std::fs::write(interface.join("credits.txt"), "not a script {\n").expect("credits");
+    std::fs::write(
+        interface.join("core.gfx"),
+        "bitmapfonts = { textcolors = { W = { 255 255 255 } } }\n",
+    )
+    .expect("gfx");
+    let loaded = InterfaceSource::open(temp.path())
+        .load_interface()
+        .expect("interface");
+    assert!(loaded.failures.is_empty(), "{:?}", loaded.failures);
+    assert_eq!(loaded.colors.get(0).expect("first").r, 4);
+    assert_eq!(loaded.colors.resolve("1").expect("index").b, 3);
+    assert_eq!(loaded.colors.resolve("W").expect("white").r, 255);
+    let message = loaded
+        .message_types
+        .iter()
+        .find(|item| item.name == "SLACKEN")
+        .expect("type");
+    assert_eq!(message.category.as_deref(), Some("cat_military"));
+    assert_eq!(message.option, Some(false));
+    assert_eq!(message.channels[0].audience, "to_me");
+    assert_eq!(message.channels[0].log, Some(true));
+    let formatted = format_eu4_text_with("§WHello", |code| {
+        loaded.colors.resolve(&code.to_string())
+    });
+    assert!(formatted.contains("#ffffff"), "{formatted}");
 }

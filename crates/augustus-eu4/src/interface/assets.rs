@@ -6,9 +6,11 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::{Error, content::ContentRoot};
 
+use super::colors::{InterfaceColors, absorb_text_colors, parse_colors_bytes};
 use super::gfx::parse_gfx_bytes;
 use super::gui::parse_gui_bytes;
 use super::localisation::{self, LocalisationCatalog};
+use super::messages::{MessageType, parse_message_types_bytes};
 use super::model::{ContentStack, GfxCatalog, GuiDocument};
 
 /// 一次读完安装目录里的界面定义。纹理仍留在原处。
@@ -16,6 +18,8 @@ pub struct InterfaceLoad {
     pub documents: Vec<GuiDocument>,
     pub sprites: GfxCatalog,
     pub localisation: LocalisationCatalog,
+    pub colors: InterfaceColors,
+    pub message_types: Vec<MessageType>,
     pub gui_files: Vec<std::path::PathBuf>,
     pub gfx_files: Vec<std::path::PathBuf>,
     /// 单个文件解析失败时保留路径和原因，其余文件继续读。
@@ -102,16 +106,53 @@ impl InterfaceSource {
         }
         let sprites = self.load_gfx_catalog()?;
         failures.extend(sprites.errors.iter().cloned());
+        let mut colors = self.load_colors();
+        failures.extend(colors.1);
+        absorb_text_colors(&sprites, &mut colors.0);
+        let messages = self.load_message_types();
+        failures.extend(messages.1);
         let localisation = self.load_localisation()?;
         failures.extend(localisation.errors.iter().cloned());
         Ok(InterfaceLoad {
             documents,
             sprites,
             localisation,
+            colors: colors.0,
+            message_types: messages.0,
             gui_files,
             gfx_files,
             failures,
         })
+    }
+
+    /// 只读 `interface/colors.txt`。没有这个文件时得到空表，不读 `credits.txt`。
+    pub fn load_colors(&self) -> (InterfaceColors, Vec<String>) {
+        self.read_optional("interface/colors.txt", parse_colors_bytes)
+    }
+
+    /// 只读 `interface/messagetypes.txt`。没有这个文件时得到空表。
+    pub fn load_message_types(&self) -> (Vec<MessageType>, Vec<String>) {
+        self.read_optional("interface/messagetypes.txt", parse_message_types_bytes)
+    }
+
+    fn read_optional<T>(
+        &self,
+        relative: &str,
+        parse: fn(&std::path::Path, &[u8]) -> Result<T, Error>,
+    ) -> (T, Vec<String>)
+    where
+        T: Default,
+    {
+        match self.content.read(relative) {
+            Ok(file) => match parse(&file.path, &file.bytes) {
+                Ok(value) => (value, Vec::new()),
+                Err(error) => (T::default(), vec![error.to_string()]),
+            },
+            Err(Error::Read { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+                (T::default(), Vec::new())
+            }
+            Err(error) => (T::default(), vec![error.to_string()]),
+        }
     }
 
     pub fn load_localisation(&self) -> Result<LocalisationCatalog, Error> {

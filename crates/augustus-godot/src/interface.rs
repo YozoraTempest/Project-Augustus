@@ -5,8 +5,8 @@
 use std::path::PathBuf;
 
 use augustus_eu4::interface::{
-    GfxCatalog, GuiDocument, InterfaceSource, LocalisationCatalog, document_json,
-    resolve_texture_path, window_json,
+    GfxCatalog, GuiDocument, InterfaceColors, InterfaceSource, LocalisationCatalog, MessageType,
+    document_json, resolve_texture_path, window_json,
 };
 use godot::prelude::*;
 
@@ -15,6 +15,10 @@ pub(crate) struct UiSession {
     documents: Vec<GuiDocument>,
     sprites: GfxCatalog,
     localisation: LocalisationCatalog,
+    colors: InterfaceColors,
+    /// 消息类型已解析。界面还没有消息日志，所以暂时只留在会话里。
+    #[allow(dead_code)]
+    message_types: Vec<MessageType>,
 }
 
 pub(crate) fn load_document(
@@ -88,12 +92,22 @@ pub(crate) fn resolve_sprite(sessions: &[UiSession], name: &str) -> VarDictionar
     info
 }
 
+pub(crate) fn resolve_color(sessions: &[UiSession], name: &str) -> Option<augustus_eu4::interface::Rgb> {
+    sessions
+        .iter()
+        .rev()
+        .find_map(|session| session.colors.resolve(name))
+}
+
 pub(crate) fn localise(sessions: &[UiSession], key: &str) -> String {
     if key.is_empty() {
         return String::new();
     }
     for session in sessions.iter().rev() {
-        if let Some(text) = session.localisation.format_key(key) {
+        if let Some(text) = session
+            .localisation
+            .format_key_with(key, &session.colors)
+        {
             return text;
         }
     }
@@ -114,11 +128,22 @@ fn session_mut<'a>(
     let localisation = source
         .load_localisation()
         .map_err(|error| error.to_string())?;
+    let (mut colors, color_errors) = source.load_colors();
+    if let Some(error) = color_errors.into_iter().next() {
+        return Err(error);
+    }
+    augustus_eu4::interface::absorb_text_colors(&sprites, &mut colors);
+    let (message_types, message_errors) = source.load_message_types();
+    if let Some(error) = message_errors.into_iter().next() {
+        return Err(error);
+    }
     sessions.push(UiSession {
         root,
         documents: Vec::new(),
         sprites,
         localisation,
+        colors,
+        message_types,
     });
     Ok(sessions.last_mut().expect("会话刚插入"))
 }
