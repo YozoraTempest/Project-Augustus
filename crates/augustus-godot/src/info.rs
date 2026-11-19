@@ -225,6 +225,17 @@ pub(crate) fn country_info(
             info.set("secondary_religion_icon", i64::from(frame));
         }
     }
+    number(&mut info, "adm_tech", country.adm_tech.map(u64::from));
+    number(&mut info, "dip_tech", country.dip_tech.map(u64::from));
+    number(&mut info, "mil_tech", country.mil_tech.map(u64::from));
+    if let Some(ruler) = &country.monarch {
+        info.set("ruler_name", ruler.name.as_str());
+        info.set("ruler_adm", i64::from(ruler.adm));
+        info.set("ruler_dip", i64::from(ruler.dip));
+        info.set("ruler_mil", i64::from(ruler.mil));
+    }
+    // 顾问池只存着，不开局雇人，右栏也不画。
+    let _advisor_pool = world.stored_advisors();
     let summary = world
         .country_summary(tag)
         .expect("注册国家可以查询领土概况");

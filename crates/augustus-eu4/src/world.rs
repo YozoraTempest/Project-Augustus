@@ -10,10 +10,11 @@ mod geography;
 mod great_projects;
 mod history;
 mod localisation;
-mod religions;
 mod manpower;
 mod military;
 mod navigation;
+mod religions;
+mod technologies;
 mod terrain;
 
 use std::{
@@ -37,6 +38,8 @@ pub struct OpeningWorld {
     names: BTreeMap<String, String>,
     country_history_conflicts: BTreeSet<String>,
     religion_icons: BTreeMap<String, u32>,
+    /// 顾问池。没有在职顾问，右栏不画。
+    advisors: history::AdvisorBook,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -83,8 +86,11 @@ impl OpeningWorld {
         let (legacy_group, legacy_units) = france_legacy(&country_history.groups, &historical)?;
         let military_rules = military::load(&content, &legacy_group, legacy_units)?;
         let opening_military = combat::OpeningMilitary::load(&content)?;
+        let tech_tables = technologies::load(&content)?;
+        let advisors = history::load_advisors(&content)?;
         assign_opening_military(
             &opening_military,
+            &tech_tables,
             &country_history.groups,
             &historical,
             &provinces,
@@ -143,6 +149,7 @@ impl OpeningWorld {
             names,
             country_history_conflicts,
             religion_icons,
+            advisors,
         })
     }
 
@@ -164,6 +171,10 @@ impl OpeningWorld {
     }
 
     /// GFX_icon_religion 的帧号，从 1 起。对照来自 common/religions。
+    pub fn stored_advisors(&self) -> usize {
+        self.advisors.stored()
+    }
+
     pub fn religion_icon(&self, religion: &str) -> Option<u32> {
         self.religion_icons.get(religion).copied()
     }
@@ -276,6 +287,7 @@ fn france_legacy<'a>(
 
 fn assign_opening_military(
     military: &combat::OpeningMilitary,
+    technologies: &technologies::TechTables,
     groups: &BTreeMap<String, history::CountryGroups>,
     historical: &BTreeMap<String, Vec<String>>,
     provinces: &BTreeMap<u32, Province>,
@@ -310,7 +322,22 @@ fn assign_opening_military(
             .clone()
             .unwrap_or_else(|| technology_group.clone());
         let units = historical.get(tag).map(Vec::as_slice).unwrap_or(&[]);
-        country.military = Some(military.resolve(tag, &technology_group, &unit_group, units)?);
+        let resolved = military.resolve(tag, &technology_group, &unit_group, units)?;
+        let start = technologies.start_level(&technology_group)?;
+        if resolved.level != start {
+            return Err(Error::invalid(
+                Path::new("common/technology.txt"),
+                format!(
+                    "{tag} military level {} is not start_level {start}",
+                    resolved.level
+                ),
+            ));
+        }
+        // 1444 没有单独改三项等级的指令。军事沿用已经算好的等级。
+        country.adm_tech = Some(start);
+        country.dip_tech = Some(start);
+        country.mil_tech = Some(resolved.level);
+        country.military = Some(resolved);
     }
     Ok(())
 }
@@ -325,6 +352,23 @@ mod tests {
     };
 
     use super::OpeningWorld;
+
+    #[test]
+    fn opening_ottoman_tech_and_ruler_when_the_game_directory_is_set() {
+        let Ok(dir) = std::env::var("AUGUSTUS_EU4_DIR") else {
+            return;
+        };
+        let world = OpeningWorld::load(dir).expect("EU4 开局");
+        let country = world.state().country("TUR").expect("TUR");
+        assert_eq!(country.adm_tech, Some(3));
+        assert_eq!(country.dip_tech, Some(3));
+        assert_eq!(country.mil_tech, Some(3));
+        let ruler = country.monarch.as_ref().expect("monarch");
+        assert_eq!(ruler.name, "Mehmed II Fatih");
+        assert_eq!((ruler.adm, ruler.dip, ruler.mil), (6, 4, 6));
+        assert!(country.heir.is_none());
+        assert!(world.stored_advisors() > 0);
+    }
 
     #[test]
     #[ignore = "需要本机 EU4 目录，设置 AUGUSTUS_EU4_DIR"]

@@ -777,6 +777,7 @@ func _refresh_selection() -> void:
 		_chosen_country = ""
 		_show_country_panel(false)
 		_hide_religion_icons()
+		_clear_opening_figures()
 		if _start:
 			_start.disabled = true
 		var empty := str(_backend.localise_eu4("FE_NO_COUNTRY_SELECTED"))
@@ -785,9 +786,45 @@ func _refresh_selection() -> void:
 		return
 	_chosen_country = tag
 	_apply_religion_icons(info)
+	_fill_opening_figures(info)
 	_show_country_panel(true)
 	if _start:
 		_start.disabled = false
+
+
+func _fill_opening_figures(info: Dictionary) -> void:
+	_set_box("admtech_value", _number_field(info, "adm_tech"))
+	_set_box("diptech_value", _number_field(info, "dip_tech"))
+	_set_box("miltech_value", _number_field(info, "mil_tech"))
+	_set_box("selected_ruler", _text_field(info, "ruler_name"))
+	_set_box("ruler_adm_value", _number_field(info, "ruler_adm"))
+	_set_box("ruler_dip_value", _number_field(info, "ruler_dip"))
+	_set_box("ruler_mil_value", _number_field(info, "ruler_mil"))
+
+
+func _clear_opening_figures() -> void:
+	for eu4_name in ["admtech_value", "diptech_value", "miltech_value", "selected_ruler", "ruler_adm_value", "ruler_dip_value", "ruler_mil_value"]:
+		_set_box(eu4_name, "")
+
+
+func _set_box(eu4_name: String, text: String) -> void:
+	var node := _find_named(_chrome, eu4_name)
+	if node is RichTextLabel:
+		node.text = text
+
+
+func _number_field(info: Dictionary, key: String) -> String:
+	var value: Variant = info.get(key, null)
+	if value == null:
+		return ""
+	return str(int(value))
+
+
+func _text_field(info: Dictionary, key: String) -> String:
+	var value: Variant = info.get(key, null)
+	if value == null:
+		return ""
+	return str(value)
 
 
 func _apply_religion_icons(info: Dictionary) -> void:
@@ -902,6 +939,7 @@ func _clear_country() -> void:
 	_chosen_country = ""
 	_show_country_panel(false)
 	_hide_religion_icons()
+	_clear_opening_figures()
 	if _start:
 		_start.disabled = true
 	if _flag:
