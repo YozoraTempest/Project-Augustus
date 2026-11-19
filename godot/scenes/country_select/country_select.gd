@@ -637,22 +637,31 @@ func _compose_shield(flag: Image, shield_sprite: String = "GFX_shield_thin") -> 
 			overlay = loaded
 	if mask == null:
 		return ImageTexture.create_from_image(flag)
-	var width: int = mask.get_width()
-	var height: int = mask.get_height()
-	var source := flag.duplicate()
-	source.resize(width, height, Image.INTERPOLATE_NEAREST)
-	var image := Image.create(width, height, false, Image.FORMAT_RGBA8)
-	for y in height:
-		for x in width:
-			var pixel: Color = source.get_pixel(x, y)
-			var cover: Color = mask.get_pixel(x, y)
-			image.set_pixel(x, y, Color(pixel.r, pixel.g, pixel.b, pixel.a * cover.a))
+	# 旗帜只铺在遮罩上，用遮罩 alpha 裁成盾形。框保持自己的像素尺寸，居中盖住旗帜，不放大去包住溢出。
+	var canvas_w := mask.get_width()
+	var canvas_h := mask.get_height()
+	var origin := Vector2i.ZERO
 	if overlay != null:
-		var frame := overlay
-		if frame.get_width() != width or frame.get_height() != height:
-			frame = overlay.duplicate()
-			frame.resize(width, height, Image.INTERPOLATE_NEAREST)
-		image.blend_rect(frame, Rect2i(0, 0, width, height), Vector2i.ZERO)
+		canvas_w = overlay.get_width()
+		canvas_h = overlay.get_height()
+		origin = Vector2i((canvas_w - mask.get_width()) / 2, (canvas_h - mask.get_height()) / 2)
+	var source := flag.duplicate()
+	source.resize(mask.get_width(), mask.get_height(), Image.INTERPOLATE_NEAREST)
+	var image := Image.create(canvas_w, canvas_h, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0, 0, 0, 0))
+	for y in mask.get_height():
+		for x in mask.get_width():
+			var cover: Color = mask.get_pixel(x, y)
+			if cover.a <= 0.0:
+				continue
+			var pixel: Color = source.get_pixel(x, y)
+			var dx := origin.x + x
+			var dy := origin.y + y
+			if dx < 0 or dy < 0 or dx >= canvas_w or dy >= canvas_h:
+				continue
+			image.set_pixel(dx, dy, Color(pixel.r, pixel.g, pixel.b, pixel.a * cover.a))
+	if overlay != null:
+		image.blend_rect(overlay, Rect2i(0, 0, overlay.get_width(), overlay.get_height()), Vector2i.ZERO)
 	return ImageTexture.create_from_image(image)
 
 
