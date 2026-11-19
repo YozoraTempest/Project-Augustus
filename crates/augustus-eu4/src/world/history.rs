@@ -59,7 +59,12 @@ pub(super) fn apply_countries(
                 let name = key.read_str();
                 if !matches!(
                     name.as_ref(),
-                    "capital" | "primary_culture" | "religion" | "technology_group" | "unit_type"
+                    "capital"
+                        | "primary_culture"
+                        | "religion"
+                        | "secondary_religion"
+                        | "technology_group"
+                        | "unit_type"
                 ) {
                     continue;
                 }
@@ -78,6 +83,7 @@ pub(super) fn apply_countries(
                     match name.as_ref() {
                         "primary_culture" => country.primary_culture = text,
                         "religion" => country.religion = text,
+                        "secondary_religion" => country.secondary_religion = text,
                         "technology_group" => technology_group = text,
                         "unit_type" => unit_type = text,
                         _ => unreachable!(),
@@ -93,6 +99,7 @@ pub(super) fn apply_countries(
             target.capital = country.capital;
             target.primary_culture = country.primary_culture;
             target.religion = country.religion;
+            target.secondary_religion = country.secondary_religion;
             groups.insert(tag.clone(), origin);
         } else {
             let previous = groups.get(&tag).expect("重复历史仍有第一次的科技组");
@@ -115,6 +122,10 @@ pub(super) fn apply_countries(
             }
             if target.religion != country.religion {
                 target.religion = None;
+                conflicts.insert(tag.clone());
+            }
+            if target.secondary_religion != country.secondary_religion {
+                target.secondary_religion = None;
                 conflicts.insert(tag);
             }
         }
@@ -309,5 +320,33 @@ mod tests {
         assert_eq!(groups.technology_group.as_deref(), Some("eastern"));
         // 1444 之前最后一次 unit_type 覆盖科技组；开局之后的日期不生效。
         assert_eq!(groups.unit_type.as_deref(), Some("muslim"));
+    }
+
+    #[test]
+    fn secondary_religion_stops_at_the_start_date() {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "augustus-secondary-religion-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("history/countries")).unwrap();
+        fs::write(
+            root.join("history/countries/HMI - Kara Del.txt"),
+            r#"
+                religion = tengri_pagan_reformed
+                secondary_religion = orthodox
+                1400.1.1 = { secondary_religion = vajrayana }
+                1500.1.1 = { secondary_religion = shiite }
+            "#,
+        )
+        .unwrap();
+        let mut countries = BTreeMap::from([("HMI".to_owned(), Country::new("HMI"))]);
+        apply_countries(&ContentRoot::new(&root), &mut countries).unwrap();
+        let _ = fs::remove_dir_all(&root);
+        let country = countries.get("HMI").unwrap();
+        assert_eq!(country.religion.as_deref(), Some("tengri_pagan_reformed"));
+        assert_eq!(country.secondary_religion.as_deref(), Some("vajrayana"));
     }
 }

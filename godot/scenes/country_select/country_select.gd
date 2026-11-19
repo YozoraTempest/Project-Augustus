@@ -776,6 +776,7 @@ func _refresh_selection() -> void:
 	if int(info.province_count) == 0:
 		_chosen_country = ""
 		_show_country_panel(false)
+		_hide_religion_icons()
 		if _start:
 			_start.disabled = true
 		var empty := str(_backend.localise_eu4("FE_NO_COUNTRY_SELECTED"))
@@ -783,9 +784,46 @@ func _refresh_selection() -> void:
 		_set_texts(_detail_labels, "")
 		return
 	_chosen_country = tag
+	_apply_religion_icons(info)
 	_show_country_panel(true)
 	if _start:
 		_start.disabled = false
+
+
+func _apply_religion_icons(info: Dictionary) -> void:
+	_paint_religion_icon("religion_icon", int(info.get("religion_icon", 0)))
+	var secondary_name := str(info.get("secondary_religion", ""))
+	var secondary_frame := int(info.get("secondary_religion_icon", 0))
+	if secondary_name.is_empty() or secondary_frame < 1:
+		var secondary := _find_named(_chrome, "secondary_religion_icon") as TextureRect
+		if secondary:
+			secondary.visible = false
+		return
+	_paint_religion_icon("secondary_religion_icon", secondary_frame)
+
+
+func _paint_religion_icon(eu4_name: String, frame: int) -> void:
+	var icon := _find_named(_chrome, eu4_name) as TextureRect
+	if icon == null:
+		return
+	if frame < 1:
+		icon.visible = false
+		return
+	var texture := _sprite_frame("GFX_icon_religion", frame)
+	if texture == null:
+		icon.visible = false
+		return
+	icon.texture = texture
+	icon.visible = true
+
+
+func _hide_religion_icons() -> void:
+	if _chrome == null:
+		return
+	for eu4_name in ["religion_icon", "secondary_religion_icon"]:
+		var icon := _find_named(_chrome, eu4_name) as TextureRect
+		if icon:
+			icon.visible = false
 
 
 func _show_country_panel(selected: bool) -> void:
@@ -863,6 +901,7 @@ func _load_interface_image(assets, path: String) -> Image:
 func _clear_country() -> void:
 	_chosen_country = ""
 	_show_country_panel(false)
+	_hide_religion_icons()
 	if _start:
 		_start.disabled = true
 	if _flag:

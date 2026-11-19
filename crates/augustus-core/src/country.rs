@@ -12,6 +12,9 @@ pub struct Country {
     pub capital: Option<u32>,
     pub primary_culture: Option<String>,
     pub religion: Option<String>,
+    /// 第二宗教。旧档没有这个字段。
+    #[serde(default)]
+    pub secondary_religion: Option<String>,
     pub finances: CountryFinances,
     // 缺失表示尚未组成世界或来自旧版存档，由 World 根据领土初始化。
     #[serde(default)]
@@ -28,6 +31,7 @@ impl Country {
             capital: None,
             primary_culture: None,
             religion: None,
+            secondary_religion: None,
             finances: CountryFinances::default(),
             manpower: None,
             military: None,

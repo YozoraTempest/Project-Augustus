@@ -212,6 +212,19 @@ pub(crate) fn country_info(
                 .as_deref(),
         );
     }
+    // 国家存的是宗教名。帧号对照在 common/religions，只在查得到时带上。
+    if let Some(religion) = country.religion.as_deref() {
+        info.set("religion_key", religion);
+        if let Some(frame) = world.religion_icon(religion) {
+            info.set("religion_icon", i64::from(frame));
+        }
+    }
+    if let Some(religion) = country.secondary_religion.as_deref() {
+        info.set("secondary_religion", religion);
+        if let Some(frame) = world.religion_icon(religion) {
+            info.set("secondary_religion_icon", i64::from(frame));
+        }
+    }
     let summary = world
         .country_summary(tag)
         .expect("注册国家可以查询领土概况");

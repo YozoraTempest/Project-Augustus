@@ -10,6 +10,7 @@ mod geography;
 mod great_projects;
 mod history;
 mod localisation;
+mod religions;
 mod manpower;
 mod military;
 mod navigation;
@@ -35,6 +36,7 @@ pub struct OpeningWorld {
     country_colors: BTreeMap<String, [u8; 3]>,
     names: BTreeMap<String, String>,
     country_history_conflicts: BTreeSet<String>,
+    religion_icons: BTreeMap<String, u32>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -59,6 +61,7 @@ impl OpeningWorld {
         geography::apply(&content, &mut provinces)?;
         terrain::apply(&content, &map, &mut provinces)?;
         let country_history = history::apply_countries(&content, &mut countries.states)?;
+        let religion_icons = religions::load(&content)?;
         let country_history_conflicts = country_history.conflicts;
         let histories =
             history::apply_provinces(&content, &countries.colors, &mut provinces, &buildings)?;
@@ -139,6 +142,7 @@ impl OpeningWorld {
             country_colors: countries.colors,
             names,
             country_history_conflicts,
+            religion_icons,
         })
     }
 
@@ -157,6 +161,11 @@ impl OpeningWorld {
     pub fn start_date(&self) -> GameDate {
         let date = Date::parse(START_DATE).expect("固定开局日期必须有效");
         GameDate::new(date.year(), date.month(), date.day()).expect("开局日期必须在游戏历法内")
+    }
+
+    /// GFX_icon_religion 的帧号，从 1 起。对照来自 common/religions。
+    pub fn religion_icon(&self, religion: &str) -> Option<u32> {
+        self.religion_icons.get(religion).copied()
     }
 
     pub fn display_name(&self, key: &str) -> String {
