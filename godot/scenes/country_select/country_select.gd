@@ -54,7 +54,7 @@ func _build_chrome() -> void:
 	gui.show_window("lobby")
 	_gui = gui
 	# 单人选国家：聊天、设计器、读档和联机面板整棵不画。还没选国家时只留 no_player。
-	for hidden in ["bottom", "nation_designer_bottom_panel", "random_new_world_loading_window", "save_games", "multiplayer", "singleplayer"]:
+	for hidden in ["bottom", "nation_designer_bottom_panel", "random_new_world_loading_window", "save_games", "multiplayer", "singleplayer", "open_music_player"]:
 		gui.set_named_visible(hidden, false)
 	gui.action_requested.connect(_on_gui_action)
 	_chrome = gui.focus as Control
