@@ -25,6 +25,9 @@ func setup(directory: String) -> void:
 	if not gui.open(directory, "interface/topbar.gui", GameSession.backend):
 		return
 	gui.show_window("topbar")
+	# 政体图标和属国自由欲望叠在同一点，普通独立君主国只留正统和力量投射。
+	for hidden in ["liberty_desire_topbar", "icon_dev", "text_dev", "icon_meritocracy", "text_meritocracy", "icon_rep", "text_rep", "icon_unity", "text_unity"]:
+		gui.set_named_visible(hidden, false)
 	_paint_loaded_text(gui)
 	var background: Control = gui.find_named("topbar_upper_left_bg") as Control
 	if background:

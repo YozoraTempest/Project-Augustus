@@ -36,6 +36,7 @@ func open(directory: String, relative: String, backend: AugustusMap) -> bool:
 	var builder = BUILDER_SCRIPT.new()
 	builder.assets = assets
 	builder.plain_windows = true
+	builder.baseline_layout = relative == "interface/frontend.gui" or relative == "interface/topbar.gui"
 	builder.action_requested.connect(_relay_action)
 	builder.build_document(parsed, self)
 	diagnostics = builder.diagnostics
@@ -56,6 +57,18 @@ func show_window(window_name: String) -> void:
 		on_path[node] = true
 		node = node.get_parent()
 	_keep_path(self, on_path, target)
+
+
+func set_named_visible(eu4_name: String, shown: bool) -> void:
+	var root: Node = focus if focus != null else self
+	_set_named_visible(root, eu4_name, shown)
+
+
+func _set_named_visible(node: Node, eu4_name: String, shown: bool) -> void:
+	if node != self and str(node.get_meta("eu4_name", "")) == eu4_name and node is CanvasItem:
+		(node as CanvasItem).visible = shown
+	for child in node.get_children():
+		_set_named_visible(child, eu4_name, shown)
 
 
 func find_named(eu4_name: String) -> Node:

@@ -111,6 +111,8 @@ func _dress_from_eu4() -> void:
 	if not gui.open(directory, "interface/frontend.gui", session):
 		return
 	gui.show_window("mainmenu")
+	# 没有新内容时整张卡片不画。主菜单该显示的底栏和社交按钮留在文件坐标上。
+	gui.set_named_visible("new_content", false)
 	_layout = gui.focus as Control
 	if _layout == null:
 		return
@@ -124,10 +126,6 @@ func _use_our_actions() -> void:
 	_caption("multi_player_button_text", "读取游戏")
 	_caption("settings_button", "设置")
 	_caption("exit_button_text", "退出")
-	for name in ["tutorial_button", "tutorial_button_text", "credits_button", "nudge_button", "version_label", "version_background", "ironman_icon", "continue_container"]:
-		var node := _find_named(_layout, name)
-		if node:
-			node.hide()
 
 
 func _caption(eu4_name: String, caption: String) -> void:

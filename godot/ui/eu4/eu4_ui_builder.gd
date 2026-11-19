@@ -7,6 +7,9 @@ var assets
 var diagnostics: PackedStringArray = PackedStringArray()
 # 主菜单的窗口本身没有底图，不能再铺一层占位色块。
 var plain_windows := false
+# 主菜单、选国家和对局顶栏按 1920×1080 归位。其它界面文件仍走原来的摆法。
+var baseline_layout := false
+const BASELINE_SIZE := Vector2(1920, 1080)
 
 
 func build_document(document: Dictionary, parent: Control) -> Array:
@@ -63,8 +66,11 @@ func _build_node(data: Dictionary, parent: Control) -> Control:
 		"edit_box":
 			control = _edit_box(data)
 		"unknown":
-			diagnostics.append("已跳过未知控件：%s %s" % [str(data.get("type_key", "")), str(data.get("name", ""))])
-			return null
+			if baseline_layout and str(data.get("type_key", "")).to_lower() == "checkboxtype":
+				control = _button(data)
+			else:
+				diagnostics.append("已跳过未知控件：%s %s" % [str(data.get("type_key", "")), str(data.get("name", ""))])
+				return null
 		_:
 			diagnostics.append("已跳过控件：" + kind)
 			return null
@@ -78,6 +84,8 @@ func _build_node(data: Dictionary, parent: Control) -> Control:
 	var child_parent := control
 	if kind == "list_box":
 		child_parent = control.get_node("Items")
+		if control.has_meta("eu4_box"):
+			child_parent.set_meta("eu4_box", control.get_meta("eu4_box"))
 	for child: Variant in data.get("children", []):
 		if child is Dictionary:
 			_build_node(child, child_parent)
@@ -105,10 +113,14 @@ func _icon(data: Dictionary) -> TextureRect:
 	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sprite := _sprite_name(data)
-	if assets != null and assets.has_method("texture_for"):
-		var texture: Texture2D = assets.texture_for(sprite)
-		if texture:
-			rect.texture = texture
+	var full := _full_texture(sprite)
+	var texture: Texture2D = _placed_texture(sprite, _frame_number(data)) if baseline_layout else full
+	if texture:
+		rect.texture = texture
+		if baseline_layout:
+			rect.stretch_mode = TextureRect.STRETCH_SCALE
+			if full != null and texture != full:
+				rect.set_meta("eu4_gold_sheet", full)
 	rect.set_meta("eu4_sprite", sprite)
 	return rect
 
@@ -137,16 +149,20 @@ func _button(data: Dictionary) -> Button:
 	button.add_theme_font_size_override("font_size", _font_size(button_font))
 	_attach_bitmap_font(button, button_font)
 	var sprite := _sprite_name(data)
-	if assets != null and assets.has_method("texture_for") and not sprite.is_empty():
-		var texture: Texture2D = assets.texture_for(sprite)
-		if texture:
-			var style := StyleBoxTexture.new()
-			style.texture = texture
-			for state in ["normal", "hover", "pressed", "disabled", "focus"]:
-				button.add_theme_stylebox_override(state, style)
-			button.flat = true
-			if not (data.get("size") is Dictionary):
-				button.custom_minimum_size = texture.get_size()
+	var texture: Texture2D = _placed_texture(sprite, _frame_number(data)) if baseline_layout else _full_texture(sprite)
+	if texture:
+		var style := StyleBoxTexture.new()
+		style.texture = texture
+		for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+			button.add_theme_stylebox_override(state, style)
+		button.flat = true
+		if not (data.get("size") is Dictionary):
+			button.custom_minimum_size = texture.get_size()
+	elif baseline_layout:
+		button.flat = true
+		var empty := StyleBoxEmpty.new()
+		for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+			button.add_theme_stylebox_override(state, empty)
 	var properties := _property_map(data.get("properties", []))
 	var eu4_name := _string(data.get("name"))
 	button.set_meta("eu4_sprite", sprite)
@@ -186,6 +202,9 @@ func _apply_meta(control: Control, data: Dictionary) -> void:
 
 
 func _apply_geometry(control: Control, data: Dictionary, parent: Node) -> void:
+	if baseline_layout:
+		_apply_baseline_geometry(control, data, parent)
+		return
 	# 已经显示的窗口用 show_position。没有这个字段的控件仍用 position。
 	var position: Variant = data.get("show_position")
 	if not position is Dictionary:
@@ -275,6 +294,124 @@ func _apply_geometry(control: Control, data: Dictionary, parent: Node) -> void:
 	control.offset_top = y
 	control.offset_right = x + width
 	control.offset_bottom = y + height
+
+
+# 1920×1080 上：显示偏移加父参考点，不按控件自己的宽高回退，也不跟窗口缩放。
+func _apply_baseline_geometry(control: Control, data: Dictionary, parent: Node) -> void:
+	var position: Variant = data.get("show_position")
+	if not position is Dictionary:
+		position = data.get("position")
+	var x := _axis(position, "x")
+	var y := _axis(position, "y")
+	var declared := data.get("size")
+	var declared_w := _axis(declared, "x")
+	var declared_h := _axis(declared, "y")
+	var parent_box := Vector2.ZERO
+	if parent != null and parent.has_meta("eu4_box"):
+		parent_box = parent.get_meta("eu4_box")
+	var fullscreen := data.get("fullscreen") == true
+	var box := BASELINE_SIZE if fullscreen else Vector2(declared_w, declared_h)
+	var visual := box
+	if not fullscreen and not (declared is Dictionary):
+		visual = _frame_size(control)
+		if visual.x <= 0.0:
+			visual.x = _scalar(data.get("max_width"))
+		if visual.y <= 0.0:
+			visual.y = _scalar(data.get("max_height"))
+	var picture_scale := _property_number(data, "scale")
+	if str(data.get("kind", "")) == "icon" and picture_scale > 0.0 and not is_equal_approx(picture_scale, 1.0):
+		visual *= picture_scale
+	var orientation := _string(data.get("orientation")).to_upper()
+	if orientation.is_empty():
+		orientation = "UPPER_LEFT"
+	var reference := _baseline_reference(orientation, parent_box)
+	var left := reference.x + x
+	var top := reference.y + y
+	control.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	control.offset_left = left
+	control.offset_top = top
+	control.offset_right = left + visual.x
+	control.offset_bottom = top + visual.y
+	control.clip_contents = false
+	control.set_meta("eu4_box", box)
+
+
+func _baseline_reference(orientation: String, box: Vector2) -> Vector2:
+	match orientation:
+		"UPPER_RIGHT":
+			return Vector2(box.x, 0.0)
+		"LOWER_LEFT":
+			return Vector2(0.0, box.y)
+		"LOWER_RIGHT":
+			return Vector2(box.x, box.y)
+		"CENTER":
+			return box * 0.5
+		"CENTER_UP":
+			return Vector2(box.x * 0.5, 0.0)
+		"CENTER_DOWN":
+			return Vector2(box.x * 0.5, box.y)
+		"CENTER_LEFT":
+			return Vector2(0.0, box.y * 0.5)
+		"CENTER_RIGHT":
+			return Vector2(box.x, box.y * 0.5)
+		_:
+			return Vector2.ZERO
+
+
+func _axis(value: Variant, axis: String) -> float:
+	return _number(value.get(axis)) if value is Dictionary else 0.0
+
+
+func _frame_number(data: Dictionary) -> int:
+	var frame := int(_property_number(data, "frame"))
+	return frame if frame >= 1 else 1
+
+
+func _property_number(data: Dictionary, key: String) -> float:
+	var properties: Variant = data.get("properties", [])
+	if not properties is Array:
+		return 0.0
+	for field: Variant in properties:
+		if field is Dictionary and str(field.get("key", "")).to_lower() == key:
+			var value: Variant = field.get("value", null)
+			if value is Dictionary:
+				return _number(value.get("value"))
+	return 0.0
+
+
+func _full_texture(sprite: String) -> Texture2D:
+	if sprite.is_empty() or assets == null or not assets.has_method("texture_for"):
+		return null
+	return assets.texture_for(sprite)
+
+
+func _placed_texture(sprite: String, frame_number: int) -> Texture2D:
+	var full := _full_texture(sprite)
+	if full == null:
+		return null
+	var frames := 1
+	if assets.backend != null and assets.backend.has_method("resolve_eu4_sprite"):
+		frames = int(assets.backend.resolve_eu4_sprite(sprite).get("frames", 1))
+	if frames < 1:
+		frames = 1
+	if frames == 1:
+		return full
+	var index := clampi(frame_number, 1, frames) - 1
+	var frame_width := full.get_width() / frames
+	var region := AtlasTexture.new()
+	region.atlas = full
+	region.region = Rect2(index * frame_width, 0, frame_width, full.get_height())
+	return region
+
+
+func _frame_size(control: Control) -> Vector2:
+	if control is TextureRect and control.texture:
+		return control.texture.get_size()
+	if control is Button:
+		var style := control.get_theme_stylebox("normal")
+		if style is StyleBoxTexture and style.texture:
+			return style.texture.get_size()
+	return Vector2.ZERO
 
 
 func _display_text(data: Dictionary, button: bool) -> String:

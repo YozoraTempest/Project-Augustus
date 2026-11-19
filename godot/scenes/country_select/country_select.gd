@@ -12,6 +12,7 @@ const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
 @onready var map_view: ProvinceMapView = %MapView
 
 var _backend: AugustusMap
+var _gui
 var _chosen_country := ""
 var _chrome: Control
 var _flag: TextureRect
@@ -51,6 +52,10 @@ func _build_chrome() -> void:
 	if not gui.open(directory, "interface/frontend.gui", _backend):
 		return
 	gui.show_window("lobby")
+	_gui = gui
+	# 单人选国家：聊天、设计器、读档和联机面板整棵不画。还没选国家时只留 no_player。
+	for hidden in ["bottom", "nation_designer_bottom_panel", "random_new_world_loading_window", "save_games", "multiplayer", "singleplayer"]:
+		gui.set_named_visible(hidden, false)
 	gui.action_requested.connect(_on_gui_action)
 	_chrome = gui.focus as Control
 	if _chrome == null:
@@ -170,13 +175,22 @@ func _refresh_selection() -> void:
 	_set_texts(_detail_labels, "省份 %d" % int(info.province_count))
 	if int(info.province_count) == 0:
 		_chosen_country = ""
+		_show_country_panel(false)
 		if _start:
 			_start.disabled = true
 		_set_texts(_nation_labels, "这个国家没有领土，不能开始。")
 		return
 	_chosen_country = tag
+	_show_country_panel(true)
 	if _start:
 		_start.disabled = false
+
+
+func _show_country_panel(selected: bool) -> void:
+	if _gui == null:
+		return
+	_gui.set_named_visible("no_player", not selected)
+	_gui.set_named_visible("singleplayer", selected)
 
 
 func _flag_texture(tag: String) -> Texture2D:
@@ -237,6 +251,7 @@ func _load_interface_image(assets, path: String) -> Image:
 
 func _clear_country() -> void:
 	_chosen_country = ""
+	_show_country_panel(false)
 	if _start:
 		_start.disabled = true
 	if _flag:
