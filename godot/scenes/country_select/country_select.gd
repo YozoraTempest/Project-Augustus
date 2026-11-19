@@ -57,7 +57,7 @@ func _build_chrome() -> void:
 	gui.show_window("lobby")
 	_gui = gui
 	# 单人：说明板要留着。聊天、设计器提示、联机页签、观察模式和调试地图按钮不画。
-	for hidden in ["nation_designer_bottom_panel", "random_new_world_loading_window", "save_games", "multiplayer", "singleplayer", "open_music_player", "nation_designer_hint_bg", "nation_designer_hint", "country_tab", "players_tab", "country_tab_title", "players_tab_title", "mapmode_expansion", "mapmode_content", "mapmode_unit", "mapmode_music", "observe_mode_button", "observe_mode_title", "lobby_chat_edit", "largefonts_lobby_chat_edit", "speech_enabled_lobby_chat_edit", "speech_enabled_largefonts_lobby_chat_edit", "speech_enabled_lobby_chat_button", "mic_button", "lobby_chat_button", "chatlog"]:
+	for hidden in ["nation_designer_bottom_panel", "random_new_world_loading_window", "save_games", "multiplayer", "singleplayer", "open_music_player", "nation_designer_hint_bg", "nation_designer_hint", "country_tab", "players_tab", "country_tab_title", "players_tab_title", "mapmode_expansion", "mapmode_content", "mapmode_unit", "mapmode_music", "observe_mode_button", "observe_mode_title", "lobby_chat_edit", "largefonts_lobby_chat_edit", "speech_enabled_lobby_chat_edit", "speech_enabled_largefonts_lobby_chat_edit", "speech_enabled_lobby_chat_button", "mic_button", "lobby_chat_button", "chatlog", "enabled_dlc_list_0", "enabled_dlc_list_1"]:
 		gui.set_named_visible(hidden, false)
 	gui.action_requested.connect(_on_gui_action)
 	_chrome = gui.focus as Control
