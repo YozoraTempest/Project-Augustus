@@ -9,7 +9,6 @@ const GUI_FILE := preload("res://ui/eu4/eu4_gui_file.gd")
 const GAME_SCENE := "res://scenes/game/game.tscn"
 const MAP_SCENE := preload("res://scenes/map/province_map_view.tscn")
 # frontend.gui 整份挂成一个组件。控件留在组件内部，按父子坐标摆，不随窗口放大。
-const Eu4Type := preload("res://ui/eu4/eu4_type.gd")
 # common/defines.lua 的 NFrontend。Y 是高度，视线落在地面。
 const FRONTEND_POS := Vector3(2958.0, 900.0, 1500.0)
 const FRONTEND_LOOK := Vector3(2958.0, 0.0, 1519.0)
@@ -116,32 +115,7 @@ func _dress_from_eu4() -> void:
 	_layout = gui.focus as Control
 	if _layout == null:
 		return
-	_use_our_actions()
 	_wire_menu(_layout)
-
-
-func _use_our_actions() -> void:
-	# 位置和字号留在 frontend.gui 里。这里只换这四个动作的中文，不挪文字盒。
-	_caption("single_player_button_text", "开始游戏")
-	_caption("multi_player_button_text", "读取游戏")
-	_caption("settings_button", "设置")
-	_caption("exit_button_text", "退出")
-
-
-func _caption(eu4_name: String, caption: String) -> void:
-	var node := _find_named(_layout, eu4_name)
-	if node is RichTextLabel:
-		var size: int = node.get_theme_font_size("normal_font_size")
-		node.text = caption
-		node.bbcode_enabled = false
-		Eu4Type.paint_rich_text(node, size)
-		node.add_theme_color_override("default_color", Color(0.96, 0.91, 0.78))
-	elif node is Button:
-		var size: int = node.get_theme_font_size("font_size")
-		node.text = caption
-		node.add_theme_font_override("font", Eu4Type.face_of(node))
-		node.add_theme_font_size_override("font_size", size)
-		node.add_theme_color_override("font_color", Color(0.96, 0.91, 0.78))
 
 
 func _show_menu_map() -> void:

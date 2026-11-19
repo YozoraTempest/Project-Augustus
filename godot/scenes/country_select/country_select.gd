@@ -62,11 +62,7 @@ func _build_chrome() -> void:
 		return
 	_start = _find_named(_chrome, "play_button") as Button
 	if _start:
-		_start.text = "开始游戏"
 		_start.disabled = true
-	var back := _find_named(_chrome, "back_button") as Button
-	if back:
-		back.text = "返回主菜单"
 	_nation_labels = _collect_named(_chrome, "selected_nation_label")
 	_detail_labels = _collect_named(_chrome, "selected_fog")
 	var parts := str(_backend.get_start_date()).split(".")
@@ -172,13 +168,18 @@ func _refresh_selection() -> void:
 		_flag.texture = _flag_texture(tag)
 		_flag.visible = _flag.texture != null
 	_set_texts(_nation_labels, str(info.name))
-	_set_texts(_detail_labels, "省份 %d" % int(info.province_count))
+	var provinces := str(_backend.localise_eu4("PROVINCES"))
+	if provinces.is_empty():
+		provinces = "PROVINCES"
+	_set_texts(_detail_labels, "%s %d" % [provinces, int(info.province_count)])
 	if int(info.province_count) == 0:
 		_chosen_country = ""
 		_show_country_panel(false)
 		if _start:
 			_start.disabled = true
-		_set_texts(_nation_labels, "这个国家没有领土，不能开始。")
+		var empty := str(_backend.localise_eu4("FE_NO_COUNTRY_SELECTED"))
+		_set_texts(_nation_labels, empty if not empty.is_empty() else "FE_NO_COUNTRY_SELECTED")
+		_set_texts(_detail_labels, "")
 		return
 	_chosen_country = tag
 	_show_country_panel(true)
@@ -266,7 +267,6 @@ func _enter_game() -> void:
 		return
 	var error: String = GameSession.start_game(_chosen_country)
 	if not error.is_empty():
-		_set_texts(_nation_labels, "无法开始游戏：" + error)
 		return
 	GameSession.map_projection = MapMode.ViewType.FLAT
 	get_tree().change_scene_to_file(GAME_SCENE)

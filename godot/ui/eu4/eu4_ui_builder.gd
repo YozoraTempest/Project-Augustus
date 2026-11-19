@@ -496,10 +496,15 @@ func _attach_bitmap_font(control: Control, font_name: String) -> void:
 	var tga_path := str(info.get("absolute_path_1", ""))
 	if not fnt_path.to_lower().ends_with(".fnt") or not tga_path.to_lower().ends_with(".tga"):
 		return
-	var bitmap := preload("res://ui/eu4/eu4_bitmap_font.gd").atlas_font(fnt_path, tga_path)
+	var bitmap: Font = preload("res://ui/eu4/eu4_bitmap_font.gd").atlas_font(fnt_path, tga_path)
 	if bitmap == null:
 		return
 	control.set_meta("eu4_bitmap_font", bitmap)
+	# 文案已经是英文 yml。这里只套 core.gfx 的点阵字，不另挂系统字体。
+	if control is RichTextLabel:
+		control.add_theme_font_override("normal_font", bitmap)
+	elif control is Button or control is LineEdit:
+		control.add_theme_font_override("font", bitmap)
 
 
 func _bitmap_line_height(font_name: String) -> int:
