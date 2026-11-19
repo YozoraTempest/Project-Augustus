@@ -212,33 +212,190 @@ func _fill_bookmarks() -> void:
 		_apply_bookmark_scrollbar(list)
 
 
+# standardlistbox_slider：按钮和滑块用原图像素，轨道按九宫格拉高。
+# 贴图像素：箭头和滑块 16×16，轨道 12×12、边 4。条自己的 borderSize 是 12。
+class BookmarkScrollbar extends Control:
+	const BUTTON := 16.0
+	const TRACK_WIDTH := 12.0
+	const END_INSET := 12.0
+	const TRACK_BORDER := 4.0
+
+	var host: ScrollContainer
+	var up_texture: Texture2D
+	var down_texture: Texture2D
+	var knob_texture: Texture2D
+	var track_texture: Texture2D
+	var _dragging := false
+	var _drag_offset := 0.0
+	var _repeat_direction := 0.0
+	var _repeat_wait := 0.0
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		focus_mode = Control.FOCUS_NONE
+		set_process(false)
+
+	func _limit() -> float:
+		var bar := host.get_v_scroll_bar()
+		return maxf(bar.max_value - bar.page, 0.0)
+
+	func _line() -> float:
+		var items := host.get_node_or_null("Items") as VBoxContainer
+		if items != null and items.get_child_count() > 0:
+			var row := items.get_child(0) as Control
+			if row != null and row.size.y >= 1.0:
+				return row.size.y
+		return BUTTON
+
+	func _knob_top() -> float:
+		var span := maxf(size.y - BUTTON * 3.0, 0.0)
+		var limit := _limit()
+		var along := 0.0 if limit <= 0.0 else clampf(host.scroll_vertical / limit, 0.0, 1.0)
+		return BUTTON + span * along
+
+	func _set_scroll(pixels: float) -> void:
+		host.scroll_vertical = clampf(pixels, 0.0, _limit())
+
+	func _nudge(direction: float) -> void:
+		_set_scroll(host.scroll_vertical + direction * _line())
+
+	func _draw() -> void:
+		var column_x := floorf((size.x - BUTTON) * 0.5)
+		var track := Rect2(column_x + (BUTTON - TRACK_WIDTH) * 0.5, END_INSET, TRACK_WIDTH, maxf(size.y - END_INSET * 2.0, 0.0))
+		_draw_sliced(track_texture, track, TRACK_BORDER)
+		if up_texture:
+			draw_texture(up_texture, Vector2(column_x, 0.0))
+		if down_texture:
+			draw_texture(down_texture, Vector2(column_x, size.y - BUTTON))
+		if knob_texture:
+			draw_texture(knob_texture, Vector2(column_x, _knob_top()))
+
+	func _draw_sliced(texture: Texture2D, rect: Rect2, border: float) -> void:
+		if texture == null or rect.size.x < 1.0 or rect.size.y <= border * 2.0:
+			return
+		var tex_w := float(texture.get_width())
+		var tex_h := float(texture.get_height())
+		var mid_src_w := tex_w - border * 2.0
+		var mid_src_h := tex_h - border * 2.0
+		var mid_dst_w := rect.size.x - border * 2.0
+		var mid_dst_h := rect.size.y - border * 2.0
+		var origin := rect.position
+		_blit(texture, Rect2(origin, Vector2(border, border)), Rect2(0.0, 0.0, border, border))
+		_blit(texture, Rect2(origin + Vector2(border, 0.0), Vector2(mid_dst_w, border)), Rect2(border, 0.0, mid_src_w, border))
+		_blit(texture, Rect2(origin + Vector2(rect.size.x - border, 0.0), Vector2(border, border)), Rect2(tex_w - border, 0.0, border, border))
+		_blit(texture, Rect2(origin + Vector2(0.0, border), Vector2(border, mid_dst_h)), Rect2(0.0, border, border, mid_src_h))
+		_blit(texture, Rect2(origin + Vector2(border, border), Vector2(mid_dst_w, mid_dst_h)), Rect2(border, border, mid_src_w, mid_src_h))
+		_blit(texture, Rect2(origin + Vector2(rect.size.x - border, border), Vector2(border, mid_dst_h)), Rect2(tex_w - border, border, border, mid_src_h))
+		_blit(texture, Rect2(origin + Vector2(0.0, rect.size.y - border), Vector2(border, border)), Rect2(0.0, tex_h - border, border, border))
+		_blit(texture, Rect2(origin + Vector2(border, rect.size.y - border), Vector2(mid_dst_w, border)), Rect2(border, tex_h - border, mid_src_w, border))
+		_blit(texture, Rect2(origin + Vector2(rect.size.x - border, rect.size.y - border), Vector2(border, border)), Rect2(tex_w - border, tex_h - border, border, border))
+
+	func _blit(texture: Texture2D, dest: Rect2, source: Rect2) -> void:
+		if dest.size.x <= 0.0 or dest.size.y <= 0.0 or source.size.x <= 0.0 or source.size.y <= 0.0:
+			return
+		draw_texture_rect_region(texture, dest, source)
+
+	func _gui_input(event: InputEvent) -> void:
+		var button := event as InputEventMouseButton
+		if button != null and button.button_index == MOUSE_BUTTON_LEFT:
+			if button.pressed:
+				var knob := Rect2((size.x - BUTTON) * 0.5, _knob_top(), BUTTON, BUTTON)
+				if knob.has_point(button.position):
+					_dragging = true
+					_drag_offset = button.position.y - knob.position.y
+					_stop_repeat()
+				elif button.position.y < BUTTON:
+					_begin_repeat(-1.0)
+				elif button.position.y > size.y - BUTTON:
+					_begin_repeat(1.0)
+				elif button.position.y < knob.position.y:
+					_nudge(-1.0)
+				else:
+					_nudge(1.0)
+			else:
+				_dragging = false
+				_stop_repeat()
+			accept_event()
+			return
+		if button != null and button.pressed and (button.button_index == MOUSE_BUTTON_WHEEL_UP or button.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+			var direction := -1.0 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0
+			_nudge(direction * maxf(button.factor, 1.0))
+			accept_event()
+
+	func _input(event: InputEvent) -> void:
+		var button := event as InputEventMouseButton
+		if button != null and button.button_index == MOUSE_BUTTON_LEFT and not button.pressed:
+			_dragging = false
+			_stop_repeat()
+			return
+		if _dragging and event is InputEventMouseMotion:
+			var span := maxf(size.y - BUTTON * 3.0, 1.0)
+			var top := get_local_mouse_position().y - _drag_offset
+			var along := clampf((top - BUTTON) / span, 0.0, 1.0)
+			_set_scroll(along * _limit())
+			get_viewport().set_input_as_handled()
+
+	func _process(delta: float) -> void:
+		if _repeat_direction == 0.0:
+			set_process(false)
+			return
+		_repeat_wait -= delta
+		if _repeat_wait > 0.0:
+			return
+		_nudge(_repeat_direction)
+		_repeat_wait = 0.05
+
+	func _begin_repeat(direction: float) -> void:
+		_repeat_direction = direction
+		_repeat_wait = 0.35
+		_nudge(direction)
+		set_process(true)
+
+	func _stop_repeat() -> void:
+		_repeat_direction = 0.0
+		set_process(false)
+
+
 func _apply_bookmark_scrollbar(list: ScrollContainer) -> void:
 	var bar := list.get_v_scroll_bar()
-	var knob := _sprite_frame("GFX_scroll_drager", 1)
-	var track := _sprite_frame("GFX_scroll_track", 1)
-	var up := _sprite_frame("GFX_scroll_up", 1)
-	var down := _sprite_frame("GFX_scroll_down", 1)
-	if knob:
-		var grab := StyleBoxTexture.new()
-		grab.texture = knob
-		for state in ["grabber", "grabber_highlight", "grabber_pressed"]:
-			bar.add_theme_stylebox_override(state, grab)
-	if track:
-		var groove := StyleBoxTexture.new()
-		groove.texture = track
-		groove.texture_margin_left = 4.0
-		groove.texture_margin_right = 4.0
-		groove.texture_margin_top = 4.0
-		groove.texture_margin_bottom = 4.0
-		bar.add_theme_stylebox_override("scroll", groove)
-		bar.add_theme_stylebox_override("scroll_focus", groove)
-	if up:
-		for state in ["decrement", "decrement_highlight", "decrement_pressed"]:
-			bar.add_theme_icon_override(state, up)
-	if down:
-		for state in ["increment", "increment_highlight", "increment_pressed"]:
-			bar.add_theme_icon_override(state, down)
-	bar.custom_minimum_size = Vector2(16, bar.custom_minimum_size.y)
+	var empty := StyleBoxEmpty.new()
+	var styles := PackedStringArray(["scroll", "scroll_focus", "grabber", "grabber_highlight", "grabber_pressed"])
+	for style_name in styles:
+		bar.add_theme_stylebox_override(style_name, empty)
+	bar.custom_minimum_size = Vector2(BookmarkScrollbar.BUTTON, 0.0)
+	bar.modulate = Color(1, 1, 1, 0)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	list.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	var parent := list.get_parent()
+	if parent == null:
+		return
+	var previous := parent.get_node_or_null("bookmark_scrollbar")
+	if previous:
+		previous.queue_free()
+	var overlay := BookmarkScrollbar.new()
+	overlay.name = "bookmark_scrollbar"
+	overlay.host = list
+	overlay.up_texture = _sprite_frame("GFX_scroll_up", 1)
+	overlay.down_texture = _sprite_frame("GFX_scroll_down", 1)
+	overlay.knob_texture = _sprite_frame("GFX_scroll_drager", 1)
+	overlay.track_texture = _sprite_frame("GFX_scroll_track", 1)
+	overlay.z_index = 2
+	parent.add_child(overlay)
+	_sync_bookmark_scrollbar(list, overlay)
+	list.resized.connect(func() -> void: _sync_bookmark_scrollbar(list, overlay))
+	bar.resized.connect(func() -> void: _sync_bookmark_scrollbar(list, overlay))
+	bar.value_changed.connect(func(_value: float) -> void: overlay.queue_redraw())
+	bar.changed.connect(overlay.queue_redraw)
+	_sync_bookmark_scrollbar.call_deferred(list, overlay)
+
+
+func _sync_bookmark_scrollbar(list: ScrollContainer, overlay: Control) -> void:
+	if list.size.x < 1.0 or list.size.y < 1.0:
+		return
+	# 16 像素列贴在列表框右内沿，不伸出列表，也就不探出金框。
+	overlay.position = list.position + Vector2(list.size.x - BookmarkScrollbar.BUTTON, 0.0)
+	overlay.size = Vector2(BookmarkScrollbar.BUTTON, list.size.y)
+	overlay.queue_redraw()
 
 
 func _bookmark_row(entry: Dictionary, background: Texture2D, face: Font) -> Button:
