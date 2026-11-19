@@ -208,6 +208,37 @@ func _fill_bookmarks() -> void:
 		_bookmark_rows.append(row)
 	if not _bookmarks.is_empty():
 		_select_bookmark(chosen)
+	if list is ScrollContainer:
+		_apply_bookmark_scrollbar(list)
+
+
+func _apply_bookmark_scrollbar(list: ScrollContainer) -> void:
+	var bar := list.get_v_scroll_bar()
+	var knob := _sprite_frame("GFX_scroll_drager", 1)
+	var track := _sprite_frame("GFX_scroll_track", 1)
+	var up := _sprite_frame("GFX_scroll_up", 1)
+	var down := _sprite_frame("GFX_scroll_down", 1)
+	if knob:
+		var grab := StyleBoxTexture.new()
+		grab.texture = knob
+		for state in ["grabber", "grabber_highlight", "grabber_pressed"]:
+			bar.add_theme_stylebox_override(state, grab)
+	if track:
+		var groove := StyleBoxTexture.new()
+		groove.texture = track
+		groove.texture_margin_left = 4.0
+		groove.texture_margin_right = 4.0
+		groove.texture_margin_top = 4.0
+		groove.texture_margin_bottom = 4.0
+		bar.add_theme_stylebox_override("scroll", groove)
+		bar.add_theme_stylebox_override("scroll_focus", groove)
+	if up:
+		for state in ["decrement", "decrement_highlight", "decrement_pressed"]:
+			bar.add_theme_icon_override(state, up)
+	if down:
+		for state in ["increment", "increment_highlight", "increment_pressed"]:
+			bar.add_theme_icon_override(state, down)
+	bar.custom_minimum_size = Vector2(16, bar.custom_minimum_size.y)
 
 
 func _bookmark_row(entry: Dictionary, background: Texture2D, face: Font) -> Button:
