@@ -69,11 +69,47 @@ func _build_chrome() -> void:
 	var year_box := _find_named(_chrome, "year")
 	if year_box is LineEdit and not parts.is_empty():
 		year_box.text = parts[0]
+		_seat_year(year_box)
 	var date_label := _find_named(_chrome, "daymonth")
 	if date_label is RichTextLabel and parts.size() >= 3:
 		date_label.text = "%s.%s" % [parts[1], parts[2]]
 	_attach_flag()
 	_paint_loaded_text(_chrome)
+
+
+# 年份数字按 vic_22s 的基线落进编辑框上沿的字盒，不压住框下沿的箭头。
+func _seat_year(edit: LineEdit) -> void:
+	var info: Dictionary = _backend.resolve_eu4_sprite("vic_22s")
+	var fnt_path := str(info.get("absolute_path", ""))
+	var page_path := str(info.get("absolute_path_1", ""))
+	if fnt_path.is_empty() or page_path.is_empty():
+		return
+	var assets = ASSETS_SCRIPT.new()
+	var texture: Texture2D = assets.texture_from_file(page_path)
+	if texture == null:
+		return
+	var page := texture.get_image()
+	var font: Font = preload("res://ui/eu4/eu4_bitmap_font.gd").font_from_page(fnt_path, page)
+	if font == null:
+		return
+	var face := int(font.get_meta("eu4_face", 22))
+	var line_height := int(font.get_meta("eu4_line_height", face))
+	edit.add_theme_font_override("font", font)
+	edit.add_theme_font_size_override("font_size", face)
+	edit.add_theme_color_override("font_color", Color(0.96, 0.91, 0.78))
+	edit.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	edit.clip_contents = true
+	var box_h := edit.size.y
+	if box_h < 1.0:
+		box_h = 30.0
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.05, 0.05, 0.06, 0.95)
+	style.content_margin_left = 0.0
+	style.content_margin_top = 0.0
+	style.content_margin_right = 0.0
+	style.content_margin_bottom = maxf(box_h - float(line_height), 0.0)
+	for state in ["normal", "focus", "read_only"]:
+		edit.add_theme_stylebox_override(state, style)
 
 
 func _on_gui_action(eu4_name: String, _properties: Dictionary) -> void:

@@ -18,6 +18,15 @@ static func atlas_font(fnt_path: String, tga_path: String) -> Font:
 	var page := Image.load_from_file(tga_path)
 	if page == null or page.is_empty():
 		return null
+	return font_from_page(fnt_path, page)
+
+
+# 页图已经解开时用这条。年份 vic_22s 的页是 dds，不是 tga。
+static func font_from_page(fnt_path: String, page: Image) -> Font:
+	if fnt_path.is_empty() or page == null or page.is_empty():
+		return null
+	if _fonts.has(fnt_path):
+		return _fonts[fnt_path]
 	if page.get_format() != Image.FORMAT_RGBA8:
 		page.convert(Image.FORMAT_RGBA8)
 	var face_size := 0
@@ -61,6 +70,8 @@ static func atlas_font(fnt_path: String, tga_path: String) -> Font:
 		var y_from_top := int(glyph.yoffset)
 		font.set_glyph_offset(0, cache_size, id, Vector2(int(glyph.xoffset), y_from_top - baseline))
 		font.set_glyph_advance(0, face, id, Vector2(glyph.xadvance, 0))
+	font.set_meta("eu4_face", face)
+	font.set_meta("eu4_line_height", line_height if line_height > 0 else face)
 	_fonts[fnt_path] = font
 	return font
 
