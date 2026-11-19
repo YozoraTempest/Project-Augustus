@@ -303,13 +303,13 @@ func _apply_baseline_geometry(control: Control, data: Dictionary, parent: Node) 
 		position = data.get("position")
 	var x := _axis(position, "x")
 	var y := _axis(position, "y")
-	var declared := data.get("size")
+	var declared: Variant = data.get("size")
 	var declared_w := _axis(declared, "x")
 	var declared_h := _axis(declared, "y")
 	var parent_box := Vector2.ZERO
 	if parent != null and parent.has_meta("eu4_box"):
 		parent_box = parent.get_meta("eu4_box")
-	var fullscreen := data.get("fullscreen") == true
+	var fullscreen: bool = data.get("fullscreen") == true
 	var box := BASELINE_SIZE if fullscreen else Vector2(declared_w, declared_h)
 	var visual := box
 	if not fullscreen and not (declared is Dictionary):
