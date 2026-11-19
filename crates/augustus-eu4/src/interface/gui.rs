@@ -117,7 +117,11 @@ fn normalize_widget(type_key: &str, fields: Vec<UiField>, source: &ContentSource
 }
 
 /// 以 `Type` 结尾的对象是控件。`spriteType` 在 `.gui` 里是精灵名，不是子控件。
+/// `eu3dialogtype` 不带大写 Type，但仍是窗口。
 fn is_widget_key(key: &str) -> bool {
+    if key.eq_ignore_ascii_case("eu3dialogtype") {
+        return true;
+    }
     key.ends_with("Type") && key != "spriteType" && key != "quadTextureSprite"
 }
 
