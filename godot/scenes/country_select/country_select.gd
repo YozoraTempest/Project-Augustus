@@ -123,29 +123,22 @@ func _fill_lobby() -> void:
 
 
 func _fill_start_tabs() -> void:
-	var box := _find_named(_chrome, "start_type_options") as Control
-	if box == null:
+	# OverlappingElementsBoxType 的大小写和解析器不一致，控件没有建出来。
+	# 页签仍放在文件坐标 (32, 49)、250×50 的那一块里，不挪左栏。
+	var left := _find_named(_chrome, "left") as Control
+	if left == null:
 		return
-	box.z_index = 2
 	var selected := _sprite_frame("GFX_start_type_option_bg", 1)
 	var idle := _sprite_frame("GFX_start_type_option_bg", 2)
 	var bookmarks_icon := _sprite_frame("GFX_start_type_option_icon", 1)
 	var saves_icon := _sprite_frame("GFX_start_type_option_icon", 2)
 	var tab_w := 80.0
 	var gap := 2.0
-	var width := box.size.x if box.size.x > 1.0 else 250.0
-	var origin_x := (width - tab_w * 2.0 - gap) * 0.5
-	if origin_x < 0.0:
-		origin_x = 0.0
-	var host := box.get_parent() as Control
-	var bookmarks_tab := _tab_button(selected, bookmarks_icon, box.position + Vector2(origin_x, 7))
-	var saves_tab := _tab_button(idle, saves_icon, box.position + Vector2(origin_x + tab_w + gap, 7))
-	if host == null:
-		host = box
-		bookmarks_tab.position = Vector2(origin_x, 7)
-		saves_tab.position = Vector2(origin_x + tab_w + gap, 7)
-	host.add_child(bookmarks_tab)
-	host.add_child(saves_tab)
+	var origin := Vector2(32, 49) + Vector2((250.0 - tab_w * 2.0 - gap) * 0.5, 7)
+	var bookmarks_tab := _tab_button(selected, bookmarks_icon, origin)
+	var saves_tab := _tab_button(idle, saves_icon, origin + Vector2(tab_w + gap, 0))
+	left.add_child(bookmarks_tab)
+	left.add_child(saves_tab)
 	bookmarks_tab.pressed.connect(func() -> void:
 		_gui.set_named_visible("bookmarks", true)
 		_gui.set_named_visible("save_games", false)
