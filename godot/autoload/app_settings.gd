@@ -4,6 +4,8 @@ extends Node
 # 显示偏好和 EU4 安装目录共用 user://settings.cfg，不另建文件。
 # 返回主菜单或重新开局不会清除设置。
 const LAUNCHER_SIZE := Vector2i(960, 600)
+# 日常游戏窗口和界面调试都按这个尺寸。没单独保存分辨率时用它，不跟屏幕走。
+const GAME_SIZE := Vector2i(1920, 1080)
 
 var config_path := "user://settings.cfg"
 var window_mode: Window.Mode = Window.MODE_WINDOWED
@@ -104,7 +106,7 @@ func current_screen_size() -> Vector2i:
 
 
 func resolved_game_size() -> Vector2i:
-	return game_resolution if has_custom_resolution else current_screen_size()
+	return game_resolution if has_custom_resolution else GAME_SIZE
 
 
 func apply_launcher_window() -> void:

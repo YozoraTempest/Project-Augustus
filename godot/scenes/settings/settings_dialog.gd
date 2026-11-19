@@ -45,7 +45,7 @@ func _fill_resolutions() -> void:
 	for size in [Vector2i(1280, 720), Vector2i(1366, 768), Vector2i(1600, 900), Vector2i(1920, 1080), Vector2i(2560, 1440), Vector2i(3840, 2160)]:
 		resolution_option.add_item("%d × %d" % [size.x, size.y])
 		resolution_option.set_item_metadata(resolution_option.item_count - 1, size)
-	var selected := SCREEN_SIZE if not AppSettings.has_custom_resolution else AppSettings.game_resolution
+	var selected := AppSettings.GAME_SIZE if not AppSettings.has_custom_resolution else AppSettings.game_resolution
 	for index in resolution_option.item_count:
 		if resolution_option.get_item_metadata(index) == selected:
 			resolution_option.select(index)
@@ -58,6 +58,8 @@ func _fill_resolutions() -> void:
 func _apply_settings() -> void:
 	var mode := mode_option.get_selected_id() as Window.Mode
 	var resolution: Vector2i = resolution_option.get_item_metadata(resolution_option.selected)
+	if resolution == SCREEN_SIZE:
+		resolution = AppSettings.current_screen_size()
 	var error := AppSettings.save_and_apply(mode, vsync_toggle.button_pressed, resolution)
 	if error != OK:
 		error_label.text = "无法保存设置：" + error_string(error)
