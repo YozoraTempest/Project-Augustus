@@ -44,19 +44,20 @@ static func atlas_font(fnt_path: String, tga_path: String) -> Font:
 			})
 	if glyphs.is_empty():
 		return null
-	var cache_size := Vector2i(face_size if face_size > 0 else line_height, 0)
+	var face := face_size if face_size > 0 else line_height
+	var cache_size := Vector2i(face, 0)
 	var font := FontFile.new()
 	font.set_texture_image(0, cache_size, 0, page)
 	if line_height > 0:
-		font.set_cache_ascent(0, cache_size, float(base_line if base_line > 0 else line_height))
-		font.set_cache_descent(0, cache_size, float(maxi(line_height - base_line, 0)))
+		font.set_cache_ascent(0, face, float(base_line if base_line > 0 else line_height))
+		font.set_cache_descent(0, face, float(maxi(line_height - base_line, 0)))
 	for glyph: Dictionary in glyphs:
 		var id := int(glyph.id)
 		font.set_glyph_texture_idx(0, cache_size, id, 0)
 		font.set_glyph_uv_rect(0, cache_size, id, Rect2(glyph.x, glyph.y, glyph.width, glyph.height))
 		font.set_glyph_size(0, cache_size, id, Vector2(glyph.width, glyph.height))
 		font.set_glyph_offset(0, cache_size, id, Vector2(glyph.xoffset, glyph.yoffset))
-		font.set_glyph_advance(0, cache_size, id, Vector2(glyph.xadvance, 0))
+		font.set_glyph_advance(0, face, id, Vector2(glyph.xadvance, 0))
 	_fonts[fnt_path] = font
 	return font
 

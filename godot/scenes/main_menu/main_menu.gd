@@ -144,13 +144,13 @@ func _use_our_actions() -> void:
 func _caption(eu4_name: String, caption: String) -> void:
 	var node := _find_named(_layout, eu4_name)
 	if node is RichTextLabel:
-		var size := node.get_theme_font_size("normal_font_size")
+		var size: int = node.get_theme_font_size("normal_font_size")
 		node.text = caption
 		node.bbcode_enabled = false
 		Eu4Type.paint_rich_text(node, size)
 		node.add_theme_color_override("default_color", Color(0.96, 0.91, 0.78))
 	elif node is Button:
-		var size := node.get_theme_font_size("font_size")
+		var size: int = node.get_theme_font_size("font_size")
 		node.text = caption
 		node.add_theme_font_override("font", Eu4Type.face_of(node))
 		node.add_theme_font_size_override("font_size", size)

@@ -35,7 +35,7 @@ func _paint_match_type(node: Node) -> void:
 	if node is Button and node.icon == null:
 		_paint_match_button(node)
 	elif node is Label:
-		var size := Eu4Type.VIC_22 if node.get_theme_font_size("font_size") >= Eu4Type.VIC_22 else Eu4Type.VIC_18
+		var size: int = Eu4Type.VIC_22 if int(node.get_theme_font_size("font_size")) >= Eu4Type.VIC_22 else Eu4Type.VIC_18
 		Eu4Type.paint_label(node, size)
 	for child in node.get_children():
 		_paint_match_type(child)

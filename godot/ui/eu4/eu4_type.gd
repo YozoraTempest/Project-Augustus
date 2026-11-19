@@ -36,11 +36,12 @@ static func paint_rich_text(label: RichTextLabel, size: int) -> void:
 
 
 static func face_of(control: Control) -> Font:
-	var bitmap: Variant = control.get_meta("eu4_bitmap_font", null)
-	if bitmap is Font:
-		if bitmap.fallbacks.is_empty():
-			bitmap.fallbacks = [font()]
-		return bitmap
+	if control.has_meta("eu4_bitmap_font"):
+		var bitmap: Variant = control.get_meta("eu4_bitmap_font")
+		if bitmap is Font:
+			if bitmap.fallbacks.is_empty():
+				bitmap.fallbacks = [font()]
+			return bitmap
 	return font()
 
 

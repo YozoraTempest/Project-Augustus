@@ -115,14 +115,14 @@ func _attach_flag() -> void:
 
 func _paint_loaded_text(node: Node) -> void:
 	if node is RichTextLabel:
-		var size := node.get_theme_font_size("normal_font_size")
+		var size: int = node.get_theme_font_size("normal_font_size")
 		Eu4Type.paint_rich_text(node, size)
 	elif node is LineEdit:
-		var size := node.get_theme_font_size("font_size")
+		var size: int = node.get_theme_font_size("font_size")
 		node.add_theme_font_override("font", Eu4Type.face_of(node))
 		node.add_theme_font_size_override("font_size", size)
 	elif node is Button:
-		var size := node.get_theme_font_size("font_size")
+		var size: int = node.get_theme_font_size("font_size")
 		node.add_theme_font_override("font", Eu4Type.face_of(node))
 		node.add_theme_font_size_override("font_size", size)
 	for child in node.get_children():
@@ -219,15 +219,15 @@ func _compose_shield(flag: Image) -> Texture2D:
 			overlay = loaded
 	if mask == null:
 		return ImageTexture.create_from_image(flag)
-	var width := mask.get_width()
-	var height := mask.get_height()
+	var width: int = mask.get_width()
+	var height: int = mask.get_height()
 	var source := flag.duplicate()
 	source.resize(width, height, Image.INTERPOLATE_NEAREST)
 	var image := Image.create(width, height, false, Image.FORMAT_RGBA8)
 	for y in height:
 		for x in width:
-			var pixel := source.get_pixel(x, y)
-			var cover := mask.get_pixel(x, y)
+			var pixel: Color = source.get_pixel(x, y)
+			var cover: Color = mask.get_pixel(x, y)
 			image.set_pixel(x, y, Color(pixel.r, pixel.g, pixel.b, pixel.a * cover.a))
 	if overlay != null:
 		var frame := overlay

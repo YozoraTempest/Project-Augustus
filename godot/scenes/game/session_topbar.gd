@@ -43,7 +43,7 @@ func setup(directory: String) -> void:
 	_placeholders = GameSession.backend.gui_placeholders()
 	var host := Control.new()
 	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var window := _find_json(document, "topbar")
+	var window: Variant = _find_json(document, "topbar")
 	var origin := _vec(window.get("position", {}) if window is Dictionary else {})
 	host.position = origin
 	add_child(host)
@@ -70,7 +70,7 @@ func setup(directory: String) -> void:
 
 func _paint_loaded_text(node: Node) -> void:
 	if node is RichTextLabel:
-		var size := node.get_theme_font_size("normal_font_size")
+		var size: int = node.get_theme_font_size("normal_font_size")
 		Eu4Type.paint_rich_text(node, size)
 		node.add_theme_color_override("default_color", CREAM)
 	for child in node.get_children():
@@ -82,11 +82,11 @@ func _find_json(node: Variant, wanted: String) -> Variant:
 		if str(node.get("name", "")) == wanted:
 			return node
 		for child: Variant in node.get("children", []):
-			var found := _find_json(child, wanted)
+			var found: Variant = _find_json(child, wanted)
 			if found != null:
 				return found
 		for root: Variant in node.get("roots", []):
-			var found := _find_json(root, wanted)
+			var found: Variant = _find_json(root, wanted)
 			if found != null:
 				return found
 	return null
