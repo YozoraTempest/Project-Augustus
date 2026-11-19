@@ -126,6 +126,7 @@ func _fill_start_tabs() -> void:
 	var box := _find_named(_chrome, "start_type_options") as Control
 	if box == null:
 		return
+	box.z_index = 2
 	var selected := _sprite_frame("GFX_start_type_option_bg", 1)
 	var idle := _sprite_frame("GFX_start_type_option_bg", 2)
 	var bookmarks_icon := _sprite_frame("GFX_start_type_option_icon", 1)
@@ -160,7 +161,8 @@ func _tab_button(background: Texture2D, icon: Texture2D, at: Vector2) -> Button:
 	button.size = Vector2(80, 35)
 	button.custom_minimum_size = Vector2(80, 35)
 	button.focus_mode = Control.FOCUS_NONE
-	button.flat = true
+	button.flat = false
+	button.z_index = 2
 	_set_tab_style(button, background)
 	if icon:
 		var mark := TextureRect.new()
@@ -189,6 +191,8 @@ func _fill_bookmarks() -> void:
 	var items := list.get_node_or_null("Items") as VBoxContainer
 	if items == null:
 		return
+	if list is Control:
+		list.clip_contents = true
 	items.add_theme_constant_override("separation", 0)
 	_bookmarks = _read_bookmarks()
 	_bookmark_rows.clear()
@@ -210,7 +214,7 @@ func _fill_bookmarks() -> void:
 
 func _bookmark_row(entry: Dictionary, background: Texture2D, face: Font) -> Button:
 	var row := Button.new()
-	row.flat = true
+	row.flat = false
 	row.focus_mode = Control.FOCUS_NONE
 	row.custom_minimum_size = Vector2(240, 40)
 	row.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -290,6 +294,12 @@ func _fill_dlc_icons() -> void:
 		return
 	first.add_theme_constant_override("separation", 2)
 	second.add_theme_constant_override("separation", 2)
+	var first_list := _find_named(_chrome, "enabled_dlc_list_0") as Control
+	var second_list := _find_named(_chrome, "enabled_dlc_list_1") as Control
+	if first_list:
+		first_list.clip_contents = true
+	if second_list:
+		second_list.clip_contents = true
 	var packs := _read_dlcs()
 	var columns: Array[VBoxContainer] = [first, second]
 	for index in packs.size():
