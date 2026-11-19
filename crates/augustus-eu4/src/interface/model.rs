@@ -179,6 +179,10 @@ pub enum GuiNodeKind {
 
 impl GuiNodeKind {
     pub fn from_type_key(key: &str) -> Self {
+        // 旧存档对话框写成 eu3dialogtype，和 windowType 是同一类窗口。
+        if key.eq_ignore_ascii_case("eu3dialogtype") {
+            return Self::Window;
+        }
         match key {
             "windowType" => Self::Window,
             "containerWindowType" => Self::ContainerWindow,
