@@ -137,10 +137,15 @@ func _fill_start_tabs() -> void:
 	var origin_x := (width - tab_w * 2.0 - gap) * 0.5
 	if origin_x < 0.0:
 		origin_x = 0.0
-	var bookmarks_tab := _tab_button(selected, bookmarks_icon, Vector2(origin_x, 7))
-	var saves_tab := _tab_button(idle, saves_icon, Vector2(origin_x + tab_w + gap, 7))
-	box.add_child(bookmarks_tab)
-	box.add_child(saves_tab)
+	var host := box.get_parent() as Control
+	var bookmarks_tab := _tab_button(selected, bookmarks_icon, box.position + Vector2(origin_x, 7))
+	var saves_tab := _tab_button(idle, saves_icon, box.position + Vector2(origin_x + tab_w + gap, 7))
+	if host == null:
+		host = box
+		bookmarks_tab.position = Vector2(origin_x, 7)
+		saves_tab.position = Vector2(origin_x + tab_w + gap, 7)
+	host.add_child(bookmarks_tab)
+	host.add_child(saves_tab)
 	bookmarks_tab.pressed.connect(func() -> void:
 		_gui.set_named_visible("bookmarks", true)
 		_gui.set_named_visible("save_games", false)
