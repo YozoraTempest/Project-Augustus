@@ -136,6 +136,9 @@ func _text(data: Dictionary) -> RichTextLabel:
 	_attach_bitmap_font(label, str(data.get("font", "")))
 	label.add_theme_color_override("default_color", Color(0.95, 0.91, 0.82))
 	label.text = _display_text(data, false)
+	if baseline_layout:
+		# 行顶对齐字盒顶，字形再按基线落下。写了居中才在字盒宽度里居中。
+		label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	_apply_format(label, str(data.get("format", "")))
 	return label
 
@@ -144,6 +147,9 @@ func _button(data: Dictionary) -> Button:
 	var button := Button.new()
 	button.text = _display_text(data, true)
 	button.clip_text = true
+	if baseline_layout:
+		# buttonText 留在按钮底图里。旁边的文本框仍是单独的控件，不挪到按钮上。
+		button.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	button.tooltip_text = _localise(_string(data.get("tooltip")))
 	var button_font := str(data.get("button_font", data.get("font", "")))
 	button.add_theme_font_size_override("font_size", _font_size(button_font))

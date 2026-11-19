@@ -48,15 +48,18 @@ static func atlas_font(fnt_path: String, tga_path: String) -> Font:
 	var cache_size := Vector2i(face, 0)
 	var font := FontFile.new()
 	font.set_texture_image(0, cache_size, 0, page)
+	# .fnt 的 base 是行顶到基线。yoffset、xoffset 从行顶的笔位算，Godot 的偏移从基线算。
+	var baseline := base_line if base_line > 0 else line_height
 	if line_height > 0:
-		font.set_cache_ascent(0, face, float(base_line if base_line > 0 else line_height))
-		font.set_cache_descent(0, face, float(maxi(line_height - base_line, 0)))
+		font.set_cache_ascent(0, face, float(baseline))
+		font.set_cache_descent(0, face, float(maxi(line_height - baseline, 0)))
 	for glyph: Dictionary in glyphs:
 		var id := int(glyph.id)
 		font.set_glyph_texture_idx(0, cache_size, id, 0)
 		font.set_glyph_uv_rect(0, cache_size, id, Rect2(glyph.x, glyph.y, glyph.width, glyph.height))
 		font.set_glyph_size(0, cache_size, id, Vector2(glyph.width, glyph.height))
-		font.set_glyph_offset(0, cache_size, id, Vector2(glyph.xoffset, glyph.yoffset))
+		var y_from_top := int(glyph.yoffset)
+		font.set_glyph_offset(0, cache_size, id, Vector2(int(glyph.xoffset), y_from_top - baseline))
 		font.set_glyph_advance(0, face, id, Vector2(glyph.xadvance, 0))
 	_fonts[fnt_path] = font
 	return font
