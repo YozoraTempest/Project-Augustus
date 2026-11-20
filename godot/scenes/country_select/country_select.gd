@@ -778,6 +778,7 @@ func _refresh_selection() -> void:
 		_chosen_country = ""
 		_show_country_panel(false)
 		_hide_religion_icons()
+		_clear_tech_government()
 		_clear_opening_figures()
 		_clear_national_ideas()
 		if _start:
@@ -789,6 +790,7 @@ func _refresh_selection() -> void:
 	_chosen_country = tag
 	_fill_country_stats(info)
 	_apply_religion_icons(info)
+	_apply_tech_government(info)
 	_fill_opening_figures(info)
 	_fill_national_ideas(info)
 	_show_country_panel(true)
@@ -960,6 +962,53 @@ func _idea_texture(relative: String) -> Texture2D:
 	var path := str(_backend.get_game_directory()).path_join(relative)
 	var assets = ASSETS_SCRIPT.new()
 	return assets.texture_from_file(path)
+
+
+func _apply_tech_government(info: Dictionary) -> void:
+	var frame := int(info.get("tech_group_icon", 0))
+	if frame < 1:
+		frame = 1
+	_paint_icon_frame("techgroup_icon", "GFX_tech_group_strip", frame)
+	_bind_named_tip("techgroup_icon", _text_field(info, "tech_group_name"))
+	_set_box("selected_nation_status_label", _text_field(info, "government_name"))
+
+
+func _clear_tech_government() -> void:
+	_paint_icon_frame("techgroup_icon", "GFX_tech_group_strip", 1)
+	_bind_named_tip("techgroup_icon", "")
+	_set_box("selected_nation_status_label", "")
+	_hide_idea_tip()
+
+
+func _paint_icon_frame(eu4_name: String, sprite_name: String, frame: int) -> void:
+	var icon := _find_named(_chrome, eu4_name) as TextureRect
+	if icon == null:
+		return
+	var texture := _sprite_frame(sprite_name, frame)
+	if texture == null:
+		return
+	icon.texture = texture
+	icon.visible = true
+
+
+func _bind_named_tip(eu4_name: String, title: String) -> void:
+	var slot := _find_named(_chrome, eu4_name) as TextureRect
+	if slot == null:
+		return
+	slot.tooltip_text = ""
+	if title.is_empty():
+		slot.set_meta("idea_tip_title", "")
+		slot.set_meta("idea_tip_body", "")
+		slot.set_meta("idea_tip_effects", "")
+		return
+	slot.set_meta("idea_tip_title", title)
+	slot.set_meta("idea_tip_body", "")
+	slot.set_meta("idea_tip_effects", "")
+	slot.mouse_filter = Control.MOUSE_FILTER_STOP
+	if not slot.has_meta("idea_tip_bound"):
+		slot.mouse_entered.connect(_show_idea_tip.bind(slot))
+		slot.mouse_exited.connect(_hide_idea_tip)
+		slot.set_meta("idea_tip_bound", true)
 
 
 func _fill_country_stats(info: Dictionary) -> void:
@@ -1135,6 +1184,7 @@ func _clear_country() -> void:
 	_chosen_country = ""
 	_show_country_panel(false)
 	_hide_religion_icons()
+	_clear_tech_government()
 	_clear_opening_figures()
 	_clear_national_ideas()
 	_clear_country_stats()

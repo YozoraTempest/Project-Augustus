@@ -228,6 +228,24 @@ pub(crate) fn country_info(
     number(&mut info, "adm_tech", country.adm_tech.map(u64::from));
     number(&mut info, "dip_tech", country.dip_tech.map(u64::from));
     number(&mut info, "mil_tech", country.mil_tech.map(u64::from));
+    if let Some(group) = country
+        .military
+        .as_ref()
+        .map(|military| military.technology_group.as_str())
+    {
+        if let Some(frame) = world.technology_group_frame(group) {
+            info.set("tech_group_icon", i64::from(frame));
+        }
+        text(&mut info, "tech_group_name", world.loaded_text(group));
+    }
+    let government_name = if let Some(reform) = country.government_reforms.first() {
+        world.loaded_text(reform)
+    } else if let Some(kind) = country.government.as_deref() {
+        world.loaded_text(&format!("{kind}_name"))
+    } else {
+        None
+    };
+    text(&mut info, "government_name", government_name);
     if let Some(ruler) = &country.monarch {
         info.set("ruler_name", ruler.name.as_str());
         info.set("ruler_adm", i64::from(ruler.adm));

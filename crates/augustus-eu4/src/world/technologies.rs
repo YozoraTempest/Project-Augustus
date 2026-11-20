@@ -9,6 +9,8 @@ use crate::{Error, content::ContentRoot, script};
 #[derive(Debug)]
 pub(super) struct TechTables {
     start_levels: BTreeMap<String, u32>,
+    /// `groups` 的书写顺序。帧号从 1 起，不按字母排序。
+    group_order: Vec<String>,
     adm_levels: u32,
     dip_levels: u32,
     mil_levels: u32,
@@ -30,18 +32,24 @@ impl TechTables {
         }
         Ok(level)
     }
+
+    pub(super) fn group_order(&self) -> &[String] {
+        &self.group_order
+    }
 }
 
 pub(super) fn load(content: &ContentRoot) -> Result<TechTables, Error> {
+    let (start_levels, group_order) = start_levels(content)?;
     Ok(TechTables {
-        start_levels: start_levels(content)?,
+        start_levels,
+        group_order,
         adm_levels: level_count(content, "common/technologies/adm.txt")?,
         dip_levels: level_count(content, "common/technologies/dip.txt")?,
         mil_levels: level_count(content, "common/technologies/mil.txt")?,
     })
 }
 
-fn start_levels(content: &ContentRoot) -> Result<BTreeMap<String, u32>, Error> {
+fn start_levels(content: &ContentRoot) -> Result<(BTreeMap<String, u32>, Vec<String>), Error> {
     let file = content.read("common/technology.txt")?;
     let tape = script::parse(&file)?;
     let mut groups = None;
@@ -63,6 +71,7 @@ fn start_levels(content: &ContentRoot) -> Result<BTreeMap<String, u32>, Error> {
         return Err(Error::invalid(&file.path, "missing technology groups"));
     };
     let mut levels = BTreeMap::new();
+    let mut order = Vec::new();
     for (key, operator, value) in groups.fields() {
         let name = key.read_str().into_owned();
         script::equal(&file, operator, &name)?;
@@ -85,9 +94,10 @@ fn start_levels(content: &ContentRoot) -> Result<BTreeMap<String, u32>, Error> {
         }
         let start = start
             .ok_or_else(|| Error::invalid(&file.path, format!("missing start_level for {name}")))?;
-        levels.insert(name, start);
+        levels.insert(name.clone(), start);
+        order.push(name);
     }
-    Ok(levels)
+    Ok((levels, order))
 }
 
 fn level_count(content: &ContentRoot, relative: &str) -> Result<u32, Error> {
@@ -159,6 +169,10 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         assert_eq!(tables.start_level("western").unwrap(), 1);
         assert_eq!(tables.start_level("ottoman").unwrap(), 3);
+        assert_eq!(
+            tables.group_order(),
+            ["western".to_owned(), "ottoman".to_owned()]
+        );
         assert!(tables.start_level("missing").is_err());
     }
 }

@@ -103,6 +103,8 @@ pub(super) fn apply_countries(
                         | "secondary_religion"
                         | "technology_group"
                         | "unit_type"
+                        | "government"
+                        | "add_government_reform"
                 ) {
                     continue;
                 }
@@ -123,6 +125,12 @@ pub(super) fn apply_countries(
                         "secondary_religion" => country.secondary_religion = text,
                         "technology_group" => technology_group = text,
                         "unit_type" => unit_type = text,
+                        "government" => country.government = text,
+                        "add_government_reform" => {
+                            if let Some(reform) = text {
+                                country.government_reforms.push(reform);
+                            }
+                        }
                         _ => unreachable!(),
                     }
                 }
@@ -139,6 +147,8 @@ pub(super) fn apply_countries(
             target.secondary_religion = country.secondary_religion;
             target.monarch = country.monarch;
             target.heir = country.heir;
+            target.government = country.government;
+            target.government_reforms = country.government_reforms;
             groups.insert(tag.clone(), origin);
         } else {
             let previous = groups.get(&tag).expect("重复历史仍有第一次的科技组");
@@ -173,6 +183,14 @@ pub(super) fn apply_countries(
             }
             if target.heir != country.heir {
                 target.heir = None;
+                conflicts.insert(tag.clone());
+            }
+            if target.government != country.government {
+                target.government = None;
+                conflicts.insert(tag.clone());
+            }
+            if target.government_reforms != country.government_reforms {
+                target.government_reforms.clear();
                 conflicts.insert(tag);
             }
         }
@@ -613,6 +631,40 @@ mod tests {
         let heir = country.heir.as_ref().unwrap();
         assert_eq!(heir.name, "Mehmed");
         assert_eq!((heir.adm, heir.dip, heir.mil), (6, 4, 6));
+    }
+
+    #[test]
+    fn government_keeps_reforms_on_or_before_the_start_date() {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "augustus-government-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("history/countries")).unwrap();
+        fs::write(
+            root.join("history/countries/TUR - Ottomans.txt"),
+            r#"
+                government = monarchy
+                add_government_reform = ottoman_government
+                1400.1.1 = { add_government_reform = feudalism_reform }
+                1459.1.1 = { government_rank = 3 government = republic }
+            "#,
+        )
+        .unwrap();
+        let mut countries = BTreeMap::from([("TUR".to_owned(), Country::new("TUR"))]);
+        apply_countries(&ContentRoot::new(&root), &mut countries).unwrap();
+        let _ = fs::remove_dir_all(&root);
+        let country = countries.get("TUR").unwrap();
+        assert_eq!(country.government.as_deref(), Some("monarchy"));
+        assert_eq!(
+            country.government_reforms,
+            [
+                "ottoman_government".to_owned(),
+                "feudalism_reform".to_owned()
+            ]
+        );
     }
 
     #[test]

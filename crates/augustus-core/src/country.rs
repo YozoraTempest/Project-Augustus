@@ -28,6 +28,12 @@ pub struct Country {
     /// 开局继承人。没有就空着，右栏不画。
     #[serde(default)]
     pub heir: Option<CourtPerson>,
+    /// 开局日期及之前最后一次写出的政府类型。只给右栏显示名字。
+    #[serde(default)]
+    pub government: Option<String>,
+    /// 开局日期及之前依次加入的政府改革。右栏只用第一条的英文名。
+    #[serde(default)]
+    pub government_reforms: Vec<String>,
     pub finances: CountryFinances,
     // 缺失表示尚未组成世界或来自旧版存档，由 World 根据领土初始化。
     #[serde(default)]
@@ -50,6 +56,8 @@ impl Country {
             mil_tech: None,
             monarch: None,
             heir: None,
+            government: None,
+            government_reforms: Vec::new(),
             finances: CountryFinances::default(),
             manpower: None,
             military: None,

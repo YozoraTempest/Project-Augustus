@@ -42,6 +42,8 @@ pub struct OpeningWorld {
     /// 顾问池。没有在职顾问，右栏不画。
     advisors: history::AdvisorBook,
     national_ideas: BTreeMap<String, ideas::NationalIdeas>,
+    /// `common/technology.txt` 里 `groups` 的书写顺序。
+    technology_groups: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -152,8 +154,16 @@ impl OpeningWorld {
                     .cloned(),
             );
         }
-        let mut names = localisation::load(&content, &wanted)?;
         let mut descriptions = BTreeSet::new();
+        for country in state.countries().values() {
+            if let Some(military) = &country.military {
+                descriptions.insert(military.technology_group.clone());
+            }
+            if let Some(government) = &country.government {
+                descriptions.insert(format!("{government}_name"));
+            }
+            descriptions.extend(country.government_reforms.iter().cloned());
+        }
         for ideas in national_ideas.values() {
             for idea in &ideas.ideas {
                 descriptions.insert(format!("{}_desc", idea.id));
@@ -165,6 +175,7 @@ impl OpeningWorld {
                 }
             }
         }
+        let mut names = localisation::load(&content, &wanted)?;
         names.extend(localisation::load_descriptions(&content, &descriptions)?);
         Ok(Self {
             map,
@@ -175,6 +186,7 @@ impl OpeningWorld {
             religion_icons,
             advisors,
             national_ideas,
+            technology_groups: tech_tables.group_order().to_vec(),
         })
     }
 
@@ -260,6 +272,19 @@ impl OpeningWorld {
             .get(key)
             .cloned()
             .unwrap_or_else(|| key.to_owned())
+    }
+
+    /// 已载入的英文界面文本。没有这个键就空着，不退回键名本身。
+    pub fn loaded_text(&self, key: &str) -> Option<&str> {
+        self.names.get(key).map(String::as_str)
+    }
+
+    /// 科技组图标帧，按 `groups` 书写顺序从 1 起。
+    pub fn technology_group_frame(&self, group: &str) -> Option<u32> {
+        self.technology_groups
+            .iter()
+            .position(|name| name == group)
+            .and_then(|index| u32::try_from(index + 1).ok())
     }
 
     pub fn building_name(&self, id: &str) -> String {
@@ -465,6 +490,27 @@ mod tests {
         assert_eq!(summary.provinces, 41);
         assert_eq!(summary.development, Some(320));
         assert_eq!(summary.fort_level, 11);
+        assert_eq!(
+            world
+                .state()
+                .country("TUR")
+                .and_then(|country| country.military.as_ref())
+                .map(|military| military.technology_group.as_str()),
+            Some("ottoman")
+        );
+        assert_eq!(world.technology_group_frame("ottoman"), Some(3));
+        assert_eq!(world.loaded_text("ottoman"), Some("Anatolian"));
+        let government = world.state().country("TUR").expect("TUR");
+        assert_eq!(government.government.as_deref(), Some("monarchy"));
+        assert_eq!(
+            government.government_reforms,
+            ["ottoman_government".to_owned()]
+        );
+        assert_eq!(
+            world.loaded_text("ottoman_government"),
+            Some("Ottoman Government")
+        );
+        assert_eq!(world.loaded_text("monarchy_name"), Some("Monarchy"));
         assert_eq!(
             world
                 .national_idea_effect_lines("TUR")
