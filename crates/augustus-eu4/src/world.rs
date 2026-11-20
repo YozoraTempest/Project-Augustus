@@ -136,6 +136,9 @@ impl OpeningWorld {
         }
         for ideas in national_ideas.values() {
             wanted.insert(ideas.id.clone());
+            for idea in &ideas.ideas {
+                wanted.insert(idea.id.clone());
+            }
         }
         for province in state.provinces().values() {
             wanted.extend(
@@ -147,7 +150,14 @@ impl OpeningWorld {
                     .cloned(),
             );
         }
-        let names = localisation::load(&content, &wanted)?;
+        let mut names = localisation::load(&content, &wanted)?;
+        let mut descriptions = BTreeSet::new();
+        for ideas in national_ideas.values() {
+            for idea in &ideas.ideas {
+                descriptions.insert(format!("{}_desc", idea.id));
+            }
+        }
+        names.extend(localisation::load_descriptions(&content, &descriptions)?);
         Ok(Self {
             map,
             state,
@@ -186,11 +196,18 @@ impl OpeningWorld {
         self.national_ideas.get(tag).map(|ideas| ideas.id.as_str())
     }
 
-    pub fn national_idea_icons(&self, tag: &str) -> &[String] {
+    pub fn national_idea_icons(&self, tag: &str) -> Vec<&str> {
         self.national_ideas
             .get(tag)
-            .map(|ideas| ideas.icons.as_slice())
-            .unwrap_or(&[])
+            .map(|ideas| ideas.ideas.iter().map(|idea| idea.icon.as_str()).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn national_idea_ids(&self, tag: &str) -> Vec<&str> {
+        self.national_ideas
+            .get(tag)
+            .map(|ideas| ideas.ideas.iter().map(|idea| idea.id.as_str()).collect())
+            .unwrap_or_default()
     }
 
     pub fn religion_icon(&self, religion: &str) -> Option<u32> {
@@ -388,6 +405,16 @@ mod tests {
         assert!(world.stored_advisors() > 0);
         assert_eq!(world.national_idea_group("TUR"), Some("TUR_ideas"));
         assert_eq!(world.national_idea_icons("TUR").len(), 7);
+        assert_eq!(
+            world.national_idea_ids("TUR").first().copied(),
+            Some("millets")
+        );
+        assert_eq!(world.display_name("millets"), "Kanunnames");
+        assert!(
+            world
+                .display_name("millets_desc")
+                .starts_with("By establishing unique codes of law")
+        );
         assert_eq!(world.display_name("TUR_ideas"), "Ottoman Ideas");
     }
 

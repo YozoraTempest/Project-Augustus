@@ -82,6 +82,79 @@ pub(super) fn load(
     Ok(names)
 }
 
+/// 理念说明里常有成对引号。只取第一段引文，不让行尾多余内容挡住整次读取。
+pub(super) fn load_descriptions(
+    content: &ContentRoot,
+    wanted: &BTreeSet<String>,
+) -> Result<BTreeMap<String, String>, Error> {
+    let mut names = BTreeMap::new();
+    if wanted.is_empty() {
+        return Ok(names);
+    }
+    for directory in ["localisation", "localisation/replace"] {
+        let files = match content.files(directory, "yml") {
+            Ok(files) => files,
+            Err(Error::Read { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        for path in files
+            .into_iter()
+            .filter(|path| path.to_string_lossy().ends_with("_l_english.yml"))
+        {
+            let file = content.read(path)?;
+            let bytes = file
+                .bytes
+                .strip_prefix(&[0xef, 0xbb, 0xbf])
+                .unwrap_or(&file.bytes);
+            let text = std::str::from_utf8(bytes)
+                .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
+            let mut english = false;
+            for line in text.lines() {
+                let line = line.trim_start();
+                if line.starts_with("l_english:") {
+                    english = true;
+                    continue;
+                }
+                if !english || line.starts_with('#') {
+                    continue;
+                }
+                let Some((key, rest)) = line.split_once(':') else {
+                    continue;
+                };
+                let key = key.trim();
+                if !wanted.contains(key) {
+                    continue;
+                }
+                let Some(value) = first_quoted(rest) else {
+                    continue;
+                };
+                names.insert(key.to_owned(), decode_escapes(value));
+            }
+        }
+    }
+    Ok(names)
+}
+
+fn first_quoted(text: &str) -> Option<&str> {
+    let start = text.find('"')?;
+    let bytes = text.as_bytes();
+    let mut index = start + 1;
+    while index < bytes.len() {
+        if bytes[index] != b'"' {
+            index += 1;
+            continue;
+        }
+        if bytes.get(index + 1) == Some(&b'"') {
+            index += 2;
+            continue;
+        }
+        return Some(&text[start + 1..index]);
+    }
+    None
+}
+
 fn decode_escapes(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars();

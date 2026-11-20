@@ -796,6 +796,8 @@ func _refresh_selection() -> void:
 func _fill_national_ideas(info: Dictionary) -> void:
 	_set_box("national_ideagroup_name", _text_field(info, "idea_group"))
 	var paths := _idea_paths(info)
+	var tips: Variant = info.get("national_idea_tips", null)
+	var tip_list: Array = tips if tips is Array else []
 	_set_box("ideas_value", str(paths.size()) if paths.size() > 0 else "")
 	var empty := _sprite_frame("GFX_idea_empty", 1)
 	for index in 7:
@@ -806,9 +808,27 @@ func _fill_national_ideas(info: Dictionary) -> void:
 			var texture := _idea_texture(paths[index])
 			if texture != null:
 				slot.texture = texture
-				continue
-		if empty != null:
+			elif empty != null:
+				slot.texture = empty
+		elif empty != null:
 			slot.texture = empty
+		_set_idea_tip(slot, tip_list[index] if index < tip_list.size() else null)
+
+
+func _set_idea_tip(slot: TextureRect, tip: Variant) -> void:
+	var title := ""
+	var body := ""
+	if tip is Dictionary:
+		title = str(tip.get("name", ""))
+		body = str(tip.get("desc", ""))
+		if body == "<null>":
+			body = ""
+	if title.is_empty():
+		slot.tooltip_text = ""
+		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return
+	slot.mouse_filter = Control.MOUSE_FILTER_STOP
+	slot.tooltip_text = title if body.is_empty() else "%s\n%s" % [title, body]
 
 
 func _idea_paths(info: Dictionary) -> PackedStringArray:
@@ -832,6 +852,8 @@ func _clear_national_ideas() -> void:
 		var slot := _find_named(_chrome, "national_idea%d" % [index + 1]) as TextureRect
 		if slot:
 			slot.texture = empty
+			slot.tooltip_text = ""
+			slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
 func _idea_texture(relative: String) -> Texture2D:

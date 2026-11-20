@@ -237,10 +237,22 @@ pub(crate) fn country_info(
     if let Some(group) = world.national_idea_group(tag) {
         info.set("idea_group", world.display_name(group).as_str());
         let mut icons: Array<GString> = Array::new();
+        let mut tips: Array<VarDictionary> = Array::new();
+        for id in world.national_idea_ids(tag) {
+            let mut tip = VarDictionary::new();
+            tip.set("name", world.display_name(id).as_str());
+            let desc_key = format!("{id}_desc");
+            let desc = world.display_name(&desc_key);
+            if desc != desc_key {
+                tip.set("desc", desc.as_str());
+            }
+            tips.push(&tip);
+        }
         for path in world.national_idea_icons(tag) {
             icons.push(&GString::from(path));
         }
         info.set("national_idea_icons", &icons);
+        info.set("national_idea_tips", &tips);
     }
     // 顾问池只存着，不开局雇人，右栏也不画。
     let _advisor_pool = world.stored_advisors();

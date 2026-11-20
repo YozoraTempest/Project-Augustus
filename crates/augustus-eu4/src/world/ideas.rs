@@ -17,7 +17,13 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct NationalIdeas {
     pub id: String,
-    pub icons: Vec<String>,
+    pub ideas: Vec<NationalIdea>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct NationalIdea {
+    pub id: String,
+    pub icon: String,
 }
 
 pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, NationalIdeas>, Error> {
@@ -46,7 +52,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, NationalIde
             };
             let ideas = NationalIdeas {
                 id: id.clone(),
-                icons: idea_icons(content, &file, &object)?,
+                ideas: idea_entries(content, &file, &object)?,
             };
             let specificity = tags.len();
             for tag in tags {
@@ -125,12 +131,12 @@ fn pure_tags(
     Ok((!tags.is_empty()).then_some(tags))
 }
 
-fn idea_icons(
+fn idea_entries(
     content: &ContentRoot,
     file: &ContentFile,
     group: &jomini::text::ObjectReader<'_, '_, Windows1252Encoding>,
-) -> Result<Vec<String>, Error> {
-    let mut icons = Vec::new();
+) -> Result<Vec<NationalIdea>, Error> {
+    let mut ideas = Vec::new();
     for (key, operator, value) in group.fields() {
         let name = key.read_str();
         if matches!(
@@ -143,9 +149,12 @@ fn idea_icons(
         let Ok(idea) = value.read_object() else {
             continue;
         };
-        icons.push(icon_for(content, file, &idea)?);
+        ideas.push(NationalIdea {
+            id: name.into_owned(),
+            icon: icon_for(content, file, &idea)?,
+        });
     }
-    Ok(icons)
+    Ok(ideas)
 }
 
 fn icon_for(
@@ -226,12 +235,17 @@ mod tests {
         let group = ideas.get("TUR").unwrap();
         assert_eq!(group.id, "TUR_ideas");
         assert_eq!(
-            group.icons,
+            group
+                .ideas
+                .iter()
+                .map(|idea| idea.icon.as_str())
+                .collect::<Vec<_>>(),
             vec![
-                "gfx/interface/ideas_EU4/core_creation.dds".to_owned(),
-                "gfx/interface/ideas_EU4/manpower_recovery_speed.dds".to_owned(),
+                "gfx/interface/ideas_EU4/core_creation.dds",
+                "gfx/interface/ideas_EU4/manpower_recovery_speed.dds",
             ]
         );
+        assert_eq!(group.ideas[0].id, "millets");
         assert!(!ideas.contains_key("accepted_norse_ideas_flag"));
     }
 }
