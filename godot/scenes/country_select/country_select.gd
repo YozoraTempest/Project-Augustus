@@ -1028,14 +1028,52 @@ func _fill_diplomacy(info: Dictionary) -> void:
 			var row := _diplomacy_row(document, entry)
 			if row:
 				items.add_child(row)
-	var list := _find_named(_chrome, "diplomatic_listbox") as Control
+	var list := _find_named(_chrome, "diplomatic_listbox") as ScrollContainer
 	if list:
-		var height := 0.0
-		for child in items.get_children():
-			if child is Control:
-				height += maxf((child as Control).custom_minimum_size.y, (child as Control).size.y)
-		height += maxf(float(items.get_child_count() - 1), 0.0)
-		list.size.y = maxf(120.0, height)
+		_apply_diplomacy_scrollbar(list)
+
+
+func _apply_diplomacy_scrollbar(list: ScrollContainer) -> void:
+	var bar := list.get_v_scroll_bar()
+	var empty := StyleBoxEmpty.new()
+	var styles := PackedStringArray(["scroll", "scroll_focus", "grabber", "grabber_highlight", "grabber_pressed"])
+	for style_name in styles:
+		bar.add_theme_stylebox_override(style_name, empty)
+	bar.custom_minimum_size = Vector2(BookmarkScrollbar.BUTTON, 0.0)
+	bar.modulate = Color(1, 1, 1, 0)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	list.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	var parent := list.get_parent()
+	if parent == null:
+		return
+	var overlay := parent.get_node_or_null("diplomacy_scrollbar") as BookmarkScrollbar
+	if overlay == null:
+		overlay = BookmarkScrollbar.new()
+		overlay.name = "diplomacy_scrollbar"
+		overlay.host = list
+		overlay.up_texture = _sprite_frame("GFX_scroll_up", 1)
+		overlay.down_texture = _sprite_frame("GFX_scroll_down", 1)
+		overlay.knob_texture = _sprite_frame("GFX_scroll_drager", 1)
+		overlay.track_texture = _sprite_frame("GFX_scroll_track", 1)
+		overlay.z_index = 3
+		parent.add_child(overlay)
+		list.resized.connect(_sync_diplomacy_scrollbar.bind(list, overlay))
+		bar.value_changed.connect(_redraw_diplomacy_scrollbar.bind(overlay))
+	_sync_diplomacy_scrollbar(list, overlay)
+	_sync_diplomacy_scrollbar.call_deferred(list, overlay)
+
+
+func _redraw_diplomacy_scrollbar(_value: float, overlay: Control) -> void:
+	overlay.queue_redraw()
+
+
+func _sync_diplomacy_scrollbar(list: ScrollContainer, overlay: Control) -> void:
+	if list.size.x < 1.0 or list.size.y < 1.0:
+		return
+	# 滑块和箭头 16×16，贴在列表框内侧右缘，不探出列表。
+	overlay.position = list.position + Vector2(list.size.x - BookmarkScrollbar.BUTTON, 0.0)
+	overlay.size = Vector2(BookmarkScrollbar.BUTTON, list.size.y)
+	overlay.queue_redraw()
 
 
 func _diplomacy_item_document() -> Dictionary:
@@ -1073,24 +1111,30 @@ func _diplomacy_row(document: Dictionary, entry: Dictionary) -> Control:
 			icon.texture = texture
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := _find_in(row, "box") as Control
-	var shield_width := 0.0
 	if box:
-		var shield := TextureRect.new()
-		shield.texture = _flag_texture(str(entry.get("tag", "")), "GFX_shield_small")
-		shield.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		shield.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		shield.stretch_mode = TextureRect.STRETCH_SCALE
-		if shield.texture:
-			shield_width = float(shield.texture.get_width())
-			shield.custom_minimum_size = shield.texture.get_size()
-			shield.size = shield.texture.get_size()
-		box.add_child(shield)
+		box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var shield := TextureRect.new()
+	shield.name = "CountryShield"
+	shield.texture = _flag_texture(str(entry.get("tag", "")), "GFX_shield_small")
+	shield.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shield.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	shield.stretch_mode = TextureRect.STRETCH_SCALE
+	shield.z_index = 4
+	var icon_right := 34.0
+	if icon:
+		icon_right = icon.position.x + maxf(icon.size.x, maxf(icon.custom_minimum_size.x, 33.0))
+	shield.position = Vector2(icon_right + 2.0, 3.0)
+	shield.size = Vector2(32, 32)
+	shield.custom_minimum_size = Vector2(32, 32)
+	shield.visible = shield.texture != null
+	row.add_child(shield)
 	var text := _find_in(row, "infotext") as RichTextLabel
 	if text:
 		text.text = str(entry.get("name", ""))
 		text.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		if shield_width > 0.0:
-			text.position.x = box.position.x + shield_width + 4.0
+		text.z_index = 3
+		text.position.x = shield.position.x + shield.size.x + 4.0
+		text.size.x = maxf(200.0 - text.position.x - 18.0, 40.0)
 	row.set_meta("idea_tip_title", str(entry.get("relation", "")))
 	row.set_meta("idea_tip_body", str(entry.get("name", "")))
 	row.set_meta("idea_tip_effects", "")
