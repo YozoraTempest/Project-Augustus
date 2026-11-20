@@ -73,13 +73,6 @@ enum Cond {
 struct IdeaGroup {
     ideas: NationalIdeas,
     trigger: Cond,
-    tags: BTreeSet<String>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct Rank {
-    specific: bool,
-    narrow: u32,
 }
 
 pub(super) fn load(
@@ -107,18 +100,14 @@ pub(super) fn load(
             if !is_free(&file, &object)? {
                 continue;
             }
-            let Some(trigger) = trigger_of(&file, &object)? else {
-                continue;
-            };
-            let mut tags = BTreeSet::new();
-            positive_tags(&trigger, false, &mut tags);
+            // 没写 trigger 的 free 组视为通过。default_ideas 因此能当最后的保底。
+            let trigger = trigger_of(&file, &object)?;
             groups.push(IdeaGroup {
                 ideas: NationalIdeas {
                     id: id.clone(),
                     ideas: idea_entries(content, &file, &object)?,
                 },
                 trigger,
-                tags,
             });
         }
     }
@@ -137,18 +126,14 @@ pub(super) fn load(
                 .and_then(|group| group.technology_group.as_deref()),
             flags: history.flags.get(country.tag()).unwrap_or(&empty_flags),
         };
-        let mut best: Option<(Rank, usize)> = None;
+        let mut best: Option<usize> = None;
         for (index, group) in groups.iter().enumerate() {
-            if !matches_trigger(&group.trigger, &subject) {
-                continue;
-            }
-            let rank = rank_for(group, subject.tag);
-            let replace = best.as_ref().is_none_or(|(previous, _)| rank > *previous);
-            if replace {
-                best = Some((rank, index));
+            if matches_trigger(&group.trigger, &subject) {
+                best = Some(index);
+                break;
             }
         }
-        if let Some((_, index)) = best {
+        if let Some(index) = best {
             assigned.insert(country.tag().to_owned(), groups[index].ideas.clone());
         }
     }
@@ -175,7 +160,7 @@ fn is_free(
 fn trigger_of(
     file: &ContentFile,
     group: &jomini::text::ObjectReader<'_, '_, Windows1252Encoding>,
-) -> Result<Option<Cond>, Error> {
+) -> Result<Cond, Error> {
     for (key, operator, value) in group.fields() {
         if key.read_str() != "trigger" {
             continue;
@@ -184,9 +169,9 @@ fn trigger_of(
         let trigger = value
             .read_object()
             .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
-        return Ok(Some(parse_all(file, &trigger)?));
+        return parse_all(file, &trigger);
     }
-    Ok(None)
+    Ok(Cond::All(Vec::new()))
 }
 
 fn parse_all(
@@ -239,6 +224,11 @@ fn parse_one(
         "government" => Ok(Cond::Government(text(file, value)?)),
         "technology_group" => Ok(Cond::TechGroup(text(file, value)?)),
         "has_reform" => Ok(Cond::Reform(text(file, value)?)),
+        "always" => {
+            // yes 直接通过，no 直接不通过。compatibility 用 always = no 挡住保底。
+            let pass = text(file, value)? == "yes";
+            Ok(Cond::StartFalse(!pass))
+        }
         "is_revolutionary" | "is_revolution_target" | "is_colonial_nation" | "is_client_nation" => {
             match text(file, value)?.as_str() {
                 "yes" => Ok(Cond::StartFalse(true)),
@@ -265,35 +255,6 @@ fn matches_trigger(cond: &Cond, country: &IdeaSubject<'_>) -> bool {
         // 开局还没有革命、殖民或附庸国这类身份。
         Cond::StartFalse(expect_yes) => !expect_yes,
         Cond::Unknown => false,
-    }
-}
-
-fn positive_tags(cond: &Cond, negated: bool, tags: &mut BTreeSet<String>) {
-    match cond {
-        Cond::Tag(tag) if !negated => {
-            tags.insert(tag.clone());
-        }
-        Cond::Not(inner) => positive_tags(inner, !negated, tags),
-        Cond::All(parts) | Cond::Any(parts) => {
-            for part in parts {
-                positive_tags(part, negated, tags);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn rank_for(group: &IdeaGroup, tag: &str) -> Rank {
-    if group.tags.contains(tag) {
-        Rank {
-            specific: true,
-            narrow: u32::MAX - u32::try_from(group.tags.len()).unwrap_or(u32::MAX),
-        }
-    } else {
-        Rank {
-            specific: false,
-            narrow: 0,
-        }
     }
 }
 
@@ -529,8 +490,40 @@ mod tests {
             "#,
         )
         .unwrap();
+        fs::write(
+            root.join("common/ideas/zz_group_ideas.txt"),
+            r#"
+                later_lit_ideas = {
+                    trigger = { tag = LIT }
+                    free = yes
+                    later = { discipline = 0.05 }
+                }
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/ideas/zzz_default_idea.txt"),
+            r#"
+                default_ideas = {
+                    free = yes
+                    increase_discipline = { discipline = 0.05 }
+                }
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("common/ideas/zzzz_compatibility.txt"),
+            r#"
+                compatibility_127 = {
+                    free = yes
+                    trigger = { always = no }
+                    old_name = { discipline = 0.05 }
+                }
+            "#,
+        )
+        .unwrap();
         let mut countries = BTreeMap::new();
-        for tag in ["TUR", "LIT", "PLC", "FRA"] {
+        for tag in ["TUR", "LIT", "PLC", "FRA", "AAA"] {
             countries.insert(tag.to_owned(), Country::new(tag));
         }
         let history = CountryHistory {
@@ -566,8 +559,9 @@ mod tests {
         assert_eq!(group.ideas[0].id, "millets");
         assert!(ideas.get("LIT").is_some_and(|group| group.id == "LIT_ideas"));
         assert!(with_flag.get("LIT").is_some_and(|group| group.id == "LIT2_ideas"));
-        assert!(!ideas.contains_key("PLC"));
+        assert!(ideas.get("PLC").is_some_and(|group| group.id == "default_ideas"));
+        assert!(ideas.get("AAA").is_some_and(|group| group.id == "default_ideas"));
         assert!(ideas.get("FRA").is_some_and(|group| group.id == "FRA_ideas"));
-        assert!(!ideas.values().any(|group| group.id == "norse_ideas"));
+        assert!(!ideas.values().any(|group| group.id == "norse_ideas" || group.id == "compatibility_127"));
     }
 }

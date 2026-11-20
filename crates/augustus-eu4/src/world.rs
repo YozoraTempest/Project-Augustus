@@ -499,6 +499,13 @@ mod tests {
         assert_eq!(world.national_idea_group("LIT"), Some("LIT_ideas"));
         assert_eq!(world.national_idea_icons("LIT").len(), 7);
         assert_eq!(world.display_name("LIT_ideas"), "Lithuanian Ideas");
+        assert_eq!(world.national_idea_group("AMG"), Some("default_ideas"));
+        assert_eq!(world.display_name("default_ideas"), "National Ideas");
+        assert!(
+            world
+                .country_summary("AMG")
+                .is_some_and(|summary| summary.provinces > 0)
+        );
         assert_eq!(
             world.national_idea_ids("TUR").first().copied(),
             Some("millets")
