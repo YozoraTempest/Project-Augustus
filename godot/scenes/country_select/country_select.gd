@@ -852,7 +852,7 @@ func _set_idea_tip(slot: TextureRect, tip: Variant) -> void:
 		slot.set_meta("idea_tip_bound", true)
 
 
-func _show_idea_tip(slot: TextureRect) -> void:
+func _show_idea_tip(slot: Control) -> void:
 	var title := str(slot.get_meta("idea_tip_title", ""))
 	var effects := str(slot.get_meta("idea_tip_effects", ""))
 	var body := str(slot.get_meta("idea_tip_body", ""))
@@ -1021,21 +1021,109 @@ func _fill_diplomacy(info: Dictionary) -> void:
 	var lines: Variant = info.get("diplomacy", [])
 	if not lines is Array:
 		return
-	var face := _ui_font("vic_18")
-	for line in lines:
-		var label := RichTextLabel.new()
-		label.bbcode_enabled = false
-		label.scroll_active = false
-		label.fit_content = true
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		label.custom_minimum_size = Vector2(180, 0)
-		label.add_theme_color_override("default_color", Color(0.95, 0.91, 0.82))
-		label.text = str(line)
-		if face:
-			label.add_theme_font_override("normal_font", face)
-			label.add_theme_font_size_override("normal_font_size", int(face.get_meta("eu4_face", 18)))
-		items.add_child(label)
+	items.add_theme_constant_override("separation", 1)
+	var document := _diplomacy_item_document()
+	for entry in lines:
+		if entry is Dictionary:
+			var row := _diplomacy_row(document, entry)
+			if row:
+				items.add_child(row)
+	var list := _find_named(_chrome, "diplomatic_listbox") as Control
+	if list:
+		var height := 0.0
+		for child in items.get_children():
+			if child is Control:
+				height += maxf((child as Control).custom_minimum_size.y, (child as Control).size.y)
+		height += maxf(float(items.get_child_count() - 1), 0.0)
+		list.size.y = maxf(120.0, height)
+
+
+func _diplomacy_item_document() -> Dictionary:
+	if _backend == null:
+		return {}
+	var loaded: Dictionary = _backend.load_eu4_ui_document(str(_backend.get_game_directory()), "interface/countrydiplomacyview.gui")
+	if loaded.get("ok", false) != true:
+		return {}
+	var parsed: Variant = JSON.parse_string(str(loaded.get("json", "")))
+	return parsed if parsed is Dictionary else {}
+
+
+func _diplomacy_row(document: Dictionary, entry: Dictionary) -> Control:
+	if document.is_empty():
+		return null
+	var assets = ASSETS_SCRIPT.new()
+	assets.backend = _backend
+	var builder = preload("res://ui/eu4/eu4_ui_builder.gd").new()
+	builder.assets = assets
+	builder.plain_windows = true
+	var host := Control.new()
+	var created: Array = builder.build_named(document, "countrydiplomacyview_diplistitem", host)
+	if created.is_empty() or not created[0] is Control:
+		host.free()
+		return null
+	var row := created[0] as Control
+	host.remove_child(row)
+	host.free()
+	row.custom_minimum_size = Vector2(200, 38)
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
+	var icon := _find_in(row, "icon") as TextureRect
+	if icon:
+		var texture := _sprite_or_dds(str(entry.get("icon", "")))
+		if texture:
+			icon.texture = texture
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := _find_in(row, "box") as Control
+	var shield_width := 0.0
+	if box:
+		var shield := TextureRect.new()
+		shield.texture = _flag_texture(str(entry.get("tag", "")), "GFX_shield_small")
+		shield.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		shield.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		shield.stretch_mode = TextureRect.STRETCH_SCALE
+		if shield.texture:
+			shield_width = float(shield.texture.get_width())
+			shield.custom_minimum_size = shield.texture.get_size()
+			shield.size = shield.texture.get_size()
+		box.add_child(shield)
+	var text := _find_in(row, "infotext") as RichTextLabel
+	if text:
+		text.text = str(entry.get("name", ""))
+		text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if shield_width > 0.0:
+			text.position.x = box.position.x + shield_width + 4.0
+	row.set_meta("idea_tip_title", str(entry.get("relation", "")))
+	row.set_meta("idea_tip_body", str(entry.get("name", "")))
+	row.set_meta("idea_tip_effects", "")
+	row.mouse_entered.connect(_show_idea_tip.bind(row))
+	row.mouse_exited.connect(_hide_idea_tip)
+	return row
+
+
+func _sprite_or_dds(sprite_name: String) -> Texture2D:
+	if sprite_name.is_empty() or _backend == null:
+		return null
+	var assets = ASSETS_SCRIPT.new()
+	assets.backend = _backend
+	var texture := assets.texture_for(sprite_name)
+	if texture:
+		return texture
+	var info: Dictionary = _backend.resolve_eu4_sprite(sprite_name)
+	var path := str(info.get("absolute_path", ""))
+	if path.to_lower().ends_with(".tga"):
+		return assets.texture_from_file(path.substr(0, path.length() - 4) + ".dds")
+	return null
+
+
+func _find_in(node: Node, eu4_name: String) -> Node:
+	if node != null and str(node.get_meta("eu4_name", "")) == eu4_name:
+		return node
+	if node == null:
+		return null
+	for child in node.get_children():
+		var found := _find_in(child, eu4_name)
+		if found:
+			return found
+	return null
 
 
 func _clear_diplomacy() -> void:

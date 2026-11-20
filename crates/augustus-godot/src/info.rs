@@ -286,9 +286,17 @@ pub(crate) fn country_info(
     info.set("province_count", summary.provinces as i64);
     number(&mut info, "development", summary.development);
     info.set("fort_level", i64::from(summary.fort_level));
-    let mut diplomacy: Array<GString> = Array::new();
-    for line in world.diplomacy_lines(tag) {
-        diplomacy.push(&GString::from(line.as_str()));
+    let mut diplomacy: Array<VarDictionary> = Array::new();
+    for tie in &country.diplomacy {
+        let Some(relation) = world.loaded_text(&tie.label) else {
+            continue;
+        };
+        let mut row = VarDictionary::new();
+        row.set("tag", tie.other.as_str());
+        row.set("name", world.display_name(&tie.other).as_str());
+        row.set("relation", relation);
+        row.set("icon", tie.icon.as_str());
+        diplomacy.push(&row);
     }
     info.set("diplomacy", &diplomacy);
     info.extend_dictionary(&country_finances(world, tag), true);

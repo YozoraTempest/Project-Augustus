@@ -87,4 +87,6 @@ pub struct CourtPerson {
 pub struct DiplomaticTie {
     pub label: String,
     pub other: String,
+    /// 这一行用的欧陆关系图标。只给界面，不参与结算。
+    pub icon: String,
 }

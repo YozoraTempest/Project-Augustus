@@ -140,6 +140,7 @@ pub(super) fn apply_countries(
                                 country.diplomacy.push(DiplomaticTie {
                                     label: "historical_rival".to_owned(),
                                     other,
+                                    icon: "GFX_rival_indication".to_owned(),
                                 });
                             }
                         }
@@ -148,6 +149,7 @@ pub(super) fn apply_countries(
                                 country.diplomacy.push(DiplomaticTie {
                                     label: "historical_friend".to_owned(),
                                     other,
+                                    icon: "GFX_diplomacy_action_relation".to_owned(),
                                 });
                             }
                         }

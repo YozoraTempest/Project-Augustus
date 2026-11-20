@@ -76,8 +76,23 @@ pub(super) fn apply(
                 continue;
             }
             let (first_label, second_label) = labels(&kind, subject_type.as_deref());
-            push(&mut from_files, countries, &first, first_label, &second);
-            push(&mut from_files, countries, &second, second_label, &first);
+            let (first_icon, second_icon) = icons(&kind, subject_type.as_deref());
+            push(
+                &mut from_files,
+                countries,
+                &first,
+                first_label,
+                first_icon,
+                &second,
+            );
+            push(
+                &mut from_files,
+                countries,
+                &second,
+                second_label,
+                second_icon,
+                &first,
+            );
         }
     }
     for (tag, mut ties) in from_files {
@@ -95,6 +110,7 @@ fn push(
     countries: &BTreeMap<String, Country>,
     tag: &str,
     label: String,
+    icon: &str,
     other: &str,
 ) {
     if tag == other || !countries.contains_key(tag) || !countries.contains_key(other) {
@@ -106,7 +122,28 @@ fn push(
         .push(DiplomaticTie {
             label,
             other: other.to_owned(),
+            icon: icon.to_owned(),
         });
+}
+
+fn icons(kind: &str, subject_type: Option<&str>) -> (&'static str, &'static str) {
+    match kind {
+        "alliance" => ("GFX_diplomacy_alliances", "GFX_diplomacy_alliances"),
+        "royal_marriage" => ("GFX_diplomacy_royalmarriage", "GFX_diplomacy_royalmarriage"),
+        "guarantee" => ("GFX_diplomacy_guaranting", "GFX_diplomacy_guaranteed"),
+        "vassal" => ("GFX_diplomacy_leadvassal", "GFX_diplomacy_amvassal"),
+        "march" => ("GFX_diplomacy_leadmarch", "GFX_diplomacy_weakmarch"),
+        "union" => ("GFX_diplomacy_leadunions", "GFX_diplomacy_inunion"),
+        "dependency" => match subject_type {
+            Some("tributary_state") => ("GFX_diplomacy_leadtributary", "GFX_diplomacy_amtributary"),
+            Some("appanage") => (
+                "GFX_icon_diplomacy_lead_appanage",
+                "GFX_icon_diplomacy_am_appanage",
+            ),
+            _ => ("GFX_diplomacy_leadvassal", "GFX_diplomacy_amvassal"),
+        },
+        _ => ("GFX_diplomacy_relations", "GFX_diplomacy_relations"),
+    }
 }
 
 fn labels(kind: &str, subject_type: Option<&str>) -> (String, String) {
