@@ -237,6 +237,8 @@ class BookmarkScrollbar extends Control:
 		set_process(false)
 
 	func _limit() -> float:
+		if host == null:
+			return 0.0
 		var bar := host.get_v_scroll_bar()
 		return maxf(bar.max_value - bar.page, 0.0)
 
@@ -1033,6 +1035,61 @@ func _fill_diplomacy(info: Dictionary) -> void:
 		_apply_diplomacy_scrollbar(list)
 
 
+class DiplomacyBar extends Control:
+	var image: Image
+
+	func _draw() -> void:
+		if image == null:
+			return
+		for y in image.get_height():
+			for x in image.get_width():
+				var color := image.get_pixel(x, y)
+				if color.a < 0.75:
+					continue
+				draw_rect(Rect2(x, y, 1, 1), Color(color.r, color.g, color.b, 1.0), true)
+
+
+func _sprite_image(sprite_name: String) -> Image:
+	var texture := _sprite_frame(sprite_name, 1)
+	if texture == null:
+		return null
+	var image := texture.get_image()
+	if image == null or image.is_empty():
+		return null
+	return image
+
+
+func _bake_diplomacy_scrollbar(list: ScrollContainer, height: int) -> Image:
+	var image := Image.create(int(BookmarkScrollbar.BUTTON), height, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0, 0, 0, 0))
+	var track := _sprite_image("GFX_scroll_track")
+	var border := int(BookmarkScrollbar.TRACK_BORDER)
+	var track_left := int((BookmarkScrollbar.BUTTON - BookmarkScrollbar.TRACK_WIDTH) * 0.5)
+	var track_top := int(BookmarkScrollbar.END_INSET)
+	var track_height := height - int(BookmarkScrollbar.END_INSET * 2.0)
+	if track != null and track_height > border * 2:
+		var mid := track.get_region(Rect2i(0, border, track.get_width(), track.get_height() - border * 2))
+		mid.resize(int(BookmarkScrollbar.TRACK_WIDTH), track_height - border * 2, Image.INTERPOLATE_NEAREST)
+		image.blend_rect(track, Rect2i(0, 0, track.get_width(), border), Vector2i(track_left, track_top))
+		image.blend_rect(mid, Rect2i(0, 0, mid.get_width(), mid.get_height()), Vector2i(track_left, track_top + border))
+		image.blend_rect(track, Rect2i(0, track.get_height() - border, track.get_width(), border), Vector2i(track_left, track_top + track_height - border))
+	var up := _sprite_image("GFX_scroll_up")
+	if up != null:
+		image.blend_rect(up, Rect2i(0, 0, up.get_width(), up.get_height()), Vector2i(0, 0))
+	var down := _sprite_image("GFX_scroll_down")
+	if down != null:
+		image.blend_rect(down, Rect2i(0, 0, down.get_width(), down.get_height()), Vector2i(0, height - down.get_height()))
+	var knob := _sprite_image("GFX_scroll_drager")
+	if knob != null:
+		var bar := list.get_v_scroll_bar()
+		var limit := maxf(bar.max_value - bar.page, 0.0)
+		var span := maxf(float(height) - BookmarkScrollbar.BUTTON * 3.0, 0.0)
+		var along := 0.0 if limit <= 0.0 else clampf(list.scroll_vertical / limit, 0.0, 1.0)
+		var knob_y := int(BookmarkScrollbar.BUTTON + span * along)
+		image.blend_rect(knob, Rect2i(0, 0, knob.get_width(), knob.get_height()), Vector2i(0, knob_y))
+	return image
+
+
 func _apply_diplomacy_scrollbar(list: ScrollContainer) -> void:
 	var bar := list.get_v_scroll_bar()
 	var empty := StyleBoxEmpty.new()
@@ -1043,46 +1100,73 @@ func _apply_diplomacy_scrollbar(list: ScrollContainer) -> void:
 	bar.modulate = Color(1, 1, 1, 0)
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	list.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
-	var parent := list.get_parent()
-	if parent == null:
-		return
-	var overlay := parent.get_node_or_null("diplomacy_scrollbar") as BookmarkScrollbar
-	if overlay == null:
-		overlay = BookmarkScrollbar.new()
-		overlay.name = "diplomacy_scrollbar"
-		overlay.host = list
-		overlay.up_texture = _sprite_frame("GFX_scroll_up", 1)
-		overlay.down_texture = _sprite_frame("GFX_scroll_down", 1)
-		overlay.knob_texture = _sprite_frame("GFX_scroll_drager", 1)
-		overlay.track_texture = _sprite_frame("GFX_scroll_track", 1)
-		overlay.z_index = 20
-		parent.add_child(overlay)
-		list.resized.connect(_sync_diplomacy_scrollbar.bind(list, overlay))
-		bar.value_changed.connect(_redraw_diplomacy_scrollbar.bind(overlay))
-	_sync_diplomacy_scrollbar(list, overlay)
-	_sync_diplomacy_scrollbar.call_deferred(list, overlay)
+	# 挂到选国家根上，盖过后面画的界面。内容放得下也留着整列。
+	var column := get_node_or_null("diplomacy_scrollbar") as DiplomacyBar
+	if column == null:
+		column = DiplomacyBar.new()
+		column.name = "diplomacy_scrollbar"
+		column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		column.z_as_relative = false
+		column.z_index = 4095
+		add_child(column)
+		list.resized.connect(_sync_diplomacy_scrollbar.bind(list, column))
+		bar.value_changed.connect(_redraw_diplomacy_scrollbar.bind(list, column))
+	column.visible = true
+	column.move_to_front()
+	_sync_diplomacy_scrollbar(list, column)
+	_sync_diplomacy_scrollbar.call_deferred(list, column)
 
 
-func _redraw_diplomacy_scrollbar(_value: float, overlay: Control) -> void:
-	overlay.queue_redraw()
+func _redraw_diplomacy_scrollbar(_value: float, list: ScrollContainer, column: Control) -> void:
+	_sync_diplomacy_scrollbar(list, column)
 
 
-func _sync_diplomacy_scrollbar(list: ScrollContainer, overlay: Control) -> void:
-	# 用界面文件写下的边，不依赖还没排完的 size。内容放得下也要画出整列。
-	var width := list.offset_right - list.offset_left
-	var height := list.offset_bottom - list.offset_top
-	if width < 1.0:
-		width = list.size.x
-	if height < 1.0:
-		height = list.size.y
-	if width < 1.0:
+func _diplomacy_list_screen_rect(list: ScrollContainer) -> Rect2:
+	var rect := list.get_global_rect()
+	var origin := rect.position
+	var width := rect.size.x
+	var height := rect.size.y
+	if width < 8.0:
+		width = list.offset_right - list.offset_left
+	if height < 8.0:
+		height = list.offset_bottom - list.offset_top
+	if width < 8.0 or height < 8.0:
+		var items := list.get_node_or_null("Items") as Control
+		if items != null and items.get_child_count() > 0 and items.get_child(0) is Control:
+			var row := items.get_child(0) as Control
+			var row_rect := row.get_global_rect()
+			if row_rect.size.y >= 1.0:
+				origin = row_rect.position
+				if width < 8.0:
+					width = 200.0
+				if height < 8.0:
+					height = 120.0
+	if width < 8.0:
 		width = 200.0
-	if height < 1.0:
+	if height < 8.0:
 		height = 120.0
-	overlay.visible = true
-	overlay.position = Vector2(list.offset_left + width - BookmarkScrollbar.BUTTON, list.offset_top)
-	overlay.size = Vector2(BookmarkScrollbar.BUTTON, height)
-	overlay.queue_redraw()
+	return Rect2(origin, Vector2(width, height))
+
+
+func _sync_diplomacy_scrollbar(list: ScrollContainer, column: Control) -> void:
+	if not is_instance_valid(list) or not is_instance_valid(column):
+		return
+	# 内容放得下也画整列：上箭头、12 像素轨道、16×16 滑块、下箭头。滑块不拉伸。
+	var rect := _diplomacy_list_screen_rect(list)
+	var host := column.get_parent() as Control
+	column.visible = true
+	column.z_as_relative = false
+	column.z_index = 4095
+	if host == null:
+		column.global_position = rect.position + Vector2(rect.size.x - BookmarkScrollbar.BUTTON, 0.0)
+	else:
+		var local: Vector2 = host.get_global_transform().affine_inverse() * rect.position
+		column.position = local + Vector2(rect.size.x - BookmarkScrollbar.BUTTON, 0.0)
+	column.size = Vector2(BookmarkScrollbar.BUTTON, rect.size.y)
+	var bar := column as DiplomacyBar
+	if bar != null:
+		bar.image = _bake_diplomacy_scrollbar(list, int(rect.size.y))
+		bar.queue_redraw()
 
 
 func _diplomacy_item_document() -> Dictionary:
@@ -1180,6 +1264,9 @@ func _find_in(node: Node, eu4_name: String) -> Node:
 
 
 func _clear_diplomacy() -> void:
+	var overlay := get_node_or_null("diplomacy_scrollbar") as CanvasItem
+	if overlay:
+		overlay.visible = false
 	var items := _list_items("diplomatic_listbox")
 	if items == null:
 		return
