@@ -97,7 +97,11 @@ func _block_lobby_clicks(node: Node) -> void:
 		var control := node as Control
 		var box: Vector2 = control.get_meta("eu4_box", Vector2.ZERO)
 		var covers_screen := box.x >= 1919.0 and box.y >= 1079.0
-		if not covers_screen:
+		# top 没有底图，声明高 500，下半截盖住黑海北岸。横幅、按钮和那行字自己接点击。
+		var banner_window := str(control.get_meta("eu4_name", "")) == "top"
+		if banner_window or covers_screen:
+			control.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		else:
 			control.mouse_filter = Control.MOUSE_FILTER_STOP
 	for child in node.get_children():
 		_block_lobby_clicks(child)
