@@ -1032,10 +1032,11 @@ func _fill_diplomacy(info: Dictionary) -> void:
 				items.add_child(row)
 	var list := _find_named(_chrome, "diplomatic_listbox") as ScrollContainer
 	if list:
+		list.clip_contents = true
 		_apply_diplomacy_scrollbar(list)
 
 
-class DiplomacyBar extends Control:
+class DiplomacyBar extends BookmarkScrollbar:
 	var image: Image
 
 	func _draw() -> void:
@@ -1100,7 +1101,8 @@ func _apply_diplomacy_scrollbar(list: ScrollContainer) -> void:
 	bar.modulate = Color(1, 1, 1, 0)
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	list.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
-	# 挂到选国家根上，盖过后面画的界面。内容放得下也留着整列。
+	list.clip_contents = true
+	# 挂到选国家根上，盖过后面画的界面。放不下的行留在名单里，靠这条滚动。
 	var column := get_node_or_null("diplomacy_scrollbar") as DiplomacyBar
 	if column == null:
 		column = DiplomacyBar.new()
@@ -1112,6 +1114,7 @@ func _apply_diplomacy_scrollbar(list: ScrollContainer) -> void:
 		list.resized.connect(_sync_diplomacy_scrollbar.bind(list, column))
 		bar.value_changed.connect(_redraw_diplomacy_scrollbar.bind(list, column))
 	column.visible = true
+	column.host = list
 	column.move_to_front()
 	_sync_diplomacy_scrollbar(list, column)
 	_sync_diplomacy_scrollbar.call_deferred(list, column)
@@ -1151,6 +1154,7 @@ func _diplomacy_list_screen_rect(list: ScrollContainer) -> Rect2:
 func _sync_diplomacy_scrollbar(list: ScrollContainer, column: Control) -> void:
 	if not is_instance_valid(list) or not is_instance_valid(column):
 		return
+	list.clip_contents = true
 	# 内容放得下也画整列：上箭头、12 像素轨道、16×16 滑块、下箭头。滑块不拉伸。
 	var rect := _diplomacy_list_screen_rect(list)
 	var host := column.get_parent() as Control
