@@ -1055,7 +1055,7 @@ func _apply_diplomacy_scrollbar(list: ScrollContainer) -> void:
 		overlay.down_texture = _sprite_frame("GFX_scroll_down", 1)
 		overlay.knob_texture = _sprite_frame("GFX_scroll_drager", 1)
 		overlay.track_texture = _sprite_frame("GFX_scroll_track", 1)
-		overlay.z_index = 3
+		overlay.z_index = 20
 		parent.add_child(overlay)
 		list.resized.connect(_sync_diplomacy_scrollbar.bind(list, overlay))
 		bar.value_changed.connect(_redraw_diplomacy_scrollbar.bind(overlay))
@@ -1068,11 +1068,20 @@ func _redraw_diplomacy_scrollbar(_value: float, overlay: Control) -> void:
 
 
 func _sync_diplomacy_scrollbar(list: ScrollContainer, overlay: Control) -> void:
-	if list.size.x < 1.0 or list.size.y < 1.0:
-		return
-	# 滑块和箭头 16×16，贴在列表框内侧右缘，不探出列表。
-	overlay.position = list.position + Vector2(list.size.x - BookmarkScrollbar.BUTTON, 0.0)
-	overlay.size = Vector2(BookmarkScrollbar.BUTTON, list.size.y)
+	# 用界面文件写下的边，不依赖还没排完的 size。内容放得下也要画出整列。
+	var width := list.offset_right - list.offset_left
+	var height := list.offset_bottom - list.offset_top
+	if width < 1.0:
+		width = list.size.x
+	if height < 1.0:
+		height = list.size.y
+	if width < 1.0:
+		width = 200.0
+	if height < 1.0:
+		height = 120.0
+	overlay.visible = true
+	overlay.position = Vector2(list.offset_left + width - BookmarkScrollbar.BUTTON, list.offset_top)
+	overlay.size = Vector2(BookmarkScrollbar.BUTTON, height)
 	overlay.queue_redraw()
 
 
