@@ -15,6 +15,8 @@ pub(super) struct CountryHistory {
     pub conflicts: BTreeSet<String>,
     /// 开局日期及之前最后一次写出的科技组和兵种组。没有历史文件的国家不在这里。
     pub groups: BTreeMap<String, CountryGroups>,
+    /// 开局日期及之前仍然立着的国家旗。历史没写过的旗不在这里。
+    pub flags: BTreeMap<String, BTreeSet<String>>,
 }
 
 pub(super) struct CountryGroups {
@@ -61,6 +63,7 @@ pub(super) fn apply_countries(
             return Ok(CountryHistory {
                 conflicts: BTreeSet::new(),
                 groups: BTreeMap::new(),
+                flags: BTreeMap::new(),
             });
         }
         Err(error) => return Err(error),
@@ -68,6 +71,7 @@ pub(super) fn apply_countries(
     let mut loaded = BTreeSet::new();
     let mut conflicts = BTreeSet::new();
     let mut groups = BTreeMap::new();
+    let mut flags = BTreeMap::new();
     let at = Date::parse(super::START_DATE).expect("固定开局日期必须有效");
     for path in files {
         let file = content.read(path)?;
@@ -82,6 +86,7 @@ pub(super) fn apply_countries(
         let mut technology_group = None;
         let mut unit_type = None;
         let tape = script::parse(&file)?;
+        let country_flags = country_flags(&file, &tape, at)?;
         for block in script::history_blocks(&file, &tape, at)? {
             for (key, operator, value) in block.fields() {
                 let name = key.read_str();
@@ -173,6 +178,7 @@ pub(super) fn apply_countries(
             target.government_reforms = country.government_reforms;
             target.diplomacy = country.diplomacy;
             groups.insert(tag.clone(), origin);
+            flags.insert(tag.clone(), country_flags);
         } else {
             let previous = groups.get(&tag).expect("重复历史仍有第一次的科技组");
             if previous.technology_group != origin.technology_group
@@ -222,7 +228,11 @@ pub(super) fn apply_countries(
             }
         }
     }
-    Ok(CountryHistory { conflicts, groups })
+    Ok(CountryHistory {
+        conflicts,
+        groups,
+        flags,
+    })
 }
 
 pub(super) fn apply_provinces(
@@ -519,6 +529,32 @@ fn whole(
         .ok()
         .and_then(|number| u32::try_from(number).ok())
         .ok_or_else(|| Error::invalid(&file.path, format!("{field} must be a nonnegative integer")))
+}
+
+fn country_flags(
+    file: &ContentFile,
+    tape: &jomini::TextTape<'_>,
+    at: Date,
+) -> Result<BTreeSet<String>, Error> {
+    let mut flags = BTreeSet::new();
+    for block in script::history_blocks(file, tape, at)? {
+        for (key, operator, value) in block.fields() {
+            let name = key.read_str();
+            if name != "set_country_flag" && name != "clr_country_flag" {
+                continue;
+            }
+            script::equal(file, operator, &name)?;
+            let Some(flag) = optional_text(&value, file)? else {
+                continue;
+            };
+            if name == "set_country_flag" {
+                flags.insert(flag);
+            } else {
+                flags.remove(&flag);
+            }
+        }
+    }
+    Ok(flags)
 }
 
 fn history_id(file: &ContentFile) -> Result<String, Error> {

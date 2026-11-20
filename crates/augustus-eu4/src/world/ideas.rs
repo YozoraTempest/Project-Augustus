@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! 国家理念。只认带 `free = yes`、触发条件就是国家标签的组。
+//! 国家理念。带 `free = yes` 的组按开局日期的触发条件分配。修正只用于显示。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use jomini::Windows1252Encoding;
@@ -13,6 +13,9 @@ use crate::{
     content::{ContentFile, ContentRoot},
     script,
 };
+use augustus_core::Country;
+
+use super::history::CountryHistory;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct NationalIdeas {
@@ -39,7 +42,51 @@ pub(super) enum ModifierAmount {
     Yes,
 }
 
-pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, NationalIdeas>, Error> {
+/// 开局时拿来对照理念触发条件的国家。旗帜只含历史在这一天之前立下的。
+pub(super) struct IdeaSubject<'a> {
+    pub tag: &'a str,
+    pub culture: Option<&'a str>,
+    pub religion: Option<&'a str>,
+    pub government: Option<&'a str>,
+    pub reforms: &'a [String],
+    pub technology_group: Option<&'a str>,
+    pub flags: &'a BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Cond {
+    All(Vec<Cond>),
+    Any(Vec<Cond>),
+    Not(Box<Cond>),
+    Tag(String),
+    Flag(String),
+    Culture(String),
+    Religion(String),
+    Government(String),
+    TechGroup(String),
+    Reform(String),
+    /// 1444 年还没有的身份，按字面 yes/no 判断。
+    StartFalse(bool),
+    Unknown,
+}
+
+struct IdeaGroup {
+    ideas: NationalIdeas,
+    trigger: Cond,
+    tags: BTreeSet<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Rank {
+    specific: bool,
+    narrow: u32,
+}
+
+pub(super) fn load(
+    content: &ContentRoot,
+    countries: &BTreeMap<String, Country>,
+    history: &CountryHistory,
+) -> Result<BTreeMap<String, NationalIdeas>, Error> {
     let files = match content.text_files("common/ideas") {
         Ok(files) => files,
         Err(Error::Read { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
@@ -47,7 +94,7 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, NationalIde
         }
         Err(error) => return Err(error),
     };
-    let mut claims: BTreeMap<String, (usize, NationalIdeas)> = BTreeMap::new();
+    let mut groups = Vec::new();
     for path in files {
         let file = content.read(path)?;
         let tape = script::parse(&file)?;
@@ -60,28 +107,52 @@ pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, NationalIde
             if !is_free(&file, &object)? {
                 continue;
             }
-            let Some(tags) = trigger_tags(&file, &object)? else {
+            let Some(trigger) = trigger_of(&file, &object)? else {
                 continue;
             };
-            let ideas = NationalIdeas {
-                id: id.clone(),
-                ideas: idea_entries(content, &file, &object)?,
-            };
-            let specificity = tags.len();
-            for tag in tags {
-                match claims.get(&tag) {
-                    Some((previous, _)) if *previous <= specificity => {}
-                    _ => {
-                        claims.insert(tag, (specificity, ideas.clone()));
-                    }
-                }
-            }
+            let mut tags = BTreeSet::new();
+            positive_tags(&trigger, false, &mut tags);
+            groups.push(IdeaGroup {
+                ideas: NationalIdeas {
+                    id: id.clone(),
+                    ideas: idea_entries(content, &file, &object)?,
+                },
+                trigger,
+                tags,
+            });
         }
     }
-    Ok(claims
-        .into_iter()
-        .map(|(tag, (_, ideas))| (tag, ideas))
-        .collect())
+    let mut assigned = BTreeMap::new();
+    let empty_flags = BTreeSet::new();
+    for country in countries.values() {
+        let subject = IdeaSubject {
+            tag: country.tag(),
+            culture: country.primary_culture.as_deref(),
+            religion: country.religion.as_deref(),
+            government: country.government.as_deref(),
+            reforms: &country.government_reforms,
+            technology_group: history
+                .groups
+                .get(country.tag())
+                .and_then(|group| group.technology_group.as_deref()),
+            flags: history.flags.get(country.tag()).unwrap_or(&empty_flags),
+        };
+        let mut best: Option<(Rank, usize)> = None;
+        for (index, group) in groups.iter().enumerate() {
+            if !matches_trigger(&group.trigger, &subject) {
+                continue;
+            }
+            let rank = rank_for(group, subject.tag);
+            let replace = best.as_ref().is_none_or(|(previous, _)| rank > *previous);
+            if replace {
+                best = Some((rank, index));
+            }
+        }
+        if let Some((_, index)) = best {
+            assigned.insert(country.tag().to_owned(), groups[index].ideas.clone());
+        }
+    }
+    Ok(assigned)
 }
 
 fn is_free(
@@ -101,11 +172,10 @@ fn is_free(
     Ok(false)
 }
 
-/// 触发条件里只有国家标签（可以包在 OR / AND 里）时，返回这些标签。
-fn trigger_tags(
+fn trigger_of(
     file: &ContentFile,
     group: &jomini::text::ObjectReader<'_, '_, Windows1252Encoding>,
-) -> Result<Option<Vec<String>>, Error> {
+) -> Result<Option<Cond>, Error> {
     for (key, operator, value) in group.fields() {
         if key.read_str() != "trigger" {
             continue;
@@ -114,34 +184,117 @@ fn trigger_tags(
         let trigger = value
             .read_object()
             .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
-        return pure_tags(file, &trigger);
+        return Ok(Some(parse_all(file, &trigger)?));
     }
     Ok(None)
 }
 
-fn pure_tags(
+fn parse_all(
     file: &ContentFile,
     object: &jomini::text::ObjectReader<'_, '_, Windows1252Encoding>,
-) -> Result<Option<Vec<String>>, Error> {
-    let mut tags = Vec::new();
+) -> Result<Cond, Error> {
+    let mut parts = Vec::new();
     for (key, operator, value) in object.fields() {
         let name = key.read_str();
         script::equal(file, operator, &name)?;
-        match name.as_ref() {
-            "tag" => tags.push(text(file, &value)?),
-            "OR" | "AND" => {
-                let nested = value
-                    .read_object()
-                    .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
-                let Some(inner) = pure_tags(file, &nested)? else {
-                    return Ok(None);
-                };
-                tags.extend(inner);
+        parts.push(parse_one(file, &name, &value)?);
+    }
+    Ok(Cond::All(parts))
+}
+
+fn parse_one(
+    file: &ContentFile,
+    name: &str,
+    value: &ValueReader<'_, '_, Windows1252Encoding>,
+) -> Result<Cond, Error> {
+    match name {
+        "AND" => {
+            let nested = value
+                .read_object()
+                .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
+            parse_all(file, &nested)
+        }
+        "OR" => {
+            let nested = value
+                .read_object()
+                .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
+            let mut parts = Vec::new();
+            for (key, operator, value) in nested.fields() {
+                let name = key.read_str();
+                script::equal(file, operator, &name)?;
+                parts.push(parse_one(file, &name, &value)?);
             }
-            _ => return Ok(None),
+            Ok(Cond::Any(parts))
+        }
+        "NOT" => {
+            let nested = value
+                .read_object()
+                .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
+            Ok(Cond::Not(Box::new(parse_all(file, &nested)?)))
+        }
+        "tag" => Ok(Cond::Tag(text(file, value)?)),
+        "has_country_flag" => Ok(Cond::Flag(text(file, value)?)),
+        "primary_culture" => Ok(Cond::Culture(text(file, value)?)),
+        "religion" => Ok(Cond::Religion(text(file, value)?)),
+        "government" => Ok(Cond::Government(text(file, value)?)),
+        "technology_group" => Ok(Cond::TechGroup(text(file, value)?)),
+        "has_reform" => Ok(Cond::Reform(text(file, value)?)),
+        "is_revolutionary" | "is_revolution_target" | "is_colonial_nation" | "is_client_nation" => {
+            match text(file, value)?.as_str() {
+                "yes" => Ok(Cond::StartFalse(true)),
+                "no" => Ok(Cond::StartFalse(false)),
+                _ => Ok(Cond::Unknown),
+            }
+        }
+        _ => Ok(Cond::Unknown),
+    }
+}
+
+fn matches_trigger(cond: &Cond, country: &IdeaSubject<'_>) -> bool {
+    match cond {
+        Cond::All(parts) => parts.iter().all(|part| matches_trigger(part, country)),
+        Cond::Any(parts) => parts.iter().any(|part| matches_trigger(part, country)),
+        Cond::Not(inner) => !matches_trigger(inner, country),
+        Cond::Tag(tag) => country.tag == tag,
+        Cond::Flag(flag) => country.flags.contains(flag),
+        Cond::Culture(culture) => country.culture == Some(culture.as_str()),
+        Cond::Religion(religion) => country.religion == Some(religion.as_str()),
+        Cond::Government(government) => country.government == Some(government.as_str()),
+        Cond::TechGroup(group) => country.technology_group == Some(group.as_str()),
+        Cond::Reform(reform) => country.reforms.iter().any(|owned| owned == reform),
+        // 开局还没有革命、殖民或附庸国这类身份。
+        Cond::StartFalse(expect_yes) => !expect_yes,
+        Cond::Unknown => false,
+    }
+}
+
+fn positive_tags(cond: &Cond, negated: bool, tags: &mut BTreeSet<String>) {
+    match cond {
+        Cond::Tag(tag) if !negated => {
+            tags.insert(tag.clone());
+        }
+        Cond::Not(inner) => positive_tags(inner, !negated, tags),
+        Cond::All(parts) | Cond::Any(parts) => {
+            for part in parts {
+                positive_tags(part, negated, tags);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn rank_for(group: &IdeaGroup, tag: &str) -> Rank {
+    if group.tags.contains(tag) {
+        Rank {
+            specific: true,
+            narrow: u32::MAX - u32::try_from(group.tags.len()).unwrap_or(u32::MAX),
+        }
+    } else {
+        Rank {
+            specific: false,
+            narrow: 0,
         }
     }
-    Ok((!tags.is_empty()).then_some(tags))
 }
 
 fn idea_entries(
@@ -296,10 +449,14 @@ fn text(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    use augustus_core::Country;
+
     use crate::content::ContentRoot;
+    use crate::world::history::CountryHistory;
 
     use super::load;
 
@@ -336,10 +493,62 @@ mod tests {
                     free = yes
                     raid = { discipline = 0.05 }
                 }
+                LIT_ideas = {
+                    trigger = {
+                        tag = LIT
+                        NOT = { has_country_flag = lit_new_magdeburg_laws }
+                    }
+                    free = yes
+                    warlord_dukes = { leader_land_shock = 1 }
+                }
+                LIT2_ideas = {
+                    trigger = {
+                        tag = LIT
+                        has_country_flag = lit_new_magdeburg_laws
+                    }
+                    free = yes
+                    lit_new_magdeburg_laws = { development_cost = -0.1 }
+                }
+                PLC_LIT_ideas = {
+                    trigger = {
+                        tag = PLC
+                        has_country_flag = is_LPC_flag
+                    }
+                    free = yes
+                    warlord_dukes = { leader_land_shock = 1 }
+                }
+                FRA_ideas = {
+                    trigger = {
+                        tag = FRA
+                        is_revolutionary = no
+                        is_revolution_target = no
+                    }
+                    free = yes
+                    royal_army = { discipline = 0.05 }
+                }
             "#,
         )
         .unwrap();
-        let ideas = load(&ContentRoot::new(&root)).unwrap();
+        let mut countries = BTreeMap::new();
+        for tag in ["TUR", "LIT", "PLC", "FRA"] {
+            countries.insert(tag.to_owned(), Country::new(tag));
+        }
+        let history = CountryHistory {
+            conflicts: BTreeSet::new(),
+            groups: BTreeMap::new(),
+            flags: BTreeMap::new(),
+        };
+        let ideas = load(&ContentRoot::new(&root), &countries, &history).unwrap();
+        let mut flags = BTreeMap::new();
+        let mut lit_flag = BTreeSet::new();
+        lit_flag.insert("lit_new_magdeburg_laws".to_owned());
+        flags.insert("LIT".to_owned(), lit_flag);
+        let flagged = CountryHistory {
+            conflicts: BTreeSet::new(),
+            groups: BTreeMap::new(),
+            flags,
+        };
+        let with_flag = load(&ContentRoot::new(&root), &countries, &flagged).unwrap();
         let _ = fs::remove_dir_all(&root);
         let group = ideas.get("TUR").unwrap();
         assert_eq!(group.id, "TUR_ideas");
@@ -355,6 +564,10 @@ mod tests {
             ]
         );
         assert_eq!(group.ideas[0].id, "millets");
-        assert!(!ideas.contains_key("accepted_norse_ideas_flag"));
+        assert!(ideas.get("LIT").is_some_and(|group| group.id == "LIT_ideas"));
+        assert!(with_flag.get("LIT").is_some_and(|group| group.id == "LIT2_ideas"));
+        assert!(!ideas.contains_key("PLC"));
+        assert!(ideas.get("FRA").is_some_and(|group| group.id == "FRA_ideas"));
+        assert!(!ideas.values().any(|group| group.id == "norse_ideas"));
     }
 }

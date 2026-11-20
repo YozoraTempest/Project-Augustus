@@ -73,7 +73,7 @@ impl OpeningWorld {
         let country_history = history::apply_countries(&content, &mut countries.states)?;
         diplomacy::apply(&content, &mut countries.states)?;
         let religion_icons = religions::load(&content)?;
-        let national_ideas = ideas::load(&content)?;
+        let national_ideas = ideas::load(&content, &countries.states, &country_history)?;
         let country_history_conflicts = country_history.conflicts;
         let histories =
             history::apply_provinces(&content, &countries.colors, &mut provinces, &buildings)?;
@@ -495,6 +495,10 @@ mod tests {
         assert!(world.stored_advisors() > 0);
         assert_eq!(world.national_idea_group("TUR"), Some("TUR_ideas"));
         assert_eq!(world.national_idea_icons("TUR").len(), 7);
+        assert_eq!(world.display_name("TUR_ideas"), "Ottoman Ideas");
+        assert_eq!(world.national_idea_group("LIT"), Some("LIT_ideas"));
+        assert_eq!(world.national_idea_icons("LIT").len(), 7);
+        assert_eq!(world.display_name("LIT_ideas"), "Lithuanian Ideas");
         assert_eq!(
             world.national_idea_ids("TUR").first().copied(),
             Some("millets")
