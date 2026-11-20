@@ -5,6 +5,7 @@
 mod buildings;
 mod combat;
 mod countries;
+mod diplomacy;
 mod forcelimit;
 mod geography;
 mod great_projects;
@@ -70,6 +71,7 @@ impl OpeningWorld {
         geography::apply(&content, &mut provinces)?;
         terrain::apply(&content, &map, &mut provinces)?;
         let country_history = history::apply_countries(&content, &mut countries.states)?;
+        diplomacy::apply(&content, &mut countries.states)?;
         let religion_icons = religions::load(&content)?;
         let national_ideas = ideas::load(&content)?;
         let country_history_conflicts = country_history.conflicts;
@@ -163,6 +165,9 @@ impl OpeningWorld {
                 descriptions.insert(format!("{government}_name"));
             }
             descriptions.extend(country.government_reforms.iter().cloned());
+            for tie in &country.diplomacy {
+                descriptions.insert(tie.label.clone());
+            }
         }
         for ideas in national_ideas.values() {
             for idea in &ideas.ideas {
@@ -277,6 +282,21 @@ impl OpeningWorld {
     /// 已载入的英文界面文本。没有这个键就空着，不退回键名本身。
     pub fn loaded_text(&self, key: &str) -> Option<&str> {
         self.names.get(key).map(String::as_str)
+    }
+
+    /// 选国家外交名单。关系名来自已载入的英文，后面是对方国名。
+    pub fn diplomacy_lines(&self, tag: &str) -> Vec<String> {
+        let Some(country) = self.state.country(tag) else {
+            return Vec::new();
+        };
+        country
+            .diplomacy
+            .iter()
+            .filter_map(|tie| {
+                let label = self.loaded_text(&tie.label)?;
+                Some(format!("{label} {}", self.display_name(&tie.other)))
+            })
+            .collect()
     }
 
     /// 科技组图标帧，按 `groups` 书写顺序从 1 起。
@@ -511,6 +531,22 @@ mod tests {
             Some("Ottoman Government")
         );
         assert_eq!(world.loaded_text("monarchy_name"), Some("Monarchy"));
+        assert_eq!(
+            world.diplomacy_lines("TUR"),
+            [
+                "Guaranteeing Ragusa".to_owned(),
+                "Historical Rival Mamluks".to_owned(),
+                "Historical Rival Byzantium".to_owned(),
+                "Historical Rival Austria".to_owned(),
+                "Historical Rival Timurids".to_owned(),
+            ]
+        );
+        assert!(
+            world
+                .diplomacy_lines("ARL")
+                .iter()
+                .any(|line| line == "Alliance Gilan")
+        );
         assert_eq!(
             world
                 .national_idea_effect_lines("TUR")

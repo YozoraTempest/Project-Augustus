@@ -34,6 +34,9 @@ pub struct Country {
     /// 开局日期及之前依次加入的政府改革。右栏只用第一条的英文名。
     #[serde(default)]
     pub government_reforms: Vec<String>,
+    /// 开局仍在的外交关系。只记名字，不带意见或效果。
+    #[serde(default)]
+    pub diplomacy: Vec<DiplomaticTie>,
     pub finances: CountryFinances,
     // 缺失表示尚未组成世界或来自旧版存档，由 World 根据领土初始化。
     #[serde(default)]
@@ -58,6 +61,7 @@ impl Country {
             heir: None,
             government: None,
             government_reforms: Vec::new(),
+            diplomacy: Vec::new(),
             finances: CountryFinances::default(),
             manpower: None,
             military: None,
@@ -76,4 +80,11 @@ pub struct CourtPerson {
     pub adm: u32,
     pub dip: u32,
     pub mil: u32,
+}
+
+/// 一条只用于显示的外交关系：关系名的本地化键，以及对方国家标签。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiplomaticTie {
+    pub label: String,
+    pub other: String,
 }

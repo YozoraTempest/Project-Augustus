@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use augustus_core::{BuildingDefinition, Country, CourtPerson, Province};
+use augustus_core::{BuildingDefinition, Country, CourtPerson, DiplomaticTie, Province};
 use jomini::{Windows1252Encoding, common::Date, text::ValueReader};
 
 use crate::{
@@ -105,6 +105,10 @@ pub(super) fn apply_countries(
                         | "unit_type"
                         | "government"
                         | "add_government_reform"
+                        | "historical_rival"
+                        | "historical_friend"
+                        | "add_historical_rival"
+                        | "add_historical_friend"
                 ) {
                     continue;
                 }
@@ -131,6 +135,22 @@ pub(super) fn apply_countries(
                                 country.government_reforms.push(reform);
                             }
                         }
+                        "historical_rival" | "add_historical_rival" => {
+                            if let Some(other) = text {
+                                country.diplomacy.push(DiplomaticTie {
+                                    label: "historical_rival".to_owned(),
+                                    other,
+                                });
+                            }
+                        }
+                        "historical_friend" | "add_historical_friend" => {
+                            if let Some(other) = text {
+                                country.diplomacy.push(DiplomaticTie {
+                                    label: "historical_friend".to_owned(),
+                                    other,
+                                });
+                            }
+                        }
                         _ => unreachable!(),
                     }
                 }
@@ -149,6 +169,7 @@ pub(super) fn apply_countries(
             target.heir = country.heir;
             target.government = country.government;
             target.government_reforms = country.government_reforms;
+            target.diplomacy = country.diplomacy;
             groups.insert(tag.clone(), origin);
         } else {
             let previous = groups.get(&tag).expect("重复历史仍有第一次的科技组");
@@ -191,6 +212,10 @@ pub(super) fn apply_countries(
             }
             if target.government_reforms != country.government_reforms {
                 target.government_reforms.clear();
+                conflicts.insert(tag.clone());
+            }
+            if target.diplomacy != country.diplomacy {
+                target.diplomacy.clear();
                 conflicts.insert(tag);
             }
         }

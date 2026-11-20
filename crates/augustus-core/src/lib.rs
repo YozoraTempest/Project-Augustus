@@ -24,7 +24,7 @@ pub use combat::{
     Battle, BattleOutcome, BattleReport, CombatRules, CountryMilitary, UNSET_MORALE, UnitCombat,
     UnitPips,
 };
-pub use country::{Country, CourtPerson};
+pub use country::{Country, CourtPerson, DiplomaticTie};
 pub use economy::{CountryFinances, MonthlyBudget, MonthlySettlement};
 pub use manpower::{ManpowerPool, ManpowerRules, ManpowerSummary};
 pub use military::{

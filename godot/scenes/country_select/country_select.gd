@@ -779,6 +779,7 @@ func _refresh_selection() -> void:
 		_show_country_panel(false)
 		_hide_religion_icons()
 		_clear_tech_government()
+		_clear_diplomacy()
 		_clear_opening_figures()
 		_clear_national_ideas()
 		if _start:
@@ -791,6 +792,7 @@ func _refresh_selection() -> void:
 	_fill_country_stats(info)
 	_apply_religion_icons(info)
 	_apply_tech_government(info)
+	_fill_diplomacy(info)
 	_fill_opening_figures(info)
 	_fill_national_ideas(info)
 	_show_country_panel(true)
@@ -1011,6 +1013,44 @@ func _bind_named_tip(eu4_name: String, title: String) -> void:
 		slot.set_meta("idea_tip_bound", true)
 
 
+func _fill_diplomacy(info: Dictionary) -> void:
+	var items := _list_items("diplomatic_listbox")
+	if items == null:
+		return
+	_clear_list(items)
+	var lines: Variant = info.get("diplomacy", [])
+	if not lines is Array:
+		return
+	var face := _ui_font("vic_18")
+	for line in lines:
+		var label := RichTextLabel.new()
+		label.bbcode_enabled = false
+		label.scroll_active = false
+		label.fit_content = true
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.custom_minimum_size = Vector2(180, 0)
+		label.add_theme_color_override("default_color", Color(0.95, 0.91, 0.82))
+		label.text = str(line)
+		if face:
+			label.add_theme_font_override("normal_font", face)
+			label.add_theme_font_size_override("normal_font_size", int(face.get_meta("eu4_face", 18)))
+		items.add_child(label)
+
+
+func _clear_diplomacy() -> void:
+	var items := _list_items("diplomatic_listbox")
+	if items == null:
+		return
+	_clear_list(items)
+
+
+func _clear_list(items: VBoxContainer) -> void:
+	for child in items.get_children():
+		items.remove_child(child)
+		child.free()
+
+
 func _fill_country_stats(info: Dictionary) -> void:
 	_set_box("provinces_value", str(int(info.province_count)))
 	_set_box("economy_value", _number_field(info, "development"))
@@ -1185,6 +1225,7 @@ func _clear_country() -> void:
 	_show_country_panel(false)
 	_hide_religion_icons()
 	_clear_tech_government()
+	_clear_diplomacy()
 	_clear_opening_figures()
 	_clear_national_ideas()
 	_clear_country_stats()
