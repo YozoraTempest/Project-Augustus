@@ -80,6 +80,27 @@ func _build_chrome() -> void:
 	_attach_flag()
 	_paint_loaded_text(_chrome)
 	_fill_lobby()
+	_raise_lobby_over_map()
+
+
+# 大厅画在地图之上。整屏的空窗口仍把点击让给地图，面板、列表和图标自己接住。
+func _raise_lobby_over_map() -> void:
+	if _gui == null or not _gui is Control:
+		return
+	var chrome := _gui as Control
+	chrome.z_index = 20
+	_block_lobby_clicks(chrome)
+
+
+func _block_lobby_clicks(node: Node) -> void:
+	if node is Control and node != _gui:
+		var control := node as Control
+		var box: Vector2 = control.get_meta("eu4_box", Vector2.ZERO)
+		var covers_screen := box.x >= 1919.0 and box.y >= 1079.0
+		if not covers_screen:
+			control.mouse_filter = Control.MOUSE_FILTER_STOP
+	for child in node.get_children():
+		_block_lobby_clicks(child)
 
 
 # 年份数字按 vic_22s 的基线落进编辑框上沿的字盒，不压住框下沿的箭头。
@@ -1107,7 +1128,7 @@ func _apply_diplomacy_scrollbar(list: ScrollContainer) -> void:
 	if column == null:
 		column = DiplomacyBar.new()
 		column.name = "diplomacy_scrollbar"
-		column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		column.mouse_filter = Control.MOUSE_FILTER_STOP
 		column.z_as_relative = false
 		column.z_index = 4095
 		add_child(column)
