@@ -690,7 +690,8 @@ func _on_gui_action(eu4_name: String, _properties: Dictionary) -> void:
 
 
 func _attach_flag() -> void:
-	var shield := _find_named(_chrome, "player_shield") as Control
+	var panel := _find_named(_chrome, "singleplayer")
+	var shield := _find_named(panel, "player_shield") as Control
 	if shield == null:
 		return
 	_flag = TextureRect.new()
@@ -765,9 +766,7 @@ func _refresh_selection() -> void:
 	if info.is_empty():
 		_clear_country()
 		return
-	if _flag:
-		_flag.texture = _flag_texture(tag)
-		_flag.visible = _flag.texture != null
+	_show_panel_flag(tag)
 	_set_texts(_nation_labels, str(info.name))
 	var provinces := str(_backend.localise_eu4("PROVINCES"))
 	if provinces.is_empty():
@@ -868,6 +867,21 @@ func _show_country_panel(selected: bool) -> void:
 		return
 	_gui.set_named_visible("no_player", not selected)
 	_gui.set_named_visible("singleplayer", selected)
+
+
+func _show_panel_flag(tag: String) -> void:
+	if _flag == null:
+		return
+	# 右栏这面旗用 gfx/flags/<标签>.tga，再按 player_shield 的薄盾框裁。底部书签盾徽不走这里。
+	var texture := _flag_texture(tag)
+	_flag.texture = texture
+	_flag.visible = texture != null
+	var shield := _flag.get_parent() as Control
+	if shield == null or texture == null:
+		return
+	if shield.size.x < texture.get_width() or shield.size.y < texture.get_height():
+		shield.offset_right = shield.offset_left + texture.get_width()
+		shield.offset_bottom = shield.offset_top + texture.get_height()
 
 
 func _flag_texture(tag: String, shield_sprite: String = "GFX_shield_thin") -> Texture2D:
