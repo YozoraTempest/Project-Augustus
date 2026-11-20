@@ -22,6 +22,7 @@ var _start: Button
 var _bookmarks: Array = []
 var _bookmark_rows: Array[Button] = []
 var _shield_row: Control
+var _idea_tip: Control
 
 
 func _ready() -> void:
@@ -824,11 +825,92 @@ func _set_idea_tip(slot: TextureRect, tip: Variant) -> void:
 		if body == "<null>":
 			body = ""
 	if title.is_empty():
+		slot.set_meta("idea_tip_title", "")
+		slot.set_meta("idea_tip_body", "")
 		slot.tooltip_text = ""
 		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		return
+	slot.set_meta("idea_tip_title", title)
+	slot.set_meta("idea_tip_body", body)
+	slot.tooltip_text = ""
 	slot.mouse_filter = Control.MOUSE_FILTER_STOP
-	slot.tooltip_text = title if body.is_empty() else "%s\n%s" % [title, body]
+	if not slot.has_meta("idea_tip_bound"):
+		slot.mouse_entered.connect(_show_idea_tip.bind(slot))
+		slot.mouse_exited.connect(_hide_idea_tip)
+		slot.set_meta("idea_tip_bound", true)
+
+
+func _show_idea_tip(slot: TextureRect) -> void:
+	var title := str(slot.get_meta("idea_tip_title", ""))
+	var body := str(slot.get_meta("idea_tip_body", ""))
+	if title.is_empty():
+		_hide_idea_tip()
+		return
+	var tip := _idea_tip_panel()
+	var label := tip.get_node("Text") as RichTextLabel
+	label.text = title if body.is_empty() else title + "\n" + body
+	var face := _ui_font("vic_18")
+	var font_size := 18
+	if face:
+		font_size = int(face.get_meta("eu4_face", 18))
+		label.add_theme_font_override("normal_font", face)
+		label.add_theme_font_size_override("normal_font_size", font_size)
+	# core.gui 的 ToolTip：宽最多 400，边 18。frontend 的 tooltip_offset_small 是 (21, 24)。
+	var text_width := 364.0
+	var measured := Vector2(text_width, float(font_size))
+	if face:
+		measured = face.get_multiline_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, text_width, font_size)
+	var content_w := clampf(measured.x, 32.0, text_width)
+	var content_h := maxf(measured.y, float(font_size))
+	label.position = Vector2(18, 18)
+	label.size = Vector2(content_w, content_h)
+	tip.size = Vector2(content_w + 36.0, content_h + 36.0)
+	var mouse := get_global_mouse_position()
+	var pos := mouse + Vector2(21, 24)
+	var view := get_viewport_rect().size
+	if pos.x + tip.size.x > view.x:
+		pos.x = maxf(0.0, mouse.x - tip.size.x - 21.0)
+	if pos.y + tip.size.y > view.y:
+		pos.y = maxf(0.0, mouse.y - tip.size.y - 24.0)
+	tip.position = pos
+	tip.show()
+
+
+func _hide_idea_tip() -> void:
+	if _idea_tip:
+		_idea_tip.hide()
+
+
+func _idea_tip_panel() -> Control:
+	if _idea_tip:
+		return _idea_tip
+	var tip := Control.new()
+	tip.name = "IdeaToolTip"
+	tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip.z_index = 100
+	tip.hide()
+	var patch := NinePatchRect.new()
+	patch.set_anchors_preset(Control.PRESET_FULL_RECT)
+	patch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	patch.patch_margin_left = 18
+	patch.patch_margin_top = 18
+	patch.patch_margin_right = 18
+	patch.patch_margin_bottom = 18
+	var path := str(_backend.get_game_directory()).path_join("gfx/interface/tiles_dialog.dds")
+	var assets = ASSETS_SCRIPT.new()
+	patch.texture = assets.texture_from_file(path)
+	tip.add_child(patch)
+	var label := RichTextLabel.new()
+	label.name = "Text"
+	label.bbcode_enabled = false
+	label.scroll_active = false
+	label.fit_content = false
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tip.add_child(label)
+	add_child(tip)
+	_idea_tip = tip
+	return tip
 
 
 func _idea_paths(info: Dictionary) -> PackedStringArray:
@@ -853,7 +935,9 @@ func _clear_national_ideas() -> void:
 		if slot:
 			slot.texture = empty
 			slot.tooltip_text = ""
+			slot.set_meta("idea_tip_title", "")
 			slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hide_idea_tip()
 
 
 func _idea_texture(relative: String) -> Texture2D:
