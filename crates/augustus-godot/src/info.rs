@@ -238,13 +238,19 @@ pub(crate) fn country_info(
         info.set("idea_group", world.display_name(group).as_str());
         let mut icons: Array<GString> = Array::new();
         let mut tips: Array<VarDictionary> = Array::new();
-        for id in world.national_idea_ids(tag) {
+        let effects = world.national_idea_effect_lines(tag);
+        for (index, id) in world.national_idea_ids(tag).iter().enumerate() {
             let mut tip = VarDictionary::new();
             tip.set("name", world.display_name(id).as_str());
             let desc_key = format!("{id}_desc");
             let desc = world.display_name(&desc_key);
             if desc != desc_key {
                 tip.set("desc", desc.as_str());
+            }
+            if let Some(lines) = effects.get(index) {
+                if !lines.is_empty() {
+                    tip.set("effects", lines.join("\n").as_str());
+                }
             }
             tips.push(&tip);
         }

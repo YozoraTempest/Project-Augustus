@@ -14,16 +14,29 @@ use crate::{
     script,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct NationalIdeas {
     pub id: String,
     pub ideas: Vec<NationalIdea>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct NationalIdea {
     pub id: String,
     pub icon: String,
+    pub modifiers: Vec<IdeaModifier>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct IdeaModifier {
+    pub key: String,
+    pub amount: ModifierAmount,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum ModifierAmount {
+    Number(f64),
+    Yes,
 }
 
 pub(super) fn load(content: &ContentRoot) -> Result<BTreeMap<String, NationalIdeas>, Error> {
@@ -152,6 +165,7 @@ fn idea_entries(
         ideas.push(NationalIdea {
             id: name.into_owned(),
             icon: icon_for(content, file, &idea)?,
+            modifiers: idea_modifiers(file, &idea)?,
         });
     }
     Ok(ideas)
@@ -174,6 +188,101 @@ fn icon_for(
         }
     }
     Ok("gfx/interface/ideas_EU4/unknown.dds".to_owned())
+}
+
+fn idea_modifiers(
+    file: &ContentFile,
+    idea: &jomini::text::ObjectReader<'_, '_, Windows1252Encoding>,
+) -> Result<Vec<IdeaModifier>, Error> {
+    let mut modifiers = Vec::new();
+    for (key, operator, value) in idea.fields() {
+        if value.read_object().is_ok() {
+            continue;
+        }
+        let name = key.read_str().into_owned();
+        script::equal(file, operator, &name)?;
+        let scalar = value
+            .read_scalar()
+            .map_err(|error| Error::invalid(&file.path, error.to_string()))?;
+        let amount = if let Ok(number) = scalar.to_f64() {
+            ModifierAmount::Number(number)
+        } else {
+            let text = scalar.to_string();
+            if text == "yes" {
+                ModifierAmount::Yes
+            } else {
+                continue;
+            }
+        };
+        modifiers.push(IdeaModifier { key: name, amount });
+    }
+    Ok(modifiers)
+}
+
+impl IdeaModifier {
+    pub(super) fn value_text(&self) -> String {
+        match self.amount {
+            ModifierAmount::Yes => "Yes".to_owned(),
+            ModifierAmount::Number(value) => {
+                if is_percent(&self.key, value) {
+                    format_percent(value)
+                } else {
+                    format_number(value)
+                }
+            }
+        }
+    }
+}
+
+fn is_percent(key: &str, value: f64) -> bool {
+    // 这些小数是每年点数，不是百分比。其余小于 1 的修正按百分比显示。
+    const FLAT: &[&str] = &[
+        "army_tradition",
+        "navy_tradition",
+        "prestige",
+        "legitimacy",
+        "devotion",
+        "republican_tradition",
+        "horde_unity",
+        "meritocracy",
+        "inflation_reduction",
+        "war_exhaustion",
+        "global_autonomy",
+        "papal_influence",
+        "yearly_corruption",
+        "monthly_piety",
+        "monthly_fervor_increase",
+        "diplomatic_reputation",
+        "interest",
+    ];
+    if FLAT.contains(&key) {
+        return false;
+    }
+    value.abs() < 1.0
+        || key.ends_with("_modifier")
+        || key.ends_with("_power")
+        || key.ends_with("_cost")
+        || key.ends_with("_efficiency")
+        || key.ends_with("_speed")
+        || key.ends_with("_ability")
+}
+
+fn format_percent(value: f64) -> String {
+    let percent = value * 100.0;
+    if (percent - percent.round()).abs() < 0.05 {
+        format!("{:+.0}%", percent.round())
+    } else {
+        format!("{:+.1}%", percent)
+    }
+}
+
+fn format_number(value: f64) -> String {
+    if (value - value.round()).abs() < 0.001 {
+        format!("{:+.0}", value.round())
+    } else {
+        let text = format!("{value:+.2}");
+        text.trim_end_matches('0').trim_end_matches('.').to_owned()
+    }
 }
 
 fn text(

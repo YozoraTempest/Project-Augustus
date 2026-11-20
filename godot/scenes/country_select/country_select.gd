@@ -819,19 +819,25 @@ func _fill_national_ideas(info: Dictionary) -> void:
 func _set_idea_tip(slot: TextureRect, tip: Variant) -> void:
 	var title := ""
 	var body := ""
+	var effects := ""
 	if tip is Dictionary:
 		title = str(tip.get("name", ""))
 		body = str(tip.get("desc", ""))
+		effects = str(tip.get("effects", ""))
 		if body == "<null>":
 			body = ""
+		if effects == "<null>":
+			effects = ""
 	if title.is_empty():
 		slot.set_meta("idea_tip_title", "")
 		slot.set_meta("idea_tip_body", "")
+		slot.set_meta("idea_tip_effects", "")
 		slot.tooltip_text = ""
 		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		return
 	slot.set_meta("idea_tip_title", title)
 	slot.set_meta("idea_tip_body", body)
+	slot.set_meta("idea_tip_effects", effects)
 	slot.tooltip_text = ""
 	slot.mouse_filter = Control.MOUSE_FILTER_STOP
 	if not slot.has_meta("idea_tip_bound"):
@@ -842,13 +848,19 @@ func _set_idea_tip(slot: TextureRect, tip: Variant) -> void:
 
 func _show_idea_tip(slot: TextureRect) -> void:
 	var title := str(slot.get_meta("idea_tip_title", ""))
+	var effects := str(slot.get_meta("idea_tip_effects", ""))
 	var body := str(slot.get_meta("idea_tip_body", ""))
 	if title.is_empty():
 		_hide_idea_tip()
 		return
+	var text := title
+	if not effects.is_empty():
+		text += "\n" + effects
+	if not body.is_empty():
+		text += "\n" + body
 	var tip := _idea_tip_panel()
 	var label := tip.get_node("Text") as RichTextLabel
-	label.text = title if body.is_empty() else title + "\n" + body
+	label.text = text
 	var face := _ui_font("vic_18")
 	var font_size := 18
 	if face:

@@ -155,6 +155,12 @@ impl OpeningWorld {
         for ideas in national_ideas.values() {
             for idea in &ideas.ideas {
                 descriptions.insert(format!("{}_desc", idea.id));
+                for modifier in &idea.modifiers {
+                    let upper = modifier.key.to_uppercase();
+                    descriptions.insert(format!("MODIFIER_{upper}"));
+                    descriptions.insert(upper);
+                    descriptions.insert(modifier.key.clone());
+                }
             }
         }
         names.extend(localisation::load_descriptions(&content, &descriptions)?);
@@ -194,6 +200,39 @@ impl OpeningWorld {
 
     pub fn national_idea_group(&self, tag: &str) -> Option<&str> {
         self.national_ideas.get(tag).map(|ideas| ideas.id.as_str())
+    }
+
+    pub fn national_idea_effect_lines(&self, tag: &str) -> Vec<Vec<String>> {
+        let Some(group) = self.national_ideas.get(tag) else {
+            return Vec::new();
+        };
+        group
+            .ideas
+            .iter()
+            .map(|idea| {
+                idea.modifiers
+                    .iter()
+                    .map(|modifier| {
+                        format!(
+                            "{}: {}",
+                            self.modifier_name(&modifier.key),
+                            modifier.value_text()
+                        )
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn modifier_name(&self, key: &str) -> String {
+        let upper = key.to_uppercase();
+        for candidate in [format!("MODIFIER_{upper}"), key.to_owned(), upper] {
+            let name = self.display_name(&candidate);
+            if name != candidate {
+                return name;
+            }
+        }
+        key.replace('_', " ")
     }
 
     pub fn national_idea_icons(&self, tag: &str) -> Vec<&str> {
@@ -416,6 +455,19 @@ mod tests {
                 .starts_with("By establishing unique codes of law")
         );
         assert_eq!(world.display_name("TUR_ideas"), "Ottoman Ideas");
+        assert_eq!(
+            world
+                .national_idea_effect_lines("TUR")
+                .first()
+                .map(Vec::as_slice),
+            Some(
+                [
+                    "Core-Creation Cost: -25%".to_owned(),
+                    "Number of accepted Cultures: +1".to_owned(),
+                ]
+                .as_slice()
+            )
+        );
     }
 
     #[test]
