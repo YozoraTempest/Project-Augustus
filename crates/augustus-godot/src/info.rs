@@ -234,6 +234,14 @@ pub(crate) fn country_info(
         info.set("ruler_dip", i64::from(ruler.dip));
         info.set("ruler_mil", i64::from(ruler.mil));
     }
+    if let Some(group) = world.national_idea_group(tag) {
+        info.set("idea_group", world.display_name(group).as_str());
+        let mut icons: Array<GString> = Array::new();
+        for path in world.national_idea_icons(tag) {
+            icons.push(&GString::from(path));
+        }
+        info.set("national_idea_icons", &icons);
+    }
     // 顾问池只存着，不开局雇人，右栏也不画。
     let _advisor_pool = world.stored_advisors();
     let summary = world

@@ -777,6 +777,7 @@ func _refresh_selection() -> void:
 		_show_country_panel(false)
 		_hide_religion_icons()
 		_clear_opening_figures()
+		_clear_national_ideas()
 		if _start:
 			_start.disabled = true
 		var empty := str(_backend.localise_eu4("FE_NO_COUNTRY_SELECTED"))
@@ -786,9 +787,59 @@ func _refresh_selection() -> void:
 	_chosen_country = tag
 	_apply_religion_icons(info)
 	_fill_opening_figures(info)
+	_fill_national_ideas(info)
 	_show_country_panel(true)
 	if _start:
 		_start.disabled = false
+
+
+func _fill_national_ideas(info: Dictionary) -> void:
+	_set_box("national_ideagroup_name", _text_field(info, "idea_group"))
+	var paths := _idea_paths(info)
+	_set_box("ideas_value", str(paths.size()) if paths.size() > 0 else "")
+	var empty := _sprite_frame("GFX_idea_empty", 1)
+	for index in 7:
+		var slot := _find_named(_chrome, "national_idea%d" % [index + 1]) as TextureRect
+		if slot == null:
+			continue
+		if index < paths.size():
+			var texture := _idea_texture(paths[index])
+			if texture != null:
+				slot.texture = texture
+				continue
+		if empty != null:
+			slot.texture = empty
+
+
+func _idea_paths(info: Dictionary) -> PackedStringArray:
+	var paths := PackedStringArray()
+	var icons: Variant = info.get("national_idea_icons", null)
+	if icons is PackedStringArray:
+		return icons
+	if icons is Array:
+		for item in icons:
+			paths.append(str(item))
+	return paths
+
+
+func _clear_national_ideas() -> void:
+	_set_box("national_ideagroup_name", "")
+	_set_box("ideas_value", "")
+	var empty := _sprite_frame("GFX_idea_empty", 1)
+	if empty == null:
+		return
+	for index in 7:
+		var slot := _find_named(_chrome, "national_idea%d" % [index + 1]) as TextureRect
+		if slot:
+			slot.texture = empty
+
+
+func _idea_texture(relative: String) -> Texture2D:
+	if _backend == null or relative.is_empty():
+		return null
+	var path := str(_backend.get_game_directory()).path_join(relative)
+	var assets = ASSETS_SCRIPT.new()
+	return assets.texture_from_file(path)
 
 
 func _fill_opening_figures(info: Dictionary) -> void:
@@ -954,6 +1005,7 @@ func _clear_country() -> void:
 	_show_country_panel(false)
 	_hide_religion_icons()
 	_clear_opening_figures()
+	_clear_national_ideas()
 	if _start:
 		_start.disabled = true
 	if _flag:

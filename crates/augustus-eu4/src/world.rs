@@ -9,6 +9,7 @@ mod forcelimit;
 mod geography;
 mod great_projects;
 mod history;
+mod ideas;
 mod localisation;
 mod manpower;
 mod military;
@@ -40,6 +41,7 @@ pub struct OpeningWorld {
     religion_icons: BTreeMap<String, u32>,
     /// 顾问池。没有在职顾问，右栏不画。
     advisors: history::AdvisorBook,
+    national_ideas: BTreeMap<String, ideas::NationalIdeas>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -65,6 +67,7 @@ impl OpeningWorld {
         terrain::apply(&content, &map, &mut provinces)?;
         let country_history = history::apply_countries(&content, &mut countries.states)?;
         let religion_icons = religions::load(&content)?;
+        let national_ideas = ideas::load(&content)?;
         let country_history_conflicts = country_history.conflicts;
         let histories =
             history::apply_provinces(&content, &countries.colors, &mut provinces, &buildings)?;
@@ -131,6 +134,9 @@ impl OpeningWorld {
                     .cloned(),
             );
         }
+        for ideas in national_ideas.values() {
+            wanted.insert(ideas.id.clone());
+        }
         for province in state.provinces().values() {
             wanted.extend(
                 province
@@ -150,6 +156,7 @@ impl OpeningWorld {
             country_history_conflicts,
             religion_icons,
             advisors,
+            national_ideas,
         })
     }
 
@@ -173,6 +180,17 @@ impl OpeningWorld {
     /// GFX_icon_religion 的帧号，从 1 起。对照来自 common/religions。
     pub fn stored_advisors(&self) -> usize {
         self.advisors.stored()
+    }
+
+    pub fn national_idea_group(&self, tag: &str) -> Option<&str> {
+        self.national_ideas.get(tag).map(|ideas| ideas.id.as_str())
+    }
+
+    pub fn national_idea_icons(&self, tag: &str) -> &[String] {
+        self.national_ideas
+            .get(tag)
+            .map(|ideas| ideas.icons.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn religion_icon(&self, religion: &str) -> Option<u32> {
@@ -368,6 +386,9 @@ mod tests {
         assert_eq!((ruler.adm, ruler.dip, ruler.mil), (6, 4, 6));
         assert!(country.heir.is_none());
         assert!(world.stored_advisors() > 0);
+        assert_eq!(world.national_idea_group("TUR"), Some("TUR_ideas"));
+        assert_eq!(world.national_idea_icons("TUR").len(), 7);
+        assert_eq!(world.display_name("TUR_ideas"), "Ottoman Ideas");
     }
 
     #[test]
