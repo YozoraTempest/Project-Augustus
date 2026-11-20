@@ -49,6 +49,8 @@ pub struct CountrySummary {
     pub provinces: usize,
     /// 有领土省份缺少发展度时，合计也保持未知。
     pub development: Option<u64>,
+    /// 本国已映射省份的要塞等级之和。只给选国家右栏显示，不进入围城或经济。
+    pub fort_level: u32,
 }
 
 impl OpeningWorld {
@@ -289,6 +291,7 @@ impl OpeningWorld {
         let mut summary = CountrySummary {
             provinces: 0,
             development: Some(0),
+            fort_level: 0,
         };
         for id in self.map.mapped_province_ids() {
             let province = &self.state.provinces()[id];
@@ -297,6 +300,9 @@ impl OpeningWorld {
                 summary.development = summary
                     .development
                     .and_then(|total| province.development.total().map(|value| total + value));
+                summary.fort_level = summary
+                    .fort_level
+                    .saturating_add(self.state.province_fort_level(*id));
             }
         }
         Some(summary)
@@ -455,6 +461,10 @@ mod tests {
                 .starts_with("By establishing unique codes of law")
         );
         assert_eq!(world.display_name("TUR_ideas"), "Ottoman Ideas");
+        let summary = world.country_summary("TUR").expect("TUR summary");
+        assert_eq!(summary.provinces, 41);
+        assert_eq!(summary.development, Some(320));
+        assert_eq!(summary.fort_level, 11);
         assert_eq!(
             world
                 .national_idea_effect_lines("TUR")

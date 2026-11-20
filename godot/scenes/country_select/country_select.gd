@@ -774,6 +774,7 @@ func _refresh_selection() -> void:
 		provinces = "PROVINCES"
 	_set_texts(_detail_labels, "%s %d" % [provinces, int(info.province_count)])
 	if int(info.province_count) == 0:
+		_clear_country_stats()
 		_chosen_country = ""
 		_show_country_panel(false)
 		_hide_religion_icons()
@@ -786,6 +787,7 @@ func _refresh_selection() -> void:
 		_set_texts(_detail_labels, "")
 		return
 	_chosen_country = tag
+	_fill_country_stats(info)
 	_apply_religion_icons(info)
 	_fill_opening_figures(info)
 	_fill_national_ideas(info)
@@ -960,6 +962,17 @@ func _idea_texture(relative: String) -> Texture2D:
 	return assets.texture_from_file(path)
 
 
+func _fill_country_stats(info: Dictionary) -> void:
+	_set_box("provinces_value", str(int(info.province_count)))
+	_set_box("economy_value", _number_field(info, "development"))
+	_set_box("fort_value", _number_field(info, "fort_level"))
+
+
+func _clear_country_stats() -> void:
+	for eu4_name in ["provinces_value", "economy_value", "fort_value"]:
+		_set_box(eu4_name, "")
+
+
 func _fill_opening_figures(info: Dictionary) -> void:
 	_set_box("admtech_value", _number_field(info, "adm_tech"))
 	_set_box("diptech_value", _number_field(info, "dip_tech"))
@@ -1124,6 +1137,7 @@ func _clear_country() -> void:
 	_hide_religion_icons()
 	_clear_opening_figures()
 	_clear_national_ideas()
+	_clear_country_stats()
 	if _start:
 		_start.disabled = true
 	if _flag:

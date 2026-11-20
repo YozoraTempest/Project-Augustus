@@ -267,6 +267,7 @@ pub(crate) fn country_info(
         .expect("注册国家可以查询领土概况");
     info.set("province_count", summary.provinces as i64);
     number(&mut info, "development", summary.development);
+    info.set("fort_level", i64::from(summary.fort_level));
     info.extend_dictionary(&country_finances(world, tag), true);
     info.set("manpower", &crate::manpower::info(world, tag));
     if let Some(military) = &country.military {
